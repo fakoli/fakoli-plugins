@@ -171,67 +171,40 @@ validate_plugin() {
         fi
     fi
 
-    # Check for at least one component (skills, commands, agents, or hooks)
-    local has_skills has_commands has_agents has_hooks
-    has_skills=$(jq 'if .skills then (.skills | length) else 0 end' "$manifest_file")
-    has_commands=$(jq 'if .commands then (.commands | length) else 0 end' "$manifest_file")
-    has_agents=$(jq 'if .agents then (.agents | length) else 0 end' "$manifest_file")
-    has_hooks=$(jq 'if .hooks then (.hooks | length) else 0 end' "$manifest_file")
+    # Check for at least one component directory (skills, commands, agents, or hooks)
+    # Claude Code discovers these from directories, not manifest fields
+    local has_skills=0 has_commands=0 has_agents=0 has_hooks=0
 
-    if [[ "$has_skills" -gt 0 ]]; then
-        log_success "[$plugin_name] Has $has_skills skill(s)"
-        # Validate skill directories exist
-        while IFS= read -r skill_name; do
-            if [[ -d "$plugin_dir/skills/$skill_name" ]]; then
-                log_success "[$plugin_name] Skill directory exists: skills/$skill_name"
-            else
-                log_warn "[$plugin_name] Skill directory missing: skills/$skill_name"
-            fi
-        done < <(jq -r '.skills[]?.name // empty' "$manifest_file")
+    if [[ -d "$plugin_dir/skills" ]]; then
+        has_skills=$(find "$plugin_dir/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$has_skills" -gt 0 ]]; then
+            log_success "[$plugin_name] Has $has_skills skill(s) in skills/ directory"
+        fi
     fi
 
-    if [[ "$has_commands" -gt 0 ]]; then
-        log_success "[$plugin_name] Has $has_commands command(s)"
+    if [[ -d "$plugin_dir/commands" ]]; then
+        has_commands=$(find "$plugin_dir/commands" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$has_commands" -gt 0 ]]; then
+            log_success "[$plugin_name] Has $has_commands command(s) in commands/ directory"
+        fi
     fi
 
-    if [[ "$has_agents" -gt 0 ]]; then
-        log_success "[$plugin_name] Has $has_agents agent(s)"
+    if [[ -d "$plugin_dir/agents" ]]; then
+        has_agents=$(find "$plugin_dir/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$has_agents" -gt 0 ]]; then
+            log_success "[$plugin_name] Has $has_agents agent(s) in agents/ directory"
+        fi
     fi
 
-    if [[ "$has_hooks" -gt 0 ]]; then
-        log_success "[$plugin_name] Has $has_hooks hook(s)"
+    if [[ -d "$plugin_dir/hooks" ]]; then
+        has_hooks=$(find "$plugin_dir/hooks" -mindepth 1 -maxdepth 1 \( -type f -o -type d \) 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$has_hooks" -gt 0 ]]; then
+            log_success "[$plugin_name] Has $has_hooks hook(s) in hooks/ directory"
+        fi
     fi
 
     if [[ "$has_skills" -eq 0 && "$has_commands" -eq 0 && "$has_agents" -eq 0 && "$has_hooks" -eq 0 ]]; then
-        log_warn "[$plugin_name] No skills, commands, agents, or hooks defined"
-    fi
-
-    # Validate extended metadata if present
-    local has_extended
-    has_extended=$(jq 'has("extended")' "$manifest_file")
-    if [[ "$has_extended" == "true" ]]; then
-        log_info "[$plugin_name] Extended metadata present"
-
-        # Check category
-        local category
-        category=$(jq -r '.extended.category // empty' "$manifest_file")
-        if [[ -n "$category" ]]; then
-            case "$category" in
-                productivity|code-quality|devops|integrations|utilities)
-                    log_success "[$plugin_name] Valid category: $category"
-                    ;;
-                *)
-                    log_warn "[$plugin_name] Unknown category: $category"
-                    ;;
-            esac
-        fi
-
-        # Check compatibility
-        local claude_version
-        claude_version=$(jq -r '.extended.compatibility.claudeCodeVersion // empty' "$manifest_file")
-        if [[ -n "$claude_version" ]]; then
-            log_success "[$plugin_name] Claude Code version requirement: $claude_version"
-        fi
+        log_warn "[$plugin_name] No skills/, commands/, agents/, or hooks/ directories found"
     fi
 
     return $has_errors

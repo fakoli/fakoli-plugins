@@ -1,50 +1,5 @@
 {
-  "generatedAt": "2026-02-02T05:43:01Z",
-  "totalTags": 11,
-  "tags": [
-    {
-      "tag": "ai",
-      "count": 1
-    },
-    {
-      "tag": "banners",
-      "count": 1
-    },
-    {
-      "tag": "creative",
-      "count": 1
-    },
-    {
-      "tag": "design",
-      "count": 1
-    },
-    {
-      "tag": "gemini",
-      "count": 1
-    },
-    {
-      "tag": "image-generation",
-      "count": 1
-    },
-    {
-      "tag": "management",
-      "count": 1
-    },
-    {
-      "tag": "marketplace",
-      "count": 1
-    },
-    {
-      "tag": "registry",
-      "count": 1
-    },
-    {
-      "tag": "social-media",
-      "count": 1
-    },
-    {
-      "tag": "validation",
-      "count": 1
-    }
-  ]
+  "generatedAt": "2026-02-02T06:37:38Z",
+  "totalTags": 0,
+  "tags": []
 }
