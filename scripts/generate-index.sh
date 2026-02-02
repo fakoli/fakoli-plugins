@@ -171,6 +171,28 @@ generate_tags() {
     log_success "Generated registry/tags.json"
 }
 
+# Update marketplace.json with indexed plugins
+update_marketplace() {
+    local plugins="$1"
+    local marketplace_file="$ROOT_DIR/.claude-plugin/marketplace.json"
+
+    if [[ -f "$marketplace_file" ]]; then
+        local marketplace_plugins
+        marketplace_plugins=$(echo "$plugins" | jq '[.[] | {
+            name: .name,
+            version: .version,
+            description: .description,
+            path: .path
+        }]')
+
+        jq --argjson plugins "$marketplace_plugins" '.plugins = $plugins' \
+            "$marketplace_file" > "$marketplace_file.tmp" && \
+            mv "$marketplace_file.tmp" "$marketplace_file"
+
+        log_success "Updated .claude-plugin/marketplace.json"
+    fi
+}
+
 # Main
 main() {
     check_dependencies
@@ -190,6 +212,7 @@ main() {
     generate_index "$plugins"
     generate_categories "$plugins"
     generate_tags "$plugins"
+    update_marketplace "$plugins"
 
     echo ""
     echo "========================================"
