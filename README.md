@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/fakoli-banner.png" alt="Fakoli Plugins Marketplace" width="100%">
+</p>
+
 # Fakoli Plugins Marketplace
 
 A curated collection of Claude Code plugins for enhanced productivity and development workflows.
