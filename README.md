@@ -28,7 +28,8 @@ A curated collection of Claude Code plugins for enhanced productivity and develo
 
 | Plugin | Category | Description |
 |--------|----------|-------------|
-| *Coming soon* | - | - |
+| [nano-banana-pro](plugins/nano-banana-pro) | Utilities | Image generation using Google Gemini models |
+| [marketplace-manager](plugins/marketplace-manager) | Utilities | Manage plugins in this marketplace |
 
 ## Categories
 
@@ -37,6 +38,14 @@ A curated collection of Claude Code plugins for enhanced productivity and develo
 - **DevOps** - CI/CD, deployment, and infrastructure plugins
 - **Integrations** - Third-party service and API integrations
 - **Utilities** - General-purpose helper tools and utilities
+
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [Contributing Guide](docs/CONTRIBUTING.md) | How to safely contribute plugins to this marketplace |
+| [Create Your Own Marketplace](docs/CREATE_MARKETPLACE.md) | Fork this repo and create your own plugin marketplace |
+| [Plugin Guidelines](docs/PLUGIN_GUIDELINES.md) | Best practices for plugin development |
 
 ## For Plugin Authors
 
@@ -51,9 +60,12 @@ A curated collection of Claude Code plugins for enhanced productivity and develo
 
 3. Add your skills, commands, agents, or hooks
 
-4. Update README.md and CHANGELOG.md
+4. Validate before submitting:
+   ```bash
+   ./scripts/validate.sh plugins/your-plugin-name
+   ```
 
-5. Submit a pull request
+5. Submit a pull request (see [Contributing Guide](docs/CONTRIBUTING.md))
 
 ### Plugin Structure
 
@@ -67,25 +79,9 @@ your-plugin/
 ├── commands/             # Command definitions
 ├── agents/               # Agent configurations
 ├── hooks/                # Hook definitions
-├── assets/
-│   └── screenshots/      # Marketplace screenshots
 ├── README.md             # Plugin documentation
-├── CHANGELOG.md          # Version history
 └── LICENSE               # License file
 ```
-
-### Validation
-
-Before submitting, validate your plugin:
-
-```bash
-./scripts/validate.sh plugins/your-plugin-name
-```
-
-## Documentation
-
-- [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute plugins
-- [Plugin Guidelines](docs/PLUGIN_GUIDELINES.md) - Best practices for plugin development
 
 ## Repository Structure
 

@@ -2,91 +2,135 @@
 
 Thank you for your interest in contributing to the Fakoli Plugins Marketplace!
 
-## Ways to Contribute
+## Before You Start
 
-1. **Submit a new plugin** - Share your Claude Code plugins with the community
-2. **Improve existing plugins** - Bug fixes, features, or documentation
-3. **Report issues** - Help us identify bugs or suggest improvements
-4. **Improve documentation** - Help make our docs clearer and more complete
+### Plugin Requirements Checklist
+
+Your plugin must meet these requirements:
+
+- [ ] **Valid manifest** - `.claude-plugin/plugin.json` with `name` field (kebab-case)
+- [ ] **At least one component** - skill, command, agent, or hook
+- [ ] **Documentation** - README.md with installation and usage instructions
+- [ ] **No secrets** - No API keys, credentials, or sensitive data in code
+- [ ] **Passes validation** - `./scripts/validate.sh plugins/your-plugin`
+
+### Security Considerations
+
+**Do:**
+- Validate all user inputs
+- Use secure defaults
+- Document any required permissions
+- Handle errors gracefully
+
+**Don't:**
+- Include API keys or secrets (use environment variables)
+- Execute arbitrary code without user confirmation
+- Access files outside expected directories
+- Make undocumented network requests
 
 ## Submitting a New Plugin
 
-### Prerequisites
+### Step 1: Fork and Clone
 
-- Your plugin must be compatible with Claude Code
-- Include at least one skill, command, agent, or hook
-- Follow the [Plugin Guidelines](PLUGIN_GUIDELINES.md)
+```bash
+# Fork the repository on GitHub, then:
+git clone https://github.com/YOUR-USERNAME/fakoli-plugins.git
+cd fakoli-plugins
+```
 
-### Step-by-Step Guide
+### Step 2: Create Your Plugin
 
-1. **Fork this repository**
+```bash
+# Copy the template
+cp -r templates/basic plugins/your-plugin-name
 
-2. **Create your plugin directory**
-   ```bash
-   # Copy the template
-   cp -r templates/basic plugins/your-plugin-name
-   ```
+# Edit the manifest
+# plugins/your-plugin-name/.claude-plugin/plugin.json
+```
 
-3. **Configure your plugin manifest**
+Example `plugin.json`:
+```json
+{
+  "name": "your-plugin-name",
+  "version": "1.0.0",
+  "description": "A clear description of what your plugin does",
+  "author": {
+    "name": "Your Name",
+    "url": "https://github.com/your-username"
+  },
+  "repository": "https://github.com/your-username/your-plugin",
+  "license": "MIT",
+  "keywords": ["relevant", "tags"]
+}
+```
 
-   Edit `.claude-plugin/plugin.json`:
-   ```json
-   {
-     "name": "your-plugin-name",
-     "version": "1.0.0",
-     "description": "A clear description of what your plugin does",
-     "author": {
-       "name": "Your Name",
-       "email": "you@example.com"
-     },
-     "license": "MIT",
-     "extended": {
-       "category": "utilities",
-       "tags": ["relevant", "tags"]
-     }
-   }
-   ```
+### Step 3: Add Your Components
 
-4. **Add your plugin components**
-   - Skills go in `skills/skill-name/SKILL.md`
-   - Commands go in `commands/command-name.json`
-   - Agents go in `agents/agent-name.json`
-   - Hooks go in `hooks/hook-name.json`
+Add your plugin functionality:
+- **Skills**: `skills/skill-name/SKILL.md`
+- **Commands**: `commands/command-name.md`
+- **Agents**: `agents/agent-name.md`
+- **Hooks**: `hooks/hooks.json` or inline in manifest
 
-5. **Write documentation**
-   - Update `README.md` with usage instructions
-   - Update `CHANGELOG.md` with version history
-   - Add screenshots to `assets/screenshots/` (optional but recommended)
+### Step 4: Write Documentation
 
-6. **Validate your plugin**
-   ```bash
-   ./scripts/validate.sh plugins/your-plugin-name
-   ```
+Update `README.md` with:
+- What the plugin does
+- How to install it
+- How to use each feature
+- Any configuration options
+- Required dependencies
 
-7. **Submit a Pull Request**
-   - Create a feature branch: `git checkout -b add-your-plugin-name`
-   - Commit your changes with a clear message
-   - Push to your fork
-   - Open a Pull Request against the `main` branch
+### Step 5: Validate
 
-### PR Checklist
+```bash
+./scripts/validate.sh plugins/your-plugin-name
+```
+
+Fix any errors before proceeding.
+
+### Step 6: Submit Pull Request
+
+```bash
+git checkout -b add-your-plugin-name
+git add plugins/your-plugin-name
+git commit -m "feat: add your-plugin-name plugin"
+git push origin add-your-plugin-name
+```
+
+Open a Pull Request on GitHub.
+
+## What Reviewers Look For
+
+Reviewers will check:
+
+1. **Validation passes** - No errors from `validate.sh`
+2. **Clear purpose** - Description explains what the plugin does
+3. **Working components** - Skills/commands function correctly
+4. **Good documentation** - README explains usage clearly
+5. **No security issues** - No hardcoded secrets, safe file access
+6. **Proper licensing** - License specified in manifest or LICENSE file
+
+## PR Checklist
+
+Include this in your PR description:
+
+```markdown
+## Checklist
 
 - [ ] Plugin passes validation (`./scripts/validate.sh`)
-- [ ] `plugin.json` has all required fields
+- [ ] `plugin.json` has name, version, and description
 - [ ] README.md includes installation and usage instructions
-- [ ] CHANGELOG.md documents the initial release
-- [ ] License is specified (in file or manifest)
-- [ ] No sensitive information (API keys, credentials, etc.)
+- [ ] No sensitive information (API keys, credentials)
+- [ ] License is specified
+```
 
 ## External Plugins
 
-If you want to submit a modified version of an existing plugin:
+To submit a modified version of an existing plugin:
 
 1. Place it in `external_plugins/` instead of `plugins/`
-2. Create `UPSTREAM.md` documenting the original source
-3. Clearly document your modifications
-
-### UPSTREAM.md Format
+2. Create `UPSTREAM.md` documenting the original source:
 
 ```markdown
 # Upstream Source
@@ -95,31 +139,33 @@ If you want to submit a modified version of an existing plugin:
 - **Original Author**: Original Author Name
 - **Original License**: MIT
 - **Fork Date**: YYYY-MM-DD
-- **Last Synced**: YYYY-MM-DD
 
 ## Modifications
 
-- List of changes made to the original
+- List each change made to the original
 ```
 
-## Code of Conduct
+## Improving Existing Plugins
 
-- Be respectful and constructive
-- No malicious code or harmful content
-- Respect intellectual property and licenses
-- Help maintain a welcoming community
+For bug fixes or improvements to existing plugins:
+
+1. Fork the repository
+2. Make your changes
+3. Test thoroughly
+4. Submit a PR with a clear description of what you changed and why
 
 ## Review Process
 
 1. Automated validation runs on all PRs
-2. A maintainer will review your submission
+2. A maintainer reviews your submission
 3. We may request changes or clarifications
-4. Once approved, your plugin will be merged
+4. Once approved, your plugin is merged and indexed
 
-## Questions?
+## Getting Help
 
-- Open an issue for questions about contributing
-- Tag issues with `question` label
+- Open an issue with the `question` label
+- Check existing plugins for examples
+- Read the [Plugin Guidelines](PLUGIN_GUIDELINES.md)
 
 ---
 

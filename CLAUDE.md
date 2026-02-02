@@ -119,3 +119,15 @@ apt-get install jq  # Linux
 ### Versioning
 - Update plugin version in `.claude-plugin/plugin.json` whenever plugin changes
 - Follow semver: patch for fixes, minor for features, major for breaking changes
+
+## Official Claude Code Documentation
+
+Reference these official docs for detailed specifications:
+
+| Topic | URL |
+|-------|-----|
+| Plugin Reference | https://code.claude.com/docs/en/plugins-reference |
+| Hooks | https://code.claude.com/docs/en/hooks |
+| Plugins Overview | https://code.claude.com/docs/en/plugins |
+| Sub-agents | https://code.claude.com/docs/en/sub-agents |
+| Skills | https://code.claude.com/docs/en/skills |
