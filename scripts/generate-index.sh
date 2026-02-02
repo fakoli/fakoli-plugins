@@ -209,7 +209,7 @@ update_marketplace() {
             name: .name,
             version: .version,
             description: .description,
-            path: .path
+            source: ("./\(.path)")
         }]')
 
         local new_content

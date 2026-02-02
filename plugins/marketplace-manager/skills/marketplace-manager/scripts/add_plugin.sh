@@ -64,8 +64,8 @@ MARKETPLACE_JSON="$MARKETPLACE_ROOT/.claude-plugin/marketplace.json"
 if [[ -f "$MARKETPLACE_JSON" ]]; then
     TMP_FILE=$(mktemp)
     if jq --arg name "$PLUGIN_NAME" \
-          --arg path "plugins/$PLUGIN_NAME" \
-          '.plugins += [{"name": $name, "version": "1.0.0", "description": "New plugin - update description", "path": $path}]' \
+          --arg source "./plugins/$PLUGIN_NAME" \
+          '.plugins += [{"name": $name, "version": "1.0.0", "description": "New plugin - update description", "source": $source}]' \
           "$MARKETPLACE_JSON" > "$TMP_FILE" 2>/dev/null; then
         mv "$TMP_FILE" "$MARKETPLACE_JSON"
         echo "Added to marketplace.json"
