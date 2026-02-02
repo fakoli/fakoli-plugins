@@ -47,12 +47,54 @@ Each plugin in `plugins/<name>/` must have:
 2. GitHub Actions runs validation on push to `plugins/` or `schemas/`
 3. `update-index.yml` auto-regenerates registry on merge to main
 
-## Manifest Requirements
+## Plugin Manifest Schema
 
-Plugin names: lowercase alphanumeric + hyphens only, 2-64 chars
-Versions: Semantic versioning (e.g., `1.0.0`, `1.0.0-beta.1`)
-Description: 10-500 characters
-Categories: `productivity`, `code-quality`, `devops`, `integrations`, `utilities`
+**Official Reference:** https://code.claude.com/docs/en/plugins-reference
+
+### Required Fields
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Unique identifier (kebab-case, no spaces) |
+
+### Optional Metadata Fields
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | string | Semantic version (e.g., `1.0.0`) |
+| `description` | string | Brief explanation of plugin purpose |
+| `author` | object | `{name, email?, url?}` |
+| `homepage` | string | Documentation URL |
+| `repository` | string | Source code URL (must be string, not object) |
+| `license` | string | SPDX license identifier |
+| `keywords` | array | Discovery tags |
+
+### Component Path Fields
+| Field | Type | Description |
+|-------|------|-------------|
+| `commands` | string\|array | Additional command files/directories |
+| `agents` | string\|array | Additional agent files |
+| `skills` | string\|array | Additional skill directories |
+| `hooks` | string\|object | Hook config path or inline config |
+| `mcpServers` | string\|object | MCP config path or inline config |
+| `outputStyles` | string\|array | Additional output style files/directories |
+| `lspServers` | string\|object | LSP config for code intelligence |
+
+### Example plugin.json
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "Brief plugin description",
+  "author": {
+    "name": "Author Name",
+    "url": "https://github.com/author"
+  },
+  "repository": "https://github.com/author/plugin",
+  "license": "MIT",
+  "keywords": ["keyword1", "keyword2"]
+}
+```
+
+**Important:** Claude Code discovers skills, commands, agents, and hooks from directories - not from manifest fields. Only use manifest component paths for non-standard locations.
 
 ## Dependencies
 
