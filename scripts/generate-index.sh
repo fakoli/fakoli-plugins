@@ -32,6 +32,10 @@ log_skip() {
     echo -e "SKIP: $1 (no changes)"
 }
 
+log_error() {
+    echo -e "\033[0;31mERROR:\033[0m $1" >&2
+}
+
 # Strip timestamp fields for comparison (generatedAt, indexedAt)
 strip_timestamps() {
     jq 'walk(if type == "object" then del(.generatedAt, .indexedAt) else . end)'
@@ -198,6 +202,59 @@ generate_tags() {
     write_if_changed "$REGISTRY_DIR/tags.json" "$output" "Generated registry/tags.json"
 }
 
+# Validate marketplace.json schema for Claude Code compatibility
+validate_marketplace() {
+    local marketplace_file="$1"
+    local errors=0
+
+    if [[ ! -f "$marketplace_file" ]]; then
+        return 0
+    fi
+
+    # Check each plugin has required fields with correct format
+    local plugin_count
+    plugin_count=$(jq '.plugins | length' "$marketplace_file")
+
+    for ((i=0; i<plugin_count; i++)); do
+        local plugin_name
+        plugin_name=$(jq -r ".plugins[$i].name // empty" "$marketplace_file")
+
+        # Check 'name' field exists
+        if [[ -z "$plugin_name" ]]; then
+            log_error "Plugin at index $i missing required 'name' field"
+            ((errors++))
+            continue
+        fi
+
+        # Check 'source' field exists (not 'path')
+        local source
+        source=$(jq -r ".plugins[$i].source // empty" "$marketplace_file")
+        if [[ -z "$source" ]]; then
+            log_error "Plugin '$plugin_name' missing required 'source' field"
+            ((errors++))
+        elif [[ ! "$source" =~ ^\./  ]]; then
+            log_error "Plugin '$plugin_name' source must start with './' (got: $source)"
+            ((errors++))
+        fi
+
+        # Check for invalid 'path' field (common mistake)
+        local has_path
+        has_path=$(jq -r ".plugins[$i] | has(\"path\")" "$marketplace_file")
+        if [[ "$has_path" == "true" ]]; then
+            log_error "Plugin '$plugin_name' has invalid 'path' field - use 'source' instead"
+            ((errors++))
+        fi
+    done
+
+    if [[ $errors -gt 0 ]]; then
+        log_error "Marketplace validation failed with $errors error(s)"
+        return 1
+    fi
+
+    log_success "Validated marketplace.json schema"
+    return 0
+}
+
 # Update marketplace.json with indexed plugins
 update_marketplace() {
     local plugins="$1"
@@ -250,6 +307,11 @@ main() {
     generate_categories "$plugins"
     generate_tags "$plugins"
     update_marketplace "$plugins"
+
+    # Validate marketplace.json schema
+    if ! validate_marketplace "$ROOT_DIR/.claude-plugin/marketplace.json"; then
+        exit 1
+    fi
 
     echo ""
     echo "========================================"
