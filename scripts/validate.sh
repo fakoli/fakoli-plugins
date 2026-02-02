@@ -237,6 +237,90 @@ validate_plugin() {
     return $has_errors
 }
 
+# Validate marketplace.json schema for Claude Code compatibility
+validate_marketplace() {
+    local marketplace_file="$ROOT_DIR/.claude-plugin/marketplace.json"
+
+    echo ""
+    echo "=========================================="
+    echo "Validating: marketplace.json"
+    echo "=========================================="
+
+    if [[ ! -f "$marketplace_file" ]]; then
+        log_warn "No marketplace.json found at .claude-plugin/marketplace.json"
+        return 0
+    fi
+
+    # Validate JSON syntax
+    if ! validate_json_syntax "$marketplace_file"; then
+        log_error "[marketplace] Invalid JSON syntax"
+        return 1
+    fi
+    log_success "[marketplace] Valid JSON syntax"
+
+    # Check required top-level fields
+    local name
+    name=$(jq -r '.name // empty' "$marketplace_file")
+    if [[ -z "$name" ]]; then
+        log_error "[marketplace] Missing required field: name"
+    else
+        log_success "[marketplace] Has name: $name"
+    fi
+
+    # Check plugins array exists
+    local has_plugins
+    has_plugins=$(jq 'has("plugins")' "$marketplace_file")
+    if [[ "$has_plugins" != "true" ]]; then
+        log_error "[marketplace] Missing required field: plugins"
+        return 1
+    fi
+
+    # Validate each plugin entry
+    local plugin_count
+    plugin_count=$(jq '.plugins | length' "$marketplace_file")
+    log_info "[marketplace] Found $plugin_count plugin(s)"
+
+    local plugin_errors=0
+    for ((i=0; i<plugin_count; i++)); do
+        local plugin_name
+        plugin_name=$(jq -r ".plugins[$i].name // empty" "$marketplace_file")
+
+        # Check 'name' field exists
+        if [[ -z "$plugin_name" ]]; then
+            log_error "[marketplace] Plugin at index $i missing required 'name' field"
+            ((plugin_errors++))
+            continue
+        fi
+
+        # Check 'source' field exists (not 'path')
+        local source
+        source=$(jq -r ".plugins[$i].source // empty" "$marketplace_file")
+        if [[ -z "$source" ]]; then
+            log_error "[marketplace] Plugin '$plugin_name' missing required 'source' field"
+            ((plugin_errors++))
+        elif [[ ! "$source" =~ ^\./  ]]; then
+            log_error "[marketplace] Plugin '$plugin_name' source must start with './' (got: $source)"
+            ((plugin_errors++))
+        else
+            log_success "[marketplace] Plugin '$plugin_name' has valid source: $source"
+        fi
+
+        # Check for invalid 'path' field (common mistake)
+        local has_path
+        has_path=$(jq -r ".plugins[$i] | has(\"path\")" "$marketplace_file")
+        if [[ "$has_path" == "true" ]]; then
+            log_error "[marketplace] Plugin '$plugin_name' has invalid 'path' field - use 'source' instead"
+            ((plugin_errors++))
+        fi
+    done
+
+    if [[ $plugin_errors -gt 0 ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
 # Find and validate all plugins
 validate_all_plugins() {
     local plugin_dirs=()
@@ -283,6 +367,8 @@ main() {
     else
         # Validate all plugins
         validate_all_plugins
+        # Validate marketplace.json
+        validate_marketplace || true
     fi
 
     echo ""
