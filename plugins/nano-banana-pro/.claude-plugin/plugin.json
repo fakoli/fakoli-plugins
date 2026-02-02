@@ -1,73 +1,12 @@
 {
-  "$schema": "../../../schemas/plugin.schema.json",
   "name": "nano-banana-pro",
   "version": "1.0.0",
   "description": "Generate, edit, and remix images using Google's Gemini 3 Pro Image Preview model with style templates",
   "author": {
     "name": "Sekou Doumbouya",
-    "github": "fakoli"
+    "url": "https://github.com/fakoli"
   },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/fakoli/fakoli-plugins"
-  },
-  "keywords": [
-    "image-generation",
-    "ai-images",
-    "gemini",
-    "design",
-    "creative"
-  ],
-  "extended": {
-    "category": "utilities",
-    "tags": [
-      "image-generation",
-      "ai",
-      "gemini",
-      "design",
-      "creative",
-      "banners",
-      "social-media"
-    ],
-    "compatibility": {
-      "claudeCodeVersion": ">=1.0.0",
-      "platforms": ["darwin", "linux", "win32"],
-      "pythonVersion": ">=3.10"
-    },
-    "dependencies": {
-      "npm": [],
-      "pip": [],
-      "binaries": ["python3", "uv"]
-    },
-    "changelog": {
-      "file": "./CHANGELOG.md"
-    },
-    "installation": {
-      "notes": "Requires Python 3.10+ and uv package manager. Set GEMINI_API_KEY in environment or .claude/nano-banana-pro.local.md"
-    }
-  },
-  "skills": [
-    {
-      "name": "generate",
-      "description": "Image generation with Gemini 3 Pro - includes style templates for UI, marketing, and artistic styles",
-      "userInvocable": true
-    }
-  ],
-  "commands": [
-    {
-      "name": "generate-image",
-      "description": "Generate an image from a text prompt"
-    },
-    {
-      "name": "edit-image",
-      "description": "Edit an existing image with instructions"
-    },
-    {
-      "name": "remix-url",
-      "description": "Generate an image styled from a webpage's design"
-    }
-  ],
-  "agents": [],
-  "hooks": []
+  "keywords": ["image-generation", "ai-images", "gemini", "design", "creative"]
 }
