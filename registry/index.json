@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-02-02T05:08:52Z",
+  "generatedAt": "2026-02-02T05:22:56Z",
   "pluginCount": 2,
   "plugins": [
     {
@@ -79,7 +79,7 @@
       "agents": [],
       "hooks": [],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-02-02T05:08:52Z"
+      "indexedAt": "2026-02-02T05:22:56Z"
     },
     {
       "$schema": "../../../schemas/plugin.schema.json",
@@ -161,7 +161,7 @@
       "agents": [],
       "hooks": [],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-02-02T05:08:52Z"
+      "indexedAt": "2026-02-02T05:22:56Z"
     }
   ]
 }
