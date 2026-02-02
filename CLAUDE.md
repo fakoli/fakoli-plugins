@@ -103,3 +103,19 @@ Scripts require `jq` for JSON processing:
 brew install jq  # macOS
 apt-get install jq  # Linux
 ```
+
+## Plugin Development Patterns
+
+### Python Scripts with uv
+- Use `uv run --with <pkg>` for one-off dependency testing
+- Define dependencies in `pyproject.toml` for plugin scripts
+- Test with: `uv run python -c "import module; print('OK')"`
+
+### Documentation Hygiene
+- README.md is the authoritative source for configuration/troubleshooting
+- SKILL.md should be minimal: frontmatter + quick reference + links to README
+- Command files link to README sections instead of duplicating content
+
+### Versioning
+- Update plugin version in `.claude-plugin/plugin.json` whenever plugin changes
+- Follow semver: patch for fixes, minor for features, major for breaking changes
