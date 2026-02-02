@@ -1,167 +1,28 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-02-02T05:43:01Z",
+  "generatedAt": "2026-02-02T06:37:38Z",
   "pluginCount": 2,
   "plugins": [
     {
-      "$schema": "../../../schemas/plugin.schema.json",
       "name": "marketplace-manager",
-      "version": "1.1.0",
       "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+      "version": "1.1.0",
       "author": {
-        "name": "Sekou Doumbouya",
-        "github": "fakoli"
+        "name": "Sekou Doumbouya"
       },
-      "license": "MIT",
-      "repository": {
-        "type": "git",
-        "url": "https://github.com/fakoli/fakoli-plugins"
-      },
-      "keywords": [
-        "marketplace",
-        "plugin-management",
-        "registry",
-        "validation"
-      ],
-      "extended": {
-        "category": "utilities",
-        "tags": [
-          "marketplace",
-          "management",
-          "validation",
-          "registry"
-        ],
-        "compatibility": {
-          "claudeCodeVersion": ">=1.0.0",
-          "platforms": [
-            "darwin",
-            "linux",
-            "win32"
-          ]
-        },
-        "dependencies": {
-          "npm": [],
-          "pip": [],
-          "binaries": [
-            "jq",
-            "bash"
-          ]
-        },
-        "changelog": {
-          "file": "./CHANGELOG.md"
-        },
-        "installation": {
-          "notes": "Requires jq for JSON processing. Install with: brew install jq (macOS) or apt-get install jq (Linux)"
-        }
-      },
-      "skills": [
-        {
-          "name": "marketplace-manager",
-          "description": "Manage the fakoli-plugins marketplace - add/remove plugins, validate, regenerate indices",
-          "userInvocable": true
-        }
-      ],
-      "commands": [
-        {
-          "name": "add-plugin",
-          "description": "Add a new plugin to the marketplace from template"
-        },
-        {
-          "name": "remove-plugin",
-          "description": "Remove a plugin from the marketplace"
-        },
-        {
-          "name": "install-workflows",
-          "description": "Install GitHub Actions workflows for plugin validation and registry updates"
-        }
-      ],
-      "agents": [],
-      "hooks": [],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-02-02T05:43:01Z"
+      "indexedAt": "2026-02-02T06:37:38Z"
     },
     {
-      "$schema": "../../../schemas/plugin.schema.json",
       "name": "nano-banana-pro",
-      "version": "1.0.0",
       "description": "Generate, edit, and remix images using Google's Gemini 3 Pro Image Preview model with style templates",
+      "version": "1.0.0",
       "author": {
-        "name": "Sekou Doumbouya",
-        "github": "fakoli"
+        "name": "Sekou Doumbouya"
       },
-      "license": "MIT",
-      "repository": {
-        "type": "git",
-        "url": "https://github.com/fakoli/fakoli-plugins"
-      },
-      "keywords": [
-        "image-generation",
-        "ai-images",
-        "gemini",
-        "design",
-        "creative"
-      ],
-      "extended": {
-        "category": "utilities",
-        "tags": [
-          "image-generation",
-          "ai",
-          "gemini",
-          "design",
-          "creative",
-          "banners",
-          "social-media"
-        ],
-        "compatibility": {
-          "claudeCodeVersion": ">=1.0.0",
-          "platforms": [
-            "darwin",
-            "linux",
-            "win32"
-          ],
-          "pythonVersion": ">=3.10"
-        },
-        "dependencies": {
-          "npm": [],
-          "pip": [],
-          "binaries": [
-            "python3",
-            "uv"
-          ]
-        },
-        "changelog": {
-          "file": "./CHANGELOG.md"
-        },
-        "installation": {
-          "notes": "Requires Python 3.10+ and uv package manager. Set GEMINI_API_KEY in environment or .claude/nano-banana-pro.local.md"
-        }
-      },
-      "skills": [
-        {
-          "name": "generate",
-          "description": "Image generation with Gemini 3 Pro - includes style templates for UI, marketing, and artistic styles",
-          "userInvocable": true
-        }
-      ],
-      "commands": [
-        {
-          "name": "generate-image",
-          "description": "Generate an image from a text prompt"
-        },
-        {
-          "name": "edit-image",
-          "description": "Edit an existing image with instructions"
-        },
-        {
-          "name": "remix-url",
-          "description": "Generate an image styled from a webpage's design"
-        }
-      ],
-      "agents": [],
-      "hooks": [],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-02-02T05:43:01Z"
+      "indexedAt": "2026-02-02T06:37:38Z"
     }
   ]
 }
