@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-02-02T03:11:37Z",
+  "generatedAt": "2026-02-02T03:17:50Z",
   "pluginCount": 1,
   "plugins": [
     {
@@ -79,7 +79,7 @@
       "agents": [],
       "hooks": [],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-02-02T03:11:37Z"
+      "indexedAt": "2026-02-02T03:17:50Z"
     }
   ]
 }
