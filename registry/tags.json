@@ -1,7 +1,31 @@
 {
-  "generatedAt": "2026-02-02T03:17:50Z",
-  "totalTags": 4,
+  "generatedAt": "2026-02-02T05:08:52Z",
+  "totalTags": 11,
   "tags": [
+    {
+      "tag": "ai",
+      "count": 1
+    },
+    {
+      "tag": "banners",
+      "count": 1
+    },
+    {
+      "tag": "creative",
+      "count": 1
+    },
+    {
+      "tag": "design",
+      "count": 1
+    },
+    {
+      "tag": "gemini",
+      "count": 1
+    },
+    {
+      "tag": "image-generation",
+      "count": 1
+    },
     {
       "tag": "management",
       "count": 1
@@ -12,6 +36,10 @@
     },
     {
       "tag": "registry",
+      "count": 1
+    },
+    {
+      "tag": "social-media",
       "count": 1
     },
     {
