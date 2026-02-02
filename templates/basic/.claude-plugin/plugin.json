@@ -1,52 +1,8 @@
 {
-  "$schema": "../../../schemas/plugin.schema.json",
   "name": "my-plugin",
-  "version": "0.1.0",
   "description": "A brief description of what this plugin does (10+ characters)",
+  "version": "0.1.0",
   "author": {
-    "name": "Your Name",
-    "email": "your.email@example.com"
-  },
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/your-username/my-plugin"
-  },
-  "keywords": [
-    "claude-code",
-    "plugin"
-  ],
-  "extended": {
-    "category": "utilities",
-    "tags": [
-      "example",
-      "starter"
-    ],
-    "compatibility": {
-      "claudeCodeVersion": ">=1.0.0",
-      "platforms": ["darwin", "linux", "win32"]
-    },
-    "dependencies": {
-      "npm": [],
-      "pip": [],
-      "binaries": []
-    },
-    "screenshots": [],
-    "changelog": {
-      "file": "./CHANGELOG.md"
-    },
-    "installation": {
-      "notes": "No special installation steps required."
-    }
-  },
-  "skills": [
-    {
-      "name": "example",
-      "description": "An example skill demonstrating the plugin structure",
-      "userInvocable": true
-    }
-  ],
-  "commands": [],
-  "agents": [],
-  "hooks": []
+    "name": "Your Name"
+  }
 }
