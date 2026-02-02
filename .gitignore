@@ -22,6 +22,9 @@ pip-wheel-metadata/
 ehthumbs.db
 Thumbs.db
 
+# Claude Code local settings
+.claude/
+
 # IDE/Editor files
 .idea/
 .vscode/
