@@ -72,6 +72,10 @@ validate_semver() {
     fi
 }
 
+# Official Claude Code plugin.json allowed fields
+# Reference: https://code.claude.com/docs/en/plugins-reference
+ALLOWED_FIELDS='["name","version","description","author","homepage","repository","license","keywords","commands","agents","skills","hooks","mcpServers","outputStyles","lspServers"]'
+
 # Validate a single plugin
 validate_plugin() {
     local plugin_dir="$1"
@@ -98,30 +102,37 @@ validate_plugin() {
     fi
     log_success "[$plugin_name] Valid JSON syntax"
 
-    # Extract required fields
-    local name version description
-    name=$(jq -r '.name // empty' "$manifest_file")
-    version=$(jq -r '.version // empty' "$manifest_file")
-    description=$(jq -r '.description // empty' "$manifest_file")
+    # Check for unrecognized fields (Claude Code will reject these)
+    local unrecognized_fields
+    unrecognized_fields=$(jq -r --argjson allowed "$ALLOWED_FIELDS" \
+        'keys | map(select(. as $k | $allowed | index($k) | not)) | .[]' "$manifest_file" 2>/dev/null)
+    if [[ -n "$unrecognized_fields" ]]; then
+        for field in $unrecognized_fields; do
+            log_error "[$plugin_name] Unrecognized field '$field' - Claude Code will reject this"
+            has_errors=1
+        done
+    fi
 
-    # Validate required fields
+    # Extract and validate required field: name
+    local name
+    name=$(jq -r '.name // empty' "$manifest_file")
     if [[ -z "$name" ]]; then
         log_error "[$plugin_name] Missing required field: name"
         has_errors=1
     else
-        # Validate name format (lowercase, alphanumeric, hyphens)
+        # Validate name format (kebab-case, no spaces)
         if [[ ! "$name" =~ ^[a-z0-9-]+$ ]]; then
-            log_error "[$plugin_name] Invalid name format: must be lowercase, alphanumeric, and hyphens only"
+            log_error "[$plugin_name] Invalid name format: must be kebab-case (lowercase, alphanumeric, hyphens)"
             has_errors=1
         else
             log_success "[$plugin_name] Valid name: $name"
         fi
     fi
 
-    if [[ -z "$version" ]]; then
-        log_error "[$plugin_name] Missing required field: version"
-        has_errors=1
-    else
+    # Validate optional metadata fields
+    local version
+    version=$(jq -r '.version // empty' "$manifest_file")
+    if [[ -n "$version" ]]; then
         if ! validate_semver "$version"; then
             log_error "[$plugin_name] Invalid version format: $version (must be semver)"
             has_errors=1
@@ -130,17 +141,57 @@ validate_plugin() {
         fi
     fi
 
-    if [[ -z "$description" ]]; then
-        log_error "[$plugin_name] Missing required field: description"
-        has_errors=1
-    else
-        local desc_len=${#description}
-        if [[ $desc_len -lt 10 ]]; then
-            log_warn "[$plugin_name] Description too short ($desc_len chars, recommend 10+)"
-        elif [[ $desc_len -gt 500 ]]; then
-            log_warn "[$plugin_name] Description too long ($desc_len chars, max 500)"
+    local description
+    description=$(jq -r '.description // empty' "$manifest_file")
+    if [[ -n "$description" ]]; then
+        log_success "[$plugin_name] Has description"
+    fi
+
+    # Validate author field (must be object with name, optional email/url)
+    local has_author
+    has_author=$(jq 'has("author")' "$manifest_file")
+    if [[ "$has_author" == "true" ]]; then
+        local author_type
+        author_type=$(jq -r '.author | type' "$manifest_file")
+        if [[ "$author_type" != "object" ]]; then
+            log_error "[$plugin_name] author must be an object with name, email, url fields"
+            has_errors=1
         else
-            log_success "[$plugin_name] Valid description"
+            local author_name
+            author_name=$(jq -r '.author.name // empty' "$manifest_file")
+            if [[ -z "$author_name" ]]; then
+                log_warn "[$plugin_name] author object should have 'name' field"
+            else
+                log_success "[$plugin_name] Valid author: $author_name"
+            fi
+        fi
+    fi
+
+    # Validate repository field (must be string URL, not object)
+    local has_repo
+    has_repo=$(jq 'has("repository")' "$manifest_file")
+    if [[ "$has_repo" == "true" ]]; then
+        local repo_type
+        repo_type=$(jq -r '.repository | type' "$manifest_file")
+        if [[ "$repo_type" != "string" ]]; then
+            log_error "[$plugin_name] repository must be a string URL, not an object"
+            has_errors=1
+        else
+            log_success "[$plugin_name] Has repository URL"
+        fi
+    fi
+
+    # Validate keywords field (must be array of strings)
+    local has_keywords
+    has_keywords=$(jq 'has("keywords")' "$manifest_file")
+    if [[ "$has_keywords" == "true" ]]; then
+        local keywords_type
+        keywords_type=$(jq -r '.keywords | type' "$manifest_file")
+        if [[ "$keywords_type" != "array" ]]; then
+            log_error "[$plugin_name] keywords must be an array"
+            has_errors=1
+        else
+            log_success "[$plugin_name] Has keywords"
         fi
     fi
 
@@ -183,14 +234,14 @@ validate_plugin() {
     fi
 
     if [[ -d "$plugin_dir/commands" ]]; then
-        has_commands=$(find "$plugin_dir/commands" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+        has_commands=$(find "$plugin_dir/commands" -mindepth 1 -maxdepth 1 \( -type d -o -name "*.md" \) 2>/dev/null | wc -l | tr -d ' ')
         if [[ "$has_commands" -gt 0 ]]; then
             log_success "[$plugin_name] Has $has_commands command(s) in commands/ directory"
         fi
     fi
 
     if [[ -d "$plugin_dir/agents" ]]; then
-        has_agents=$(find "$plugin_dir/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+        has_agents=$(find "$plugin_dir/agents" -mindepth 1 -maxdepth 1 \( -type d -o -name "*.md" \) 2>/dev/null | wc -l | tr -d ' ')
         if [[ "$has_agents" -gt 0 ]]; then
             log_success "[$plugin_name] Has $has_agents agent(s) in agents/ directory"
         fi
