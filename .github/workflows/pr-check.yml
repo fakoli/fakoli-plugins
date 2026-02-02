@@ -1,0 +1,40 @@
+name: PR Plugin Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - 'external_plugins/**'
+
+jobs:
+  check-plugin:
+    name: Check Plugin Changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Validate all plugins
+        run: ./scripts/validate.sh
+
+      - name: Preview index changes
+        run: |
+          echo "Generating preview of registry index..."
+          ./scripts/generate-index.sh
+          echo ""
+          echo "Registry would contain:"
+          jq -r '.plugins[] | "  - \(.name) v\(.version)"' registry/index.json
+          echo ""
+          echo "Total plugins: $(jq '.pluginCount' registry/index.json)"

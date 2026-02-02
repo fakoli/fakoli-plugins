@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-02-02T00:29:51Z",
+  "totalTags": 4,
+  "tags": [
+    {
+      "tag": "management",
+      "count": 1
+    },
+    {
+      "tag": "marketplace",
+      "count": 1
+    },
+    {
+      "tag": "registry",
+      "count": 1
+    },
+    {
+      "tag": "validation",
+      "count": 1
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+name: Validate Plugins
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - 'external_plugins/**'
+      - 'schemas/**'
+      - 'scripts/validate.sh'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - 'external_plugins/**'
+      - 'schemas/**'
+      - 'scripts/validate.sh'
+
+jobs:
+  validate:
+    name: Validate Plugin Manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Validate all plugins
+        run: ./scripts/validate.sh

@@ -1,0 +1,43 @@
+{
+  "$schema": "../schemas/marketplace.schema.json",
+  "name": "fakoli-plugins",
+  "displayName": "Fakoli Plugins Marketplace",
+  "description": "A curated collection of Claude Code plugins for enhanced productivity and development workflows",
+  "version": "1.0.0",
+  "owner": {
+    "name": "Sekou Doumbouya",
+    "github": "fakoli"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fakoli/fakoli-plugins"
+  },
+  "categories": [
+    {
+      "id": "productivity",
+      "name": "Productivity",
+      "description": "Tools to enhance your development workflow and efficiency"
+    },
+    {
+      "id": "code-quality",
+      "name": "Code Quality",
+      "description": "Linting, testing, and code review plugins"
+    },
+    {
+      "id": "devops",
+      "name": "DevOps",
+      "description": "CI/CD, deployment, and infrastructure plugins"
+    },
+    {
+      "id": "integrations",
+      "name": "Integrations",
+      "description": "Third-party service and API integrations"
+    },
+    {
+      "id": "utilities",
+      "name": "Utilities",
+      "description": "General-purpose helper tools and utilities"
+    }
+  ],
+  "plugins": []
+}

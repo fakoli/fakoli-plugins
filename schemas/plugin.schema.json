@@ -1,0 +1,401 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fakoli-plugins.github.io/schemas/plugin.schema.json",
+  "title": "Claude Code Plugin Manifest",
+  "description": "Extended schema for Claude Code plugin manifests with marketplace metadata",
+  "type": "object",
+  "required": ["name", "version", "description"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "minLength": 2,
+      "maxLength": 64,
+      "description": "Plugin identifier (lowercase, alphanumeric, hyphens only)"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+      "description": "Semantic version (semver 2.0)"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 500,
+      "description": "Brief description of the plugin's purpose"
+    },
+    "author": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Author name or 'Name <email>' format"
+        },
+        {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Author's full name"
+            },
+            "email": {
+              "type": "string",
+              "format": "email",
+              "description": "Author's email address"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Author's website or profile URL"
+            }
+          }
+        }
+      ]
+    },
+    "license": {
+      "type": "string",
+      "description": "SPDX license identifier (e.g., MIT, Apache-2.0)"
+    },
+    "repository": {
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "uri",
+          "description": "Repository URL"
+        },
+        {
+          "type": "object",
+          "required": ["type", "url"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["git", "svn", "hg"],
+              "description": "Version control system type"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Repository URL"
+            },
+            "directory": {
+              "type": "string",
+              "description": "Subdirectory within the repository"
+            }
+          }
+        }
+      ]
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri",
+      "description": "Plugin homepage URL"
+    },
+    "bugs": {
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "uri"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            }
+          }
+        }
+      ],
+      "description": "Issue tracker URL or contact"
+    },
+    "keywords": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]+$"
+      },
+      "uniqueItems": true,
+      "description": "Keywords for search and discovery"
+    },
+    "extended": {
+      "type": "object",
+      "description": "Extended marketplace metadata",
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": ["productivity", "code-quality", "devops", "integrations", "utilities"],
+          "description": "Primary category for marketplace listing"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 32
+          },
+          "maxItems": 10,
+          "uniqueItems": true,
+          "description": "Additional tags for filtering"
+        },
+        "compatibility": {
+          "type": "object",
+          "properties": {
+            "claudeCodeVersion": {
+              "type": "string",
+              "pattern": "^(>=?|<=?|\\^|~)?\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?(\\s*\\|\\|\\s*(>=?|<=?|\\^|~)?\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?)*$",
+              "description": "Claude Code version requirement (semver range)"
+            },
+            "platforms": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["darwin", "linux", "win32"]
+              },
+              "uniqueItems": true,
+              "description": "Supported operating systems"
+            },
+            "nodeVersion": {
+              "type": "string",
+              "description": "Node.js version requirement"
+            },
+            "pythonVersion": {
+              "type": "string",
+              "description": "Python version requirement"
+            }
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "properties": {
+            "npm": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Required npm packages"
+            },
+            "pip": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Required Python packages"
+            },
+            "binaries": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Required system binaries"
+            },
+            "plugins": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Required Claude Code plugins"
+            }
+          }
+        },
+        "screenshots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Relative path to screenshot image"
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "Screenshot caption or description"
+              },
+              "thumbnail": {
+                "type": "string",
+                "description": "Relative path to thumbnail version"
+              }
+            }
+          },
+          "maxItems": 10,
+          "description": "Screenshots for marketplace listing"
+        },
+        "changelog": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string",
+              "default": "./CHANGELOG.md",
+              "description": "Path to changelog file"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "URL to online changelog"
+            }
+          }
+        },
+        "installation": {
+          "type": "object",
+          "properties": {
+            "notes": {
+              "type": "string",
+              "description": "Special installation instructions"
+            },
+            "postInstall": {
+              "type": "string",
+              "description": "Post-installation script or command"
+            },
+            "preInstall": {
+              "type": "string",
+              "description": "Pre-installation script or command"
+            }
+          }
+        },
+        "funding": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "uri"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["github", "patreon", "opencollective", "ko_fi", "custom"]
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            }
+          ],
+          "description": "Funding/sponsorship information"
+        },
+        "deprecated": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "description": "Deprecation message or replacement plugin"
+            }
+          ],
+          "description": "Whether the plugin is deprecated"
+        }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Skill identifier"
+          },
+          "description": {
+            "type": "string",
+            "description": "Brief skill description"
+          },
+          "userInvocable": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether users can invoke directly"
+          }
+        }
+      },
+      "description": "List of skills provided by this plugin"
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Command name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Command description"
+          }
+        }
+      },
+      "description": "List of commands provided by this plugin"
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Agent identifier"
+          },
+          "description": {
+            "type": "string",
+            "description": "Agent description"
+          }
+        }
+      },
+      "description": "List of agents provided by this plugin"
+    },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "event"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Hook identifier"
+          },
+          "event": {
+            "type": "string",
+            "description": "Event this hook responds to"
+          },
+          "description": {
+            "type": "string",
+            "description": "Hook description"
+          }
+        }
+      },
+      "description": "List of hooks provided by this plugin"
+    },
+    "mcp": {
+      "type": "object",
+      "properties": {
+        "servers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "MCP server name"
+              },
+              "description": {
+                "type": "string",
+                "description": "Server description"
+              }
+            }
+          }
+        }
+      },
+      "description": "MCP server configurations"
+    }
+  }
+}

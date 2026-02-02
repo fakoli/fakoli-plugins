@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-02-02T00:29:51Z",
+  "categories": [
+    {
+      "category": "utilities",
+      "count": 1,
+      "plugins": [
+        {
+          "name": "marketplace-manager",
+          "version": "1.0.0",
+          "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+          "path": "plugins/marketplace-manager"
+        }
+      ]
+    }
+  ]
+}

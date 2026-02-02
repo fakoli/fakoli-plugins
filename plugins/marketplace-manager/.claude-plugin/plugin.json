@@ -1,0 +1,55 @@
+{
+  "$schema": "../../../schemas/plugin.schema.json",
+  "name": "marketplace-manager",
+  "version": "1.0.0",
+  "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "github": "fakoli"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fakoli/fakoli-plugins"
+  },
+  "keywords": [
+    "marketplace",
+    "plugin-management",
+    "registry",
+    "validation"
+  ],
+  "extended": {
+    "category": "utilities",
+    "tags": [
+      "marketplace",
+      "management",
+      "validation",
+      "registry"
+    ],
+    "compatibility": {
+      "claudeCodeVersion": ">=1.0.0",
+      "platforms": ["darwin", "linux", "win32"]
+    },
+    "dependencies": {
+      "npm": [],
+      "pip": [],
+      "binaries": ["jq", "bash"]
+    },
+    "changelog": {
+      "file": "./CHANGELOG.md"
+    },
+    "installation": {
+      "notes": "Requires jq for JSON processing. Install with: brew install jq (macOS) or apt-get install jq (Linux)"
+    }
+  },
+  "skills": [
+    {
+      "name": "marketplace-manager",
+      "description": "Manage the fakoli-plugins marketplace - add/remove plugins, validate, regenerate indices",
+      "userInvocable": true
+    }
+  ],
+  "commands": [],
+  "agents": [],
+  "hooks": []
+}
