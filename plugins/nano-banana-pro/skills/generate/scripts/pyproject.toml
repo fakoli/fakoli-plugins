@@ -3,7 +3,4 @@ name = "nanobanana-pro-cli"
 version = "1.0.0"
 description = "Local CLI for Google Nano Banana Pro (Gemini 3 Pro Image Preview)"
 requires-python = ">=3.10"
-dependencies = []
-
-[tool.uv]
-# No deps; uv is used just as a consistent runner.
+dependencies = ["python-dotenv>=1.0.0"]

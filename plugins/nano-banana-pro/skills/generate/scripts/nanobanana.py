@@ -34,26 +34,11 @@ import urllib.request
 import urllib.error
 from typing import Any, Dict, Optional, List, Tuple
 
+from dotenv import dotenv_values
+
 
 MODEL = "gemini-3-pro-image-preview"
 ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
-
-
-def parse_dotenv(text: str) -> Dict[str, str]:
-    out: Dict[str, str] = {}
-    for line in text.splitlines():
-        s = line.strip()
-        if not s or s.startswith("#"):
-            continue
-        if "=" not in s:
-            continue
-        k, v = s.split("=", 1)
-        k = k.strip()
-        v = v.strip()
-        if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-            v = v[1:-1]
-        out[k] = v
-    return out
 
 
 def parse_settings_file(path: pathlib.Path) -> Dict[str, str]:
@@ -112,14 +97,14 @@ def load_api_key() -> Optional[str]:
     # 3. Workspace .env
     cwd_env = pathlib.Path(os.getcwd()) / ".env"
     if cwd_env.exists():
-        env = parse_dotenv(cwd_env.read_text(encoding="utf-8", errors="ignore"))
+        env = dotenv_values(cwd_env)
         if env.get("GEMINI_API_KEY"):
             return env["GEMINI_API_KEY"]
 
     # 4. Home .env
     home_env = pathlib.Path.home() / ".env"
     if home_env.exists():
-        env = parse_dotenv(home_env.read_text(encoding="utf-8", errors="ignore"))
+        env = dotenv_values(home_env)
         if env.get("GEMINI_API_KEY"):
             return env["GEMINI_API_KEY"]
 
@@ -390,6 +375,16 @@ def write_image_from_b64(b64: str, out_path: pathlib.Path) -> None:
     out_path.write_bytes(base64.b64decode(b64))
 
 
+def process_and_save_result(resp: Dict[str, Any], out_path: pathlib.Path) -> int:
+    """Extract image from response, save to disk, print path."""
+    b64 = extract_first_image_b64(resp)
+    if not b64:
+        raise RuntimeError("No image returned (missing inlineData).")
+    write_image_from_b64(b64, out_path)
+    print(str(out_path))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="nanobanana", description="Nano Banana Pro CLI (Gemini 3 Pro Image)")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -446,12 +441,7 @@ def main(argv: List[str]) -> int:
             size=size,
             use_search=use_search,
         )
-        b64 = extract_first_image_b64(resp)
-        if not b64:
-            raise RuntimeError("No image returned (missing inlineData).")
-        write_image_from_b64(b64, out_path)
-        print(str(out_path))
-        return 0
+        return process_and_save_result(resp, out_path)
 
     if args.cmd == "edit":
         out_path = infer_out_path(args.out, settings)
@@ -463,12 +453,7 @@ def main(argv: List[str]) -> int:
             size=size,
             use_search=use_search,
         )
-        b64 = extract_first_image_b64(resp)
-        if not b64:
-            raise RuntimeError("No image returned (missing inlineData).")
-        write_image_from_b64(b64, out_path)
-        print(str(out_path))
-        return 0
+        return process_and_save_result(resp, out_path)
 
     if args.cmd == "remix-url":
         out_path = infer_out_path(args.out, settings)
@@ -479,8 +464,9 @@ def main(argv: List[str]) -> int:
         ref_urls: List[str] = []
         ref_urls.extend(hints.get("image_urls", []))
         # Add first icon only if no OG/Twitter images, or as a secondary reference
-        if hints.get("icon_urls"):
-            ref_urls.extend(hints.get("icon_urls")[:1])
+        icon_urls = hints.get("icon_urls", [])
+        if icon_urls:
+            ref_urls.extend(icon_urls[:1])
 
         image_parts = download_images_as_parts(
             urls=ref_urls,
@@ -535,12 +521,7 @@ Design requirements:
             size=size,
             use_search=use_search,
         )
-        b64 = extract_first_image_b64(resp)
-        if not b64:
-            raise RuntimeError("No image returned (missing inlineData).")
-        write_image_from_b64(b64, out_path)
-        print(str(out_path))
-        return 0
+        return process_and_save_result(resp, out_path)
 
     return 1
 
