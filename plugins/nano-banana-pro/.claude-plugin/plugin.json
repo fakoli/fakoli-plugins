@@ -1,12 +1,12 @@
 {
   "name": "nano-banana-pro",
-  "version": "1.1.0",
-  "description": "Generate, edit, and remix images using Google's Gemini 3 Pro Image Preview model with style templates",
+  "version": "1.2.0",
+  "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"
   },
   "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT",
-  "keywords": ["image-generation", "ai-images", "gemini", "design", "creative"]
+  "keywords": ["image-generation", "ai-images", "gemini", "design", "creative", "image-optimization"]
 }

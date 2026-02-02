@@ -1,6 +1,9 @@
 [project]
 name = "nanobanana-pro-cli"
-version = "1.0.0"
+version = "1.2.0"
 description = "Local CLI for Google Nano Banana Pro (Gemini 3 Pro Image Preview)"
 requires-python = ">=3.10"
-dependencies = ["python-dotenv>=1.0.0"]
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "pillow>=10.0.0; sys_platform != 'darwin'",
+]

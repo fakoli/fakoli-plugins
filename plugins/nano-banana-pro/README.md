@@ -7,6 +7,7 @@ Generate, edit, and remix images using Google's Gemini 3 Pro Image Preview model
 - **Generate** images from text prompts with precise control over composition
 - **Edit** existing images with natural language instructions
 - **Remix** webpages into brand-aligned visual assets
+- **Optimize** images for GitHub, Slack, web with smart presets
 - **Style templates** for common use cases (UI, marketing, artistic)
 
 ## Installation
@@ -62,6 +63,7 @@ GEMINI_API_KEY="your-api-key-here"
 | `/generate-image` | Generate an image from a text prompt |
 | `/edit-image` | Edit an existing image with instructions |
 | `/remix-url` | Create an image styled from a webpage |
+| `/optimize-image` | Reduce image size for GitHub, Slack, web |
 
 ### Generate Image
 
@@ -80,6 +82,23 @@ GEMINI_API_KEY="your-api-key-here"
 ```
 /remix-url https://stripe.com "Create a hero banner for payments feature with headline 'Accept Anywhere'" --aspect 16:9
 ```
+
+### Optimize Image
+
+```
+/optimize-image ./banner.png --preset github
+```
+
+#### Optimization Presets
+
+| Preset | Max Size | Max Width | Use Case |
+|--------|----------|-----------|----------|
+| `github` | 500KB | 1280px | README images, PR screenshots |
+| `slack` | 128KB | 800px | Slack/Discord messages |
+| `web` | 200KB | 1200px | Blog posts, documentation |
+| `thumbnail` | 50KB | 400px | Previews, icons |
+
+Custom options: `--max-size 300KB --width 1000`
 
 ## Style Templates
 
