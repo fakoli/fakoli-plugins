@@ -28,6 +28,36 @@ log_success() {
     echo -e "${GREEN}OK:${NC} $1"
 }
 
+log_skip() {
+    echo -e "SKIP: $1 (no changes)"
+}
+
+# Strip timestamp fields for comparison (generatedAt, indexedAt)
+strip_timestamps() {
+    jq 'walk(if type == "object" then del(.generatedAt, .indexedAt) else . end)'
+}
+
+# Write file only if content (excluding timestamps) has changed
+write_if_changed() {
+    local file="$1"
+    local new_content="$2"
+    local label="$3"
+
+    if [[ -f "$file" ]]; then
+        local old_stripped new_stripped
+        old_stripped=$(cat "$file" | strip_timestamps)
+        new_stripped=$(echo "$new_content" | strip_timestamps)
+
+        if [[ "$old_stripped" == "$new_stripped" ]]; then
+            log_skip "$label"
+            return 0
+        fi
+    fi
+
+    echo "$new_content" > "$file"
+    log_success "$label"
+}
+
 # Check dependencies
 check_dependencies() {
     if ! command -v jq &> /dev/null; then
@@ -105,8 +135,7 @@ generate_index() {
             "plugins": $plugins
         }')
 
-    echo "$index" > "$REGISTRY_DIR/index.json"
-    log_success "Generated registry/index.json ($plugin_count plugins)"
+    write_if_changed "$REGISTRY_DIR/index.json" "$index" "Generated registry/index.json ($plugin_count plugins)"
 }
 
 # Generate categories index
@@ -138,8 +167,7 @@ generate_categories() {
             "categories": $categories
         }')
 
-    echo "$output" > "$REGISTRY_DIR/categories.json"
-    log_success "Generated registry/categories.json"
+    write_if_changed "$REGISTRY_DIR/categories.json" "$output" "Generated registry/categories.json"
 }
 
 # Generate tags index
@@ -167,8 +195,39 @@ generate_tags() {
             "tags": $tags
         }')
 
-    echo "$output" > "$REGISTRY_DIR/tags.json"
-    log_success "Generated registry/tags.json"
+    write_if_changed "$REGISTRY_DIR/tags.json" "$output" "Generated registry/tags.json"
+}
+
+# Update marketplace.json with indexed plugins
+update_marketplace() {
+    local plugins="$1"
+    local marketplace_file="$ROOT_DIR/.claude-plugin/marketplace.json"
+
+    if [[ -f "$marketplace_file" ]]; then
+        local marketplace_plugins
+        marketplace_plugins=$(echo "$plugins" | jq '[.[] | {
+            name: .name,
+            version: .version,
+            description: .description,
+            path: .path
+        }]')
+
+        local new_content
+        new_content=$(jq --argjson plugins "$marketplace_plugins" '.plugins = $plugins' "$marketplace_file")
+
+        # Compare plugins arrays only (marketplace.json has no timestamps)
+        local old_plugins new_plugins
+        old_plugins=$(jq -c '.plugins | sort_by(.name)' "$marketplace_file")
+        new_plugins=$(echo "$new_content" | jq -c '.plugins | sort_by(.name)')
+
+        if [[ "$old_plugins" == "$new_plugins" ]]; then
+            log_skip "Updated .claude-plugin/marketplace.json"
+            return 0
+        fi
+
+        echo "$new_content" > "$marketplace_file"
+        log_success "Updated .claude-plugin/marketplace.json"
+    fi
 }
 
 # Main
@@ -190,6 +249,7 @@ main() {
     generate_index "$plugins"
     generate_categories "$plugins"
     generate_tags "$plugins"
+    update_marketplace "$plugins"
 
     echo ""
     echo "========================================"
