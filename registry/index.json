@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-02-02T07:27:41Z",
+  "generatedAt": "2026-02-02T08:00:55Z",
   "pluginCount": 2,
   "plugins": [
     {
@@ -21,12 +21,12 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-02-02T07:27:41Z"
+      "indexedAt": "2026-02-02T08:00:55Z"
     },
     {
       "name": "nano-banana-pro",
-      "version": "1.1.0",
-      "description": "Generate, edit, and remix images using Google's Gemini 3 Pro Image Preview model with style templates",
+      "version": "1.2.0",
+      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "author": {
         "name": "Sekou Doumbouya",
         "url": "https://github.com/fakoli"
@@ -38,10 +38,11 @@
         "ai-images",
         "gemini",
         "design",
-        "creative"
+        "creative",
+        "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-02-02T07:27:41Z"
+      "indexedAt": "2026-02-02T08:00:55Z"
     }
   ]
 }
