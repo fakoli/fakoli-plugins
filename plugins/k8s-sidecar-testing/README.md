@@ -11,9 +11,10 @@ Provides a phased testing workflow using Multipass VMs and k3s to validate NAT46
 1. **VM Provisioning** - Create an Ubuntu VM with Multipass
 2. **k3s Setup** - Install k3s with dual-stack networking and CoreDNS DNS64
 3. **Image Build** - Build the sidecar container and import into k3s
-4. **Deploy & Verify** - Deploy the sidecar pod and run automated tests (health check, inbound IPv6-to-IPv4, logs, status)
-5. **Benchmark** - Measure translation overhead with iperf3
-6. **Teardown** - Clean up pods, images, and optionally the VM
+4. **Deploy & Verify** - Deploy the sidecar pod and run 8 automated tests (health, IPv4-only proof, IPv6 refusal, inbound translation, outbound external, outbound peer, logs, status)
+5. **Path Validation** - Focused PASS/FAIL validation of all translation paths
+6. **Benchmark** - Measure latency (p50/p95/p99) and throughput, baseline vs sidecar
+7. **Teardown** - Clean up pods, images, and optionally the VM
 
 ## Scripts
 
@@ -23,8 +24,9 @@ Provides a phased testing workflow using Multipass VMs and k3s to validate NAT46
 | `k3s-setup.sh` | 2 | Inside VM |
 | `build-image.sh` | 3 | Inside VM |
 | `deploy-test.sh` | 4 | Inside VM |
-| `benchmark.sh` | 5 | Inside VM |
-| `teardown.sh` | 6 | Inside VM or Mac |
+| `validate-paths.sh` | 5 | Inside VM |
+| `benchmark.sh` | 6 | Inside VM |
+| `teardown.sh` | 7 | Inside VM or Mac |
 
 ## Requirements
 
@@ -40,7 +42,7 @@ Invoke the skill when working on nat464-sidecar:
 /k8s-sidecar-testing
 ```
 
-Or trigger naturally: "test the sidecar", "set up test cluster", "deploy to k3s".
+Or trigger naturally: "test the sidecar", "set up test cluster", "deploy to k3s", "validate paths", "benchmark sidecar".
 
 ## License
 
