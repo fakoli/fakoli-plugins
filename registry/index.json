@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-02-06T16:53:41Z",
+  "generatedAt": "2026-02-06T17:52:57Z",
   "pluginCount": 4,
   "plugins": [
     {
@@ -24,7 +24,7 @@
         "proxy"
       ],
       "path": "plugins/rust-network-module",
-      "indexedAt": "2026-02-06T16:53:41Z"
+      "indexedAt": "2026-02-06T17:52:57Z"
     },
     {
       "name": "marketplace-manager",
@@ -43,7 +43,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-02-06T16:53:41Z"
+      "indexedAt": "2026-02-06T17:52:57Z"
     },
     {
       "name": "nano-banana-pro",
@@ -64,11 +64,11 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-02-06T16:53:41Z"
+      "indexedAt": "2026-02-06T17:52:57Z"
     },
     {
       "name": "k8s-sidecar-testing",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
       "author": {
         "name": "Sekou Doumbouya",
@@ -86,7 +86,7 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-02-06T16:53:41Z"
+      "indexedAt": "2026-02-06T17:52:57Z"
     }
   ]
 }

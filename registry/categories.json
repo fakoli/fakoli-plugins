@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-02-06T16:53:41Z",
+  "generatedAt": "2026-02-06T17:52:57Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -25,7 +25,7 @@
         },
         {
           "name": "k8s-sidecar-testing",
-          "version": "1.0.0",
+          "version": "1.1.0",
           "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
           "path": "plugins/k8s-sidecar-testing"
         }
