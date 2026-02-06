@@ -1,0 +1,12 @@
+{
+  "name": "rust-network-module",
+  "version": "1.0.0",
+  "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": ["rust", "networking", "tokio", "scaffold", "async", "tcp", "proxy"]
+}

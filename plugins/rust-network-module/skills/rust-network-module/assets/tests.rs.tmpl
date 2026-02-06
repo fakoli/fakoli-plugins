@@ -1,0 +1,49 @@
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// Create a connected TCP pair for testing.
+    async fn test_pair() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = TcpStream::connect(addr).await.unwrap();
+        let (server, _) = listener.accept().await.unwrap();
+        (client, server)
+    }
+
+    #[tokio::test]
+    async fn test___NAME___valid() {
+        let (mut client, mut server) = test_pair().await;
+
+        let client_task = tokio::spawn(async move {
+            // TODO: Send protocol bytes
+            client.write_all(&[]).await.unwrap();
+            client
+        });
+
+        // TODO: Parse and assert
+        // let result = parse_request(&mut server).await.unwrap();
+        // assert_eq!(result.field, expected);
+
+        client_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test___NAME___invalid() {
+        let (mut client, mut server) = test_pair().await;
+
+        let client_task = tokio::spawn(async move {
+            // TODO: Send invalid bytes
+            client.write_all(&[0xFF]).await.unwrap();
+            client
+        });
+
+        // TODO: Assert error
+        // let result = parse_request(&mut server).await;
+        // assert!(result.is_err());
+
+        client_task.await.unwrap();
+    }
+}
