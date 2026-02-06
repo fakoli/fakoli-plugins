@@ -1,0 +1,12 @@
+{
+  "name": "k8s-sidecar-testing",
+  "version": "1.0.0",
+  "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": ["kubernetes", "testing", "ipv6", "sidecar", "k3s", "multipass", "nat464"]
+}

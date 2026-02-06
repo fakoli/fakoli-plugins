@@ -30,6 +30,8 @@ A curated collection of Claude Code plugins for enhanced productivity and develo
 |--------|----------|-------------|
 | [nano-banana-pro](plugins/nano-banana-pro) | Utilities | Image generation using Google Gemini models |
 | [marketplace-manager](plugins/marketplace-manager) | Utilities | Manage plugins in this marketplace |
+| [k8s-sidecar-testing](plugins/k8s-sidecar-testing) | DevOps | End-to-end testing for nat464-sidecar in IPv6-only K8s clusters |
+| [rust-network-module](plugins/rust-network-module) | Productivity | Scaffold Rust async networking modules with Tokio patterns |
 
 ## Categories
 

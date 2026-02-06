@@ -1,0 +1,26 @@
+use tokio::net::{TcpListener, TcpStream};
+use tracing::{debug, error, info};
+
+/// Run the __NAME__ server on the given port.
+pub async fn run___NAME__(port: u16) -> anyhow::Result<()> {
+    let addr = format!("[::]:{port}");
+    let listener = TcpListener::bind(&addr).await?;
+    info!(listen_addr = %addr, "__NAME__ listening");
+
+    loop {
+        let (stream, src_addr) = listener.accept().await?;
+        debug!(%src_addr, "accepted __NAME__ connection");
+
+        tokio::spawn(async move {
+            if let Err(e) = handle___NAME__(stream).await {
+                error!(%src_addr, error = %e, "__NAME__ connection failed");
+            }
+        });
+    }
+}
+
+async fn handle___NAME__(stream: TcpStream) -> anyhow::Result<()> {
+    // TODO: Implement connection handling
+    let _ = stream;
+    Ok(())
+}

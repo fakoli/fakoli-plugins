@@ -1,0 +1,33 @@
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tracing::debug;
+
+use super::*;
+
+/// Parsed __PROTOCOL__ request.
+#[derive(Debug)]
+pub struct __PROTOCOL__Request {
+    // TODO: Add parsed fields
+    pub port: u16,
+}
+
+/// Parse a __PROTOCOL__ request from the stream.
+pub async fn parse___PROTOCOL__(stream: &mut TcpStream) -> anyhow::Result<__PROTOCOL__Request> {
+    let version = stream.read_u8().await?;
+    if version != VERSION {
+        anyhow::bail!("unsupported __PROTOCOL__ version: {version}");
+    }
+
+    // TODO: Parse protocol-specific fields
+
+    let port = stream.read_u16().await?;
+    debug!(port, "__PROTOCOL__ request parsed");
+
+    Ok(__PROTOCOL__Request { port })
+}
+
+/// Send a __PROTOCOL__ reply.
+pub async fn send_reply(stream: &mut TcpStream, status: u8) -> anyhow::Result<()> {
+    stream.write_all(&[VERSION, status]).await?;
+    Ok(())
+}
