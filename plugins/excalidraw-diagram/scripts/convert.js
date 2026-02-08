@@ -133,14 +133,22 @@ function generateFractionalIndex(i, total) {
 }
 
 function estimateTextWidth(text, fontSize) {
-  // Rough character-width estimation (no canvas needed)
-  const avgCharWidth = fontSize * 0.6;
+  // Character-class-based width estimation for Excalifont
+  const narrow = /[ilj1!|.,;:'"()\[\]{}]/;
+  const wide = /[MWmw@%]/;
   const lines = text.split("\n");
   let maxWidth = 0;
   for (const line of lines) {
-    maxWidth = Math.max(maxWidth, line.length * avgCharWidth);
+    let w = 0;
+    for (const ch of line) {
+      if (narrow.test(ch)) w += fontSize * 0.35;
+      else if (wide.test(ch)) w += fontSize * 0.8;
+      else if (ch === " ") w += fontSize * 0.3;
+      else w += fontSize * 0.55;
+    }
+    maxWidth = Math.max(maxWidth, w);
   }
-  return maxWidth + 4; // small padding
+  return maxWidth + 8; // padding
 }
 
 function estimateTextHeight(text, fontSize, lineHeight) {
@@ -200,7 +208,6 @@ function baseElement(id, type, index) {
     updated: Date.now(),
     link: null,
     locked: false,
-    customData: undefined,
   };
 }
 
@@ -292,7 +299,35 @@ function buildFreeTextElement(skelEl, idMap, theme, index) {
   return el;
 }
 
-function buildArrowElement(skelEl, idMap, shapeElements, theme, index) {
+function computeFixedPoint(fromEl, toEl, isStart) {
+  const fromCX = fromEl.x + fromEl.width / 2;
+  const fromCY = fromEl.y + fromEl.height / 2;
+  const toCX = toEl.x + toEl.width / 2;
+  const toCY = toEl.y + toEl.height / 2;
+  const dx = toCX - fromCX;
+  const dy = toCY - fromCY;
+
+  const sign = isStart ? 1 : -1;
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+
+  if (absDx > absDy) {
+    // Horizontal dominant
+    return (sign * dx > 0) ? [1.0, 0.5] : [0.0, 0.5];
+  } else {
+    // Vertical dominant
+    return (sign * dy > 0) ? [0.5, 1.0] : [0.5, 0.0];
+  }
+}
+
+function addBoundElement(el, entry) {
+  if (!el.boundElements) el.boundElements = [];
+  if (!el.boundElements.some((be) => be.id === entry.id)) {
+    el.boundElements.push(entry);
+  }
+}
+
+function buildArrowElement(skelEl, idMap, shapeElements, theme, index, existingElements) {
   const id = idMap.get(skelEl.id) || randomId();
   const el = baseElement(id, "arrow", index);
 
@@ -310,11 +345,27 @@ function buildArrowElement(skelEl, idMap, shapeElements, theme, index) {
   el.endBinding = null;
   el.lastCommittedPoint = null;
 
-  // Resolve from/to
-  const fromId = skelEl.from ? idMap.get(skelEl.from) : null;
-  const toId = skelEl.to ? idMap.get(skelEl.to) : null;
-  const fromEl = fromId ? shapeElements.get(fromId) : null;
-  const toEl = toId ? shapeElements.get(toId) : null;
+  // Resolve from/to — check idMap first, then fall back to existingElements
+  let fromId = skelEl.from ? idMap.get(skelEl.from) : null;
+  let toId = skelEl.to ? idMap.get(skelEl.to) : null;
+  let fromEl = fromId ? shapeElements.get(fromId) : null;
+  let toEl = toId ? shapeElements.get(toId) : null;
+
+  // Fall back to existing elements (modification mode)
+  if (!fromEl && skelEl.from && existingElements) {
+    const existing = existingElements.get(skelEl.from);
+    if (existing) {
+      fromId = existing.id;
+      fromEl = existing;
+    }
+  }
+  if (!toEl && skelEl.to && existingElements) {
+    const existing = existingElements.get(skelEl.to);
+    if (existing) {
+      toId = existing.id;
+      toEl = existing;
+    }
+  }
 
   let startX, startY, endX, endY;
 
@@ -330,26 +381,22 @@ function buildArrowElement(skelEl, idMap, shapeElements, theme, index) {
     endX = toCX;
     endY = toCY;
 
-    // Compute FixedPointBinding for start
+    // Compute edge-aware FixedPointBindings
     el.startBinding = {
       elementId: fromId,
-      fixedPoint: [0.5, 0.5],
+      fixedPoint: computeFixedPoint(fromEl, toEl, true),
       mode: "orbit",
     };
 
-    // Compute FixedPointBinding for end
     el.endBinding = {
       elementId: toId,
-      fixedPoint: [0.5, 0.5],
+      fixedPoint: computeFixedPoint(fromEl, toEl, false),
       mode: "orbit",
     };
 
-    // Add boundElements references to the shapes
-    if (!fromEl.boundElements) fromEl.boundElements = [];
-    fromEl.boundElements.push({ type: "arrow", id: el.id });
-
-    if (!toEl.boundElements) toEl.boundElements = [];
-    toEl.boundElements.push({ type: "arrow", id: el.id });
+    // Add boundElements references to the shapes (with dedup)
+    addBoundElement(fromEl, { type: "arrow", id: el.id });
+    addBoundElement(toEl, { type: "arrow", id: el.id });
   } else {
     // Fallback: use explicit coordinates or defaults
     startX = skelEl.x || 0;
@@ -440,11 +487,27 @@ const DEFAULT_HEIGHT = 80;
 function layoutGrid(shapes) {
   if (shapes.length === 0) return;
   const cols = Math.ceil(Math.sqrt(shapes.length));
+
+  // Compute per-column max width and per-row max height
+  const colWidths = [];
+  const rowHeights = [];
   for (let i = 0; i < shapes.length; i++) {
     const col = i % cols;
     const row = Math.floor(i / cols);
-    shapes[i].x = col * (DEFAULT_WIDTH + SPACING_X);
-    shapes[i].y = row * (DEFAULT_HEIGHT + SPACING_Y);
+    colWidths[col] = Math.max(colWidths[col] || 0, shapes[i].width || DEFAULT_WIDTH);
+    rowHeights[row] = Math.max(rowHeights[row] || 0, shapes[i].height || DEFAULT_HEIGHT);
+  }
+
+  // Position using cumulative widths/heights
+  for (let i = 0; i < shapes.length; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    let x = 0;
+    for (let c = 0; c < col; c++) x += colWidths[c] + SPACING_X;
+    let y = 0;
+    for (let r = 0; r < row; r++) y += rowHeights[r] + SPACING_Y;
+    shapes[i].x = x;
+    shapes[i].y = y;
   }
 }
 
@@ -528,21 +591,42 @@ function positionByLevels(shapes, levels, direction) {
 
   const sortedLevels = [...byLevel.keys()].sort((a, b) => a - b);
 
+  // Compute max dimension per level for consistent spacing
+  const levelMaxPrimary = new Map(); // primary axis (Y for vertical, X for horizontal)
   for (const lvl of sortedLevels) {
     const group = byLevel.get(lvl);
+    let maxDim = 0;
+    for (const s of group) {
+      maxDim = Math.max(maxDim, direction === "vertical" ? (s.height || DEFAULT_HEIGHT) : (s.width || DEFAULT_WIDTH));
+    }
+    levelMaxPrimary.set(lvl, maxDim);
+  }
+
+  for (const lvl of sortedLevels) {
+    const group = byLevel.get(lvl);
+
+    // Compute cumulative offset for the primary axis
+    let primaryOffset = 0;
+    for (const prevLvl of sortedLevels) {
+      if (prevLvl >= lvl) break;
+      primaryOffset += levelMaxPrimary.get(prevLvl) + (direction === "vertical" ? SPACING_Y : SPACING_X);
+    }
+
+    // Compute cross-axis positions for items in this level
+    const crossSizes = group.map((s) => direction === "vertical" ? (s.width || DEFAULT_WIDTH) : (s.height || DEFAULT_HEIGHT));
+    const totalCross = crossSizes.reduce((sum, sz, i) => sum + sz + (i > 0 ? (direction === "vertical" ? SPACING_X : SPACING_Y) : 0), 0);
+
+    let crossOffset = -totalCross / 2;
     for (let i = 0; i < group.length; i++) {
       const s = group[i];
-      const w = s.width || DEFAULT_WIDTH;
-      const h = s.height || DEFAULT_HEIGHT;
-
       if (direction === "vertical") {
-        // Level determines Y, index in level determines X
-        s.x = i * (w + SPACING_X) - ((group.length - 1) * (w + SPACING_X)) / 2;
-        s.y = lvl * (h + SPACING_Y);
+        s.x = crossOffset;
+        s.y = primaryOffset;
+        crossOffset += (s.width || DEFAULT_WIDTH) + SPACING_X;
       } else {
-        // Level determines X, index in level determines Y
-        s.x = lvl * (w + SPACING_X);
-        s.y = i * (h + SPACING_Y) - ((group.length - 1) * (h + SPACING_Y)) / 2;
+        s.x = primaryOffset;
+        s.y = crossOffset;
+        crossOffset += (s.height || DEFAULT_HEIGHT) + SPACING_Y;
       }
     }
   }
@@ -560,12 +644,14 @@ function positionByLevels(shapes, levels, direction) {
 }
 
 function needsAutoLayout(skeletonElements) {
-  // Check if any shape element has explicit x,y coordinates
-  for (const el of skeletonElements) {
-    if (el.type !== "arrow" && el.type !== "line" && el.type !== "text") {
-      if (el.x != null && el.y != null) return false;
-    }
-  }
+  const shapes = skeletonElements.filter(
+    (el) => el.type !== "arrow" && el.type !== "line" && el.type !== "text"
+  );
+  if (shapes.length === 0) return false;
+  const withCoords = shapes.filter((el) => el.x != null && el.y != null);
+  // All have coords → no layout needed
+  if (withCoords.length === shapes.length) return false;
+  // None have coords or only some do → apply layout
   return true;
 }
 
@@ -613,7 +699,61 @@ function computeFrameBounds(frameEl, childIds, allElementsMap) {
 
 // ─── Main Conversion ───────────────────────────────────────────────────────────
 
+function validateSkeleton(skeleton) {
+  const errors = [];
+  if (!skeleton || typeof skeleton !== "object") {
+    errors.push("Skeleton must be a JSON object");
+    return errors;
+  }
+  if (!Array.isArray(skeleton.elements)) {
+    errors.push("skeleton.elements must be an array");
+    return errors;
+  }
+  const ids = new Set();
+  for (let i = 0; i < skeleton.elements.length; i++) {
+    const el = skeleton.elements[i];
+    if (!el.type) {
+      errors.push(`Element at index ${i} is missing required "type" field`);
+    }
+    if (el.type !== "arrow" && el.type !== "line" && el.type !== "text" && !el.id) {
+      errors.push(`Shape element at index ${i} (type: ${el.type}) is missing required "id" field`);
+    }
+    if (el.id) ids.add(el.id);
+  }
+  // Check arrow from/to references
+  for (let i = 0; i < skeleton.elements.length; i++) {
+    const el = skeleton.elements[i];
+    if (el.type === "arrow") {
+      if (el.from && !ids.has(el.from)) {
+        errors.push(`Arrow at index ${i} references unknown "from" id: "${el.from}"`);
+      }
+      if (el.to && !ids.has(el.to)) {
+        errors.push(`Arrow at index ${i} references unknown "to" id: "${el.to}"`);
+      }
+    }
+  }
+  return errors;
+}
+
 function convert(skeleton, existingFile) {
+  // Validate skeleton input
+  const validationErrors = validateSkeleton(skeleton);
+  if (validationErrors.length > 0) {
+    // In modification mode, allow arrow refs to existing element IDs
+    const criticalErrors = existingFile
+      ? validationErrors.filter((e) => !e.includes("references unknown"))
+      : validationErrors;
+    if (criticalErrors.length > 0) {
+      throw new Error("Skeleton validation failed:\n  - " + criticalErrors.join("\n  - "));
+    }
+    // Non-critical errors (unknown refs in modify mode) — just warn
+    for (const err of validationErrors) {
+      if (!criticalErrors.includes(err)) {
+        console.warn(`Warning: ${err} (may reference existing elements)`);
+      }
+    }
+  }
+
   const theme = skeleton.theme || "default";
   const layoutName = skeleton.layout || "grid";
 
@@ -720,9 +860,19 @@ function convert(skeleton, existingFile) {
     delete el._skelId;
   }
 
+  // Build existing elements lookup for modification mode
+  const existingElementsMap = new Map();
+  if (existingFile) {
+    for (const el of (existingFile.elements || [])) {
+      if (!el.isDeleted) {
+        existingElementsMap.set(el.id, el);
+      }
+    }
+  }
+
   // Build arrows
   for (const skel of arrowSkels) {
-    const el = buildArrowElement(skel, idMap, shapeElements, theme, elementIndex++);
+    const el = buildArrowElement(skel, idMap, shapeElements, theme, elementIndex++, existingElementsMap);
 
     // Arrow label
     if (skel.label) {
@@ -769,6 +919,10 @@ function convert(skeleton, existingFile) {
     if (skel.children) {
       for (const childSkelId of skel.children) {
         const childId = idMap.get(childSkelId);
+        if (!childId) {
+          console.warn(`Warning: Frame "${skel.id}" references unknown child "${childSkelId}"`);
+          continue;
+        }
         if (childId) {
           childExcalidrawIds.push(childId);
           const childEl = allElementsMap.get(childId);

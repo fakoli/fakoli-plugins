@@ -5,7 +5,7 @@ argument-hint: Describe the diagram you want, e.g. "architecture of this project
 
 # Excalidraw Diagram Generation
 
-You are generating an Excalidraw diagram based on the user's request.
+Generate an Excalidraw diagram based on the following request.
 
 ## Request
 

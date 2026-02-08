@@ -128,9 +128,16 @@ The skeleton is a compact intermediate representation. The converter script hand
   "x": 0, "y": 200,
   "width": 800, "height": 0,
   "style": "dashed",
-  "color": "gray"
+  "color": "gray",
+  "points": [[0, 200], [400, 200], [800, 400]]
 }
 ```
+
+**Key fields**:
+- `points`: Array of `[x, y]` coordinate pairs for multi-segment lines. Minimum 2 points. If omitted, a simple line from `(x, y)` to `(x+width, y+height)` is created.
+- `style`: `"solid"` (default), `"dashed"`, `"dotted"`.
+
+**Note on elbowed arrows:** Arrows support an `elbowed` style (right-angle routing). Set `"elbowed": true` on an arrow element for this behavior (P1 feature).
 
 ### Text Elements (standalone)
 
@@ -209,17 +216,17 @@ Choose the layout that best matches the diagram type:
 
 ## Running the Converter
 
-The converter script is at `CONVERTER_PATH` (set by the skill context). Run it:
+The converter script is at `${CLAUDE_PLUGIN_ROOT}/scripts/convert.js`. Run it:
 
 ```bash
 # Create new diagram
-node "${CONVERTER_PATH}" skeleton.json output.excalidraw
+node "${CLAUDE_PLUGIN_ROOT}/scripts/convert.js" skeleton.json output.excalidraw
 
 # Read from stdin
-echo '${SKELETON_JSON}' | node "${CONVERTER_PATH}" --stdin output.excalidraw
+echo '${SKELETON_JSON}' | node "${CLAUDE_PLUGIN_ROOT}/scripts/convert.js" --stdin output.excalidraw
 
 # Modify existing diagram
-node "${CONVERTER_PATH}" --modify existing.excalidraw additions.json output.excalidraw
+node "${CLAUDE_PLUGIN_ROOT}/scripts/convert.js" --modify existing.excalidraw additions.json output.excalidraw
 ```
 
 The converter outputs JSON on stdout: `{"success": true, "outputPath": "...", "elementCount": N, "message": "..."}`
@@ -244,34 +251,67 @@ When modifying an existing `.excalidraw` file:
 
 ## Browser Preview (claude-in-chrome)
 
-If the user asks to preview the diagram, or says "show it to me", use claude-in-chrome MCP tools to load it in the browser. Excalidraw supports loading files via URL hash with the `#json=` parameter.
+If the user asks to preview the diagram, or says "show it to me", use claude-in-chrome MCP tools to load it in the browser.
+
+> **Warning:** This approach relies on Excalidraw's internal React structure and may break with future versions.
 
 **Steps for browser preview:**
 
-1. Read the generated `.excalidraw` file content
-2. Create a new browser tab using `mcp__claude-in-chrome__tabs_create_mcp`
-3. Navigate to the local Excalidraw instance or excalidraw.com:
-   - Local: `http://localhost:3001/` (if running)
-   - Remote: `https://excalidraw.com/`
-4. Use `mcp__claude-in-chrome__javascript_tool` to load the diagram data:
+1. Read the generated `.excalidraw` file content.
+2. Create a new browser tab using `mcp__claude-in-chrome__tabs_create_mcp`.
+3. Navigate to `https://excalidraw.com/` (or `http://localhost:3001/` if running locally).
+4. Wait for the page to fully load.
+5. Use `mcp__claude-in-chrome__javascript_tool` to load the diagram via React fiber traversal.
+
+**Chunked loading approach** (required for large diagrams due to JS tool character limits):
 
 ```javascript
-// Read the file content and load it into Excalidraw
-const diagramData = <JSON_STRING_OF_EXCALIDRAW_FILE>;
-const blob = new Blob([JSON.stringify(diagramData)], { type: 'application/json' });
-const url = URL.createObjectURL(blob);
-// Excalidraw's loadFromBlob or import via the API
-window.history.pushState({}, '', '/');
-const event = new CustomEvent('excalidraw-import', { detail: diagramData });
-window.dispatchEvent(event);
+// Step 5a: Initialize chunk storage
+window.__diagramChunks = [];
 ```
 
-**Alternative approach — File URL (simpler):**
-If the Excalidraw instance is running locally and can access local files, you can use the file system approach. Otherwise, use the clipboard approach:
+```javascript
+// Step 5b: Send diagram data in base64 chunks (~4000 chars each)
+// Repeat this for each chunk of the base64-encoded JSON
+window.__diagramChunks.push("<BASE64_CHUNK_1>");
+```
 
-1. Navigate to the Excalidraw instance
-2. Use JavaScript to set clipboard content to the Excalidraw JSON
-3. Trigger a paste event (Ctrl+V simulation)
+```javascript
+// Step 5c: Reassemble and load via React fiber
+const json = JSON.parse(atob(window.__diagramChunks.join('')));
+
+// Find the Excalidraw App component via React fiber
+const container = document.querySelector('.excalidraw');
+const fiberKey = Object.keys(container).find(k => k.startsWith('__reactFiber'));
+let fiber = container[fiberKey];
+
+// Traverse up to find the App component (depth 1 with .scene property)
+let app = null;
+while (fiber) {
+  if (fiber.memoizedState && fiber.memoizedState.memoizedState) {
+    const state = fiber.memoizedState;
+    if (state.queue && state.queue.lastRenderedState && state.queue.lastRenderedState.scene) {
+      app = state.queue.lastRenderedState;
+      break;
+    }
+  }
+  if (fiber.stateNode && fiber.stateNode.scene) {
+    app = fiber.stateNode;
+    break;
+  }
+  fiber = fiber.return;
+}
+
+if (app) {
+  app.scene.replaceAllElements(json.elements);
+  if (app.actionManager) {
+    app.actionManager.executeAction(app.actionManager.actions.zoomToFit);
+  }
+  'Diagram loaded successfully';
+} else {
+  'Error: Could not find Excalidraw App component';
+}
+```
 
 **Graceful degradation:** If claude-in-chrome is unavailable, simply report the file path and suggest the user open it manually.
 
