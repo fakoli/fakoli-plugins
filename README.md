@@ -32,6 +32,7 @@ A curated collection of Claude Code plugins for enhanced productivity and develo
 | [marketplace-manager](plugins/marketplace-manager) | Utilities | Manage plugins in this marketplace |
 | [k8s-sidecar-testing](plugins/k8s-sidecar-testing) | DevOps | End-to-end testing for nat464-sidecar in IPv6-only K8s clusters |
 | [rust-network-module](plugins/rust-network-module) | Productivity | Scaffold Rust async networking modules with Tokio patterns |
+| [excalidraw-diagram](plugins/excalidraw-diagram) | Productivity | Generate and modify Excalidraw diagrams from natural language and code analysis |
 
 ## Categories
 
