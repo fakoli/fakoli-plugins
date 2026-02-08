@@ -120,14 +120,6 @@ apt-get install jq  # Linux
 - Update plugin version in `.claude-plugin/plugin.json` whenever plugin changes
 - Follow semver: patch for fixes, minor for features, major for breaking changes
 
-### New Plugin Checklist
-When adding a new plugin, ALWAYS complete ALL of these steps before merging:
-1. Create the plugin in `plugins/<name>/` with all required files
-2. **Update `README.md`** — add the plugin to the "Available Plugins" table
-3. Run `./scripts/generate-index.sh` to regenerate `registry/index.json`
-4. Run `./scripts/validate.sh plugins/<name>` to validate the plugin
-5. Verify the plugin appears in both the README table AND `registry/index.json`
-
 ## Official Claude Code Documentation
 
 Reference these official docs for detailed specifications:
