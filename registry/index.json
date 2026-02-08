@@ -1,8 +1,8 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-02-06T17:52:57Z",
-  "pluginCount": 4,
+  "generatedAt": "2026-02-08T10:12:41Z",
+  "pluginCount": 5,
   "plugins": [
     {
       "name": "rust-network-module",
@@ -24,7 +24,7 @@
         "proxy"
       ],
       "path": "plugins/rust-network-module",
-      "indexedAt": "2026-02-06T17:52:57Z"
+      "indexedAt": "2026-02-08T10:12:41Z"
     },
     {
       "name": "marketplace-manager",
@@ -43,7 +43,28 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-02-06T17:52:57Z"
+      "indexedAt": "2026-02-08T10:12:41Z"
+    },
+    {
+      "name": "excalidraw-diagram",
+      "version": "1.0.0",
+      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "excalidraw",
+        "diagram",
+        "architecture",
+        "flowchart",
+        "visualization",
+        "whiteboard"
+      ],
+      "path": "plugins/excalidraw-diagram",
+      "indexedAt": "2026-02-08T10:12:41Z"
     },
     {
       "name": "nano-banana-pro",
@@ -64,7 +85,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-02-06T17:52:57Z"
+      "indexedAt": "2026-02-08T10:12:41Z"
     },
     {
       "name": "k8s-sidecar-testing",
@@ -86,7 +107,7 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-02-06T17:52:57Z"
+      "indexedAt": "2026-02-08T10:12:41Z"
     }
   ]
 }
