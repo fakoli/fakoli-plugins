@@ -120,6 +120,13 @@ apt-get install jq  # Linux
 - Update plugin version in `.claude-plugin/plugin.json` whenever plugin changes
 - Follow semver: patch for fixes, minor for features, major for breaking changes
 
+### Release Checklist (MANDATORY before committing plugin changes)
+Every time a plugin is modified, ALL of these must be updated before committing:
+1. **README.md** — Update features, usage, and any new capabilities
+2. **CHANGELOG.md** — Add entry under new version with Fixed/Added/Changed sections
+3. **plugin.json** — Bump `version` field (semver)
+4. **PR description** — Reflect the changes accurately if updating an existing PR
+
 ## Official Claude Code Documentation
 
 Reference these official docs for detailed specifications:

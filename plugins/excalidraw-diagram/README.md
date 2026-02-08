@@ -6,9 +6,13 @@ Generate and modify Excalidraw diagrams from natural language descriptions and c
 
 - **Natural language to diagram**: Describe what you want, get a `.excalidraw` file
 - **Code-aware**: Analyzes your codebase to generate architecture diagrams
-- **Modification support**: Add/remove elements from existing diagrams
-- **Multiple layouts**: Grid, top-down tree, left-right flow
+- **Modification support**: Add/remove elements from existing diagrams, including arrows to pre-existing elements
+- **Smart arrow binding**: Edge-aware arrow connections that exit/enter shapes at the correct edge based on relative position
+- **Accurate text sizing**: Character-class-based width estimation for reliable label placement
+- **Multiple layouts**: Grid, top-down tree, left-right flow — all respect variable element sizes
 - **Color themes**: Default, blueprint, warm, monochrome
+- **Input validation**: Skeleton JSON is validated before conversion with clear error reporting
+- **Browser preview**: Load diagrams directly in excalidraw.com via claude-in-chrome
 - **Zero dependencies**: Only requires Node.js >= 18
 
 ## Quick Start
@@ -45,9 +49,16 @@ Generate and modify Excalidraw diagrams from natural language descriptions and c
 ## Supported Elements
 
 - **Shapes**: rectangle, diamond, ellipse
-- **Connectors**: arrow (with labels, styles, arrowheads), line
+- **Connectors**: arrow (with labels, styles, arrowheads), line (with multi-segment `points` arrays)
 - **Text**: standalone text elements
 - **Frames**: named groups that visually contain other elements
+
+## Arrow Binding
+
+Arrows automatically compute edge-aware `FixedPointBinding` positions:
+- If shape B is **below** shape A, the arrow exits A from the **bottom** and enters B from the **top**
+- If shape B is to the **right** of A, the arrow exits from the **right** and enters from the **left**
+- Multiple arrows to the same shape connect at different edge points (no overlapping at center)
 
 ## Color Themes
 
