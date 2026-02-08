@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-02-08T10:12:41Z",
+  "generatedAt": "2026-02-08T10:37:05Z",
   "pluginCount": 5,
   "plugins": [
     {
@@ -24,26 +24,7 @@
         "proxy"
       ],
       "path": "plugins/rust-network-module",
-      "indexedAt": "2026-02-08T10:12:41Z"
-    },
-    {
-      "name": "marketplace-manager",
-      "version": "1.1.0",
-      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "marketplace",
-        "plugin-management",
-        "registry",
-        "validation"
-      ],
-      "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-02-08T10:12:41Z"
+      "indexedAt": "2026-02-08T10:37:04Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -64,7 +45,26 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-02-08T10:12:41Z"
+      "indexedAt": "2026-02-08T10:37:04Z"
+    },
+    {
+      "name": "marketplace-manager",
+      "version": "1.1.0",
+      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "marketplace",
+        "plugin-management",
+        "registry",
+        "validation"
+      ],
+      "path": "plugins/marketplace-manager",
+      "indexedAt": "2026-02-08T10:37:04Z"
     },
     {
       "name": "nano-banana-pro",
@@ -85,7 +85,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-02-08T10:12:41Z"
+      "indexedAt": "2026-02-08T10:37:04Z"
     },
     {
       "name": "k8s-sidecar-testing",
@@ -107,7 +107,7 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-02-08T10:12:41Z"
+      "indexedAt": "2026-02-08T10:37:04Z"
     }
   ]
 }

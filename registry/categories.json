@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-02-08T10:12:41Z",
+  "generatedAt": "2026-02-08T10:37:05Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -12,16 +12,16 @@
           "path": "plugins/rust-network-module"
         },
         {
-          "name": "marketplace-manager",
-          "version": "1.1.0",
-          "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
-          "path": "plugins/marketplace-manager"
-        },
-        {
           "name": "excalidraw-diagram",
           "version": "1.0.0",
           "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
           "path": "plugins/excalidraw-diagram"
+        },
+        {
+          "name": "marketplace-manager",
+          "version": "1.1.0",
+          "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+          "path": "plugins/marketplace-manager"
         },
         {
           "name": "nano-banana-pro",
