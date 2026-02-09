@@ -1,6 +1,6 @@
 {
   "name": "nano-banana-pro",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
   "author": {
     "name": "Sekou Doumbouya",
