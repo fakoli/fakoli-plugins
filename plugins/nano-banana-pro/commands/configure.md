@@ -38,8 +38,8 @@ Read the current configuration file and walk the user through each section:
    - Update the `gemini_api_key` field
 
 2. **Model Selection** — Ask which default model to use
-   - `pro` (Gemini 3 Pro) — Higher quality, slower
-   - `flash` (Gemini 2.0 Flash) — Faster generation
+   - `pro` (Gemini 3 Pro) — Advanced reasoning, high-fidelity text
+   - `flash` (Gemini 2.5 Flash Image) — Speed and efficiency, low latency
 
 3. **Generation Defaults** — Confirm or update:
    - `default_aspect` — Aspect ratio (1:1, 16:9, 4:3, 9:16, 3:2)

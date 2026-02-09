@@ -191,8 +191,8 @@ Choose between two Gemini models:
 
 | Model | ID | Strengths | Best For |
 |-------|----|-----------|----------|
-| `pro` | Gemini 3 Pro | Higher quality, better text rendering | Final assets, detailed compositions |
-| `flash` | Gemini 2.0 Flash | Faster generation | Quick drafts, iteration |
+| `pro` | Gemini 3 Pro | Advanced reasoning, high-fidelity text rendering | Final assets, detailed compositions |
+| `flash` | Gemini 2.5 Flash Image | Speed and efficiency, low latency | High-volume tasks, quick drafts, iteration |
 
 Set your default model in configuration (`default_model`) or override per-command with `--model`:
 

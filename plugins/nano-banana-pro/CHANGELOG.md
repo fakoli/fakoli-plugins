@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Visualizer** — Executes image generation (the only agent that creates files)
   - **Critic** — Evaluates output on faithfulness, conciseness, readability, aesthetics (up to 3 refinement rounds)
 - **Configure command** (`/configure`) — Interactive setup wizard for API key, defaults, and agents
-- **Model selection** — `--model pro` (Gemini 3 Pro) or `--model flash` (Gemini 2.0 Flash)
+- **Model selection** — `--model pro` (Gemini 3 Pro) or `--model flash` (Gemini 2.5 Flash Image)
 - Example configuration template (`config/nano-banana-pro.example.md`)
 - New settings: `default_model`, `auto_optimize`, `optimize_preset`, `max_remix_images`, agent toggles, `critic_max_rounds`
 

@@ -39,7 +39,7 @@ from dotenv import dotenv_values
 
 MODEL_MAP = {
     "pro": "gemini-3-pro-image-preview",
-    "flash": "gemini-2.0-flash-preview-image-generation",
+    "flash": "gemini-2.5-flash-image",
 }
 
 
