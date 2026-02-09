@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-02-08T10:37:05Z",
+  "generatedAt": "2026-02-09T07:17:21Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -25,7 +25,7 @@
         },
         {
           "name": "nano-banana-pro",
-          "version": "1.2.0",
+          "version": "1.3.0",
           "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
           "path": "plugins/nano-banana-pro"
         },

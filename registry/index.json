@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-02-08T10:37:05Z",
+  "generatedAt": "2026-02-09T07:17:21Z",
   "pluginCount": 5,
   "plugins": [
     {
@@ -24,7 +24,7 @@
         "proxy"
       ],
       "path": "plugins/rust-network-module",
-      "indexedAt": "2026-02-08T10:37:04Z"
+      "indexedAt": "2026-02-09T07:17:21Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -45,7 +45,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-02-08T10:37:04Z"
+      "indexedAt": "2026-02-09T07:17:21Z"
     },
     {
       "name": "marketplace-manager",
@@ -64,11 +64,11 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-02-08T10:37:04Z"
+      "indexedAt": "2026-02-09T07:17:21Z"
     },
     {
       "name": "nano-banana-pro",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "author": {
         "name": "Sekou Doumbouya",
@@ -85,7 +85,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-02-08T10:37:04Z"
+      "indexedAt": "2026-02-09T07:17:21Z"
     },
     {
       "name": "k8s-sidecar-testing",
@@ -107,7 +107,7 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-02-08T10:37:04Z"
+      "indexedAt": "2026-02-09T07:17:21Z"
     }
   ]
 }

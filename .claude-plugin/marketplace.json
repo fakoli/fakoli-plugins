@@ -47,6 +47,12 @@
       "source": "./plugins/rust-network-module"
     },
     {
+      "name": "excalidraw-diagram",
+      "version": "1.0.0",
+      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+      "source": "./plugins/excalidraw-diagram"
+    },
+    {
       "name": "marketplace-manager",
       "version": "1.1.0",
       "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
@@ -54,7 +60,7 @@
     },
     {
       "name": "nano-banana-pro",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "source": "./plugins/nano-banana-pro"
     },
@@ -63,12 +69,6 @@
       "version": "1.1.0",
       "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
       "source": "./plugins/k8s-sidecar-testing"
-    },
-    {
-      "name": "excalidraw-diagram",
-      "version": "1.0.0",
-      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
-      "source": "./plugins/excalidraw-diagram"
     }
   ]
 }
