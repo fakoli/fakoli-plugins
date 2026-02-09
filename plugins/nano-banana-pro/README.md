@@ -25,20 +25,51 @@ Generate, edit, and remix images using Google's Gemini 3 Pro Image Preview model
 
 ## Configuration
 
-Create a settings file at `.claude/nano-banana-pro.local.md`:
+Run `/configure` to set up your configuration interactively, or create a settings file manually at `.claude/nano-banana-pro.local.md`:
 
 ```markdown
 ---
 gemini_api_key: "your-api-key-here"
+default_model: "pro"
 default_aspect: "16:9"
 default_size: "2K"
 output_dir: "./.nanobanana/out"
+auto_optimize: "true"
+optimize_preset: "github"
+max_remix_images: "2"
+agent_retriever: "true"
+agent_planner: "true"
+agent_stylist: "true"
+agent_visualizer: "true"
+agent_critic: "true"
+critic_max_rounds: "3"
 ---
 
 # Nano Banana Pro Settings
 
 Your local configuration for image generation.
 ```
+
+An example template is included at `config/nano-banana-pro.example.md`.
+
+### Settings Reference
+
+| Setting | Values | Default | Description |
+|---------|--------|---------|-------------|
+| `gemini_api_key` | string | — | Google AI API key |
+| `default_model` | `pro`, `flash` | `pro` | Gemini model selection |
+| `default_aspect` | `1:1`, `16:9`, `4:3`, `9:16`, `3:2` | `1:1` | Default aspect ratio |
+| `default_size` | `1K`, `2K`, `4K`, `""` | `""` | Default size tier |
+| `output_dir` | path | `./.nanobanana/out` | Output directory |
+| `auto_optimize` | `true`, `false` | `true` | Auto-suggest optimization for large images |
+| `optimize_preset` | `github`, `slack`, `web`, `thumbnail` | `github` | Default optimization preset |
+| `max_remix_images` | integer | `2` | Max reference images for remix mode |
+| `agent_retriever` | `true`, `false` | `true` | Enable Retriever agent |
+| `agent_planner` | `true`, `false` | `true` | Enable Planner agent |
+| `agent_stylist` | `true`, `false` | `true` | Enable Stylist agent |
+| `agent_visualizer` | `true`, `false` | `true` | Enable Visualizer agent |
+| `agent_critic` | `true`, `false` | `true` | Enable Critic agent |
+| `critic_max_rounds` | `1`, `2`, `3` | `3` | Max critic refinement iterations |
 
 ### Alternative: Environment Variables
 
@@ -64,6 +95,16 @@ GEMINI_API_KEY="your-api-key-here"
 | `/edit-image` | Edit an existing image with instructions |
 | `/remix-url` | Create an image styled from a webpage |
 | `/optimize-image` | Reduce image size for GitHub, Slack, web |
+| `/configure` | Set up or update plugin configuration |
+
+### Configure
+
+```
+/configure              # Full setup wizard
+/configure api-key      # Just configure API key
+/configure model        # Just configure model selection
+/configure agents       # Enable/disable PaperBanana agents
+```
 
 ### Generate Image
 
@@ -143,6 +184,62 @@ See `skills/generate/references/style-templates.md` for detailed templates.
 | `1K` | ~1024px | Quick previews, drafts |
 | `2K` | ~2048px | Web-ready, social media |
 | `4K` | ~4096px | Print, high-resolution |
+
+## Model Selection
+
+Choose between two Gemini models:
+
+| Model | ID | Strengths | Best For |
+|-------|----|-----------|----------|
+| `pro` | Gemini 3 Pro | Advanced reasoning, high-fidelity text rendering | Final assets, detailed compositions |
+| `flash` | Gemini 2.5 Flash Image | Speed and efficiency, low latency | High-volume tasks, quick drafts, iteration |
+
+Set your default model in configuration (`default_model`) or override per-command with `--model`:
+
+```
+/generate-image "A hero banner" --model flash
+```
+
+## PaperBanana Agents
+
+Nano Banana Pro includes a 5-agent pipeline inspired by [Google's PaperBanana framework](https://www.marktechpost.com/2026/02/07/google-ai-introduces-paperbanana-an-agentic-framework-that-automates-publication-ready-methodology-diagrams-and-statistical-plots/) for producing publication-ready visuals.
+
+### Pipeline Architecture
+
+**Phase 1 — Planning** (sequential):
+
+1. **Retriever** — Scans your project for brand assets, colors, fonts, and reference images
+2. **Planner** — Transforms your request into a detailed visual specification (layout, components, hierarchy)
+3. **Stylist** — Applies aesthetic guidelines: exact colors, typography, mood, and design principles
+
+**Phase 2 — Refinement** (iterative loop, up to 3 rounds):
+
+4. **Visualizer** — Executes image generation using `nanobanana.py` (the only agent that creates files)
+5. **Critic** — Evaluates the output on faithfulness, conciseness, readability, and aesthetics; recommends APPROVE or REVISE
+
+### Agent Configuration
+
+Each agent can be enabled/disabled individually in your settings file:
+
+```yaml
+agent_retriever: "true"
+agent_planner: "true"
+agent_stylist: "true"
+agent_visualizer: "true"
+agent_critic: "true"
+critic_max_rounds: "3"
+```
+
+When an agent is disabled, the pipeline skips that phase. The Visualizer is always required for image generation.
+
+### How It Works
+
+The agents are orchestrated via Claude Code's Task tool. When you request an image:
+1. The Retriever searches your codebase for brand context
+2. The Planner creates a visual specification from your request + context
+3. The Stylist refines the spec into a polished generation prompt
+4. The Visualizer generates the image
+5. The Critic evaluates the result and may request up to 3 revision rounds
 
 ## Best Practices
 

@@ -20,6 +20,10 @@ Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Pre
 | `remix-url` | Create an image styled from a webpage |
 | `optimize` | Reduce image size for GitHub, Slack, web |
 
+## Model Selection
+
+Use `--model pro` (higher quality, default) or `--model flash` (faster) with any command. Set the default in your configuration via `default_model`.
+
 ## Usage
 
 ```bash
@@ -50,7 +54,22 @@ Generated image: ./banner.png (2.3MB)
 | `web` | 200KB | 1200px | Blog posts, documentation |
 | `thumbnail` | 50KB | 400px | Previews, icons |
 
+## PaperBanana Agent Pipeline
+
+This plugin includes 5 specialized agents for automated, high-quality image creation:
+
+| Phase | Agent | Role |
+|-------|-------|------|
+| Planning | [Retriever](../../agents/retriever.md) | Finds brand assets, colors, fonts in your project |
+| Planning | [Planner](../../agents/planner.md) | Creates detailed visual specifications |
+| Planning | [Stylist](../../agents/stylist.md) | Applies aesthetic guidelines and design principles |
+| Refinement | [Visualizer](../../agents/visualizer.md) | Executes image generation (only agent that writes) |
+| Refinement | [Critic](../../agents/critic.md) | Evaluates output, requests revisions (up to 3 rounds) |
+
+Agents are enabled/disabled via configuration. See `/configure agents`.
+
 ## Documentation
 
 - [README](../../README.md) - Full documentation, configuration, and troubleshooting
 - [Style Templates](references/style-templates.md) - Pre-built prompt patterns for common use cases
+- [Configure Command](../../commands/configure.md) - Plugin setup wizard

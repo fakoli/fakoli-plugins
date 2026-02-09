@@ -37,8 +37,15 @@ from typing import Any, Dict, Optional, List, Tuple
 from dotenv import dotenv_values
 
 
-MODEL = "gemini-3-pro-image-preview"
-ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
+MODEL_MAP = {
+    "pro": "gemini-3-pro-image-preview",
+    "flash": "gemini-2.5-flash-image",
+}
+
+
+def get_endpoint(model_name: str) -> str:
+    model_id = MODEL_MAP.get(model_name, MODEL_MAP["pro"])
+    return f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent"
 
 
 def parse_settings_file(path: pathlib.Path) -> Dict[str, str]:
@@ -319,6 +326,7 @@ def call_gemini(
     aspect: str,
     size: Optional[str],
     use_search: bool,
+    model: str = "pro",
 ) -> Dict[str, Any]:
     body: Dict[str, Any] = {
         "contents": [{"parts": parts}],
@@ -335,7 +343,7 @@ def call_gemini(
 
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
-        ENDPOINT,
+        get_endpoint(model),
         method="POST",
         data=data,
         headers={
@@ -393,6 +401,7 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--aspect", default=None, help='Aspect ratio like "1:1", "16:9", "4:3" (default from settings or 1:1)')
         sp.add_argument("--size", default=None, choices=["1K", "2K", "4K"], help="Image size tier (optional, default from settings)")
         sp.add_argument("--search", action="store_true", help="Enable Google Search grounding (if available)")
+        sp.add_argument("--model", default=None, choices=["pro", "flash"], help="Gemini model (pro or flash, default from settings or pro)")
 
     gen = sub.add_parser("gen", help="Generate an image from a prompt")
     gen.add_argument("--prompt", required=True, help="Text prompt")
@@ -431,6 +440,7 @@ def main(argv: List[str]) -> int:
     aspect = getattr(args, "aspect", None) or settings.get("default_aspect", "1:1")
     size = getattr(args, "size", None) or settings.get("default_size", None)
     use_search = bool(getattr(args, "search", False))
+    model = getattr(args, "model", None) or settings.get("default_model", "pro")
 
     if args.cmd == "gen":
         out_path = infer_out_path(args.out, settings)
@@ -440,6 +450,7 @@ def main(argv: List[str]) -> int:
             aspect=aspect,
             size=size,
             use_search=use_search,
+            model=model,
         )
         return process_and_save_result(resp, out_path)
 
@@ -452,6 +463,7 @@ def main(argv: List[str]) -> int:
             aspect=aspect,
             size=size,
             use_search=use_search,
+            model=model,
         )
         return process_and_save_result(resp, out_path)
 
@@ -468,9 +480,10 @@ def main(argv: List[str]) -> int:
         if icon_urls:
             ref_urls.extend(icon_urls[:1])
 
+        max_images_setting = int(settings.get("max_remix_images", str(getattr(args, "max_images", 2))))
         image_parts = download_images_as_parts(
             urls=ref_urls,
-            max_images=int(getattr(args, "max_images", 2)),
+            max_images=max_images_setting,
             max_bytes=int(getattr(args, "max_bytes", 4_000_000)),
         )
 
@@ -520,6 +533,7 @@ Design requirements:
             aspect=aspect,
             size=size,
             use_search=use_search,
+            model=model,
         )
         return process_and_save_result(resp, out_path)
 

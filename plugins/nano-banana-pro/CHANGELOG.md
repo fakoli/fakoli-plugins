@@ -5,6 +5,26 @@ All notable changes to the Nano Banana Pro plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-02-08
+
+### Added
+
+- **PaperBanana Agents** — 5-agent pipeline for automated, high-quality image creation
+  - **Retriever** — Scans project for brand assets, colors, fonts, and references
+  - **Planner** — Transforms requests into detailed visual specifications
+  - **Stylist** — Applies aesthetic guidelines, colors, typography, and design principles
+  - **Visualizer** — Executes image generation (the only agent that creates files)
+  - **Critic** — Evaluates output on faithfulness, conciseness, readability, aesthetics (up to 3 refinement rounds)
+- **Configure command** (`/configure`) — Interactive setup wizard for API key, defaults, and agents
+- **Model selection** — `--model pro` (Gemini 3 Pro) or `--model flash` (Gemini 2.5 Flash Image)
+- Example configuration template (`config/nano-banana-pro.example.md`)
+- New settings: `default_model`, `auto_optimize`, `optimize_preset`, `max_remix_images`, agent toggles, `critic_max_rounds`
+
+### Changed
+
+- `nanobanana.py` — Replaced hardcoded model/endpoint with `MODEL_MAP` and dynamic `get_endpoint()`
+- Remix mode respects `max_remix_images` setting from configuration
+
 ## [1.2.0] - 2026-02-01
 
 ### Added
