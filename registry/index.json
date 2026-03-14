@@ -1,8 +1,8 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-02-09T07:17:21Z",
-  "pluginCount": 5,
+  "generatedAt": "2026-03-14T07:06:35Z",
+  "pluginCount": 6,
   "plugins": [
     {
       "name": "rust-network-module",
@@ -24,7 +24,52 @@
         "proxy"
       ],
       "path": "plugins/rust-network-module",
-      "indexedAt": "2026-02-09T07:17:21Z"
+      "indexedAt": "2026-03-14T07:06:35Z"
+    },
+    {
+      "name": "safe-fetch",
+      "version": "1.0.0",
+      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "security",
+        "web-fetch",
+        "sanitization",
+        "prompt-injection",
+        "ssrf",
+        "mcp",
+        "web-search"
+      ],
+      "commands": "./commands",
+      "agents": "./agents",
+      "hooks": "./hooks/hooks.json",
+      "mcpServers": "./.mcp.json",
+      "path": "plugins/safe-fetch",
+      "indexedAt": "2026-03-14T07:06:35Z"
+    },
+    {
+      "name": "marketplace-manager",
+      "version": "1.1.0",
+      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "marketplace",
+        "plugin-management",
+        "registry",
+        "validation"
+      ],
+      "path": "plugins/marketplace-manager",
+      "indexedAt": "2026-03-14T07:06:35Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -45,26 +90,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-02-09T07:17:21Z"
-    },
-    {
-      "name": "marketplace-manager",
-      "version": "1.1.0",
-      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "marketplace",
-        "plugin-management",
-        "registry",
-        "validation"
-      ],
-      "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-02-09T07:17:21Z"
+      "indexedAt": "2026-03-14T07:06:35Z"
     },
     {
       "name": "nano-banana-pro",
@@ -85,7 +111,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-02-09T07:17:21Z"
+      "indexedAt": "2026-03-14T07:06:35Z"
     },
     {
       "name": "k8s-sidecar-testing",
@@ -107,7 +133,7 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-02-09T07:17:21Z"
+      "indexedAt": "2026-03-14T07:06:35Z"
     }
   ]
 }
