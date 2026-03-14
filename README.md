@@ -35,6 +35,7 @@ A curated collection of Claude Code plugins for enhanced productivity and develo
 | [excalidraw-diagram](plugins/excalidraw-diagram) | Productivity | Generate and modify Excalidraw diagrams from natural language and code analysis |
 | [safe-fetch](plugins/safe-fetch) | Security | Sanitizing web fetch — strips prompt injection vectors before content reaches the LLM |
 | [gws-plugin](plugins/gws-plugin) | Integrations | Google Workspace via gws CLI — 100 skills, 11 agents, 44 recipes across Gmail, Calendar, Drive, Docs, Sheets, and more |
+| [google-workspace](plugins/google-workspace) | Integrations | Google Workspace via gws CLI — 92 skills adapted for Claude Code, 10 personas, 40+ recipes, 10 commands |
 
 ## Categories
 

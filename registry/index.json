@@ -1,9 +1,57 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-14T19:38:02Z",
-  "pluginCount": 7,
+  "generatedAt": "2026-03-14T20:57:54Z",
+  "pluginCount": 8,
   "plugins": [
+    {
+      "name": "rust-network-module",
+      "version": "1.0.0",
+      "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "rust",
+        "networking",
+        "tokio",
+        "scaffold",
+        "async",
+        "tcp",
+        "proxy"
+      ],
+      "path": "plugins/rust-network-module",
+      "indexedAt": "2026-03-14T20:57:54Z"
+    },
+    {
+      "name": "safe-fetch",
+      "version": "1.0.0",
+      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "security",
+        "web-fetch",
+        "sanitization",
+        "prompt-injection",
+        "ssrf",
+        "mcp",
+        "web-search"
+      ],
+      "commands": "./commands",
+      "agents": "./agents",
+      "hooks": "./hooks/hooks.json",
+      "mcpServers": "./.mcp.json",
+      "path": "plugins/safe-fetch",
+      "indexedAt": "2026-03-14T20:57:54Z"
+    },
     {
       "name": "marketplace-manager",
       "version": "1.1.0",
@@ -21,7 +69,51 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-14T19:38:02Z"
+      "indexedAt": "2026-03-14T20:57:54Z"
+    },
+    {
+      "name": "excalidraw-diagram",
+      "version": "1.0.0",
+      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "excalidraw",
+        "diagram",
+        "architecture",
+        "flowchart",
+        "visualization",
+        "whiteboard"
+      ],
+      "path": "plugins/excalidraw-diagram",
+      "indexedAt": "2026-03-14T20:57:54Z"
+    },
+    {
+      "name": "google-workspace",
+      "version": "1.0.0",
+      "description": "Google Workspace integration via gws CLI — Drive, Sheets, Docs, Slides, Gmail, Calendar, Tasks, Chat, People, Keep, and 50+ workflows, personas, and recipes.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "google-workspace",
+        "gws",
+        "drive",
+        "sheets",
+        "docs",
+        "gmail",
+        "calendar",
+        "productivity"
+      ],
+      "path": "plugins/google-workspace",
+      "indexedAt": "2026-03-14T20:57:54Z"
     },
     {
       "name": "gws-plugin",
@@ -69,12 +161,12 @@
         "automation"
       ],
       "path": "plugins/gws-plugin",
-      "indexedAt": "2026-03-14T19:38:02Z"
+      "indexedAt": "2026-03-14T20:57:54Z"
     },
     {
-      "name": "rust-network-module",
-      "version": "1.0.0",
-      "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",
+      "name": "nano-banana-pro",
+      "version": "1.3.0",
+      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "author": {
         "name": "Sekou Doumbouya",
         "url": "https://github.com/fakoli"
@@ -82,63 +174,15 @@
       "repository": "https://github.com/fakoli/fakoli-plugins",
       "license": "MIT",
       "keywords": [
-        "rust",
-        "networking",
-        "tokio",
-        "scaffold",
-        "async",
-        "tcp",
-        "proxy"
+        "image-generation",
+        "ai-images",
+        "gemini",
+        "design",
+        "creative",
+        "image-optimization"
       ],
-      "path": "plugins/rust-network-module",
-      "indexedAt": "2026-03-14T19:38:02Z"
-    },
-    {
-      "name": "excalidraw-diagram",
-      "version": "1.0.0",
-      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "excalidraw",
-        "diagram",
-        "architecture",
-        "flowchart",
-        "visualization",
-        "whiteboard"
-      ],
-      "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-14T19:38:02Z"
-    },
-    {
-      "name": "safe-fetch",
-      "version": "1.0.0",
-      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "security",
-        "web-fetch",
-        "sanitization",
-        "prompt-injection",
-        "ssrf",
-        "mcp",
-        "web-search"
-      ],
-      "commands": "./commands",
-      "agents": "./agents",
-      "hooks": "./hooks/hooks.json",
-      "mcpServers": "./.mcp.json",
-      "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-14T19:38:02Z"
+      "path": "plugins/nano-banana-pro",
+      "indexedAt": "2026-03-14T20:57:54Z"
     },
     {
       "name": "k8s-sidecar-testing",
@@ -160,28 +204,7 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-03-14T19:38:02Z"
-    },
-    {
-      "name": "nano-banana-pro",
-      "version": "1.3.0",
-      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "image-generation",
-        "ai-images",
-        "gemini",
-        "design",
-        "creative",
-        "image-optimization"
-      ],
-      "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-14T19:38:02Z"
+      "indexedAt": "2026-03-14T20:57:54Z"
     }
   ]
 }

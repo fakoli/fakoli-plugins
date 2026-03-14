@@ -65,6 +65,12 @@
       "source": "./plugins/excalidraw-diagram"
     },
     {
+      "name": "google-workspace",
+      "version": "1.0.0",
+      "description": "Google Workspace integration via gws CLI — Drive, Sheets, Docs, Slides, Gmail, Calendar, Tasks, Chat, People, Keep, and 50+ workflows, personas, and recipes.",
+      "source": "./plugins/google-workspace"
+    },
+    {
       "name": "gws-plugin",
       "version": "0.2.0",
       "description": "Operate across all Google Workspace services using the gws CLI — 100 skills covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, apps script, schema introspection, agent safety, 10 role-based persona agents, and 44 automation recipes.",
