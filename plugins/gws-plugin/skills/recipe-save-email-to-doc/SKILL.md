@@ -5,6 +5,7 @@ trigger:
   - keyword: save email to doc
   - keyword: email to document
   - keyword: archive email
+version: 1.0.0
 ---
 
 # Save a Gmail Message to Google Docs

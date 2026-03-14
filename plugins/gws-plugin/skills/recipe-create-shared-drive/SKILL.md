@@ -5,6 +5,7 @@ trigger:
   - keyword: shared drive
   - keyword: create team drive
   - keyword: new shared drive
+version: 1.0.0
 ---
 
 # Create and Configure a Shared Drive

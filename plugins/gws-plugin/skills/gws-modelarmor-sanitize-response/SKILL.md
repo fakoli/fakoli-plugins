@@ -5,11 +5,12 @@ trigger:
   - keyword: sanitize response
   - keyword: modelarmor response
   - keyword: response safety
+version: 1.0.0
 ---
 
 # modelarmor +sanitize-response
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Sanitize a model response through a Model Armor template
 

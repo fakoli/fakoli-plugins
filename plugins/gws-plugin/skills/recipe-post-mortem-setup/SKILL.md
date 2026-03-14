@@ -5,6 +5,7 @@ trigger:
   - keyword: post mortem
   - keyword: incident review
   - keyword: post-mortem setup
+version: 1.0.0
 ---
 
 # Set Up Post-Mortem

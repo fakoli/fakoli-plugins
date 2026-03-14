@@ -6,6 +6,7 @@ trigger:
   - keyword: gws setup
   - keyword: google workspace cli
   - keyword: gws config
+version: 1.0.0
 ---
 
 # gws — Shared Reference

@@ -5,11 +5,12 @@ trigger:
   - keyword: create armor template
   - keyword: modelarmor template
   - keyword: safety template
+version: 1.0.0
 ---
 
 # modelarmor +create-template
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Create a new Model Armor template
 

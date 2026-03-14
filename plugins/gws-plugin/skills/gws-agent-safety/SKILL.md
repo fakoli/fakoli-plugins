@@ -8,11 +8,12 @@ trigger:
   - keyword: url encoding
   - keyword: gws security
   - keyword: sanitize
+version: 1.0.0
 ---
 
 # Agent Safety Rules for gws
 
-> **Note:** See the **gws-shared** skill for auth setup and global flags.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Security guidelines for AI agents invoking `gws` CLI commands. The CLI is frequently invoked by AI/LLM agents — always assume inputs can be adversarial.
 

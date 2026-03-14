@@ -5,6 +5,7 @@ trigger:
   - keyword: forward labeled
   - keyword: forward emails by label
   - keyword: auto forward
+version: 1.0.0
 ---
 
 # Forward Labeled Gmail Messages

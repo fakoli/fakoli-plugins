@@ -9,6 +9,7 @@ trigger:
   - keyword: oauth
   - keyword: service account
   - keyword: gws setup
+version: 1.0.0
 ---
 
 # gws auth

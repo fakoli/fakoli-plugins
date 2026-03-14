@@ -6,11 +6,12 @@ trigger:
   - keyword: files
   - keyword: google drive
   - keyword: storage
+version: 1.0.0
 ---
 
 # drive (v3)
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 ```bash
 gws drive <resource> <method> [flags]

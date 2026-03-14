@@ -5,6 +5,7 @@ trigger:
   - keyword: compare sheets
   - keyword: compare tabs
   - keyword: diff spreadsheet
+version: 1.0.0
 ---
 
 # Compare Two Google Sheets Tabs

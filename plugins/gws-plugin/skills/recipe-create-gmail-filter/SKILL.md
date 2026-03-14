@@ -5,6 +5,7 @@ trigger:
   - keyword: gmail filter
   - keyword: email filter
   - keyword: create filter
+version: 1.0.0
 ---
 
 # Create a Gmail Filter

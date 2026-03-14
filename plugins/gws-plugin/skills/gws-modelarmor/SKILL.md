@@ -6,11 +6,12 @@ trigger:
   - keyword: modelarmor
   - keyword: content safety
   - keyword: ai safety
+version: 1.0.0
 ---
 
 # modelarmor (v1)
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 ```bash
 gws modelarmor <resource> <method> [flags]

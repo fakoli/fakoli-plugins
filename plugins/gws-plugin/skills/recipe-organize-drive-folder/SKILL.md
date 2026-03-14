@@ -5,6 +5,7 @@ trigger:
   - keyword: organize drive
   - keyword: folder structure
   - keyword: organize files
+version: 1.0.0
 ---
 
 # Organize Files into Google Drive Folders

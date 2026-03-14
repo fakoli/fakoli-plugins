@@ -5,6 +5,7 @@ trigger:
   - keyword: events from sheet
   - keyword: sheet to calendar
   - keyword: import events
+version: 1.0.0
 ---
 
 # Create Calendar Events from a Sheet

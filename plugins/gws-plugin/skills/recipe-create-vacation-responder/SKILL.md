@@ -5,6 +5,7 @@ trigger:
   - keyword: vacation responder
   - keyword: out of office
   - keyword: auto reply
+version: 1.0.0
 ---
 
 # Set Up a Gmail Vacation Responder

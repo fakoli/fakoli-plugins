@@ -7,6 +7,7 @@ trigger:
   - keyword: api discovery
   - keyword: what methods
   - keyword: api parameters
+version: 1.0.0
 ---
 
 # Explore an API Before Using It

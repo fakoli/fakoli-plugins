@@ -5,11 +5,12 @@ trigger:
   - keyword: sanitize prompt
   - keyword: modelarmor prompt
   - keyword: prompt safety
+version: 1.0.0
 ---
 
 # modelarmor +sanitize-prompt
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Sanitize a user prompt through a Model Armor template
 

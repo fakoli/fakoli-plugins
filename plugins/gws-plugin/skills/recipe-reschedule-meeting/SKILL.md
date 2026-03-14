@@ -5,6 +5,7 @@ trigger:
   - keyword: reschedule meeting
   - keyword: move meeting
   - keyword: change meeting time
+version: 1.0.0
 ---
 
 # Reschedule a Google Calendar Meeting

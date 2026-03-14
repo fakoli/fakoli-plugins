@@ -5,11 +5,12 @@ trigger:
   - keyword: sales ops
   - keyword: sales operations
   - keyword: deal tracking
+version: 1.0.0
 ---
 
 # Sales Operations
 
-> **PREREQUISITE:** Load the following utility skills to operate as this persona: `gws-gmail`, `gws-calendar`, `gws-sheets`, `gws-drive`
+> **Related skills:** This persona uses the following service skills for detailed API reference: `gws-gmail`, `gws-calendar`, `gws-sheets`, `gws-drive`
 
 Manage sales workflows — track deals, schedule calls, client comms.
 

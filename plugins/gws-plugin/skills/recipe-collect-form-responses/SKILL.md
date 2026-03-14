@@ -5,6 +5,7 @@ trigger:
   - keyword: form responses
   - keyword: collect responses
   - keyword: check form
+version: 1.0.0
 ---
 
 # Check Form Responses

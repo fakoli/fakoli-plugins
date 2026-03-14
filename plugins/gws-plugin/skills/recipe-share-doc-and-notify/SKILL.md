@@ -5,6 +5,7 @@ trigger:
   - keyword: share doc
   - keyword: share and notify
   - keyword: share document
+version: 1.0.0
 ---
 
 # Share a Google Doc and Notify Collaborators

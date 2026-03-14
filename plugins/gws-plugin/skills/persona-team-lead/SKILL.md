@@ -5,11 +5,12 @@ trigger:
   - keyword: team lead
   - keyword: team leader
   - keyword: lead team
+version: 1.0.0
 ---
 
 # Team Lead
 
-> **PREREQUISITE:** Load the following utility skills to operate as this persona: `gws-calendar`, `gws-gmail`, `gws-chat`, `gws-drive`, `gws-sheets`
+> **Related skills:** This persona uses the following service skills for detailed API reference: `gws-calendar`, `gws-gmail`, `gws-chat`, `gws-drive`, `gws-sheets`
 
 Lead a team — run standups, coordinate tasks, and communicate.
 

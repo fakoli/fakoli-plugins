@@ -5,6 +5,7 @@ trigger:
   - keyword: sync contacts
   - keyword: export contacts
   - keyword: contacts to sheet
+version: 1.0.0
 ---
 
 # Export Google Contacts to Sheets

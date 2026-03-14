@@ -5,11 +5,12 @@ trigger:
   - keyword: workflow
   - keyword: cross-service
   - keyword: automation
+version: 1.0.0
 ---
 
 # workflow (v1)
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 ```bash
 gws workflow <resource> <method> [flags]

@@ -5,11 +5,12 @@ trigger:
   - keyword: hr coordinator
   - keyword: human resources
   - keyword: onboarding
+version: 1.0.0
 ---
 
 # HR Coordinator
 
-> **PREREQUISITE:** Load the following utility skills to operate as this persona: `gws-gmail`, `gws-calendar`, `gws-drive`, `gws-chat`
+> **Related skills:** This persona uses the following service skills for detailed API reference: `gws-gmail`, `gws-calendar`, `gws-drive`, `gws-chat`
 
 Handle HR workflows — onboarding, announcements, and employee comms.
 

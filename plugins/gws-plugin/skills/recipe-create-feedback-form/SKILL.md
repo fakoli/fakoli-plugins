@@ -5,6 +5,7 @@ trigger:
   - keyword: feedback form
   - keyword: create survey
   - keyword: feedback survey
+version: 1.0.0
 ---
 
 # Create and Share a Google Form

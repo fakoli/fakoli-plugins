@@ -7,6 +7,7 @@ trigger:
   - keyword: watch gmail
   - keyword: monitor inbox
   - keyword: email stream
+version: 1.0.0
 ---
 
 # Stream Inbox in Real-Time

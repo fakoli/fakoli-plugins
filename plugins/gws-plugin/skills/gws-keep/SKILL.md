@@ -5,11 +5,12 @@ trigger:
   - keyword: keep
   - keyword: google keep
   - keyword: notes
+version: 1.0.0
 ---
 
 # keep (v1)
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 ```bash
 gws keep <resource> <method> [flags]

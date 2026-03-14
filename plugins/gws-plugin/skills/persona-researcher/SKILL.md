@@ -5,11 +5,12 @@ trigger:
   - keyword: researcher
   - keyword: research
   - keyword: organize research
+version: 1.0.0
 ---
 
 # Researcher
 
-> **PREREQUISITE:** Load the following utility skills to operate as this persona: `gws-drive`, `gws-docs`, `gws-sheets`, `gws-gmail`
+> **Related skills:** This persona uses the following service skills for detailed API reference: `gws-drive`, `gws-docs`, `gws-sheets`, `gws-gmail`
 
 Organize research — manage references, notes, and collaboration.
 

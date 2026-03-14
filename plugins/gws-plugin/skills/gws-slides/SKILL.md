@@ -5,11 +5,12 @@ trigger:
   - keyword: slides
   - keyword: presentation
   - keyword: google slides
+version: 1.0.0
 ---
 
 # slides (v1)
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 ```bash
 gws slides <resource> <method> [flags]

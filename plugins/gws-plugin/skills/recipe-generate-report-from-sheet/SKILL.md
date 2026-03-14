@@ -5,6 +5,7 @@ trigger:
   - keyword: report from sheet
   - keyword: generate report
   - keyword: sheet to doc
+version: 1.0.0
 ---
 
 # Generate a Google Docs Report from Sheet Data

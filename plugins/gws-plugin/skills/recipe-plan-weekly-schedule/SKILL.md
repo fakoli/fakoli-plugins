@@ -5,6 +5,7 @@ trigger:
   - keyword: plan week
   - keyword: weekly schedule
   - keyword: weekly planning
+version: 1.0.0
 ---
 
 # Plan Your Weekly Google Calendar Schedule

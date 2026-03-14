@@ -6,11 +6,12 @@ trigger:
   - keyword: today calendar
   - keyword: upcoming events
   - keyword: schedule today
+version: 1.0.0
 ---
 
 # calendar +agenda
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Show upcoming events across all calendars
 

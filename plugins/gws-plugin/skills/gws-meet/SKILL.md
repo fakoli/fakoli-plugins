@@ -6,11 +6,12 @@ trigger:
   - keyword: google meet
   - keyword: video call
   - keyword: conference
+version: 1.0.0
 ---
 
 # meet (v2)
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 ```bash
 gws meet <resource> <method> [flags]

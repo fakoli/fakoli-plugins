@@ -5,6 +5,7 @@ trigger:
   - keyword: bulk download
   - keyword: download folder
   - keyword: download drive folder
+version: 1.0.0
 ---
 
 # Bulk Download Drive Folder

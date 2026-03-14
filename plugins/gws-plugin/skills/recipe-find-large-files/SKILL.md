@@ -5,6 +5,7 @@ trigger:
   - keyword: find large files
   - keyword: storage usage
   - keyword: big files drive
+version: 1.0.0
 ---
 
 # Find Largest Files in Drive

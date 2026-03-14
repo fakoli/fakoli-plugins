@@ -5,11 +5,12 @@ trigger:
   - keyword: subscribe events
   - keyword: event subscription
   - keyword: watch events
+version: 1.0.0
 ---
 
 # events +subscribe
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Subscribe to Workspace events and stream them as NDJSON
 

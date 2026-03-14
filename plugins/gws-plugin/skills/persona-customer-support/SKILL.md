@@ -5,11 +5,12 @@ trigger:
   - keyword: customer support
   - keyword: support agent
   - keyword: support tickets
+version: 1.0.0
 ---
 
 # Customer Support Agent
 
-> **PREREQUISITE:** Load the following utility skills to operate as this persona: `gws-gmail`, `gws-sheets`, `gws-chat`, `gws-calendar`
+> **Related skills:** This persona uses the following service skills for detailed API reference: `gws-gmail`, `gws-sheets`, `gws-chat`, `gws-calendar`
 
 Manage customer support — track tickets, respond, escalate issues.
 

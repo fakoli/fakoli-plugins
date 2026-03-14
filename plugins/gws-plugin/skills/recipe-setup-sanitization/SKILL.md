@@ -7,6 +7,7 @@ trigger:
   - keyword: prompt injection protection
   - keyword: configure sanitize
   - keyword: content safety setup
+version: 1.0.0
 ---
 
 # Set Up Global Response Sanitization

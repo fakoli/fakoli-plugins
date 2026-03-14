@@ -5,11 +5,12 @@ trigger:
   - keyword: upload file
   - keyword: upload to drive
   - keyword: drive upload
+version: 1.0.0
 ---
 
 # drive +upload
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Upload a file with automatic metadata
 

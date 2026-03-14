@@ -5,11 +5,12 @@ trigger:
   - keyword: read sheet
   - keyword: get spreadsheet data
   - keyword: sheets read
+version: 1.0.0
 ---
 
 # sheets +read
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Read values from a spreadsheet
 
