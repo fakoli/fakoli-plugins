@@ -80,7 +80,7 @@ uv run --project "${CLAUDE_PLUGIN_ROOT}/scripts" notebooklm login
 - `notebooklm history` — display conversation history (read-only)
 - `notebooklm source add` — add sources
 
-**Ask before running:**
+- `notebooklm notebook delete` — destructive
 - `notebooklm delete` — destructive
 - `notebooklm generate *` — long-running, may fail
 - `notebooklm download *` — writes to filesystem
