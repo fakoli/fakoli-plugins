@@ -21,7 +21,7 @@ Options:
    ```bash
    uv run --project "${CLAUDE_PLUGIN_ROOT}/scripts" notebooklm --help
    ```
-   If this fails, tell the user to install `notebooklm-py` (e.g., `uv pip install notebooklm-py`).
+   If this fails, tell the user to restore the plugin's environment: `uv sync --project "${CLAUDE_PLUGIN_ROOT}/scripts"`.
 
 2. **Check current status** (skip login if already authenticated and no `--reauth`):
    ```bash
