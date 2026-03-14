@@ -1,0 +1,24 @@
+{
+  "name": "safe-fetch",
+  "version": "1.0.0",
+  "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "security",
+    "web-fetch",
+    "sanitization",
+    "prompt-injection",
+    "ssrf",
+    "mcp",
+    "web-search"
+  ],
+  "commands": "./commands",
+  "agents": "./agents",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
+}
