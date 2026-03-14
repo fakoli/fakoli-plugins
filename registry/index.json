@@ -1,9 +1,28 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-14T07:06:35Z",
+  "generatedAt": "2026-03-14T07:15:59Z",
   "pluginCount": 6,
   "plugins": [
+    {
+      "name": "marketplace-manager",
+      "version": "1.1.0",
+      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "marketplace",
+        "plugin-management",
+        "registry",
+        "validation"
+      ],
+      "path": "plugins/marketplace-manager",
+      "indexedAt": "2026-03-14T07:15:59Z"
+    },
     {
       "name": "rust-network-module",
       "version": "1.0.0",
@@ -24,7 +43,28 @@
         "proxy"
       ],
       "path": "plugins/rust-network-module",
-      "indexedAt": "2026-03-14T07:06:35Z"
+      "indexedAt": "2026-03-14T07:15:59Z"
+    },
+    {
+      "name": "excalidraw-diagram",
+      "version": "1.0.0",
+      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "excalidraw",
+        "diagram",
+        "architecture",
+        "flowchart",
+        "visualization",
+        "whiteboard"
+      ],
+      "path": "plugins/excalidraw-diagram",
+      "indexedAt": "2026-03-14T07:15:59Z"
     },
     {
       "name": "safe-fetch",
@@ -50,68 +90,7 @@
       "hooks": "./hooks/hooks.json",
       "mcpServers": "./.mcp.json",
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-14T07:06:35Z"
-    },
-    {
-      "name": "marketplace-manager",
-      "version": "1.1.0",
-      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "marketplace",
-        "plugin-management",
-        "registry",
-        "validation"
-      ],
-      "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-14T07:06:35Z"
-    },
-    {
-      "name": "excalidraw-diagram",
-      "version": "1.0.0",
-      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "excalidraw",
-        "diagram",
-        "architecture",
-        "flowchart",
-        "visualization",
-        "whiteboard"
-      ],
-      "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-14T07:06:35Z"
-    },
-    {
-      "name": "nano-banana-pro",
-      "version": "1.3.0",
-      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "image-generation",
-        "ai-images",
-        "gemini",
-        "design",
-        "creative",
-        "image-optimization"
-      ],
-      "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-14T07:06:35Z"
+      "indexedAt": "2026-03-14T07:15:59Z"
     },
     {
       "name": "k8s-sidecar-testing",
@@ -133,7 +112,28 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-03-14T07:06:35Z"
+      "indexedAt": "2026-03-14T07:15:59Z"
+    },
+    {
+      "name": "nano-banana-pro",
+      "version": "1.3.0",
+      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "image-generation",
+        "ai-images",
+        "gemini",
+        "design",
+        "creative",
+        "image-optimization"
+      ],
+      "path": "plugins/nano-banana-pro",
+      "indexedAt": "2026-03-14T07:15:59Z"
     }
   ]
 }
