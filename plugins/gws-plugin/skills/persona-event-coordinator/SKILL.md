@@ -5,11 +5,12 @@ trigger:
   - keyword: event coordinator
   - keyword: plan event
   - keyword: event planning
+version: 1.0.0
 ---
 
 # Event Coordinator
 
-> **PREREQUISITE:** Load the following utility skills to operate as this persona: `gws-calendar`, `gws-gmail`, `gws-drive`, `gws-chat`, `gws-sheets`
+> **Related skills:** This persona uses the following service skills for detailed API reference: `gws-calendar`, `gws-gmail`, `gws-drive`, `gws-chat`, `gws-sheets`
 
 Plan and manage events — scheduling, invitations, and logistics.
 

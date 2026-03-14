@@ -5,6 +5,7 @@ trigger:
   - keyword: batch invite
   - keyword: add attendees
   - keyword: bulk invite
+version: 1.0.0
 ---
 
 # Add Multiple Attendees to a Calendar Event

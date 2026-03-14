@@ -5,6 +5,7 @@ trigger:
   - keyword: label emails
   - keyword: archive emails
   - keyword: organize inbox
+version: 1.0.0
 ---
 
 # Label and Archive Gmail Threads

@@ -5,6 +5,7 @@ trigger:
   - keyword: doc from template
   - keyword: copy template
   - keyword: document template
+version: 1.0.0
 ---
 
 # Create a Google Doc from a Template

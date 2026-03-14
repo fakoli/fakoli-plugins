@@ -5,11 +5,12 @@ trigger:
   - keyword: content creator
   - keyword: create content
   - keyword: content writing
+version: 1.0.0
 ---
 
 # Content Creator
 
-> **PREREQUISITE:** Load the following utility skills to operate as this persona: `gws-docs`, `gws-drive`, `gws-gmail`, `gws-chat`, `gws-slides`
+> **Related skills:** This persona uses the following service skills for detailed API reference: `gws-docs`, `gws-drive`, `gws-gmail`, `gws-chat`, `gws-slides`
 
 Create, organize, and distribute content across Workspace.
 

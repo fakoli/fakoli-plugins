@@ -5,6 +5,7 @@ trigger:
   - keyword: overdue tasks
   - keyword: past due
   - keyword: missed deadlines
+version: 1.0.0
 ---
 
 # Review Overdue Tasks

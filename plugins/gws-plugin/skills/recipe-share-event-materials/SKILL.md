@@ -5,6 +5,7 @@ trigger:
   - keyword: share event materials
   - keyword: meeting materials
   - keyword: share with attendees
+version: 1.0.0
 ---
 
 # Share Files with Meeting Attendees

@@ -5,6 +5,7 @@ trigger:
   - keyword: email drive link
   - keyword: share file link
   - keyword: send file link
+version: 1.0.0
 ---
 
 # Email a Google Drive File Link

@@ -6,11 +6,12 @@ trigger:
   - keyword: gmail send
   - keyword: compose email
   - keyword: write email
+version: 1.0.0
 ---
 
 # gmail +send
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Send an email
 

@@ -5,11 +5,12 @@ trigger:
   - keyword: forward email
   - keyword: gmail forward
   - keyword: fwd email
+version: 1.0.0
 ---
 
 # gmail +forward
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Forward a message to new recipients
 

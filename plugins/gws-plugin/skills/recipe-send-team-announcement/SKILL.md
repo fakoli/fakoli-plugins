@@ -5,6 +5,7 @@ trigger:
   - keyword: team announcement
   - keyword: announce to team
   - keyword: broadcast message
+version: 1.0.0
 ---
 
 # Announce via Gmail and Google Chat

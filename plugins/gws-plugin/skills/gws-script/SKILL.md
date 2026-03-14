@@ -7,11 +7,12 @@ trigger:
   - keyword: deploy script
   - keyword: google apps script
   - keyword: gws script
+version: 1.0.0
 ---
 
 # gws script
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Deploy and manage Google Apps Script projects using the `gws` CLI.
 

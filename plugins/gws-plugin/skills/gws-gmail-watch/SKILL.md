@@ -5,11 +5,12 @@ trigger:
   - keyword: gmail watch
   - keyword: email notifications
   - keyword: watch inbox
+version: 1.0.0
 ---
 
 # gmail +watch
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Watch for new emails and stream them as NDJSON
 

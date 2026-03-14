@@ -5,6 +5,7 @@ trigger:
   - keyword: find free time
   - keyword: free slots
   - keyword: availability
+version: 1.0.0
 ---
 
 # Find Free Time Across Calendars

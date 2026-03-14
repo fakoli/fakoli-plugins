@@ -5,11 +5,12 @@ trigger:
   - keyword: project manager
   - keyword: project management
   - keyword: track project
+version: 1.0.0
 ---
 
 # Project Manager
 
-> **PREREQUISITE:** Load the following utility skills to operate as this persona: `gws-drive`, `gws-sheets`, `gws-calendar`, `gws-gmail`, `gws-chat`
+> **Related skills:** This persona uses the following service skills for detailed API reference: `gws-drive`, `gws-sheets`, `gws-calendar`, `gws-gmail`, `gws-chat`
 
 Coordinate projects — track tasks, schedule meetings, and share docs.
 

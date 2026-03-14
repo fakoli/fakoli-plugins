@@ -5,6 +5,7 @@ trigger:
   - keyword: create presentation
   - keyword: new slides
   - keyword: make presentation
+version: 1.0.0
 ---
 
 # Create a Google Slides Presentation

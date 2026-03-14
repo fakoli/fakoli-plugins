@@ -5,11 +5,12 @@ trigger:
   - keyword: meeting prep
   - keyword: prepare for meeting
   - keyword: meeting preparation
+version: 1.0.0
 ---
 
 # workflow +meeting-prep
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Prepare for your next meeting: agenda, attendees, and linked docs
 

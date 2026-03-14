@@ -5,11 +5,12 @@ trigger:
   - keyword: send chat
   - keyword: chat message
   - keyword: post in chat
+version: 1.0.0
 ---
 
 # chat +send
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Send a message to a space
 

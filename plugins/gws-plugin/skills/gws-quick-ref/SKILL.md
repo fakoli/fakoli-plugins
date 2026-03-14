@@ -7,11 +7,12 @@ trigger:
   - keyword: gws flags
   - keyword: gws cheatsheet
   - keyword: how to use gws
+version: 1.0.0
 ---
 
 # gws Quick Reference
 
-> **Note:** See the **gws-shared** skill for auth setup and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Quick reference card for the `gws` CLI syntax and patterns.
 

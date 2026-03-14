@@ -5,6 +5,7 @@ trigger:
   - keyword: meet attendance
   - keyword: meeting participants
   - keyword: who attended
+version: 1.0.0
 ---
 
 # Review Google Meet Attendance

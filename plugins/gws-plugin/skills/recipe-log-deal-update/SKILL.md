@@ -5,6 +5,7 @@ trigger:
   - keyword: log deal
   - keyword: deal update
   - keyword: sales log
+version: 1.0.0
 ---
 
 # Log Deal Update to Sheet

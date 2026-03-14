@@ -5,6 +5,7 @@ trigger:
   - keyword: copy sheet tab
   - keyword: new month sheet
   - keyword: duplicate tab
+version: 1.0.0
 ---
 
 # Copy a Google Sheet Tab for a New Month

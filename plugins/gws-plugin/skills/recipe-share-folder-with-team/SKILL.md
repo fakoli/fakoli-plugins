@@ -5,6 +5,7 @@ trigger:
   - keyword: share folder
   - keyword: team folder access
   - keyword: folder permissions
+version: 1.0.0
 ---
 
 # Share a Google Drive Folder with a Team

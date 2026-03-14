@@ -5,11 +5,12 @@ trigger:
   - keyword: sheets
   - keyword: spreadsheet
   - keyword: google sheets
+version: 1.0.0
 ---
 
 # sheets (v4)
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 ```bash
 gws sheets <resource> <method> [flags]

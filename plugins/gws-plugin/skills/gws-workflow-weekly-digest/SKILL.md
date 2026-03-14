@@ -5,11 +5,12 @@ trigger:
   - keyword: weekly digest
   - keyword: weekly summary
   - keyword: week recap
+version: 1.0.0
 ---
 
 # workflow +weekly-digest
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Weekly summary: this week's meetings + unread email count
 

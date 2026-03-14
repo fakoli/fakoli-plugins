@@ -5,6 +5,7 @@ trigger:
   - keyword: block focus time
   - keyword: deep work
   - keyword: focus block
+version: 1.0.0
 ---
 
 # Block Focus Time on Google Calendar

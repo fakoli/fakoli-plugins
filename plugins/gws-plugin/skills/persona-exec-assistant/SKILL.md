@@ -5,11 +5,12 @@ trigger:
   - keyword: executive assistant
   - keyword: manage schedule
   - keyword: exec assistant
+version: 1.0.0
 ---
 
 # Executive Assistant
 
-> **PREREQUISITE:** Load the following utility skills to operate as this persona: `gws-gmail`, `gws-calendar`, `gws-drive`, `gws-chat`
+> **Related skills:** This persona uses the following service skills for detailed API reference: `gws-gmail`, `gws-calendar`, `gws-drive`, `gws-chat`
 
 Manage an executive's schedule, inbox, and communications.
 

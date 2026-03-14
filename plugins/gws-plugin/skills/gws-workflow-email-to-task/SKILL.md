@@ -5,11 +5,12 @@ trigger:
   - keyword: email to task
   - keyword: convert email
   - keyword: email action items
+version: 1.0.0
 ---
 
 # workflow +email-to-task
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Convert a Gmail message into a Google Tasks entry
 

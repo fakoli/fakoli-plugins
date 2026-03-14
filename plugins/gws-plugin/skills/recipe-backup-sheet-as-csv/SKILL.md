@@ -5,6 +5,7 @@ trigger:
   - keyword: export spreadsheet csv
   - keyword: backup sheet
   - keyword: sheet to csv
+version: 1.0.0
 ---
 
 # Export a Google Sheet as CSV

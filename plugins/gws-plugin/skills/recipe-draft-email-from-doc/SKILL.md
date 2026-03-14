@@ -5,6 +5,7 @@ trigger:
   - keyword: email from doc
   - keyword: doc to email
   - keyword: draft from document
+version: 1.0.0
 ---
 
 # Draft a Gmail Message from a Google Doc

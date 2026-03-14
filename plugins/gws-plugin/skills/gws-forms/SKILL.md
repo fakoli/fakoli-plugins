@@ -6,11 +6,12 @@ trigger:
   - keyword: google forms
   - keyword: survey
   - keyword: questionnaire
+version: 1.0.0
 ---
 
 # forms (v1)
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 ```bash
 gws forms <resource> <method> [flags]

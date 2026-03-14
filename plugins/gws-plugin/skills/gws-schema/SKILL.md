@@ -7,11 +7,12 @@ trigger:
   - keyword: api schema
   - keyword: discover method
   - keyword: what parameters
+version: 1.0.0
 ---
 
 # gws schema
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Introspect any Google Workspace API schema at runtime. Use this **before** executing unfamiliar API calls to understand the exact parameters, request body structure, and response types.
 

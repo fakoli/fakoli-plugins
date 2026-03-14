@@ -5,6 +5,7 @@ trigger:
   - keyword: watch drive
   - keyword: drive notifications
   - keyword: file change alerts
+version: 1.0.0
 ---
 
 # Watch for Drive Changes

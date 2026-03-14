@@ -6,11 +6,12 @@ trigger:
   - keyword: workspace reports
   - keyword: audit logs
   - keyword: usage reports
+version: 1.0.0
 ---
 
 # admin-reports (reports_v1)
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 ```bash
 gws admin-reports <resource> <method> [flags]

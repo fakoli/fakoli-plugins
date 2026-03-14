@@ -5,11 +5,12 @@ trigger:
   - keyword: reply all
   - keyword: gmail reply all
   - keyword: respond to all
+version: 1.0.0
 ---
 
 # gmail +reply-all
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Reply-all to a message (handles threading automatically)
 

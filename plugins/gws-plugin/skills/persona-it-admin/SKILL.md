@@ -5,11 +5,12 @@ trigger:
   - keyword: it admin
   - keyword: it administrator
   - keyword: workspace admin
+version: 1.0.0
 ---
 
 # IT Administrator
 
-> **PREREQUISITE:** Load the following utility skills to operate as this persona: `gws-gmail`, `gws-drive`, `gws-calendar`
+> **Related skills:** This persona uses the following service skills for detailed API reference: `gws-gmail`, `gws-drive`, `gws-calendar`
 
 Administer IT — monitor security and configure Workspace.
 

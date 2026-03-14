@@ -6,11 +6,12 @@ trigger:
   - keyword: events
   - keyword: schedule
   - keyword: meetings
+version: 1.0.0
 ---
 
 # calendar (v3)
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 ```bash
 gws calendar <resource> <method> [flags]

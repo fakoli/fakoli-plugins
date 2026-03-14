@@ -5,6 +5,7 @@ trigger:
   - keyword: save attachments
   - keyword: email attachments
   - keyword: download attachments
+version: 1.0.0
 ---
 
 # Save Gmail Attachments to Google Drive

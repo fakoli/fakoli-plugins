@@ -5,11 +5,12 @@ trigger:
   - keyword: write doc
   - keyword: create document
   - keyword: docs write
+version: 1.0.0
 ---
 
 # docs +write
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Append text to a document
 

@@ -128,7 +128,9 @@ Curated multi-step workflows for common tasks (41 official + 3 plugin-original):
 | team-lead | Team Lead | blue |
 | researcher | Researcher | magenta |
 
-## Slash Commands (6)
+## Slash Commands (15)
+
+### Quick Actions
 
 | Command | Description |
 |---------|-------------|
@@ -138,6 +140,20 @@ Curated multi-step workflows for common tasks (41 official + 3 plugin-original):
 | `/triage` | Show unread inbox summary |
 | `/standup` | Generate a standup report |
 | `/meeting-prep` | Prepare for your next meeting |
+
+### Service Commands
+
+| Command | Description |
+|---------|-------------|
+| `/gws-drive` | Search, upload, download, share Drive files |
+| `/gws-sheets` | Read, write, append spreadsheet data |
+| `/gws-docs` | Read, create, append to Google Docs |
+| `/gws-slides` | Read and create presentations |
+| `/gws-tasks` | List, create, complete tasks |
+| `/gws-chat` | Send messages, list Chat spaces |
+| `/gws-people` | Search contacts and profiles |
+| `/gws-keep` | List and read Keep notes |
+| `/gws-standup` | Cross-service standup report |
 
 ## Installation
 

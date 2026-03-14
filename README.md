@@ -34,7 +34,7 @@ A curated collection of Claude Code plugins for enhanced productivity and develo
 | [rust-network-module](plugins/rust-network-module) | Productivity | Scaffold Rust async networking modules with Tokio patterns |
 | [excalidraw-diagram](plugins/excalidraw-diagram) | Productivity | Generate and modify Excalidraw diagrams from natural language and code analysis |
 | [safe-fetch](plugins/safe-fetch) | Security | Sanitizing web fetch — strips prompt injection vectors before content reaches the LLM |
-| [gws-plugin](plugins/gws-plugin) | Integrations | Google Workspace via gws CLI — 100 skills, 11 agents, 44 recipes across Gmail, Calendar, Drive, Docs, Sheets, and more |
+| [gws-plugin](plugins/gws-plugin) | Integrations | Google Workspace via gws CLI — 100 skills, 15 commands, 11 agents, 44 recipes across Gmail, Calendar, Drive, Docs, Sheets, and more |
 
 ## Categories
 

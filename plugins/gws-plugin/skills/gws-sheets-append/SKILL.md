@@ -6,11 +6,12 @@ trigger:
   - keyword: add row
   - keyword: sheets append
   - keyword: add to spreadsheet
+version: 1.0.0
 ---
 
 # sheets +append
 
-> **Note:** See the **gws-shared** skill for auth setup, global flags, and security rules.
+> **Reference:** See the `gws-shared` skill for auth, global flags, and security rules.
 
 Append a row to a spreadsheet
 
