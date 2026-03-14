@@ -46,7 +46,7 @@ Options:
 3. **Wait for research and import**:
    ```bash
    uv run --project "${CLAUDE_PLUGIN_ROOT}/scripts" notebooklm research wait --import-all
-   ```
+   uv run --project "${CLAUDE_PLUGIN_ROOT}/scripts" notebooklm research wait --import-all --timeout 1800
    This waits for all research results to be found and imported as notebook sources.
 
 4. **Verify sources were added**:
