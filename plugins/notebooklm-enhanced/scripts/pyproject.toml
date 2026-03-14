@@ -1,0 +1,8 @@
+[project]
+name = "notebooklm-enhanced-scripts"
+version = "0.1.0"
+description = "Script dependencies for notebooklm-enhanced plugin"
+requires-python = ">=3.10"
+dependencies = [
+    "notebooklm-py>=0.3.4,<1.0",
+]
