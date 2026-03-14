@@ -1,28 +1,9 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-14T07:15:59Z",
-  "pluginCount": 6,
+  "generatedAt": "2026-03-14T18:08:10Z",
+  "pluginCount": 7,
   "plugins": [
-    {
-      "name": "marketplace-manager",
-      "version": "1.1.0",
-      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "marketplace",
-        "plugin-management",
-        "registry",
-        "validation"
-      ],
-      "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-14T07:15:59Z"
-    },
     {
       "name": "rust-network-module",
       "version": "1.0.0",
@@ -43,28 +24,7 @@
         "proxy"
       ],
       "path": "plugins/rust-network-module",
-      "indexedAt": "2026-03-14T07:15:59Z"
-    },
-    {
-      "name": "excalidraw-diagram",
-      "version": "1.0.0",
-      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "excalidraw",
-        "diagram",
-        "architecture",
-        "flowchart",
-        "visualization",
-        "whiteboard"
-      ],
-      "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-14T07:15:59Z"
+      "indexedAt": "2026-03-14T18:08:10Z"
     },
     {
       "name": "safe-fetch",
@@ -90,7 +50,116 @@
       "hooks": "./hooks/hooks.json",
       "mcpServers": "./.mcp.json",
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-14T07:15:59Z"
+      "indexedAt": "2026-03-14T18:08:10Z"
+    },
+    {
+      "name": "marketplace-manager",
+      "version": "1.1.0",
+      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "marketplace",
+        "plugin-management",
+        "registry",
+        "validation"
+      ],
+      "path": "plugins/marketplace-manager",
+      "indexedAt": "2026-03-14T18:08:10Z"
+    },
+    {
+      "name": "excalidraw-diagram",
+      "version": "1.0.0",
+      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "excalidraw",
+        "diagram",
+        "architecture",
+        "flowchart",
+        "visualization",
+        "whiteboard"
+      ],
+      "path": "plugins/excalidraw-diagram",
+      "indexedAt": "2026-03-14T18:08:10Z"
+    },
+    {
+      "name": "gws-plugin",
+      "version": "0.2.0",
+      "description": "Operate across all Google Workspace services using the gws CLI — 100 skills covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, apps script, schema introspection, agent safety, 10 role-based persona agents, and 44 automation recipes.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "google-workspace",
+        "gmail",
+        "calendar",
+        "drive",
+        "sheets",
+        "docs",
+        "slides",
+        "tasks",
+        "chat",
+        "meet",
+        "forms",
+        "classroom",
+        "keep",
+        "people",
+        "events",
+        "admin-reports",
+        "modelarmor",
+        "productivity",
+        "gws",
+        "persona",
+        "executive-assistant",
+        "project-manager",
+        "hr-coordinator",
+        "sales-ops",
+        "it-admin",
+        "content-creator",
+        "customer-support",
+        "event-coordinator",
+        "team-lead",
+        "researcher",
+        "recipe",
+        "workflow",
+        "automation"
+      ],
+      "path": "plugins/gws-plugin",
+      "indexedAt": "2026-03-14T18:08:10Z"
+    },
+    {
+      "name": "nano-banana-pro",
+      "version": "1.3.0",
+      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "image-generation",
+        "ai-images",
+        "gemini",
+        "design",
+        "creative",
+        "image-optimization"
+      ],
+      "path": "plugins/nano-banana-pro",
+      "indexedAt": "2026-03-14T18:08:10Z"
     },
     {
       "name": "k8s-sidecar-testing",
@@ -112,28 +181,7 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-03-14T07:15:59Z"
-    },
-    {
-      "name": "nano-banana-pro",
-      "version": "1.3.0",
-      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "image-generation",
-        "ai-images",
-        "gemini",
-        "design",
-        "creative",
-        "image-optimization"
-      ],
-      "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-14T07:15:59Z"
+      "indexedAt": "2026-03-14T18:08:10Z"
     }
   ]
 }

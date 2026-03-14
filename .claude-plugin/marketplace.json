@@ -65,6 +65,12 @@
       "source": "./plugins/excalidraw-diagram"
     },
     {
+      "name": "gws-plugin",
+      "version": "0.2.0",
+      "description": "Operate across all Google Workspace services using the gws CLI — 100 skills covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, apps script, schema introspection, agent safety, 10 role-based persona agents, and 44 automation recipes.",
+      "source": "./plugins/gws-plugin"
+    },
+    {
       "name": "nano-banana-pro",
       "version": "1.3.0",
       "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
