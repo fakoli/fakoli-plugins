@@ -41,6 +41,12 @@
   ],
   "plugins": [
     {
+      "name": "notebooklm-enhanced",
+      "version": "0.1.0",
+      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+      "source": "./plugins/notebooklm-enhanced"
+    },
+    {
       "name": "rust-network-module",
       "version": "1.0.0",
       "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",

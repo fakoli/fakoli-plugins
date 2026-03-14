@@ -1,0 +1,21 @@
+{
+  "name": "notebooklm-enhanced",
+  "version": "0.1.0",
+  "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+  "author": {
+    "name": "fakoli-plugins"
+  },
+  "repository": "https://github.com/fakoli-plugins/notebooklm-enhanced",
+  "license": "MIT",
+  "keywords": [
+    "notebooklm",
+    "google",
+    "research",
+    "podcast",
+    "automation",
+    "notebook",
+    "quiz",
+    "slides",
+    "rpc"
+  ]
+}
