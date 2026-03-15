@@ -200,7 +200,7 @@ The schema `schemas/plugin.schema.json` is the **single source of truth** for al
 | `schemas/mcp.schema.json` | MCP configs (`.mcp.json`) |
 | `schemas/skill.schema.json` | Skill frontmatter (`SKILL.md` YAML) |
 
-All plugin.json and hooks.json files include `$schema` references for IDE autocomplete/validation.
+**Note:** Do not add `$schema` to plugin.json or hooks.json — Claude Code rejects unrecognized keys. Internal files (index.json, marketplace.json) may use `$schema` for IDE validation since Claude Code does not parse them.
 
 ### Schema Drift Detection
 

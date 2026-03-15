@@ -1,7 +1,6 @@
 {
-  "$schema": "../../../schemas/plugin.schema.json",
   "name": "marketplace-manager",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
   "author": {
     "name": "Sekou Doumbouya",

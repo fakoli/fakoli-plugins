@@ -1,7 +1,6 @@
 {
-  "$schema": "../../../schemas/plugin.schema.json",
   "name": "safe-fetch",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
   "author": {
     "name": "Sekou Doumbouya",

@@ -1,7 +1,6 @@
 {
-  "$schema": "../../../schemas/plugin.schema.json",
   "name": "excalidraw-diagram",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
   "author": {
     "name": "Sekou Doumbouya",

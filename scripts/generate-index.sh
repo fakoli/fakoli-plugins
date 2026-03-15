@@ -103,11 +103,13 @@ collect_plugins() {
 
         log_info "Processing: $plugin_name"
 
-        # Read manifest and add metadata
+        # Read manifest and pick only index-allowed fields
         local plugin_entry
         plugin_entry=$(jq --arg path "$relative_path" \
             --arg indexed_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-            '. + {
+            '{name, version, description, author, repository, license, keywords, homepage}
+            | with_entries(select(.value != null))
+            | . + {
                 "path": $path,
                 "indexedAt": $indexed_at
             }' "$manifest_file")
