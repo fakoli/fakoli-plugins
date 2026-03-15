@@ -49,6 +49,19 @@ jobs:
             **Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             `;
 
+            // Ensure the label exists before using it for deduplication
+            try {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'schema-drift',
+                color: 'f9d0c4'
+              });
+            } catch (e) {
+              // 422 = already exists, which is fine
+              if (e.status !== 422) throw e;
+            }
+
             // Check for existing open issue
             const issues = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
