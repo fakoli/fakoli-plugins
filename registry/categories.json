@@ -1,39 +1,15 @@
 {
-  "generatedAt": "2026-03-15T09:32:30Z",
+  "generatedAt": "2026-03-15T09:46:10Z",
   "categories": [
     {
       "category": "uncategorized",
       "count": 8,
       "plugins": [
         {
-          "name": "notebooklm-enhanced",
-          "version": "0.1.1",
-          "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
-          "path": "plugins/notebooklm-enhanced"
-        },
-        {
-          "name": "rust-network-module",
-          "version": "1.0.1",
-          "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",
-          "path": "plugins/rust-network-module"
-        },
-        {
-          "name": "safe-fetch",
-          "version": "1.0.3",
-          "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
-          "path": "plugins/safe-fetch"
-        },
-        {
           "name": "marketplace-manager",
           "version": "1.2.2",
           "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
           "path": "plugins/marketplace-manager"
-        },
-        {
-          "name": "excalidraw-diagram",
-          "version": "1.0.1",
-          "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
-          "path": "plugins/excalidraw-diagram"
         },
         {
           "name": "gws-plugin",
@@ -42,16 +18,40 @@
           "path": "plugins/gws-plugin"
         },
         {
-          "name": "nano-banana-pro",
-          "version": "1.3.1",
-          "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
-          "path": "plugins/nano-banana-pro"
+          "name": "rust-network-module",
+          "version": "1.0.1",
+          "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",
+          "path": "plugins/rust-network-module"
+        },
+        {
+          "name": "excalidraw-diagram",
+          "version": "1.0.1",
+          "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+          "path": "plugins/excalidraw-diagram"
+        },
+        {
+          "name": "notebooklm-enhanced",
+          "version": "0.1.1",
+          "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+          "path": "plugins/notebooklm-enhanced"
+        },
+        {
+          "name": "safe-fetch",
+          "version": "1.0.3",
+          "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+          "path": "plugins/safe-fetch"
         },
         {
           "name": "k8s-sidecar-testing",
           "version": "1.1.1",
           "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
           "path": "plugins/k8s-sidecar-testing"
+        },
+        {
+          "name": "nano-banana-pro",
+          "version": "1.3.1",
+          "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
+          "path": "plugins/nano-banana-pro"
         }
       ]
     }
