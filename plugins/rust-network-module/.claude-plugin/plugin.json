@@ -1,6 +1,6 @@
 {
   "name": "rust-network-module",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",
   "author": {
     "name": "Sekou Doumbouya",

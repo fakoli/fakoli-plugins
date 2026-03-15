@@ -1,12 +1,12 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-15T04:08:17Z",
+  "generatedAt": "2026-03-15T04:10:17Z",
   "pluginCount": 8,
   "plugins": [
     {
       "name": "notebooklm-enhanced",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
       "author": {
         "name": "fakoli-plugins"
@@ -25,11 +25,11 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-03-15T04:08:17Z"
+      "indexedAt": "2026-03-15T04:10:17Z"
     },
     {
       "name": "rust-network-module",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",
       "author": {
         "name": "Sekou Doumbouya",
@@ -47,11 +47,11 @@
         "proxy"
       ],
       "path": "plugins/rust-network-module",
-      "indexedAt": "2026-03-15T04:08:17Z"
+      "indexedAt": "2026-03-15T04:10:17Z"
     },
     {
       "name": "safe-fetch",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
       "author": {
         "name": "Sekou Doumbouya",
@@ -70,11 +70,11 @@
       ],
       "mcpServers": "../.mcp.json",
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-15T04:08:17Z"
+      "indexedAt": "2026-03-15T04:10:17Z"
     },
     {
       "name": "marketplace-manager",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
       "author": {
         "name": "Sekou Doumbouya",
@@ -89,11 +89,11 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-15T04:08:17Z"
+      "indexedAt": "2026-03-15T04:10:17Z"
     },
     {
       "name": "excalidraw-diagram",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
       "author": {
         "name": "Sekou Doumbouya",
@@ -110,11 +110,11 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-15T04:08:17Z"
+      "indexedAt": "2026-03-15T04:10:17Z"
     },
     {
       "name": "gws-plugin",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
       "author": {
         "name": "Sekou Doumbouya",
@@ -158,11 +158,11 @@
         "automation"
       ],
       "path": "plugins/gws-plugin",
-      "indexedAt": "2026-03-15T04:08:17Z"
+      "indexedAt": "2026-03-15T04:10:17Z"
     },
     {
       "name": "nano-banana-pro",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "author": {
         "name": "Sekou Doumbouya",
@@ -179,11 +179,11 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-15T04:08:17Z"
+      "indexedAt": "2026-03-15T04:10:17Z"
     },
     {
       "name": "k8s-sidecar-testing",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
       "author": {
         "name": "Sekou Doumbouya",
@@ -201,7 +201,7 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-03-15T04:08:17Z"
+      "indexedAt": "2026-03-15T04:10:17Z"
     }
   ]
 }
