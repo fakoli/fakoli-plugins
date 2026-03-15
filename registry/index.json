@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-14T22:57:33Z",
+  "generatedAt": "2026-03-15T02:41:13Z",
   "pluginCount": 8,
   "plugins": [
     {
@@ -21,7 +21,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-14T22:57:33Z"
+      "indexedAt": "2026-03-15T02:41:13Z"
     },
     {
       "name": "gws-plugin",
@@ -69,7 +69,7 @@
         "automation"
       ],
       "path": "plugins/gws-plugin",
-      "indexedAt": "2026-03-14T22:57:33Z"
+      "indexedAt": "2026-03-15T02:41:13Z"
     },
     {
       "name": "rust-network-module",
@@ -91,7 +91,7 @@
         "proxy"
       ],
       "path": "plugins/rust-network-module",
-      "indexedAt": "2026-03-14T22:57:33Z"
+      "indexedAt": "2026-03-15T02:41:13Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -112,7 +112,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-14T22:57:33Z"
+      "indexedAt": "2026-03-15T02:41:13Z"
     },
     {
       "name": "notebooklm-enhanced",
@@ -135,7 +135,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-03-14T22:57:33Z"
+      "indexedAt": "2026-03-15T02:41:13Z"
     },
     {
       "name": "safe-fetch",
@@ -156,12 +156,10 @@
         "mcp",
         "web-search"
       ],
-      "commands": "./commands",
-      "agents": "./agents",
-      "hooks": "./hooks/hooks.json",
-      "mcpServers": "./.mcp.json",
+      "hooks": "../hooks/hooks.json",
+      "mcpServers": "../.mcp.json",
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-14T22:57:33Z"
+      "indexedAt": "2026-03-15T02:41:13Z"
     },
     {
       "name": "k8s-sidecar-testing",
@@ -183,7 +181,7 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-03-14T22:57:33Z"
+      "indexedAt": "2026-03-15T02:41:13Z"
     },
     {
       "name": "nano-banana-pro",
@@ -204,7 +202,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-14T22:57:33Z"
+      "indexedAt": "2026-03-15T02:41:13Z"
     }
   ]
 }
