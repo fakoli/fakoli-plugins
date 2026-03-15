@@ -25,6 +25,11 @@ Fakoli Plugins Marketplace - a curated distribution platform for Claude Code plu
 ./scripts/test-path-resolution.sh plugins/<name>  # Scan specific plugin
 ```
 
+### Validation Tests
+```bash
+./tests/test-hooks-validation.sh              # Run hook validation test suite
+```
+
 ### Schema Drift Detection
 ```bash
 ./scripts/check-schema-drift.sh               # Check for upstream schema changes
@@ -64,6 +69,9 @@ Each plugin in `plugins/<name>/` must have:
 | Check | Script | Severity |
 |-------|--------|----------|
 | JSON syntax, required fields, semver | `validate.sh` | ERROR |
+| Unrecognized manifest field (`$schema`, etc) | `validate.sh` | ERROR |
+| Hook entry missing `hooks` array wrapper | `validate.sh` | ERROR |
+| Empty `hooks` array in hook entry | `validate.sh` | ERROR |
 | Auto-discovered field declared | `validate.sh` | WARN |
 | `./` path confusion (should be `../`) | `validate.sh` | WARN |
 | hooks/mcpServers path not found | `validate.sh` | ERROR |
@@ -158,13 +166,14 @@ my-plugin/
 
 Lessons from production incidents — these anti-patterns cause hooks to block all conversations or crash silently:
 
-1. **Never use `set -e` in hook scripts** — breaks `|| fallback` patterns. A `grep` returning non-zero kills the entire script, blocking all responses.
-2. **Never use prompt-type hooks on `UserPromptSubmit`** — fires on every message, injecting AI evaluation that hijacks the conversation.
-3. **Always use specific matchers** on `PreToolUse`/`PostToolUse` — broad/empty matchers cause hooks to fire on every tool call.
-4. **Always set timeouts** on command-type hooks — prevents indefinite hangs.
-5. **Grep files directly** — never `cat file | grep` or `var=$(cat file); echo "$var" | grep` — ARG_MAX failures on large transcripts.
-6. **Match invocations, not mentions** — use transcript JSON patterns (`"subagent_type": "plugin:..."`, `"skill": "plugin:..."`) not loose keyword matching.
-7. **Command gates over prompt gates** — command hooks can scope/skip gracefully; prompt hooks fire unconditionally.
+1. **Always use the `hooks` array wrapper** — Claude Code requires every hook entry to have a `hooks: [...]` array, even without a matcher. Direct `{type, command}` entries cause `expected array, received undefined` errors.
+2. **Never use `set -e` in hook scripts** — breaks `|| fallback` patterns. A `grep` returning non-zero kills the entire script, blocking all responses.
+3. **Never use prompt-type hooks on `UserPromptSubmit`** — fires on every message, injecting AI evaluation that hijacks the conversation.
+4. **Always use specific matchers** on `PreToolUse`/`PostToolUse` — broad/empty matchers cause hooks to fire on every tool call.
+5. **Always set timeouts** on command-type hooks — prevents indefinite hangs.
+6. **Grep files directly** — never `cat file | grep` or `var=$(cat file); echo "$var" | grep` — ARG_MAX failures on large transcripts.
+7. **Match invocations, not mentions** — use transcript JSON patterns (`"subagent_type": "plugin:..."`, `"skill": "plugin:..."`) not loose keyword matching.
+8. **Command gates over prompt gates** — command hooks can scope/skip gracefully; prompt hooks fire unconditionally.
 
 **Safe Hook Template:**
 ```json

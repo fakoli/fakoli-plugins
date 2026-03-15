@@ -405,35 +405,34 @@ validate_hook_safety() {
         for ((i=0; i<hook_count; i++)); do
             local matcher hook_type command_str
 
-            # Check if this entry has nested hooks (matcher pattern) or is a direct hook
-            local has_matcher
-            has_matcher=$(jq -r ".hooks[\"$event\"][$i] | has(\"matcher\")" "$hooks_file")
+            # Claude Code requires every entry to have a "hooks" array wrapper
+            local has_hooks_array
+            has_hooks_array=$(jq -r ".hooks[\"$event\"][$i] | has(\"hooks\")" "$hooks_file")
 
-            if [[ "$has_matcher" == "true" ]]; then
-                matcher=$(jq -r ".hooks[\"$event\"][$i].matcher // empty" "$hooks_file")
+            if [[ "$has_hooks_array" != "true" ]]; then
+                log_error "[$plugin_name] $event[$i] missing required 'hooks' array wrapper — Claude Code rejects direct hook entries. Wrap in: {\"hooks\": [{...}]}"
+                continue
+            fi
 
-                # Check nested hooks array
-                local nested_count
-                nested_count=$(jq ".hooks[\"$event\"][$i].hooks | length" "$hooks_file" 2>/dev/null) || nested_count=0
+            matcher=$(jq -r ".hooks[\"$event\"][$i].matcher // empty" "$hooks_file")
 
-                for ((j=0; j<nested_count; j++)); do
-                    hook_type=$(jq -r ".hooks[\"$event\"][$i].hooks[$j].type // empty" "$hooks_file")
-                    command_str=$(jq -r ".hooks[\"$event\"][$i].hooks[$j].command // empty" "$hooks_file")
-                    local timeout
-                    timeout=$(jq -r ".hooks[\"$event\"][$i].hooks[$j].timeout // empty" "$hooks_file")
+            # Validate nested hooks array
+            local nested_count
+            nested_count=$(jq ".hooks[\"$event\"][$i].hooks | length" "$hooks_file" 2>/dev/null) || nested_count=0
 
-                    _check_hook_safety "$plugin_dir" "$plugin_name" "$event" "$matcher" "$hook_type" "$command_str" "$timeout"
-                done
-            else
-                # Direct hook entry (no matcher)
-                hook_type=$(jq -r ".hooks[\"$event\"][$i].type // empty" "$hooks_file")
-                command_str=$(jq -r ".hooks[\"$event\"][$i].command // empty" "$hooks_file")
+            if [[ "$nested_count" -eq 0 ]]; then
+                log_error "[$plugin_name] $event[$i] has empty 'hooks' array — must contain at least one hook handler"
+                continue
+            fi
+
+            for ((j=0; j<nested_count; j++)); do
+                hook_type=$(jq -r ".hooks[\"$event\"][$i].hooks[$j].type // empty" "$hooks_file")
+                command_str=$(jq -r ".hooks[\"$event\"][$i].hooks[$j].command // empty" "$hooks_file")
                 local timeout
-                timeout=$(jq -r ".hooks[\"$event\"][$i].timeout // empty" "$hooks_file")
-                matcher=""
+                timeout=$(jq -r ".hooks[\"$event\"][$i].hooks[$j].timeout // empty" "$hooks_file")
 
                 _check_hook_safety "$plugin_dir" "$plugin_name" "$event" "$matcher" "$hook_type" "$command_str" "$timeout"
-            fi
+            done
         done
     done
 

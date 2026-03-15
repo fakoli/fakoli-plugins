@@ -52,19 +52,12 @@
     },
     "hookEntry": {
       "type": "object",
-      "description": "Either a direct hook handler or a matcher+hooks wrapper",
-      "oneOf": [
-        { "$ref": "#/$defs/matcherWrapper" },
-        { "$ref": "#/$defs/hookHandler" }
-      ]
-    },
-    "matcherWrapper": {
-      "type": "object",
-      "required": ["matcher", "hooks"],
+      "description": "Wrapper with optional matcher and required hooks array. Claude Code always requires the hooks array wrapper — direct hook handlers are not accepted.",
+      "required": ["hooks"],
       "properties": {
         "matcher": {
           "type": "string",
-          "description": "Regex pattern to match tool names or other context"
+          "description": "Regex pattern to match tool names or other context (required for PreToolUse/PostToolUse)"
         },
         "hooks": {
           "type": "array",
