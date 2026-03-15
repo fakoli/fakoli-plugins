@@ -4,8 +4,16 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 import sys
 from urllib.parse import urlparse
+
+from dotenv import load_dotenv
+
+# Load project .env first (higher priority), then ~/.env (fallback).
+# Existing env vars (e.g. from .mcp.json) take precedence over both.
+load_dotenv(override=False)
+load_dotenv(Path.home() / ".env", override=False)
 
 import httpx
 from mcp.server.fastmcp import FastMCP

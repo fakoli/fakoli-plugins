@@ -56,7 +56,7 @@
     },
     {
       "name": "safe-fetch",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
       "source": "./plugins/safe-fetch"
     },
