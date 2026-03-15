@@ -117,19 +117,18 @@ for skill_md in skills/*/SKILL.md; do
     fi
   done
 
-  # Stale pattern checks
-  content=$(cat "$skill_md")
-  if echo "$content" | grep -q "PREREQUISITE: Load"; then
+  # Stale pattern checks (grep files directly — never cat | grep)
+  if grep -q "PREREQUISITE: Load" "$skill_md"; then
     fail "skill '$skill_name': no stale 'PREREQUISITE: Load' pattern"
     ok=false
     skill_fail=$((skill_fail + 1))
   fi
-  if echo "$content" | grep -qi "openclaw"; then
+  if grep -qi "openclaw" "$skill_md"; then
     fail "skill '$skill_name': no stale 'openclaw' reference"
     ok=false
     skill_fail=$((skill_fail + 1))
   fi
-  if echo "$content" | grep -q "generate-skills"; then
+  if grep -q "generate-skills" "$skill_md"; then
     fail "skill '$skill_name': no stale 'generate-skills' reference"
     ok=false
     skill_fail=$((skill_fail + 1))

@@ -87,23 +87,23 @@ scan_component_paths() {
         for path in "${paths[@]}"; do
             [[ -z "$path" || "$path" == "null" ]] && continue
 
-            # Resolve relative to .claude-plugin/
-            local resolved="$claude_plugin_dir/$path"
+            # Reject ../ paths up-front — old pattern, regardless of whether they resolve
+            if [[ "$path" =~ ^\.\.\/ ]]; then
+                local without_dotdot="${path#../}"
+                if [[ -e "$plugin_dir/$without_dotdot" ]]; then
+                    log_error "'$field' path '$path' uses ../ — paths resolve from plugin root, use './$without_dotdot' instead"
+                else
+                    log_error "'$field' path '$path' not found (resolved: $plugin_dir/$path)"
+                fi
+                continue
+            fi
 
+            # Resolve relative to plugin root (per official docs)
+            local resolved="$plugin_dir/$path"
             if [[ -e "$resolved" ]]; then
                 log_ok "'$field' path '$path' resolves to existing target"
             else
-                # Check if it exists at plugin root instead
-                local at_root="$plugin_dir/$path"
-                # Also check without ./ prefix
-                local stripped="${path#./}"
-                local at_root_stripped="$plugin_dir/$stripped"
-
-                if [[ -e "$at_root" || -e "$at_root_stripped" ]]; then
-                    log_error "'$field' path '$path' not found relative to .claude-plugin/ — but exists at plugin root. Use '../$stripped' instead"
-                else
-                    log_error "'$field' path '$path' not found (resolved: $resolved)"
-                fi
+                log_error "'$field' path '$path' not found (resolved: $resolved)"
             fi
         done
     done
@@ -134,7 +134,7 @@ scan_hook_safety() {
         if [[ "$hooks_type" == "string" ]]; then
             local hooks_path
             hooks_path=$(jq -r '.hooks' "$manifest_file")
-            local resolved="$plugin_dir/.claude-plugin/$hooks_path"
+            local resolved="$plugin_dir/$hooks_path"
             [[ -f "$resolved" ]] && hooks_file="$resolved"
         fi
     fi

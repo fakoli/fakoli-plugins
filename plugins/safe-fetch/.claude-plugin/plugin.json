@@ -1,6 +1,6 @@
 {
   "name": "safe-fetch",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
   "author": {
     "name": "Sekou Doumbouya",
@@ -17,5 +17,5 @@
     "mcp",
     "web-search"
   ],
-  "mcpServers": "../.mcp.json"
+  "mcpServers": "./.mcp.json"
 }

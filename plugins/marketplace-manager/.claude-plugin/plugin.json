@@ -1,6 +1,6 @@
 {
   "name": "marketplace-manager",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
   "author": {
     "name": "Sekou Doumbouya",

@@ -311,9 +311,9 @@ validate_component_paths() {
 
         for path in "${paths[@]}"; do
             [[ -z "$path" || "$path" == "null" ]] && continue
-            # Check for ./ prefix that likely should be ../
-            if [[ "$path" =~ ^\./((commands|agents|skills|hooks)(/|$)) ]]; then
-                log_warn "[$plugin_name] '$field' path '$path' starts with ./ — paths resolve relative to .claude-plugin/, did you mean '../${path#./}'?"
+            # Check for ../ prefix — paths resolve relative to plugin root, not .claude-plugin/
+            if [[ "$path" =~ ^\.\./  ]]; then
+                log_warn "[$plugin_name] '$field' path '$path' uses ../ — paths resolve relative to plugin root, use './${path#../}' instead"
             fi
         done
     done
@@ -324,15 +324,10 @@ validate_component_paths() {
     if [[ "$hooks_type" == "string" ]]; then
         local hooks_path
         hooks_path=$(jq -r '.hooks' "$manifest_file")
-        local resolved="$plugin_dir/.claude-plugin/$hooks_path"
+        local resolved="$plugin_dir/$hooks_path"
         if [[ ! -f "$resolved" ]]; then
             log_error "[$plugin_name] hooks path '$hooks_path' not found (resolved to $resolved)"
             has_errors=1
-            # Suggest ../fix if file exists at plugin root
-            local alt="$plugin_dir/$hooks_path"
-            if [[ -f "$alt" ]]; then
-                log_info "[$plugin_name]   Did you mean '../$hooks_path'? File exists at plugin root."
-            fi
         fi
     fi
 
@@ -342,14 +337,10 @@ validate_component_paths() {
     if [[ "$mcp_type" == "string" ]]; then
         local mcp_path
         mcp_path=$(jq -r '.mcpServers' "$manifest_file")
-        local resolved="$plugin_dir/.claude-plugin/$mcp_path"
+        local resolved="$plugin_dir/$mcp_path"
         if [[ ! -f "$resolved" ]]; then
             log_error "[$plugin_name] mcpServers path '$mcp_path' not found (resolved to $resolved)"
             has_errors=1
-            local alt="$plugin_dir/$mcp_path"
-            if [[ -f "$alt" ]]; then
-                log_info "[$plugin_name]   Did you mean '../$mcp_path'? File exists at plugin root."
-            fi
         fi
     fi
 
@@ -381,7 +372,7 @@ validate_hook_safety() {
         if [[ "$hooks_type" == "string" ]]; then
             local hooks_path
             hooks_path=$(jq -r '.hooks' "$manifest_file")
-            local resolved="$plugin_dir/.claude-plugin/$hooks_path"
+            local resolved="$plugin_dir/$hooks_path"
             [[ -f "$resolved" ]] && hooks_file="$resolved"
         fi
     fi
