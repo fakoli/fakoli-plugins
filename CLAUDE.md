@@ -243,21 +243,32 @@ apt-get install jq  # Linux
 - SKILL.md should be minimal: frontmatter + quick reference + links to README
 - Command files link to README sections instead of duplicating content
 
-### Versioning
-- Update plugin version in `.claude-plugin/plugin.json` whenever plugin changes
+### Versioning (CRITICAL)
+- **ALWAYS bump the version** in `.claude-plugin/plugin.json` whenever ANY file in a plugin changes — even metadata-only or docs-only changes
+- Before committing, check which plugins have modified files (`git diff --name-only plugins/`) and bump the patch version for each affected plugin
 - Follow semver: patch for fixes, minor for features, major for breaking changes
+- After bumping versions, run `./scripts/generate-index.sh` to update the registry with new versions
+- Plugin consumers use the version to detect updates — unchanged versions mean cached copies are never refreshed
+
+### Existing Plugin Change Checklist
+When modifying ANY file in an existing plugin, ALWAYS complete these steps before committing:
+1. **Bump the version** in `.claude-plugin/plugin.json` (patch for fixes, minor for features)
+2. Run `./scripts/generate-index.sh` to update registry with new version
+3. Run `./scripts/validate.sh plugins/<name>` to validate
+4. Run `./scripts/test-path-resolution.sh plugins/<name>` to deep scan
 
 ### New Plugin Checklist
 When adding a new plugin, ALWAYS complete ALL of these steps before merging:
 1. Create the plugin in `plugins/<name>/` with all required files
 2. **Update `README.md`** — add the plugin to the "Available Plugins" table
-3. Run `./scripts/generate-index.sh` to regenerate `registry/index.json`
-4. Run `./scripts/validate.sh plugins/<name>` to validate the plugin
-5. Run `./scripts/test-path-resolution.sh plugins/<name>` to deep scan paths and hooks
-6. Verify no auto-discovered directories (`skills/`, `commands/`, `agents/`) are declared in manifest
-7. Verify `hooks`/`mcpServers` paths use `./` prefix (relative to plugin root) and targets exist
-8. If plugin has hooks: verify matchers are specific, no `set -e`, timeouts are set
-9. Verify the plugin appears in both the README table AND `registry/index.json`
+3. **Set initial version** to `1.0.0` in `.claude-plugin/plugin.json`
+4. Run `./scripts/generate-index.sh` to regenerate `registry/index.json`
+5. Run `./scripts/validate.sh plugins/<name>` to validate the plugin
+6. Run `./scripts/test-path-resolution.sh plugins/<name>` to deep scan paths and hooks
+7. Verify no auto-discovered directories (`skills/`, `commands/`, `agents/`) are declared in manifest
+8. Verify `hooks`/`mcpServers` paths use `./` prefix (relative to plugin root) and targets exist
+9. If plugin has hooks: verify matchers are specific, no `set -e`, timeouts are set
+10. Verify the plugin appears in both the README table AND `registry/index.json`
 
 ## Official Claude Code Documentation
 
