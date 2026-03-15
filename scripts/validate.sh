@@ -72,9 +72,17 @@ validate_semver() {
     fi
 }
 
-# Official Claude Code plugin.json allowed fields
+# Derive allowed fields from schema (single source of truth)
 # Reference: https://code.claude.com/docs/en/plugins-reference
-ALLOWED_FIELDS='["name","version","description","author","homepage","repository","license","keywords","commands","agents","skills","hooks","mcpServers","outputStyles","lspServers"]'
+if [[ ! -f "$SCHEMA_FILE" ]]; then
+    echo -e "${RED}Error: Schema file not found: $SCHEMA_FILE${NC}"
+    exit 1
+fi
+ALLOWED_FIELDS=$(jq -c '[.properties | keys[] | select(. != "$schema")]' "$SCHEMA_FILE")
+if [[ -z "$ALLOWED_FIELDS" || "$ALLOWED_FIELDS" == "null" ]]; then
+    echo -e "${RED}Error: Could not extract allowed fields from schema${NC}"
+    exit 1
+fi
 
 # Validate a single plugin
 validate_plugin() {
@@ -103,9 +111,10 @@ validate_plugin() {
     log_success "[$plugin_name] Valid JSON syntax"
 
     # Check for unrecognized fields (Claude Code will reject these)
+    # Note: $schema is always allowed (IDE validation reference) but not in ALLOWED_FIELDS
     local unrecognized_fields
     unrecognized_fields=$(jq -r --argjson allowed "$ALLOWED_FIELDS" \
-        'keys | map(select(. as $k | $allowed | index($k) | not)) | .[]' "$manifest_file" 2>/dev/null)
+        'keys | map(select(. as $k | ($k == "$schema") | not) | select(. as $k | $allowed | index($k) | not)) | .[]' "$manifest_file" 2>/dev/null)
     if [[ -n "$unrecognized_fields" ]]; then
         for field in $unrecognized_fields; do
             log_error "[$plugin_name] Unrecognized field '$field' - Claude Code will reject this"
@@ -258,7 +267,234 @@ validate_plugin() {
         log_warn "[$plugin_name] No skills/, commands/, agents/, or hooks/ directories found"
     fi
 
+    # Validate component paths and hook safety
+    validate_component_paths "$plugin_dir" "$plugin_name" "$manifest_file" || has_errors=1
+    validate_hook_safety "$plugin_dir" "$plugin_name" || true
+
     return $has_errors
+}
+
+# Validate component paths declared in manifest
+validate_component_paths() {
+    local plugin_dir="$1"
+    local plugin_name="$2"
+    local manifest_file="$3"
+    local has_errors=0
+
+    # Auto-discovered directories: warn if declared in manifest
+    for field in commands agents skills; do
+        local has_field
+        has_field=$(jq "has(\"$field\")" "$manifest_file")
+        if [[ "$has_field" == "true" ]]; then
+            log_warn "[$plugin_name] '$field' is auto-discovered from directories — declaring it in manifest is unnecessary"
+        fi
+    done
+
+    # Check for ./commands, ./agents, ./skills, ./hooks path confusion
+    for field in commands agents skills hooks mcpServers; do
+        local field_type
+        field_type=$(jq -r ".$field | type" "$manifest_file" 2>/dev/null)
+
+        [[ "$field_type" == "null" || "$field_type" == "object" ]] && continue
+
+        local paths=()
+        if [[ "$field_type" == "string" ]]; then
+            paths+=("$(jq -r ".$field" "$manifest_file")")
+        elif [[ "$field_type" == "array" ]]; then
+            while IFS= read -r p; do
+                paths+=("$p")
+            done < <(jq -r ".$field[]" "$manifest_file" 2>/dev/null)
+        fi
+
+        if [[ ${#paths[@]} -eq 0 ]]; then
+            continue
+        fi
+
+        for path in "${paths[@]}"; do
+            [[ -z "$path" || "$path" == "null" ]] && continue
+            # Check for ./ prefix that likely should be ../
+            if [[ "$path" =~ ^\./((commands|agents|skills|hooks)(/|$)) ]]; then
+                log_warn "[$plugin_name] '$field' path '$path' starts with ./ — paths resolve relative to .claude-plugin/, did you mean '../${path#./}'?"
+            fi
+        done
+    done
+
+    # Validate hooks string path resolves to existing file
+    local hooks_type
+    hooks_type=$(jq -r '.hooks | type' "$manifest_file" 2>/dev/null)
+    if [[ "$hooks_type" == "string" ]]; then
+        local hooks_path
+        hooks_path=$(jq -r '.hooks' "$manifest_file")
+        local resolved="$plugin_dir/.claude-plugin/$hooks_path"
+        if [[ ! -f "$resolved" ]]; then
+            log_error "[$plugin_name] hooks path '$hooks_path' not found (resolved to $resolved)"
+            has_errors=1
+            # Suggest ../fix if file exists at plugin root
+            local alt="$plugin_dir/$hooks_path"
+            if [[ -f "$alt" ]]; then
+                log_info "[$plugin_name]   Did you mean '../$hooks_path'? File exists at plugin root."
+            fi
+        fi
+    fi
+
+    # Validate mcpServers string path resolves to existing file
+    local mcp_type
+    mcp_type=$(jq -r '.mcpServers | type' "$manifest_file" 2>/dev/null)
+    if [[ "$mcp_type" == "string" ]]; then
+        local mcp_path
+        mcp_path=$(jq -r '.mcpServers' "$manifest_file")
+        local resolved="$plugin_dir/.claude-plugin/$mcp_path"
+        if [[ ! -f "$resolved" ]]; then
+            log_error "[$plugin_name] mcpServers path '$mcp_path' not found (resolved to $resolved)"
+            has_errors=1
+            local alt="$plugin_dir/$mcp_path"
+            if [[ -f "$alt" ]]; then
+                log_info "[$plugin_name]   Did you mean '../$mcp_path'? File exists at plugin root."
+            fi
+        fi
+    fi
+
+    # License file consistency check
+    local license_field
+    license_field=$(jq -r '.license // empty' "$manifest_file")
+    if [[ -n "$license_field" ]]; then
+        if [[ ! -f "$plugin_dir/LICENSE" && ! -f "$plugin_dir/LICENSE.md" && ! -f "$plugin_dir/LICENSE.txt" ]]; then
+            log_warn "[$plugin_name] license field set to '$license_field' but no LICENSE file found"
+        fi
+    fi
+
+    return $has_errors
+}
+
+# Validate hook safety configurations
+validate_hook_safety() {
+    local plugin_dir="$1"
+    local plugin_name="$2"
+
+    # Find hooks.json — check hooks/ directory first, then manifest path
+    local hooks_file=""
+    if [[ -f "$plugin_dir/hooks/hooks.json" ]]; then
+        hooks_file="$plugin_dir/hooks/hooks.json"
+    else
+        local manifest_file="$plugin_dir/.claude-plugin/plugin.json"
+        local hooks_type
+        hooks_type=$(jq -r '.hooks | type' "$manifest_file" 2>/dev/null)
+        if [[ "$hooks_type" == "string" ]]; then
+            local hooks_path
+            hooks_path=$(jq -r '.hooks' "$manifest_file")
+            local resolved="$plugin_dir/.claude-plugin/$hooks_path"
+            [[ -f "$resolved" ]] && hooks_file="$resolved"
+        fi
+    fi
+
+    [[ -z "$hooks_file" ]] && return 0
+
+    # Validate JSON syntax
+    if ! validate_json_syntax "$hooks_file"; then
+        log_error "[$plugin_name] Invalid JSON in hooks file: $hooks_file"
+        return 1
+    fi
+
+    # Check each event type for safety issues
+    local events
+    events=$(jq -r '.hooks | keys[]' "$hooks_file" 2>/dev/null) || return 0
+
+    for event in $events; do
+        local hook_count
+        hook_count=$(jq ".hooks[\"$event\"] | length" "$hooks_file")
+
+        for ((i=0; i<hook_count; i++)); do
+            local matcher hook_type command_str
+
+            # Check if this entry has nested hooks (matcher pattern) or is a direct hook
+            local has_matcher
+            has_matcher=$(jq -r ".hooks[\"$event\"][$i] | has(\"matcher\")" "$hooks_file")
+
+            if [[ "$has_matcher" == "true" ]]; then
+                matcher=$(jq -r ".hooks[\"$event\"][$i].matcher // empty" "$hooks_file")
+
+                # Check nested hooks array
+                local nested_count
+                nested_count=$(jq ".hooks[\"$event\"][$i].hooks | length" "$hooks_file" 2>/dev/null) || nested_count=0
+
+                for ((j=0; j<nested_count; j++)); do
+                    hook_type=$(jq -r ".hooks[\"$event\"][$i].hooks[$j].type // empty" "$hooks_file")
+                    command_str=$(jq -r ".hooks[\"$event\"][$i].hooks[$j].command // empty" "$hooks_file")
+                    local timeout
+                    timeout=$(jq -r ".hooks[\"$event\"][$i].hooks[$j].timeout // empty" "$hooks_file")
+
+                    _check_hook_safety "$plugin_dir" "$plugin_name" "$event" "$matcher" "$hook_type" "$command_str" "$timeout"
+                done
+            else
+                # Direct hook entry (no matcher)
+                hook_type=$(jq -r ".hooks[\"$event\"][$i].type // empty" "$hooks_file")
+                command_str=$(jq -r ".hooks[\"$event\"][$i].command // empty" "$hooks_file")
+                local timeout
+                timeout=$(jq -r ".hooks[\"$event\"][$i].timeout // empty" "$hooks_file")
+                matcher=""
+
+                _check_hook_safety "$plugin_dir" "$plugin_name" "$event" "$matcher" "$hook_type" "$command_str" "$timeout"
+            fi
+        done
+    done
+
+    return 0
+}
+
+# Helper: check individual hook for safety issues
+_check_hook_safety() {
+    local plugin_dir="$1"
+    local plugin_name="$2"
+    local event="$3"
+    local matcher="$4"
+    local hook_type="$5"
+    local command_str="$6"
+    local timeout="$7"
+
+    # High-frequency events with broad/missing matchers
+    if [[ "$event" == "PreToolUse" || "$event" == "PostToolUse" || "$event" == "UserPromptSubmit" ]]; then
+        if [[ -z "$matcher" ]]; then
+            log_warn "[$plugin_name] $event hook has no matcher — fires on every ${event/Pre/}${event/Post/} event"
+        fi
+    fi
+
+    # Prompt-type on UserPromptSubmit = conversation hijack
+    if [[ "$hook_type" == "prompt" && "$event" == "UserPromptSubmit" ]]; then
+        log_error "[$plugin_name] prompt-type hook on UserPromptSubmit will inject AI evaluation on every message — use command-type instead"
+    fi
+
+    # Prompt-type on PreToolUse without matcher = AI-evaluates every tool call
+    if [[ "$hook_type" == "prompt" && "$event" == "PreToolUse" && -z "$matcher" ]]; then
+        log_error "[$plugin_name] prompt-type hook on PreToolUse with no matcher — AI-evaluates every tool call"
+    fi
+
+    # Command-type: check for missing timeout
+    if [[ "$hook_type" == "command" && -z "$timeout" ]]; then
+        log_warn "[$plugin_name] $event command hook has no timeout — could hang indefinitely"
+    fi
+
+    # Command-type: check script existence and for set -e
+    if [[ "$hook_type" == "command" && -n "$command_str" ]]; then
+        # Extract script path from command (handle bash/sh prefix and ${CLAUDE_PLUGIN_ROOT})
+        local script_path=""
+        if [[ "$command_str" =~ \$\{CLAUDE_PLUGIN_ROOT\}/(.*) ]]; then
+            local relative="${BASH_REMATCH[1]}"
+            # Strip any arguments after the script path
+            relative="${relative%% *}"
+            script_path="$plugin_dir/$relative"
+        fi
+
+        if [[ -n "$script_path" ]]; then
+            if [[ ! -f "$script_path" ]]; then
+                log_error "[$plugin_name] $event hook references script that does not exist: $script_path"
+            else
+                # Check for set -e in the script
+                if grep -qE '^\s*set\s+-[a-zA-Z]*e' "$script_path" 2>/dev/null; then
+                    log_warn "[$plugin_name] $event hook script '$script_path' uses 'set -e' — breaks || fallback patterns, can cause false blocks"
+                fi
+            fi
+        fi
+    fi
 }
 
 # Validate marketplace.json schema for Claude Code compatibility

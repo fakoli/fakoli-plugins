@@ -19,6 +19,17 @@ Fakoli Plugins Marketplace - a curated distribution platform for Claude Code plu
 ./scripts/generate-index.sh               # Regenerate registry/index.json
 ```
 
+### Plugin Deep Scanner
+```bash
+./scripts/test-path-resolution.sh              # Deep scan all plugins
+./scripts/test-path-resolution.sh plugins/<name>  # Scan specific plugin
+```
+
+### Schema Drift Detection
+```bash
+./scripts/check-schema-drift.sh               # Check for upstream schema changes
+```
+
 ### Marketplace Manager (via plugin)
 ```bash
 ./plugins/marketplace-manager/skills/marketplace-manager/scripts/add_plugin.sh <name>
@@ -43,9 +54,30 @@ Each plugin in `plugins/<name>/` must have:
 - `README.md` - Documentation
 
 ### Validation Pipeline
-1. `validate.sh` checks: JSON syntax, required fields, semver format, name format (lowercase/hyphens), component directories
-2. GitHub Actions runs validation on push to `plugins/` or `schemas/`
-3. `update-index.yml` auto-regenerates registry on merge to main
+1. `validate.sh` checks: JSON syntax, required fields, semver format, name format, component directories, path resolution, hook safety
+2. `test-path-resolution.sh` performs deep scanning: all component path fields, script existence, `set -e` detection, `cat|grep` anti-patterns, matcher analysis
+3. GitHub Actions runs both scripts on push to `plugins/` or `schemas/`
+4. `update-index.yml` auto-regenerates registry on merge to main
+
+### Validation Reference
+
+| Check | Script | Severity |
+|-------|--------|----------|
+| JSON syntax, required fields, semver | `validate.sh` | ERROR |
+| Auto-discovered field declared | `validate.sh` | WARN |
+| `./` path confusion (should be `../`) | `validate.sh` | WARN |
+| hooks/mcpServers path not found | `validate.sh` | ERROR |
+| License field without LICENSE file | `validate.sh` | WARN |
+| Broad matcher on high-frequency event | `validate.sh` | WARN |
+| prompt-type on UserPromptSubmit | `validate.sh` | ERROR |
+| prompt-type on PreToolUse (no matcher) | `validate.sh` | ERROR |
+| `set -e` in hook scripts | `validate.sh` | WARN |
+| Hook script not found | `validate.sh` | ERROR |
+| Missing hook timeout | `validate.sh` | WARN |
+| `cat \| grep` in hook scripts | `test-path-resolution.sh` | WARN |
+| All component path fields (deep) | `test-path-resolution.sh` | ERROR |
+
+**Manual review still needed:** hook logic correctness, matcher specificity beyond presence/absence, script security
 
 ## Plugin Manifest Schema
 
@@ -96,6 +128,92 @@ Each plugin in `plugins/<name>/` must have:
 
 **Important:** Claude Code discovers skills, commands, agents, and hooks from directories - not from manifest fields. Only use manifest component paths for non-standard locations.
 
+### Path Resolution Rules
+
+All paths in `plugin.json` resolve **relative to `.claude-plugin/`**, not the plugin root.
+
+**Rule 1:** Don't declare standard auto-discovered directories (`skills/`, `commands/`, `agents/`, `hooks/`) — Claude Code finds them automatically.
+
+**Rule 2:** Use `../` prefix for files at plugin root.
+
+| Scenario | Correct | Incorrect |
+|----------|---------|-----------|
+| Reference hooks.json at plugin root | `"hooks": "../hooks/hooks.json"` | `"hooks": "./hooks/hooks.json"` |
+| Reference .mcp.json at plugin root | `"mcpServers": "../.mcp.json"` | `"mcpServers": "./.mcp.json"` |
+| Reference skills dir (unnecessary) | _(don't declare — auto-discovered)_ | `"skills": "./skills"` |
+
+**Directory layout:**
+```
+my-plugin/
+├── .claude-plugin/
+│   └── plugin.json      ← paths resolve from HERE
+├── hooks/
+│   └── hooks.json       ← referenced as "../hooks/hooks.json"
+├── skills/              ← auto-discovered, don't declare
+├── commands/            ← auto-discovered, don't declare
+└── .mcp.json            ← referenced as "../.mcp.json"
+```
+
+### Hook Safety Rules
+
+Lessons from production incidents — these anti-patterns cause hooks to block all conversations or crash silently:
+
+1. **Never use `set -e` in hook scripts** — breaks `|| fallback` patterns. A `grep` returning non-zero kills the entire script, blocking all responses.
+2. **Never use prompt-type hooks on `UserPromptSubmit`** — fires on every message, injecting AI evaluation that hijacks the conversation.
+3. **Always use specific matchers** on `PreToolUse`/`PostToolUse` — broad/empty matchers cause hooks to fire on every tool call.
+4. **Always set timeouts** on command-type hooks — prevents indefinite hangs.
+5. **Grep files directly** — never `cat file | grep` or `var=$(cat file); echo "$var" | grep` — ARG_MAX failures on large transcripts.
+6. **Match invocations, not mentions** — use transcript JSON patterns (`"subagent_type": "plugin:..."`, `"skill": "plugin:..."`) not loose keyword matching.
+7. **Command gates over prompt gates** — command hooks can scope/skip gracefully; prompt hooks fire unconditionally.
+
+**Safe Hook Template:**
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "SpecificToolName",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/my-check.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Schema-Driven Validation
+
+The schema `schemas/plugin.schema.json` is the **single source of truth** for allowed plugin.json fields. `validate.sh` derives its `ALLOWED_FIELDS` list directly from the schema at runtime — no hardcoded field lists.
+
+**Available schemas:**
+| Schema | Validates |
+|--------|-----------|
+| `schemas/plugin.schema.json` | Plugin manifests (`.claude-plugin/plugin.json`) |
+| `schemas/marketplace.schema.json` | Marketplace config (`.claude-plugin/marketplace.json`) |
+| `schemas/index.schema.json` | Registry index (`registry/index.json`) |
+| `schemas/hooks.schema.json` | Hook configs (`hooks/hooks.json`) |
+| `schemas/mcp.schema.json` | MCP configs (`.mcp.json`) |
+| `schemas/skill.schema.json` | Skill frontmatter (`SKILL.md` YAML) |
+
+All plugin.json and hooks.json files include `$schema` references for IDE autocomplete/validation.
+
+### Schema Drift Detection
+
+```bash
+./scripts/check-schema-drift.sh    # Compare schema vs baseline vs upstream docs
+```
+
+- Compares `schemas/plugin.schema.json` against `schemas/.field-baseline.json` (last-known official fields)
+- Optionally scrapes Anthropic docs page for newly added fields
+- CI runs weekly via `.github/workflows/schema-drift.yml` (auto-creates GitHub issue on drift)
+
+**When Anthropic adds new fields:** Update `schemas/plugin.schema.json` and `schemas/.field-baseline.json` — validation updates automatically.
+
 ## Dependencies
 
 Scripts require `jq` for JSON processing:
@@ -126,7 +244,11 @@ When adding a new plugin, ALWAYS complete ALL of these steps before merging:
 2. **Update `README.md`** — add the plugin to the "Available Plugins" table
 3. Run `./scripts/generate-index.sh` to regenerate `registry/index.json`
 4. Run `./scripts/validate.sh plugins/<name>` to validate the plugin
-5. Verify the plugin appears in both the README table AND `registry/index.json`
+5. Run `./scripts/test-path-resolution.sh plugins/<name>` to deep scan paths and hooks
+6. Verify no auto-discovered directories (`skills/`, `commands/`, `agents/`) are declared in manifest
+7. Verify `hooks`/`mcpServers` paths use `../` prefix and targets exist
+8. If plugin has hooks: verify matchers are specific, no `set -e`, timeouts are set
+9. Verify the plugin appears in both the README table AND `registry/index.json`
 
 ## Official Claude Code Documentation
 

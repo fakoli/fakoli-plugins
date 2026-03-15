@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fakoli-plugins.github.io/schemas/index.schema.json",
+  "title": "Fakoli Plugins Registry Index",
+  "description": "Schema for registry/index.json — auto-generated plugin index",
+  "type": "object",
+  "required": ["version", "generatedAt", "pluginCount", "plugins"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE validation"
+    },
+    "version": {
+      "type": "string",
+      "description": "Registry format version"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last generation"
+    },
+    "pluginCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of indexed plugins"
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path"],
+        "properties": {
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "description": { "type": "string" },
+          "author": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "email": { "type": "string" },
+                  "url": { "type": "string" }
+                }
+              }
+            ]
+          },
+          "repository": { "type": "string" },
+          "license": { "type": "string" },
+          "keywords": { "type": "array", "items": { "type": "string" } },
+          "path": {
+            "type": "string",
+            "description": "Relative path from repo root to plugin directory"
+          },
+          "indexedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp of when this plugin was indexed"
+          },
+          "homepage": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "description": "Array of indexed plugin entries"
+    }
+  }
+}

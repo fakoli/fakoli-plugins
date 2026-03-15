@@ -1,0 +1,81 @@
+name: Schema Drift Detection
+
+on:
+  schedule:
+    # Weekly check: Monday 9am UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Run schema drift detection
+        id: drift
+        run: |
+          chmod +x ./scripts/check-schema-drift.sh
+          if ./scripts/check-schema-drift.sh; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create issue on drift
+        if: steps.drift.outputs.drift == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Schema drift detected — plugin.schema.json may be out of date';
+            const body = `## Schema Drift Detected
+
+            The weekly schema drift check found differences between our \`schemas/plugin.schema.json\` and the official Claude Code plugin specification.
+
+            **Action needed:**
+            1. Review the [official plugin reference](https://code.claude.com/docs/en/plugins-reference)
+            2. Update \`schemas/plugin.schema.json\` to match
+            3. Update \`schemas/.field-baseline.json\` with the new field list
+            4. Run \`./scripts/validate.sh\` to verify all plugins still pass
+
+            **Triggered by:** Scheduled weekly check
+            **Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            `;
+
+            // Ensure the label exists before using it for deduplication
+            try {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'schema-drift',
+                color: 'f9d0c4'
+              });
+            } catch (e) {
+              // 422 = already exists, which is fine
+              if (e.status !== 422) throw e;
+            }
+
+            // Check for existing open issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'schema-drift',
+              state: 'open'
+            });
+
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['schema-drift']
+              });
+            }

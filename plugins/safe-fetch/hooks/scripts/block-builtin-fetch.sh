@@ -4,8 +4,6 @@
 # This ensures all web fetching goes through the sanitization pipeline,
 # even if Claude's default behavior is to use its own WebFetch tool.
 
-set -euo pipefail
-
 # Extract the URL from the tool input for the redirect message
 INPUT=$(cat)
 URL=$(echo "$INPUT" | python3 -c "

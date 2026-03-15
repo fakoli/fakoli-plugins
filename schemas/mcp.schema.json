@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fakoli-plugins.github.io/schemas/mcp.schema.json",
+  "title": "Claude Code MCP Server Configuration",
+  "description": "Schema for .mcp.json — based on https://code.claude.com/docs/en/mcp",
+  "type": "object",
+  "additionalProperties": {
+    "$ref": "#/$defs/serverConfig"
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE validation"
+    },
+    "mcpServers": {
+      "type": "object",
+      "description": "Alternative wrapper format — map of server names to configs",
+      "additionalProperties": {
+        "$ref": "#/$defs/serverConfig"
+      }
+    }
+  },
+  "$defs": {
+    "serverConfig": {
+      "type": "object",
+      "description": "MCP server configuration",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Command to start the server (required for stdio type)"
+        },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Command arguments"
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Environment variables (supports ${VAR} expansion)"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Working directory for the server"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["stdio", "http", "sse"],
+          "description": "Transport type (default: stdio)"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Server URL (required for http/sse type)"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "HTTP headers for http/sse connections"
+        },
+        "oauth": {
+          "type": "object",
+          "description": "OAuth configuration for http/sse connections"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

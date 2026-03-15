@@ -31,6 +31,9 @@ jobs:
       - name: Validate plugins first
         run: ./scripts/validate.sh
 
+      - name: Deep scan plugins
+        run: ./scripts/test-path-resolution.sh
+
       - name: Generate registry index
         run: ./scripts/generate-index.sh
 

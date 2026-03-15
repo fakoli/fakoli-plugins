@@ -8,8 +8,6 @@
 # Hook input (stdin): JSON with tool_name, tool_input, tool_result fields
 # Hook output (stdout): JSON with optional systemMessage
 
-set -euo pipefail
-
 # Read hook input
 INPUT=$(cat)
 

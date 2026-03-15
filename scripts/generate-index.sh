@@ -148,9 +148,9 @@ generate_categories() {
 
     local categories
     categories=$(echo "$plugins" | jq '
-        group_by(.extended.category // "uncategorized")
+        group_by(.category // "uncategorized")
         | map({
-            category: (.[0].extended.category // "uncategorized"),
+            category: (.[0].category // "uncategorized"),
             count: length,
             plugins: map({
                 name: .name,
@@ -180,7 +180,7 @@ generate_tags() {
 
     local tags
     tags=$(echo "$plugins" | jq '
-        [.[].extended.tags // [] | .[]]
+        [.[].keywords // [] | .[]]
         | group_by(.)
         | map({
             tag: .[0],

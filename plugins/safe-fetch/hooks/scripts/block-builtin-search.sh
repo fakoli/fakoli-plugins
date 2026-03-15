@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook: blocks the built-in WebSearch tool and redirects to safe-fetch.
 
-set -euo pipefail
-
 INPUT=$(cat)
 QUERY=$(echo "$INPUT" | python3 -c "
 import sys, json

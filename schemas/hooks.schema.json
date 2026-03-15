@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fakoli-plugins.github.io/schemas/hooks.schema.json",
+  "title": "Claude Code Hooks Configuration",
+  "description": "Schema for hooks.json — based on https://code.claude.com/docs/en/hooks",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE validation"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of this hooks configuration"
+    },
+    "disableAllHooks": {
+      "type": "boolean",
+      "description": "Disable all hooks in this file"
+    },
+    "hooks": {
+      "type": "object",
+      "description": "Map of event names to arrays of hook entries",
+      "properties": {
+        "SessionStart": { "$ref": "#/$defs/hookEntryArray" },
+        "UserPromptSubmit": { "$ref": "#/$defs/hookEntryArray" },
+        "PreToolUse": { "$ref": "#/$defs/hookEntryArray" },
+        "PermissionRequest": { "$ref": "#/$defs/hookEntryArray" },
+        "PostToolUse": { "$ref": "#/$defs/hookEntryArray" },
+        "PostToolUseFailure": { "$ref": "#/$defs/hookEntryArray" },
+        "Notification": { "$ref": "#/$defs/hookEntryArray" },
+        "SubagentStart": { "$ref": "#/$defs/hookEntryArray" },
+        "SubagentStop": { "$ref": "#/$defs/hookEntryArray" },
+        "Stop": { "$ref": "#/$defs/hookEntryArray" },
+        "TeammateIdle": { "$ref": "#/$defs/hookEntryArray" },
+        "TaskCompleted": { "$ref": "#/$defs/hookEntryArray" },
+        "InstructionsLoaded": { "$ref": "#/$defs/hookEntryArray" },
+        "ConfigChange": { "$ref": "#/$defs/hookEntryArray" },
+        "WorktreeCreate": { "$ref": "#/$defs/hookEntryArray" },
+        "WorktreeRemove": { "$ref": "#/$defs/hookEntryArray" },
+        "PreCompact": { "$ref": "#/$defs/hookEntryArray" },
+        "PostCompact": { "$ref": "#/$defs/hookEntryArray" },
+        "Elicitation": { "$ref": "#/$defs/hookEntryArray" },
+        "ElicitationResult": { "$ref": "#/$defs/hookEntryArray" },
+        "SessionEnd": { "$ref": "#/$defs/hookEntryArray" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "hookEntryArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hookEntry"
+      }
+    },
+    "hookEntry": {
+      "type": "object",
+      "description": "Either a direct hook handler or a matcher+hooks wrapper",
+      "oneOf": [
+        { "$ref": "#/$defs/matcherWrapper" },
+        { "$ref": "#/$defs/hookHandler" }
+      ]
+    },
+    "matcherWrapper": {
+      "type": "object",
+      "required": ["matcher", "hooks"],
+      "properties": {
+        "matcher": {
+          "type": "string",
+          "description": "Regex pattern to match tool names or other context"
+        },
+        "hooks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/hookHandler" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "hookHandler": {
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [
+        { "$ref": "#/$defs/commandHook" },
+        { "$ref": "#/$defs/httpHook" },
+        { "$ref": "#/$defs/promptHook" },
+        { "$ref": "#/$defs/agentHook" }
+      ]
+    },
+    "commandHook": {
+      "type": "object",
+      "required": ["type", "command"],
+      "properties": {
+        "type": { "const": "command" },
+        "command": { "type": "string", "description": "Shell command to execute" },
+        "timeout": { "type": "number", "description": "Timeout in seconds" },
+        "statusMessage": { "type": "string", "description": "Message shown while hook runs" },
+        "async": { "type": "boolean", "description": "Run asynchronously" },
+        "once": { "type": "boolean", "description": "Run only once per session" }
+      },
+      "additionalProperties": false
+    },
+    "httpHook": {
+      "type": "object",
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "const": "http" },
+        "url": { "type": "string", "format": "uri", "description": "HTTP endpoint URL" },
+        "timeout": { "type": "number", "description": "Timeout in seconds" },
+        "statusMessage": { "type": "string" },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "allowedEnvVars": { "type": "array", "items": { "type": "string" } },
+        "once": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "promptHook": {
+      "type": "object",
+      "required": ["type", "prompt"],
+      "properties": {
+        "type": { "const": "prompt" },
+        "prompt": { "type": "string", "description": "Prompt text for AI evaluation" },
+        "model": { "type": "string", "description": "Model to use for evaluation" },
+        "timeout": { "type": "number", "description": "Timeout in seconds" },
+        "once": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "agentHook": {
+      "type": "object",
+      "required": ["type", "prompt"],
+      "properties": {
+        "type": { "const": "agent" },
+        "prompt": { "type": "string", "description": "Prompt for agent execution" },
+        "model": { "type": "string", "description": "Model to use" },
+        "timeout": { "type": "number", "description": "Timeout in seconds" },
+        "once": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
