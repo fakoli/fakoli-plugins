@@ -2,11 +2,13 @@
   "$schema": "../schemas/marketplace.schema.json",
   "name": "fakoli-plugins",
   "displayName": "Fakoli Plugins Marketplace",
-  "description": "A curated collection of Claude Code plugins for enhanced productivity and development workflows",
-  "version": "1.0.0",
   "owner": {
     "name": "Sekou Doumbouya",
     "github": "fakoli"
+  },
+  "metadata": {
+    "description": "A curated collection of Claude Code plugins for enhanced productivity and development workflows",
+    "version": "1.0.0"
   },
   "repository": {
     "type": "git",
@@ -54,13 +56,13 @@
     },
     {
       "name": "safe-fetch",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
       "source": "./plugins/safe-fetch"
     },
     {
       "name": "marketplace-manager",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
       "source": "./plugins/marketplace-manager"
     },
@@ -72,7 +74,7 @@
     },
     {
       "name": "gws-plugin",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
       "source": "./plugins/gws-plugin"
     },

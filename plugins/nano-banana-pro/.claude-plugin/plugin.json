@@ -1,4 +1,5 @@
 {
+  "$schema": "../../../schemas/plugin.schema.json",
   "name": "nano-banana-pro",
   "version": "1.3.0",
   "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",

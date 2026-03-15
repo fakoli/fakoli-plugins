@@ -1,0 +1,27 @@
+{
+  "description": "Last-known official plugin.json fields from https://code.claude.com/docs/en/plugins-reference",
+  "lastChecked": "2026-03-14",
+  "plugin": [
+    "name",
+    "version",
+    "description",
+    "author",
+    "homepage",
+    "repository",
+    "license",
+    "keywords",
+    "commands",
+    "agents",
+    "skills",
+    "hooks",
+    "mcpServers",
+    "outputStyles",
+    "lspServers"
+  ],
+  "marketplace": [
+    "name",
+    "owner",
+    "plugins",
+    "metadata"
+  ]
+}
