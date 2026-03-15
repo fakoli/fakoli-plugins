@@ -58,7 +58,7 @@ echo "========================================"
 echo ""
 
 # --- Step 1: Extract fields from our schema ---
-SCHEMA_FIELDS=$(jq -c '[.properties | keys[] | select(. != "$schema")] | sort' "$SCHEMA_FILE")
+SCHEMA_FIELDS=$(jq -c '[.properties | keys[]] | sort' "$SCHEMA_FILE")
 log_info "Schema fields: $SCHEMA_FIELDS"
 
 # --- Step 2: Extract fields from baseline ---

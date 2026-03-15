@@ -1,5 +1,4 @@
 {
-  "$schema": "../../../schemas/hooks.schema.json",
   "description": "Blocks built-in WebFetch/WebSearch (redirects to safe-fetch), warns on curl/wget usage",
   "hooks": {
     "PreToolUse": [

@@ -1,5 +1,314 @@
 {
-  "generatedAt": "2026-02-02T06:37:38Z",
-  "totalTags": 0,
-  "tags": []
+  "generatedAt": "2026-03-15T04:05:36Z",
+  "totalTags": 77,
+  "tags": [
+    {
+      "tag": "automation",
+      "count": 2
+    },
+    {
+      "tag": "slides",
+      "count": 2
+    },
+    {
+      "tag": "admin-reports",
+      "count": 1
+    },
+    {
+      "tag": "ai-images",
+      "count": 1
+    },
+    {
+      "tag": "architecture",
+      "count": 1
+    },
+    {
+      "tag": "async",
+      "count": 1
+    },
+    {
+      "tag": "calendar",
+      "count": 1
+    },
+    {
+      "tag": "chat",
+      "count": 1
+    },
+    {
+      "tag": "classroom",
+      "count": 1
+    },
+    {
+      "tag": "content-creator",
+      "count": 1
+    },
+    {
+      "tag": "creative",
+      "count": 1
+    },
+    {
+      "tag": "customer-support",
+      "count": 1
+    },
+    {
+      "tag": "design",
+      "count": 1
+    },
+    {
+      "tag": "diagram",
+      "count": 1
+    },
+    {
+      "tag": "docs",
+      "count": 1
+    },
+    {
+      "tag": "drive",
+      "count": 1
+    },
+    {
+      "tag": "event-coordinator",
+      "count": 1
+    },
+    {
+      "tag": "events",
+      "count": 1
+    },
+    {
+      "tag": "excalidraw",
+      "count": 1
+    },
+    {
+      "tag": "executive-assistant",
+      "count": 1
+    },
+    {
+      "tag": "flowchart",
+      "count": 1
+    },
+    {
+      "tag": "forms",
+      "count": 1
+    },
+    {
+      "tag": "gemini",
+      "count": 1
+    },
+    {
+      "tag": "gmail",
+      "count": 1
+    },
+    {
+      "tag": "google",
+      "count": 1
+    },
+    {
+      "tag": "google-workspace",
+      "count": 1
+    },
+    {
+      "tag": "gws",
+      "count": 1
+    },
+    {
+      "tag": "hr-coordinator",
+      "count": 1
+    },
+    {
+      "tag": "image-generation",
+      "count": 1
+    },
+    {
+      "tag": "image-optimization",
+      "count": 1
+    },
+    {
+      "tag": "ipv6",
+      "count": 1
+    },
+    {
+      "tag": "it-admin",
+      "count": 1
+    },
+    {
+      "tag": "k3s",
+      "count": 1
+    },
+    {
+      "tag": "keep",
+      "count": 1
+    },
+    {
+      "tag": "kubernetes",
+      "count": 1
+    },
+    {
+      "tag": "marketplace",
+      "count": 1
+    },
+    {
+      "tag": "mcp",
+      "count": 1
+    },
+    {
+      "tag": "meet",
+      "count": 1
+    },
+    {
+      "tag": "modelarmor",
+      "count": 1
+    },
+    {
+      "tag": "multipass",
+      "count": 1
+    },
+    {
+      "tag": "nat464",
+      "count": 1
+    },
+    {
+      "tag": "networking",
+      "count": 1
+    },
+    {
+      "tag": "notebook",
+      "count": 1
+    },
+    {
+      "tag": "notebooklm",
+      "count": 1
+    },
+    {
+      "tag": "people",
+      "count": 1
+    },
+    {
+      "tag": "persona",
+      "count": 1
+    },
+    {
+      "tag": "plugin-management",
+      "count": 1
+    },
+    {
+      "tag": "podcast",
+      "count": 1
+    },
+    {
+      "tag": "productivity",
+      "count": 1
+    },
+    {
+      "tag": "project-manager",
+      "count": 1
+    },
+    {
+      "tag": "prompt-injection",
+      "count": 1
+    },
+    {
+      "tag": "proxy",
+      "count": 1
+    },
+    {
+      "tag": "quiz",
+      "count": 1
+    },
+    {
+      "tag": "recipe",
+      "count": 1
+    },
+    {
+      "tag": "registry",
+      "count": 1
+    },
+    {
+      "tag": "research",
+      "count": 1
+    },
+    {
+      "tag": "researcher",
+      "count": 1
+    },
+    {
+      "tag": "rpc",
+      "count": 1
+    },
+    {
+      "tag": "rust",
+      "count": 1
+    },
+    {
+      "tag": "sales-ops",
+      "count": 1
+    },
+    {
+      "tag": "sanitization",
+      "count": 1
+    },
+    {
+      "tag": "scaffold",
+      "count": 1
+    },
+    {
+      "tag": "security",
+      "count": 1
+    },
+    {
+      "tag": "sheets",
+      "count": 1
+    },
+    {
+      "tag": "sidecar",
+      "count": 1
+    },
+    {
+      "tag": "ssrf",
+      "count": 1
+    },
+    {
+      "tag": "tasks",
+      "count": 1
+    },
+    {
+      "tag": "tcp",
+      "count": 1
+    },
+    {
+      "tag": "team-lead",
+      "count": 1
+    },
+    {
+      "tag": "testing",
+      "count": 1
+    },
+    {
+      "tag": "tokio",
+      "count": 1
+    },
+    {
+      "tag": "validation",
+      "count": 1
+    },
+    {
+      "tag": "visualization",
+      "count": 1
+    },
+    {
+      "tag": "web-fetch",
+      "count": 1
+    },
+    {
+      "tag": "web-search",
+      "count": 1
+    },
+    {
+      "tag": "whiteboard",
+      "count": 1
+    },
+    {
+      "tag": "workflow",
+      "count": 1
+    }
+  ]
 }

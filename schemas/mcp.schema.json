@@ -8,10 +8,6 @@
     "$ref": "#/$defs/serverConfig"
   },
   "properties": {
-    "$schema": {
-      "type": "string",
-      "description": "JSON Schema reference for IDE validation"
-    },
     "mcpServers": {
       "type": "object",
       "description": "Alternative wrapper format — map of server names to configs",

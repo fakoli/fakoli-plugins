@@ -1,5 +1,4 @@
 {
-  "$schema": "../../../schemas/plugin.schema.json",
   "name": "notebooklm-enhanced",
   "version": "0.1.0",
   "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",

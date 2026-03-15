@@ -78,7 +78,7 @@ if [[ ! -f "$SCHEMA_FILE" ]]; then
     echo -e "${RED}Error: Schema file not found: $SCHEMA_FILE${NC}"
     exit 1
 fi
-ALLOWED_FIELDS=$(jq -c '[.properties | keys[] | select(. != "$schema")]' "$SCHEMA_FILE")
+ALLOWED_FIELDS=$(jq -c '[.properties | keys[]]' "$SCHEMA_FILE")
 if [[ -z "$ALLOWED_FIELDS" || "$ALLOWED_FIELDS" == "null" ]]; then
     echo -e "${RED}Error: Could not extract allowed fields from schema${NC}"
     exit 1
@@ -111,10 +111,9 @@ validate_plugin() {
     log_success "[$plugin_name] Valid JSON syntax"
 
     # Check for unrecognized fields (Claude Code will reject these)
-    # Note: $schema is always allowed (IDE validation reference) but not in ALLOWED_FIELDS
     local unrecognized_fields
     unrecognized_fields=$(jq -r --argjson allowed "$ALLOWED_FIELDS" \
-        'keys | map(select(. as $k | ($k == "$schema") | not) | select(. as $k | $allowed | index($k) | not)) | .[]' "$manifest_file" 2>/dev/null)
+        'keys | map(select(. as $k | $allowed | index($k) | not)) | .[]' "$manifest_file" 2>/dev/null)
     if [[ -n "$unrecognized_fields" ]]; then
         for field in $unrecognized_fields; do
             log_error "[$plugin_name] Unrecognized field '$field' - Claude Code will reject this"

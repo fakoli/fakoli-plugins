@@ -1,5 +1,4 @@
 {
-  "$schema": "../../../schemas/plugin.schema.json",
   "name": "gws-plugin",
   "version": "0.3.1",
   "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
