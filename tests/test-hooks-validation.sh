@@ -13,6 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 VALIDATE="$ROOT_DIR/scripts/validate.sh"
 FIXTURES="$SCRIPT_DIR/fixtures"
+trap 'rm -rf "$FIXTURES"' EXIT
 
 # Colors
 RED='\033[0;31m'
@@ -25,13 +26,13 @@ TESTS_FAILED=0
 
 pass() {
     echo -e "  ${GREEN}PASS${NC} $1"
-    ((TESTS_PASSED++))
+    ((TESTS_PASSED++)) || true
 }
 
 fail() {
     echo -e "  ${RED}FAIL${NC} $1"
     echo -e "       $2"
-    ((TESTS_FAILED++))
+    ((TESTS_FAILED++)) || true
 }
 
 # Create a temporary plugin with given hooks.json content
