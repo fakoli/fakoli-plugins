@@ -1,15 +1,14 @@
 ---
 name: install-workflows
 description: Install GitHub Actions workflows for plugin validation and registry updates
-arguments:
-  - name: target-dir
-    description: Target directory to install workflows (defaults to current directory)
-    required: false
+argument-hint: [target-dir]
 ---
 
 # Install Workflows Command
 
 Install GitHub Actions workflows for automating plugin validation and registry index updates in a plugin marketplace repository.
+
+**Arguments:** `target-dir` (optional) — Target directory to install workflows (defaults to current directory)
 
 ## Workflows Installed
 

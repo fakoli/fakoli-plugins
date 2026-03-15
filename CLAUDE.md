@@ -138,28 +138,28 @@ Each plugin in `plugins/<name>/` must have:
 
 ### Path Resolution Rules
 
-All paths in `plugin.json` resolve **relative to `.claude-plugin/`**, not the plugin root.
+All paths in `plugin.json` resolve **relative to the plugin root** and must start with `./`.
 
 **Rule 1:** Don't declare standard auto-discovered directories (`skills/`, `commands/`, `agents/`, `hooks/`) — Claude Code finds them automatically.
 
-**Rule 2:** Use `../` prefix for files at plugin root.
+**Rule 2:** Use `./` prefix for all paths (relative to plugin root, not `.claude-plugin/`).
 
 | Scenario | Correct | Incorrect |
 |----------|---------|-----------|
-| Reference hooks.json at plugin root | `"hooks": "../hooks/hooks.json"` | `"hooks": "./hooks/hooks.json"` |
-| Reference .mcp.json at plugin root | `"mcpServers": "../.mcp.json"` | `"mcpServers": "./.mcp.json"` |
+| Reference hooks.json at plugin root | `"hooks": "./hooks/hooks.json"` | `"hooks": "../hooks/hooks.json"` |
+| Reference .mcp.json at plugin root | `"mcpServers": "./.mcp.json"` | `"mcpServers": "../.mcp.json"` |
 | Reference skills dir (unnecessary) | _(don't declare — auto-discovered)_ | `"skills": "./skills"` |
 
 **Directory layout:**
 ```
 my-plugin/
 ├── .claude-plugin/
-│   └── plugin.json      ← paths resolve from HERE
+│   └── plugin.json      ← manifest lives here, but paths resolve from plugin root
 ├── hooks/
-│   └── hooks.json       ← referenced as "../hooks/hooks.json"
+│   └── hooks.json       ← referenced as "./hooks/hooks.json"
 ├── skills/              ← auto-discovered, don't declare
 ├── commands/            ← auto-discovered, don't declare
-└── .mcp.json            ← referenced as "../.mcp.json"
+└── .mcp.json            ← referenced as "./.mcp.json"
 ```
 
 ### Hook Safety Rules

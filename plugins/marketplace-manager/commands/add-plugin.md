@@ -1,15 +1,14 @@
 ---
 name: add-plugin
 description: Add a new plugin to the fakoli-plugins marketplace from template
-arguments:
-  - name: plugin-name
-    description: Name of the plugin to create (lowercase, alphanumeric, hyphens only)
-    required: true
+argument-hint: <plugin-name>
 ---
 
 # Add Plugin Command
 
 Create a new plugin in the fakoli-plugins marketplace.
+
+**Arguments:** `plugin-name` (required) — Name of the plugin to create (lowercase, alphanumeric, hyphens only)
 
 ## Process
 

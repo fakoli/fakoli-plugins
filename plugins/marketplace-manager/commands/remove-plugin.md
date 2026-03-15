@@ -1,18 +1,16 @@
 ---
 name: remove-plugin
 description: Remove a plugin from the fakoli-plugins marketplace
-arguments:
-  - name: plugin-name
-    description: Name of the plugin to remove
-    required: true
-  - name: force
-    description: Skip confirmation prompt
-    required: false
+argument-hint: <plugin-name> [--force]
 ---
 
 # Remove Plugin Command
 
 Remove a plugin from the fakoli-plugins marketplace.
+
+**Arguments:**
+- `plugin-name` (required) — Name of the plugin to remove
+- `--force` (optional) — Skip confirmation prompt
 
 ## Process
 
