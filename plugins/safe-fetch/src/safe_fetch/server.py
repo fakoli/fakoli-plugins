@@ -10,10 +10,10 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
-# Load ~/.env first (lower priority), then project .env (higher priority).
+# Load project .env first (higher priority), then ~/.env (fallback).
 # Existing env vars (e.g. from .mcp.json) take precedence over both.
-load_dotenv(Path.home() / ".env", override=False)
 load_dotenv(override=False)
+load_dotenv(Path.home() / ".env", override=False)
 
 import httpx
 from mcp.server.fastmcp import FastMCP
