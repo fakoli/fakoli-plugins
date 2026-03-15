@@ -35,3 +35,6 @@ jobs:
 
       - name: Validate all plugins
         run: ./scripts/validate.sh
+
+      - name: Deep scan plugins
+        run: ./scripts/test-path-resolution.sh
