@@ -87,26 +87,23 @@ scan_component_paths() {
         for path in "${paths[@]}"; do
             [[ -z "$path" || "$path" == "null" ]] && continue
 
+            # Reject ../ paths up-front — old pattern, regardless of whether they resolve
+            if [[ "$path" =~ ^\.\.\/ ]]; then
+                local without_dotdot="${path#../}"
+                if [[ -e "$plugin_dir/$without_dotdot" ]]; then
+                    log_error "'$field' path '$path' uses ../ — paths resolve from plugin root, use './$without_dotdot' instead"
+                else
+                    log_error "'$field' path '$path' not found (resolved: $plugin_dir/$path)"
+                fi
+                continue
+            fi
+
             # Resolve relative to plugin root (per official docs)
             local resolved="$plugin_dir/$path"
-            # Also try without ./ prefix
-            local stripped="${path#./}"
-            local resolved_stripped="$plugin_dir/$stripped"
-
-            if [[ -e "$resolved" || -e "$resolved_stripped" ]]; then
+            if [[ -e "$resolved" ]]; then
                 log_ok "'$field' path '$path' resolves to existing target"
             else
-                # Check if it uses ../ (old pattern, resolving from .claude-plugin/)
-                if [[ "$path" =~ ^\.\.\/ ]]; then
-                    local without_dotdot="${path#../}"
-                    if [[ -e "$plugin_dir/$without_dotdot" ]]; then
-                        log_error "'$field' path '$path' uses ../ — paths resolve from plugin root, use './$without_dotdot' instead"
-                    else
-                        log_error "'$field' path '$path' not found (resolved: $resolved)"
-                    fi
-                else
-                    log_error "'$field' path '$path' not found (resolved: $resolved)"
-                fi
+                log_error "'$field' path '$path' not found (resolved: $resolved)"
             fi
         done
     done

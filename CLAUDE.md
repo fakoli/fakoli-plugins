@@ -73,7 +73,7 @@ Each plugin in `plugins/<name>/` must have:
 | Hook entry missing `hooks` array wrapper | `validate.sh` | ERROR |
 | Empty `hooks` array in hook entry | `validate.sh` | ERROR |
 | Auto-discovered field declared | `validate.sh` | WARN |
-| `./` path confusion (should be `../`) | `validate.sh` | WARN |
+| `../` path confusion (should be `./`) | `validate.sh` | WARN |
 | hooks/mcpServers path not found | `validate.sh` | ERROR |
 | License field without LICENSE file | `validate.sh` | WARN |
 | Broad matcher on high-frequency event | `validate.sh` | WARN |
@@ -255,7 +255,7 @@ When adding a new plugin, ALWAYS complete ALL of these steps before merging:
 4. Run `./scripts/validate.sh plugins/<name>` to validate the plugin
 5. Run `./scripts/test-path-resolution.sh plugins/<name>` to deep scan paths and hooks
 6. Verify no auto-discovered directories (`skills/`, `commands/`, `agents/`) are declared in manifest
-7. Verify `hooks`/`mcpServers` paths use `../` prefix and targets exist
+7. Verify `hooks`/`mcpServers` paths use `./` prefix (relative to plugin root) and targets exist
 8. If plugin has hooks: verify matchers are specific, no `set -e`, timeouts are set
 9. Verify the plugin appears in both the README table AND `registry/index.json`
 
