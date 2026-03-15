@@ -2,9 +2,13 @@
   "hooks": {
     "SessionStart": [
       {
-        "type": "command",
-        "command": "command -v gws > /dev/null 2>&1 && echo 'GWS CLI is available. Google Workspace operations are ready.' || echo 'WARNING: gws CLI not found. Install from https://github.com/googleworkspace/cli'",
-        "timeout": 5
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v gws > /dev/null 2>&1 && echo 'GWS CLI is available. Google Workspace operations are ready.' || echo 'WARNING: gws CLI not found. Install from https://github.com/googleworkspace/cli'",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }

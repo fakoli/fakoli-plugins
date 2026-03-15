@@ -43,16 +43,10 @@
   ],
   "plugins": [
     {
-      "name": "marketplace-manager",
-      "version": "1.2.1",
-      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
-      "source": "./plugins/marketplace-manager"
-    },
-    {
-      "name": "gws-plugin",
-      "version": "0.3.2",
-      "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
-      "source": "./plugins/gws-plugin"
+      "name": "notebooklm-enhanced",
+      "version": "0.1.1",
+      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+      "source": "./plugins/notebooklm-enhanced"
     },
     {
       "name": "rust-network-module",
@@ -61,34 +55,40 @@
       "source": "./plugins/rust-network-module"
     },
     {
-      "name": "excalidraw-diagram",
-      "version": "1.0.1",
-      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
-      "source": "./plugins/excalidraw-diagram"
-    },
-    {
-      "name": "notebooklm-enhanced",
-      "version": "0.1.1",
-      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
-      "source": "./plugins/notebooklm-enhanced"
-    },
-    {
       "name": "safe-fetch",
       "version": "1.0.2",
       "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
       "source": "./plugins/safe-fetch"
     },
     {
-      "name": "k8s-sidecar-testing",
-      "version": "1.1.1",
-      "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
-      "source": "./plugins/k8s-sidecar-testing"
+      "name": "marketplace-manager",
+      "version": "1.2.1",
+      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+      "source": "./plugins/marketplace-manager"
+    },
+    {
+      "name": "excalidraw-diagram",
+      "version": "1.0.1",
+      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+      "source": "./plugins/excalidraw-diagram"
+    },
+    {
+      "name": "gws-plugin",
+      "version": "0.3.3",
+      "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
+      "source": "./plugins/gws-plugin"
     },
     {
       "name": "nano-banana-pro",
       "version": "1.3.1",
       "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "source": "./plugins/nano-banana-pro"
+    },
+    {
+      "name": "k8s-sidecar-testing",
+      "version": "1.1.1",
+      "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
+      "source": "./plugins/k8s-sidecar-testing"
     }
   ]
 }
