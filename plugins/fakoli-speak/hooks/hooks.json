@@ -1,0 +1,18 @@
+{
+  "description": "Autospeak — automatically read responses aloud when enabled",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd ${CLAUDE_PLUGIN_ROOT} && uv run fakoli-speak autospeak-hook",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
