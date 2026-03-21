@@ -1,11 +1,12 @@
 ---
 description: Stop TTS playback
+allowed_tools: Bash
 ---
 
 Run this command to stop any currently playing TTS audio:
 
-```
-${CLAUDE_PLUGIN_ROOT}/scripts/tts.sh --stop
+```bash
+cd ${CLAUDE_PLUGIN_ROOT} && uv run fakoli-speak stop
 ```
 
-Do NOT output anything else. Just run the command.
+After running, respond with only: "Stopped." — nothing else.

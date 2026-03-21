@@ -92,8 +92,8 @@
     },
     {
       "name": "fakoli-speak",
-      "version": "1.0.0",
-      "description": "Read Claude Code responses aloud using ElevenLabs TTS — on-demand /speak and /stop commands",
+      "version": "1.1.0",
+      "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
       "source": "./plugins/fakoli-speak"
     }
   ]
