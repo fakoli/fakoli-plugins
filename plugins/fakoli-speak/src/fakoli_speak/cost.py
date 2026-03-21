@@ -34,6 +34,10 @@ def _empty_log() -> dict:
         "total_cost_usd": 0.0,
         "total_requests": 0,
         "cost_per_char": DEFAULT_COST_PER_CHAR,
+        "today_date": "",
+        "today_characters": 0,
+        "today_cost_usd": 0.0,
+        "today_requests": 0,
         "requests": [],
     }
 
@@ -47,6 +51,7 @@ def record_usage(chars: int, voice_id: str, model_id: str) -> dict:
     """Record a TTS request and return the entry."""
     log = _load_log()
     cost = chars * log.get("cost_per_char", DEFAULT_COST_PER_CHAR)
+    today = datetime.now(timezone.utc).date().isoformat()
 
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -56,10 +61,22 @@ def record_usage(chars: int, voice_id: str, model_id: str) -> dict:
         "model_id": model_id,
     }
 
+    # All-time running totals
     log["total_characters"] += chars
     log["total_cost_usd"] = round(log["total_cost_usd"] + cost, 6)
     log["total_requests"] += 1
-    # Keep last 100 requests to avoid unbounded growth
+
+    # Daily running totals (reset on date change)
+    if log.get("today_date") != today:
+        log["today_date"] = today
+        log["today_characters"] = 0
+        log["today_cost_usd"] = 0.0
+        log["today_requests"] = 0
+    log["today_characters"] += chars
+    log["today_cost_usd"] = round(log["today_cost_usd"] + cost, 6)
+    log["today_requests"] += 1
+
+    # Keep last 100 requests for detail view
     log["requests"].append(entry)
     log["requests"] = log["requests"][-100:]
 
@@ -71,16 +88,16 @@ def get_summary() -> dict:
     """Return usage summary."""
     log = _load_log()
     today = datetime.now(timezone.utc).date().isoformat()
-    today_chars = 0
-    today_cost = 0.0
-    today_requests = 0
 
-    for req in log.get("requests", []):
-        req_date = req.get("timestamp", "")[:10]
-        if req_date == today:
-            today_chars += req.get("characters", 0)
-            today_cost += req.get("cost_usd", 0.0)
-            today_requests += 1
+    # Use running daily totals (accurate even beyond 100 requests)
+    if log.get("today_date") == today:
+        today_chars = log.get("today_characters", 0)
+        today_cost = log.get("today_cost_usd", 0.0)
+        today_reqs = log.get("today_requests", 0)
+    else:
+        today_chars = 0
+        today_cost = 0.0
+        today_reqs = 0
 
     return {
         "total_characters": log.get("total_characters", 0),
@@ -88,7 +105,7 @@ def get_summary() -> dict:
         "total_requests": log.get("total_requests", 0),
         "today_characters": today_chars,
         "today_cost_usd": round(today_cost, 4),
-        "today_requests": today_requests,
+        "today_requests": today_reqs,
         "cost_per_1k_chars": round(
             log.get("cost_per_char", DEFAULT_COST_PER_CHAR) * 1000, 4
         ),

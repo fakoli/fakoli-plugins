@@ -157,6 +157,7 @@ def speak(text: str) -> dict:
         prefix="claude-tts-", suffix=".mp3", delete=False
     )
 
+    playback_started = False
     try:
         with httpx.stream(
             "POST",
@@ -188,6 +189,7 @@ def speak(text: str) -> dict:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        playback_started = True
         PID_FILE.write_text(str(proc.pid))
 
         entry = cost.record_usage(char_count, voice_id, model_id)
@@ -208,8 +210,11 @@ def speak(text: str) -> dict:
         }
 
     except httpx.HTTPError as e:
-        try:
-            os.unlink(audio_file.name)
-        except OSError:
-            pass
         raise APIError(f"API request failed: {e}") from e
+    finally:
+        if not playback_started:
+            try:
+                audio_file.close()
+                os.unlink(audio_file.name)
+            except OSError:
+                pass

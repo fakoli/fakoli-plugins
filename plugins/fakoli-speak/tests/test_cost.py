@@ -40,7 +40,7 @@ class TestRecordUsage:
         assert abs(entry["cost_usd"] - 0.30) < 0.001
 
     def test_caps_request_history_at_100(self, temp_cost_log):
-        for i in range(110):
+        for _ in range(110):
             cost.record_usage(10, "v1", "m1")
 
         log = json.loads(temp_cost_log.read_text())
@@ -48,6 +48,15 @@ class TestRecordUsage:
         # But totals still reflect all 110
         assert log["total_requests"] == 110
         assert log["total_characters"] == 1100
+
+    def test_today_stats_accurate_beyond_100_requests(self):
+        """Greptile P1: today stats must use running sums, not capped list."""
+        for _ in range(110):
+            cost.record_usage(10, "v1", "m1")
+
+        summary = cost.get_summary()
+        assert summary["today_characters"] == 1100
+        assert summary["today_requests"] == 110
 
 
 class TestGetSummary:
