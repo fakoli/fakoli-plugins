@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-03-15T03:54:34Z",
-  "totalTags": 77,
+  "generatedAt": "2026-03-21T23:53:10Z",
+  "totalTags": 83,
   "tags": [
     {
       "tag": "automation",
@@ -9,6 +9,10 @@
     {
       "tag": "slides",
       "count": 2
+    },
+    {
+      "tag": "accessibility",
+      "count": 1
     },
     {
       "tag": "admin-reports",
@@ -24,6 +28,10 @@
     },
     {
       "tag": "async",
+      "count": 1
+    },
+    {
+      "tag": "audio",
       "count": 1
     },
     {
@@ -64,6 +72,10 @@
     },
     {
       "tag": "drive",
+      "count": 1
+    },
+    {
+      "tag": "elevenlabs",
       "count": 1
     },
     {
@@ -267,6 +279,10 @@
       "count": 1
     },
     {
+      "tag": "streaming",
+      "count": 1
+    },
+    {
       "tag": "tasks",
       "count": 1
     },
@@ -283,7 +299,15 @@
       "count": 1
     },
     {
+      "tag": "text-to-speech",
+      "count": 1
+    },
+    {
       "tag": "tokio",
+      "count": 1
+    },
+    {
+      "tag": "tts",
       "count": 1
     },
     {

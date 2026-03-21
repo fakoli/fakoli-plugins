@@ -1,9 +1,30 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-15T09:56:42Z",
-  "pluginCount": 8,
+  "generatedAt": "2026-03-21T23:53:10Z",
+  "pluginCount": 9,
   "plugins": [
+    {
+      "name": "fakoli-speak",
+      "version": "1.1.0",
+      "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "tts",
+        "text-to-speech",
+        "elevenlabs",
+        "accessibility",
+        "audio",
+        "streaming"
+      ],
+      "path": "plugins/fakoli-speak",
+      "indexedAt": "2026-03-21T23:53:10Z"
+    },
     {
       "name": "marketplace-manager",
       "version": "1.2.2",
@@ -21,7 +42,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-15T09:56:41Z"
+      "indexedAt": "2026-03-21T23:53:10Z"
     },
     {
       "name": "gws-plugin",
@@ -69,7 +90,7 @@
         "automation"
       ],
       "path": "plugins/gws-plugin",
-      "indexedAt": "2026-03-15T09:56:41Z"
+      "indexedAt": "2026-03-21T23:53:10Z"
     },
     {
       "name": "rust-network-module",
@@ -91,7 +112,7 @@
         "proxy"
       ],
       "path": "plugins/rust-network-module",
-      "indexedAt": "2026-03-15T09:56:41Z"
+      "indexedAt": "2026-03-21T23:53:10Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -112,7 +133,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-15T09:56:41Z"
+      "indexedAt": "2026-03-21T23:53:10Z"
     },
     {
       "name": "notebooklm-enhanced",
@@ -135,7 +156,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-03-15T09:56:41Z"
+      "indexedAt": "2026-03-21T23:53:10Z"
     },
     {
       "name": "safe-fetch",
@@ -157,7 +178,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-15T09:56:41Z"
+      "indexedAt": "2026-03-21T23:53:10Z"
     },
     {
       "name": "k8s-sidecar-testing",
@@ -179,7 +200,7 @@
         "nat464"
       ],
       "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-03-15T09:56:41Z"
+      "indexedAt": "2026-03-21T23:53:10Z"
     },
     {
       "name": "nano-banana-pro",
@@ -200,7 +221,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-15T09:56:42Z"
+      "indexedAt": "2026-03-21T23:53:10Z"
     }
   ]
 }

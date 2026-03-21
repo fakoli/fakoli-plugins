@@ -1,10 +1,16 @@
 {
-  "generatedAt": "2026-03-15T09:56:42Z",
+  "generatedAt": "2026-03-21T23:53:10Z",
   "categories": [
     {
       "category": "uncategorized",
-      "count": 8,
+      "count": 9,
       "plugins": [
+        {
+          "name": "fakoli-speak",
+          "version": "1.1.0",
+          "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
+          "path": "plugins/fakoli-speak"
+        },
         {
           "name": "marketplace-manager",
           "version": "1.2.2",
