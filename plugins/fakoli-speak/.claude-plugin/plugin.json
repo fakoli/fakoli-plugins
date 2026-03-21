@@ -1,0 +1,18 @@
+{
+  "name": "fakoli-speak",
+  "version": "1.0.0",
+  "description": "Read Claude Code responses aloud using ElevenLabs TTS — on-demand text-to-speech via /speak command",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "tts",
+    "text-to-speech",
+    "elevenlabs",
+    "accessibility",
+    "audio"
+  ]
+}
