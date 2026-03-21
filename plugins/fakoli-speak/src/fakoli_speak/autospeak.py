@@ -31,10 +31,10 @@ def strip_markdown(text: str) -> str:
     text = re.sub(r"```[\s\S]*?```", "", text)
     # Remove inline code
     text = re.sub(r"`[^`]+`", "", text)
+    # Remove images (before links, since ![...] partially matches [...])
+    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", "", text)
     # Remove markdown links, keep text
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
-    # Remove images
-    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", "", text)
     # Remove HTML tags
     text = re.sub(r"<[^>]+>", "", text)
     # Remove table rows (lines with |)

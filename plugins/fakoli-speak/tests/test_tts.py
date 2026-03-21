@@ -1,12 +1,11 @@
 """Tests for TTS engine module."""
 
-import os
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from fakoli_speak import tts
+from fakoli_speak.tts import APIKeyMissing, NoPlayerFound, TTSError
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +29,7 @@ class TestStop:
         assert not temp_pid_file.exists()
 
     def test_stop_handles_missing_pid_file(self):
-        tts.stop()  # Should not raise
+        tts.stop()
 
 
 class TestStatus:
@@ -40,7 +39,7 @@ class TestStatus:
         assert s["pid"] is None
 
     def test_idle_when_stale_pid(self, temp_pid_file):
-        temp_pid_file.write_text("99999")  # Very unlikely to be a real PID
+        temp_pid_file.write_text("99999")
         s = tts.status()
         assert s["playing"] is False
 
@@ -96,12 +95,12 @@ class TestListVoices:
 
 
 class TestSpeak:
-    def test_rejects_empty_text(self, mock_env):
-        with pytest.raises(SystemExit):
+    def test_rejects_empty_text(self):
+        with pytest.raises(TTSError, match="Empty text"):
             tts.speak("")
 
-    def test_rejects_whitespace_only(self, mock_env):
-        with pytest.raises(SystemExit):
+    def test_rejects_whitespace_only(self):
+        with pytest.raises(TTSError, match="Empty text"):
             tts.speak("   ")
 
     def test_truncates_long_text(self):
@@ -110,30 +109,30 @@ class TestSpeak:
         assert len(truncated) == 4000
 
     @patch("fakoli_speak.tts._find_player", return_value=None)
-    def test_exits_when_no_player(self, _mock, mock_env):
-        with pytest.raises(SystemExit):
+    def test_raises_when_no_player(self, _mock, mock_env):
+        with pytest.raises(NoPlayerFound):
             tts.speak("hello")
 
 
 class TestFindPlayer:
-    @patch("subprocess.run")
-    def test_finds_afplay(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
+    @patch("fakoli_speak.tts.shutil.which")
+    def test_finds_afplay(self, mock_which):
+        mock_which.return_value = "/usr/bin/afplay"
         result = tts._find_player()
         assert result is not None
         assert result[0] == "afplay"
 
-    @patch("subprocess.run")
-    def test_returns_none_when_no_player(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=1)
+    @patch("fakoli_speak.tts.shutil.which")
+    def test_returns_none_when_no_player(self, mock_which):
+        mock_which.return_value = None
         result = tts._find_player()
         assert result is None
 
 
 class TestGetApiKey:
-    def test_exits_when_missing(self, monkeypatch):
+    def test_raises_when_missing(self, monkeypatch):
         monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
-        with pytest.raises(SystemExit):
+        with pytest.raises(APIKeyMissing):
             tts._get_api_key()
 
     def test_returns_key(self, mock_env):

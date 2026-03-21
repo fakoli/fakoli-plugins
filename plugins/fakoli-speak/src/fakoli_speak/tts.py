@@ -1,10 +1,11 @@
 """ElevenLabs TTS engine with streaming playback."""
 
 import os
+import shutil
 import signal
 import subprocess
-import sys
 import tempfile
+import threading
 from pathlib import Path
 
 import httpx
@@ -22,11 +23,25 @@ _PLAYERS = [
 ]
 
 
+class TTSError(Exception):
+    """Base exception for TTS errors."""
+
+
+class APIKeyMissing(TTSError):
+    """ElevenLabs API key not configured."""
+
+
+class NoPlayerFound(TTSError):
+    """No audio player available on this system."""
+
+
+class APIError(TTSError):
+    """ElevenLabs API returned an error."""
+
+
 def _find_player() -> tuple[str, list[str]] | None:
     for cmd, args in _PLAYERS:
-        if subprocess.run(
-            ["which", cmd], capture_output=True, text=True
-        ).returncode == 0:
+        if shutil.which(cmd):
             return cmd, args
     return None
 
@@ -34,8 +49,7 @@ def _find_player() -> tuple[str, list[str]] | None:
 def _get_api_key() -> str:
     key = os.environ.get("ELEVENLABS_API_KEY", "")
     if not key:
-        print("Error: ELEVENLABS_API_KEY not set. Add it to ~/.env", file=sys.stderr)
-        sys.exit(1)
+        raise APIKeyMissing("ELEVENLABS_API_KEY not set. Add it to ~/.env")
     return key
 
 
@@ -57,7 +71,6 @@ def stop() -> None:
             pass
         PID_FILE.unlink(missing_ok=True)
 
-    # Also kill by pattern
     for cmd, _ in _PLAYERS:
         subprocess.run(
             ["pkill", "-f", f"{cmd}.*claude-tts"],
@@ -72,7 +85,7 @@ def status() -> dict:
     if PID_FILE.exists():
         try:
             pid = int(PID_FILE.read_text().strip())
-            os.kill(pid, 0)  # Check if process exists
+            os.kill(pid, 0)
             playing = True
         except (ValueError, ProcessLookupError, OSError):
             PID_FILE.unlink(missing_ok=True)
@@ -107,23 +120,30 @@ def list_voices() -> list[dict]:
     ]
 
 
+def _cleanup_after_playback(proc: subprocess.Popen, audio_path: str) -> None:
+    """Wait for player to finish, then clean up. Runs in daemon thread."""
+    proc.wait()
+    try:
+        os.unlink(audio_path)
+    except OSError:
+        pass
+    PID_FILE.unlink(missing_ok=True)
+
+
 def speak(text: str) -> dict:
-    """Stream TTS audio for the given text. Returns usage info."""
+    """Stream TTS audio for the given text. Returns usage info.
+
+    Raises:
+        TTSError: On empty text, missing player, missing API key, or API error.
+    """
     if not text.strip():
-        print("Error: Empty text.", file=sys.stderr)
-        sys.exit(1)
+        raise TTSError("Empty text")
 
     player = _find_player()
     if player is None:
-        print(
-            "Error: No audio player found (need afplay, mpv, or ffplay)",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        raise NoPlayerFound("No audio player found (need afplay, mpv, or ffplay)")
 
     player_cmd, player_args = player
-
-    # Truncate
     text = text[:MAX_CHARS]
     char_count = len(text)
 
@@ -131,10 +151,8 @@ def speak(text: str) -> dict:
     voice_id = _get_voice_id()
     model_id = _get_model_id()
 
-    # Stop any current playback
     stop()
 
-    # Stream audio from ElevenLabs
     audio_file = tempfile.NamedTemporaryFile(
         prefix="claude-tts-", suffix=".mp3", delete=False
     )
@@ -156,18 +174,15 @@ def speak(text: str) -> dict:
         ) as resp:
             if resp.status_code != 200:
                 body = resp.read().decode(errors="replace")
-                print(
-                    f"Error: ElevenLabs API returned HTTP {resp.status_code}: {body}",
-                    file=sys.stderr,
+                raise APIError(
+                    f"ElevenLabs API returned HTTP {resp.status_code}: {body}"
                 )
-                sys.exit(1)
 
             for chunk in resp.iter_bytes():
                 audio_file.write(chunk)
 
         audio_file.close()
 
-        # Play in background
         proc = subprocess.Popen(
             [player_cmd, *player_args, audio_file.name],
             stdout=subprocess.DEVNULL,
@@ -175,19 +190,15 @@ def speak(text: str) -> dict:
         )
         PID_FILE.write_text(str(proc.pid))
 
-        # Record cost
         entry = cost.record_usage(char_count, voice_id, model_id)
 
-        # Spawn cleanup waiter (non-blocking)
-        if os.fork() == 0:
-            # Child process: wait for player, then clean up
-            proc.wait()
-            try:
-                os.unlink(audio_file.name)
-            except OSError:
-                pass
-            PID_FILE.unlink(missing_ok=True)
-            os._exit(0)
+        # Daemon thread cleans up after playback — no fork needed
+        cleanup = threading.Thread(
+            target=_cleanup_after_playback,
+            args=(proc, audio_file.name),
+            daemon=True,
+        )
+        cleanup.start()
 
         return {
             "characters": char_count,
@@ -197,9 +208,8 @@ def speak(text: str) -> dict:
         }
 
     except httpx.HTTPError as e:
-        print(f"Error: API request failed: {e}", file=sys.stderr)
         try:
             os.unlink(audio_file.name)
         except OSError:
             pass
-        sys.exit(1)
+        raise APIError(f"API request failed: {e}") from e

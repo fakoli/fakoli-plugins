@@ -2,11 +2,13 @@
 
 import argparse
 import json
+import os
 import sys
 
 from dotenv import load_dotenv
 
 from . import autospeak, cost, tts
+from .tts import TTSError
 
 
 def cmd_speak(args: argparse.Namespace) -> None:
@@ -96,12 +98,12 @@ def cmd_autospeak_hook(_args: argparse.Namespace) -> None:
 
     try:
         tts.speak(text)
-    except (SystemExit, Exception):
+    except TTSError:
         pass  # Hook must never crash or block
 
 
 def main() -> None:
-    load_dotenv(dotenv_path="~/.env")
+    load_dotenv(dotenv_path=os.path.expanduser("~/.env"))
 
     parser = argparse.ArgumentParser(
         prog="fakoli-speak",
@@ -147,7 +149,11 @@ def main() -> None:
         parser.print_help()
         sys.exit(1)
 
-    args.func(args)
+    try:
+        args.func(args)
+    except TTSError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
