@@ -32,16 +32,18 @@ For better discoverability and user experience:
 - Use lowercase letters, numbers, and hyphens
 - Be descriptive but concise
 - Avoid generic names like "utils" or "tools"
-- Don't include "plugin" in the name
+- **Never include "plugin" or "-plugin" as a suffix** — the name lives in a plugin context already; the suffix is redundant and will be rejected
 
 ```
 ✓ git-workflow-helper
 ✓ code-review-assistant
 ✓ api-documentation-gen
+✓ gws
 
 ✗ MyPlugin
 ✗ Utils
 ✗ code_review_plugin
+✗ gws-plugin
 ```
 
 ### Skill Names
@@ -49,6 +51,25 @@ For better discoverability and user experience:
 - Use kebab-case for file names
 - Use descriptive names that hint at functionality
 - Keep names reasonably short
+
+## Category Assignment
+
+Every plugin must declare a category in `.claude-plugin/marketplace.json`. Use exactly one of:
+
+| Category | Purpose |
+|----------|---------|
+| `productivity` | Workflow automation, scheduling, task management, writing assistance |
+| `integrations` | Connections to external services, APIs, platforms (e.g., Google Workspace, Slack) |
+| `utilities` | Developer tools, code helpers, formatters, linters, path/schema utilities |
+
+Example `marketplace.json` excerpt:
+```json
+{
+  "category": "integrations"
+}
+```
+
+Choose the category that best describes the plugin's primary value. When in doubt: if it talks to an external service, use `integrations`; if it improves a developer workflow, use `utilities`; if it helps users get things done faster, use `productivity`.
 
 ## Version Guidelines
 
@@ -216,6 +237,8 @@ List required dependencies in the manifest:
 - Prefer widely-available packages
 
 ## Testing Your Plugin
+
+For full testing guidance — including hook testing patterns, CI integration, and coverage expectations — see [`docs/TESTING_STANDARDS.md`](TESTING_STANDARDS.md).
 
 ### Before Submission
 

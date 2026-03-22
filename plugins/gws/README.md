@@ -1,4 +1,4 @@
-# GWS Plugin for Claude Code
+# GWS — Google Workspace for Claude Code
 
 A unified Claude Code plugin for interacting with Google Workspace services via the [`gws` CLI](https://github.com/googleworkspace/cli).
 
@@ -158,7 +158,16 @@ Curated multi-step workflows for common tasks (41 official + 3 plugin-original):
 ## Installation
 
 ```bash
-claude plugin install --dir ./gws-plugin
+claude plugin install --dir ./gws
 ```
 
-Or add the plugin directory path to your Claude Code settings.
+Or add the marketplace and install from there:
+
+```
+/plugin marketplace add fakoli/fakoli-plugins
+/plugin install gws
+```
+
+## Author
+
+Sekou Doumbouya ([@fakoli](https://github.com/fakoli))

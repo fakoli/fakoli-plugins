@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-03-21T23:53:10Z",
-  "totalTags": 83,
+  "generatedAt": "2026-03-22T00:40:46Z",
+  "totalTags": 69,
   "tags": [
     {
       "tag": "automation",
@@ -24,10 +24,6 @@
     },
     {
       "tag": "architecture",
-      "count": 1
-    },
-    {
-      "tag": "async",
       "count": 1
     },
     {
@@ -135,23 +131,11 @@
       "count": 1
     },
     {
-      "tag": "ipv6",
-      "count": 1
-    },
-    {
       "tag": "it-admin",
       "count": 1
     },
     {
-      "tag": "k3s",
-      "count": 1
-    },
-    {
       "tag": "keep",
-      "count": 1
-    },
-    {
-      "tag": "kubernetes",
       "count": 1
     },
     {
@@ -168,18 +152,6 @@
     },
     {
       "tag": "modelarmor",
-      "count": 1
-    },
-    {
-      "tag": "multipass",
-      "count": 1
-    },
-    {
-      "tag": "nat464",
-      "count": 1
-    },
-    {
-      "tag": "networking",
       "count": 1
     },
     {
@@ -219,10 +191,6 @@
       "count": 1
     },
     {
-      "tag": "proxy",
-      "count": 1
-    },
-    {
       "tag": "quiz",
       "count": 1
     },
@@ -247,10 +215,6 @@
       "count": 1
     },
     {
-      "tag": "rust",
-      "count": 1
-    },
-    {
       "tag": "sales-ops",
       "count": 1
     },
@@ -259,19 +223,11 @@
       "count": 1
     },
     {
-      "tag": "scaffold",
-      "count": 1
-    },
-    {
       "tag": "security",
       "count": 1
     },
     {
       "tag": "sheets",
-      "count": 1
-    },
-    {
-      "tag": "sidecar",
       "count": 1
     },
     {
@@ -287,23 +243,11 @@
       "count": 1
     },
     {
-      "tag": "tcp",
-      "count": 1
-    },
-    {
       "tag": "team-lead",
       "count": 1
     },
     {
-      "tag": "testing",
-      "count": 1
-    },
-    {
       "tag": "text-to-speech",
-      "count": 1
-    },
-    {
-      "tag": "tokio",
       "count": 1
     },
     {

@@ -84,3 +84,7 @@ scripts/
 ## License
 
 MIT
+
+## Author
+
+Sekou Doumbouya ([@fakoli](https://github.com/fakoli))

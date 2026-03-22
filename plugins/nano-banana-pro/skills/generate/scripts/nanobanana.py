@@ -314,7 +314,7 @@ def download_images_as_parts(urls: List[str], max_images: int, max_bytes: int) -
             b64 = base64.b64encode(data).decode("ascii")
             parts.append({"inline_data": {"mime_type": mime, "data": b64}})
             count += 1
-        except Exception:
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError):
             # Best-effort: ignore broken or oversized images
             continue
     return parts

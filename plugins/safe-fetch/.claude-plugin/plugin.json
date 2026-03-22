@@ -1,6 +1,6 @@
 {
   "name": "safe-fetch",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
   "author": {
     "name": "Sekou Doumbouya",

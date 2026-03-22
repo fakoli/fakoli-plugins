@@ -5,14 +5,12 @@ on:
     branches: [main]
     paths:
       - 'plugins/**'
-      - 'external_plugins/**'
       - 'schemas/**'
       - 'scripts/validate.sh'
   pull_request:
     branches: [main]
     paths:
       - 'plugins/**'
-      - 'external_plugins/**'
       - 'schemas/**'
       - 'scripts/validate.sh'
 

@@ -1,13 +1,25 @@
 {
-  "generatedAt": "2026-03-21T23:53:10Z",
+  "generatedAt": "2026-03-22T00:40:46Z",
   "categories": [
     {
       "category": "uncategorized",
-      "count": 9,
+      "count": 7,
       "plugins": [
         {
+          "name": "notebooklm-enhanced",
+          "version": "0.1.2",
+          "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+          "path": "plugins/notebooklm-enhanced"
+        },
+        {
+          "name": "safe-fetch",
+          "version": "1.0.5",
+          "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+          "path": "plugins/safe-fetch"
+        },
+        {
           "name": "fakoli-speak",
-          "version": "1.1.0",
+          "version": "1.1.1",
           "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
           "path": "plugins/fakoli-speak"
         },
@@ -18,44 +30,20 @@
           "path": "plugins/marketplace-manager"
         },
         {
-          "name": "gws-plugin",
-          "version": "0.3.4",
-          "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
-          "path": "plugins/gws-plugin"
-        },
-        {
-          "name": "rust-network-module",
-          "version": "1.0.1",
-          "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",
-          "path": "plugins/rust-network-module"
-        },
-        {
           "name": "excalidraw-diagram",
           "version": "1.0.1",
           "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
           "path": "plugins/excalidraw-diagram"
         },
         {
-          "name": "notebooklm-enhanced",
-          "version": "0.1.1",
-          "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
-          "path": "plugins/notebooklm-enhanced"
-        },
-        {
-          "name": "safe-fetch",
-          "version": "1.0.4",
-          "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
-          "path": "plugins/safe-fetch"
-        },
-        {
-          "name": "k8s-sidecar-testing",
-          "version": "1.1.1",
-          "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
-          "path": "plugins/k8s-sidecar-testing"
+          "name": "gws",
+          "version": "0.4.0",
+          "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
+          "path": "plugins/gws"
         },
         {
           "name": "nano-banana-pro",
-          "version": "1.3.1",
+          "version": "1.3.2",
           "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
           "path": "plugins/nano-banana-pro"
         }

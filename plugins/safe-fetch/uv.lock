@@ -1255,8 +1255,8 @@ wheels = [
 ]
 
 [[package]]
-name = "safe-fetch-mcp"
-version = "0.1.0"
+name = "safe-fetch"
+version = "1.0.5"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

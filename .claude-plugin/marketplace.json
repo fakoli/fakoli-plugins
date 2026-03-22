@@ -21,16 +21,6 @@
       "description": "Tools to enhance your development workflow and efficiency"
     },
     {
-      "id": "code-quality",
-      "name": "Code Quality",
-      "description": "Linting, testing, and code review plugins"
-    },
-    {
-      "id": "devops",
-      "name": "DevOps",
-      "description": "CI/CD, deployment, and infrastructure plugins"
-    },
-    {
       "id": "integrations",
       "name": "Integrations",
       "description": "Third-party service and API integrations"
@@ -44,21 +34,21 @@
   "plugins": [
     {
       "name": "notebooklm-enhanced",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
       "source": "./plugins/notebooklm-enhanced"
     },
     {
-      "name": "rust-network-module",
-      "version": "1.0.1",
-      "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",
-      "source": "./plugins/rust-network-module"
-    },
-    {
       "name": "safe-fetch",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
       "source": "./plugins/safe-fetch"
+    },
+    {
+      "name": "fakoli-speak",
+      "version": "1.1.1",
+      "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
+      "source": "./plugins/fakoli-speak"
     },
     {
       "name": "marketplace-manager",
@@ -73,28 +63,16 @@
       "source": "./plugins/excalidraw-diagram"
     },
     {
-      "name": "gws-plugin",
-      "version": "0.3.4",
+      "name": "gws",
+      "version": "0.4.0",
       "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
-      "source": "./plugins/gws-plugin"
+      "source": "./plugins/gws"
     },
     {
       "name": "nano-banana-pro",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "source": "./plugins/nano-banana-pro"
-    },
-    {
-      "name": "k8s-sidecar-testing",
-      "version": "1.1.1",
-      "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
-      "source": "./plugins/k8s-sidecar-testing"
-    },
-    {
-      "name": "fakoli-speak",
-      "version": "1.1.0",
-      "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
-      "source": "./plugins/fakoli-speak"
     }
   ]
 }
