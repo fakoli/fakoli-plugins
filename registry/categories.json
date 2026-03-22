@@ -1,22 +1,10 @@
 {
-  "generatedAt": "2026-03-22T00:40:46Z",
+  "generatedAt": "2026-03-22T01:24:47Z",
   "categories": [
     {
       "category": "uncategorized",
       "count": 7,
       "plugins": [
-        {
-          "name": "notebooklm-enhanced",
-          "version": "0.1.2",
-          "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
-          "path": "plugins/notebooklm-enhanced"
-        },
-        {
-          "name": "safe-fetch",
-          "version": "1.0.5",
-          "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
-          "path": "plugins/safe-fetch"
-        },
         {
           "name": "fakoli-speak",
           "version": "1.1.1",
@@ -34,6 +22,18 @@
           "version": "1.0.1",
           "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
           "path": "plugins/excalidraw-diagram"
+        },
+        {
+          "name": "notebooklm-enhanced",
+          "version": "0.1.2",
+          "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+          "path": "plugins/notebooklm-enhanced"
+        },
+        {
+          "name": "safe-fetch",
+          "version": "1.0.5",
+          "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+          "path": "plugins/safe-fetch"
         },
         {
           "name": "gws",
