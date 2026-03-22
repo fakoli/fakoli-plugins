@@ -1,6 +1,6 @@
 ---
 description: Check TTS playback status and configuration
-allowed_tools: Bash
+allowed-tools: Bash
 ---
 
 Run this command to check TTS status:

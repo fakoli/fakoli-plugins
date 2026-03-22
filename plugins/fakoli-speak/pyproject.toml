@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fakoli-speak"
-version = "1.1.1"
-description = "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking"
+version = "2.0.0"
+description = "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say."
 requires-python = ">=3.10"
 dependencies = [
     "httpx>=0.27.0",

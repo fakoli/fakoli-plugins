@@ -1,220 +1,96 @@
-"""ElevenLabs TTS engine with streaming playback."""
+"""Multi-provider TTS facade for fakoli-speak.
 
-import os
-import shutil
-import signal
-import subprocess
-import tempfile
-import threading
-from pathlib import Path
+This module is a thin delegation layer over the provider registry and
+playback subsystem.  It re-exports the legacy exception and constant names
+so that callers that import them from here continue to work unchanged.
+"""
 
-import httpx
+from . import cost, playback, registry
 
-from . import cost
+# ---------------------------------------------------------------------------
+# Re-exports for backward compatibility
+# ---------------------------------------------------------------------------
 
-PID_FILE = Path("/tmp/claude-tts.pid")
-MAX_CHARS = 4000
+# Exceptions — originally defined here; now live in protocol.py
+from .protocol import APIError, APIKeyMissing, NoPlayerFound, TTSError
 
-# Player detection order
-_PLAYERS = [
-    ("afplay", []),
-    ("mpv", ["--no-terminal"]),
-    ("ffplay", ["-nodisp", "-autoexit", "-loglevel", "quiet"]),
-]
+# Constants — originally defined here; now live in playback.py
+PID_FILE = playback.PID_FILE
+MAX_CHARS: int = 4000
 
-
-class TTSError(Exception):
-    """Base exception for TTS errors."""
-
-
-class APIKeyMissing(TTSError):
-    """ElevenLabs API key not configured."""
-
-
-class NoPlayerFound(TTSError):
-    """No audio player available on this system."""
-
-
-class APIError(TTSError):
-    """ElevenLabs API returned an error."""
-
-
-def _find_player() -> tuple[str, list[str]] | None:
-    for cmd, args in _PLAYERS:
-        if shutil.which(cmd):
-            return cmd, args
-    return None
-
-
-def _get_api_key() -> str:
-    key = os.environ.get("ELEVENLABS_API_KEY", "")
-    if not key:
-        raise APIKeyMissing("ELEVENLABS_API_KEY not set. Add it to ~/.env")
-    return key
-
-
-def _get_voice_id() -> str:
-    return os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
-
-
-def _get_model_id() -> str:
-    return os.environ.get("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def stop() -> None:
     """Stop any running TTS playback."""
-    if PID_FILE.exists():
-        try:
-            pid = int(PID_FILE.read_text().strip())
-            os.kill(pid, signal.SIGTERM)
-        except (ValueError, ProcessLookupError, OSError):
-            pass
-        PID_FILE.unlink(missing_ok=True)
-
-    for cmd, _ in _PLAYERS:
-        subprocess.run(
-            ["pkill", "-f", f"{cmd}.*claude-tts"],
-            capture_output=True,
-        )
+    playback.stop()
 
 
 def status() -> dict:
-    """Return current TTS status."""
-    playing = False
-    pid = None
-    if PID_FILE.exists():
-        try:
-            pid = int(PID_FILE.read_text().strip())
-            os.kill(pid, 0)
-            playing = True
-        except (ValueError, ProcessLookupError, OSError):
-            PID_FILE.unlink(missing_ok=True)
-
+    """Return current TTS status including active provider details."""
+    playing, pid = playback.is_playing()
+    provider = registry.get_provider()
     return {
         "playing": playing,
-        "pid": pid if playing else None,
-        "voice_id": _get_voice_id(),
-        "model_id": _get_model_id(),
+        "pid": pid,
+        "provider": provider.name,
+        "provider_display": provider.display_name,
+        "voice_id": provider.get_voice_id(),
+        "model_id": provider.get_model_id(),
     }
 
 
 def list_voices() -> list[dict]:
-    """Fetch available voices from ElevenLabs."""
-    api_key = _get_api_key()
-    resp = httpx.get(
-        "https://api.elevenlabs.io/v1/voices",
-        headers={"xi-api-key": api_key},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    voices = resp.json().get("voices", [])
+    """List available voices for the active provider."""
+    provider = registry.get_provider()
+    voices = provider.list_voices()
     return [
         {
-            "voice_id": v["voice_id"],
-            "name": v["name"],
-            "accent": v.get("labels", {}).get("accent", "unknown"),
-            "gender": v.get("labels", {}).get("gender", "unknown"),
-            "use_case": v.get("labels", {}).get("use case", ""),
+            "voice_id": v.voice_id,
+            "name": v.name,
+            "language": v.language,
+            "gender": v.gender,
+            "description": v.description,
         }
         for v in voices
     ]
 
 
-def _cleanup_after_playback(proc: subprocess.Popen, audio_path: str) -> None:
-    """Wait for player to finish, then clean up. Runs in daemon thread."""
-    proc.wait()
-    try:
-        os.unlink(audio_path)
-    except OSError:
-        pass
-    PID_FILE.unlink(missing_ok=True)
-
-
 def speak(text: str) -> dict:
-    """Stream TTS audio for the given text. Returns usage info.
+    """Synthesize *text* and begin playback. Returns usage metadata.
 
     Raises:
-        TTSError: On empty text, missing player, missing API key, or API error.
+        TTSError: On empty text.
+        NoPlayerFound: If no supported audio player is available.
+        APIKeyMissing: If the active provider is not configured.
+        APIError: If the upstream API returns an error.
     """
     if not text.strip():
         raise TTSError("Empty text")
 
-    player = _find_player()
-    if player is None:
-        raise NoPlayerFound("No audio player found (need afplay, mpv, or ffplay)")
+    playback.find_player()  # pre-check before making the API call
 
-    player_cmd, player_args = player
     text = text[:MAX_CHARS]
-    char_count = len(text)
+    provider = registry.get_provider()
+    provider.validate_config()
+    playback.stop()
 
-    api_key = _get_api_key()
-    voice_id = _get_voice_id()
-    model_id = _get_model_id()
+    result = provider.synthesize(text)
+    playback.play_audio(result.audio_data, result.audio_format)
 
-    stop()
-
-    audio_file = tempfile.NamedTemporaryFile(
-        prefix="claude-tts-", suffix=".mp3", delete=False
+    entry = cost.record_usage(
+        chars=result.char_count,
+        voice_id=result.voice_id,
+        model_id=result.model_id,
+        provider=provider.name,
     )
 
-    playback_started = False
-    try:
-        with httpx.stream(
-            "POST",
-            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream",
-            headers={
-                "xi-api-key": api_key,
-                "Content-Type": "application/json",
-            },
-            json={
-                "text": text,
-                "model_id": model_id,
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
-            },
-            timeout=30,
-        ) as resp:
-            if resp.status_code != 200:
-                body = resp.read().decode(errors="replace")
-                raise APIError(
-                    f"ElevenLabs API returned HTTP {resp.status_code}: {body}"
-                )
-
-            for chunk in resp.iter_bytes():
-                audio_file.write(chunk)
-
-        audio_file.close()
-
-        proc = subprocess.Popen(
-            [player_cmd, *player_args, audio_file.name],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        playback_started = True
-        PID_FILE.write_text(str(proc.pid))
-
-        entry = cost.record_usage(char_count, voice_id, model_id)
-
-        # Daemon thread cleans up after playback — no fork needed
-        cleanup = threading.Thread(
-            target=_cleanup_after_playback,
-            args=(proc, audio_file.name),
-            daemon=True,
-        )
-        cleanup.start()
-
-        return {
-            "characters": char_count,
-            "cost_usd": entry["cost_usd"],
-            "voice_id": voice_id,
-            "model_id": model_id,
-        }
-
-    except httpx.HTTPError as e:
-        raise APIError(f"API request failed: {e}") from e
-    finally:
-        if not playback_started:
-            try:
-                audio_file.close()
-                os.unlink(audio_file.name)
-            except OSError:
-                pass
+    return {
+        "characters": result.char_count,
+        "cost_usd": entry["cost_usd"],
+        "voice_id": result.voice_id,
+        "model_id": result.model_id,
+        "provider": provider.name,
+    }

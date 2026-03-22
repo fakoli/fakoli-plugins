@@ -35,12 +35,13 @@ class TestCmdSpeak:
         cli.cmd_speak(args)
         mock_tts.speak.assert_called_once_with("from stdin")
 
-    def test_exits_when_no_input(self, monkeypatch):
+    def test_raises_when_no_input(self, monkeypatch):
+        from fakoli_speak.tts import TTSError
         mock_stdin = MagicMock()
         mock_stdin.isatty.return_value = True
         monkeypatch.setattr("sys.stdin", mock_stdin)
         args = cli.argparse.Namespace(text=[])
-        with pytest.raises(SystemExit):
+        with pytest.raises(TTSError):
             cli.cmd_speak(args)
 
 
@@ -48,6 +49,7 @@ class TestCmdCost:
     @patch("fakoli_speak.cli.cost")
     def test_shows_summary(self, mock_cost, capsys):
         mock_cost.get_summary.return_value = {
+            "provider": "openai",
             "total_characters": 5000,
             "total_cost_usd": 1.50,
             "total_requests": 10,

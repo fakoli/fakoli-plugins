@@ -1,3 +1,3 @@
-"""ElevenLabs TTS for Claude Code."""
+"""Multi-provider TTS for Claude Code."""
 
-__version__ = "1.1.1"
+__version__ = "2.0.0"

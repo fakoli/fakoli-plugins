@@ -1,7 +1,7 @@
 {
   "name": "fakoli-speak",
-  "version": "1.1.1",
-  "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
+  "version": "2.0.0",
+  "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"
@@ -12,8 +12,13 @@
     "tts",
     "text-to-speech",
     "elevenlabs",
+    "openai",
+    "deepgram",
+    "google",
+    "macos",
     "accessibility",
     "audio",
-    "streaming"
+    "streaming",
+    "multi-provider"
   ]
 }
