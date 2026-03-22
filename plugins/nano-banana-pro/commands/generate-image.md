@@ -29,7 +29,7 @@ Generate an image from a text prompt using Google's Gemini 3 Pro Image Preview m
 ## Execution
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
   --prompt "<prompt>" \
   [--aspect "16:9"] \
   [--size "2K"] \
@@ -41,14 +41,14 @@ uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen 
 ### Basic generation
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
   --prompt "A serene mountain landscape at sunset with golden light"
 ```
 
 ### Hero banner with specific dimensions
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
   --prompt "Hero banner for a SaaS product. Bold headline 'Ship Faster' on left, abstract tech illustration on right. Clean, modern, blue gradient background." \
   --aspect "16:9" \
   --size "2K" \
@@ -58,7 +58,7 @@ uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen 
 ### Social media avatar
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
   --prompt "Professional avatar icon, geometric abstract face, purple and teal gradient" \
   --aspect "1:1" \
   --size "1K"

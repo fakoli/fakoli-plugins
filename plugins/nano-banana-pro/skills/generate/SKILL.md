@@ -28,10 +28,10 @@ Use `--model pro` (higher quality, default) or `--model flash` (faster) with any
 
 ```bash
 # Generate/edit/remix
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" <command> [options]
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" <command> [options]
 
 # Optimize
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" <image> [--preset github|slack|web|thumbnail]
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" <image> [--preset github|slack|web|thumbnail]
 ```
 
 ## Auto-Optimization Guidance

@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-22T04:39:19Z",
+  "generatedAt": "2026-03-22T04:44:09Z",
   "pluginCount": 7,
   "plugins": [
     {
@@ -26,7 +26,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-03-22T04:39:19Z"
+      "indexedAt": "2026-03-22T04:44:09Z"
     },
     {
       "name": "safe-fetch",
@@ -48,7 +48,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-22T04:39:19Z"
+      "indexedAt": "2026-03-22T04:44:09Z"
     },
     {
       "name": "fakoli-speak",
@@ -74,7 +74,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-03-22T04:39:19Z"
+      "indexedAt": "2026-03-22T04:44:09Z"
     },
     {
       "name": "marketplace-manager",
@@ -93,7 +93,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-22T04:39:19Z"
+      "indexedAt": "2026-03-22T04:44:09Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -114,7 +114,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-22T04:39:19Z"
+      "indexedAt": "2026-03-22T04:44:09Z"
     },
     {
       "name": "gws",
@@ -162,11 +162,11 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-03-22T04:39:19Z"
+      "indexedAt": "2026-03-22T04:44:09Z"
     },
     {
       "name": "nano-banana-pro",
-      "version": "1.3.2",
+      "version": "1.3.3",
       "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "author": {
         "name": "Sekou Doumbouya",
@@ -183,7 +183,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-22T04:39:19Z"
+      "indexedAt": "2026-03-22T04:44:09Z"
     }
   ]
 }

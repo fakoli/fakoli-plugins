@@ -45,7 +45,7 @@ The remix command:
 ## Execution
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remix-url \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remix-url \
   --url "<webpage-url>" \
   --prompt "<what-to-create>" \
   [--aspect "16:9"] \
@@ -59,7 +59,7 @@ uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remi
 ### Create a hero banner matching a site's style
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remix-url \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remix-url \
   --url "https://stripe.com" \
   --prompt "Hero banner for a payment processing feature. Headline: 'Accept Payments Anywhere'. Clean, gradient background, modern typography." \
   --aspect "16:9" \
@@ -69,7 +69,7 @@ uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remi
 ### Generate social card in brand style
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remix-url \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remix-url \
   --url "https://notion.so" \
   --prompt "Social media card announcing a new feature. Text: 'Now with AI'. Centered layout, minimal design." \
   --aspect "1:1" \
@@ -79,7 +79,7 @@ uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remi
 ### Create presentation slide
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remix-url \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" remix-url \
   --url "https://linear.app" \
   --prompt "Presentation title slide. Headline: 'Q4 Product Roadmap'. Professional, dark theme, subtle gradients." \
   --aspect "16:9" \

@@ -1,0 +1,8 @@
+[project]
+name = "notebooklm-enhanced"
+version = "0.1.2"
+description = "Google NotebookLM automation for Claude Code"
+requires-python = ">=3.10"
+dependencies = [
+    "notebooklm-py>=0.3.4,<1.0",
+]

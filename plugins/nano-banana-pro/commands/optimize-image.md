@@ -42,7 +42,7 @@ Reduce image file size for GitHub, Slack, web, or other constrained environments
 ## Execution
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
   <image-path> \
   [--preset github|slack|web|thumbnail] \
   [--max-size 500KB] \
@@ -55,28 +55,28 @@ uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
 ### Optimize for GitHub README
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
   ./banner.png --preset github
 ```
 
 ### Optimize for Slack
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
   ./screenshot.png --preset slack
 ```
 
 ### Custom size constraint
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
   ./image.png --max-size 300KB --width 1000
 ```
 
 ### Specify output path
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/optimize.py" \
   ./large-image.png --preset web --out ./web-ready.png
 ```
 

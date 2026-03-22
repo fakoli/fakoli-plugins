@@ -33,7 +33,7 @@ Edit an existing image using natural language instructions with Google's Gemini 
 ## Execution
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
   --in "<input-file>" \
   --prompt "<edit-instructions>" \
   [--aspect "1:1"] \
@@ -46,7 +46,7 @@ uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit
 ### Adjust typography
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
   --in "./hero-banner.png" \
   --prompt "Increase the headline size by 15%. Add more whitespace above the subhead. Keep everything else the same."
 ```
@@ -54,7 +54,7 @@ uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit
 ### Change colors
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
   --in "./logo.png" \
   --prompt "Replace the blue with a gradient from #6366F1 to #8B5CF6. Keep the shape and layout identical."
 ```
@@ -62,7 +62,7 @@ uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit
 ### Add elements
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
   --in "./product-shot.png" \
   --prompt "Add a subtle drop shadow beneath the product. Add a small 'NEW' badge in the top-right corner."
 ```
@@ -70,7 +70,7 @@ uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit
 ### Remove elements
 
 ```bash
-uv run python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
+uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
   --in "./photo.png" \
   --prompt "Remove the text watermark in the bottom-right corner. Fill the area naturally with the surrounding background."
 ```
