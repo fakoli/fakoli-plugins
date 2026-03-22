@@ -1,6 +1,6 @@
 ---
-description: Show ElevenLabs TTS usage and cost tracking
-allowed_tools: Bash
+description: Show TTS usage and cost tracking
+allowed-tools: Bash
 ---
 
 Run this command to show TTS usage and costs:

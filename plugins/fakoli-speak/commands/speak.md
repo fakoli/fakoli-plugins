@@ -1,6 +1,6 @@
 ---
-description: Read the last response aloud using ElevenLabs TTS
-allowed_tools: Bash
+description: Read the last response aloud using TTS
+allowed-tools: Bash
 ---
 
 Look at your most recent assistant response in this conversation — the one immediately before the user typed /speak.

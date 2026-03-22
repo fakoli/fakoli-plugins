@@ -1,6 +1,6 @@
 ---
 description: Toggle automatic text-to-speech for all responses
-allowed_tools: Bash
+allowed-tools: Bash
 ---
 
 The user wants to toggle autospeak mode. Check if they said "on", "off", or neither (status check).

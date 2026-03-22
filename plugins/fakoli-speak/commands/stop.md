@@ -1,6 +1,6 @@
 ---
 description: Stop TTS playback
-allowed_tools: Bash
+allowed-tools: Bash
 ---
 
 Run this command to stop any currently playing TTS audio:
