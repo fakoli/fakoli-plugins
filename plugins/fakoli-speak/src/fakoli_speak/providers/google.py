@@ -123,6 +123,10 @@ class GoogleProvider:
     def display_name(self) -> str:
         return "Google Gemini TTS"
 
+    @property
+    def max_chars(self) -> int:
+        return 5000
+
     # ------------------------------------------------------------------
     # Configuration helpers
     # ------------------------------------------------------------------
@@ -231,8 +235,10 @@ class GoogleProvider:
         try:
             resp = httpx.post(
                 url,
-                params={"key": api_key},
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
                 json=payload,
                 timeout=60,
             )

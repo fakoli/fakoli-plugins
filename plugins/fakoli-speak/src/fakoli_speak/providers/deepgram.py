@@ -24,30 +24,6 @@ _ENDPOINT = "https://api.deepgram.com/v1/speak"
 _DEFAULT_VOICE = "aura-asteria-en"
 _MAX_CHARS = 2000
 
-# Cost per 1,000 characters (USD) — Aura-1 pay-as-you-go rate
-_COST_RATES: dict[str, float] = {
-    # Aura-1 voices
-    "aura-asteria-en":  0.015,
-    "aura-luna-en":     0.015,
-    "aura-stella-en":   0.015,
-    "aura-athena-en":   0.015,
-    "aura-hera-en":     0.015,
-    "aura-orion-en":    0.015,
-    "aura-arcas-en":    0.015,
-    "aura-perseus-en":  0.015,
-    "aura-angus-en":    0.015,
-    "aura-orpheus-en":  0.015,
-    "aura-helios-en":   0.015,
-    "aura-zeus-en":     0.015,
-    # Aura-2 voices
-    "aura-2-thalia-en":    0.030,
-    "aura-2-andromeda-en": 0.030,
-    "aura-2-helena-en":    0.030,
-    "aura-2-apollo-en":    0.030,
-    "aura-2-arcas-en":     0.030,
-    "aura-2-aries-en":     0.030,
-}
-
 # Static voice list (Aura-1 English)
 _STATIC_VOICES: list[tuple[str, str, str, str]] = [
     # (voice_id, gender, accent, description)
@@ -76,6 +52,10 @@ class DeepgramProvider:
     @property
     def display_name(self) -> str:
         return "Deepgram Aura"
+
+    @property
+    def max_chars(self) -> int:
+        return 2000
 
     # ------------------------------------------------------------------
     # Configuration helpers
@@ -107,19 +87,16 @@ class DeepgramProvider:
     # ------------------------------------------------------------------
 
     def get_cost_rates(self) -> list[CostRate]:
-        # Deduplicate by rate value to avoid returning 12 identical entries
-        seen: set[float] = set()
-        rates: list[CostRate] = []
-        for model_id, rate in _COST_RATES.items():
-            if rate not in seen:
-                rates.append(CostRate(model_id=model_id, cost_per_1k_chars=rate))
-                seen.add(rate)
-        return rates
+        return [
+            CostRate("aura-1", 0.015),
+            CostRate("aura-2", 0.030),
+        ]
 
     def get_default_cost_rate(self) -> CostRate:
         voice_id = self.get_voice_id()
-        rate = _COST_RATES.get(voice_id, 0.015)
-        return CostRate(model_id=voice_id, cost_per_1k_chars=rate)
+        if voice_id.startswith("aura-2-"):
+            return CostRate("aura-2", 0.030)
+        return CostRate("aura-1", 0.015)
 
     # ------------------------------------------------------------------
     # Voice listing

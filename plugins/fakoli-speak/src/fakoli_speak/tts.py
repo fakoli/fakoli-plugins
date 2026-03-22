@@ -72,8 +72,9 @@ def speak(text: str) -> dict:
 
     playback.find_player()  # pre-check before making the API call
 
-    text = text[:MAX_CHARS]
     provider = registry.get_provider()
+    limit = min(provider.max_chars, MAX_CHARS)
+    text = text[:limit]
     provider.validate_config()
     playback.stop()
 

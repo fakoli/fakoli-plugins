@@ -64,6 +64,10 @@ class OpenAIProvider:
     def display_name(self) -> str:
         return "OpenAI TTS"
 
+    @property
+    def max_chars(self) -> int:
+        return 4096
+
     # ------------------------------------------------------------------
     # Configuration helpers
     # ------------------------------------------------------------------

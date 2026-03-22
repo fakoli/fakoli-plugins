@@ -35,6 +35,10 @@ class MacOSProvider:
     def display_name(self) -> str:
         return "macOS say"
 
+    @property
+    def max_chars(self) -> int:
+        return 100_000
+
     # ------------------------------------------------------------------
     # Configuration helpers
     # ------------------------------------------------------------------

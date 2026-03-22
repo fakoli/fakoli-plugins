@@ -89,6 +89,11 @@ class TTSProvider(Protocol):
         """Human-readable label, e.g. ``"OpenAI TTS"`` or ``"ElevenLabs"``."""
         ...
 
+    @property
+    def max_chars(self) -> int:
+        """Maximum number of characters this provider accepts per synthesis request."""
+        ...
+
     def validate_config(self) -> None:
         """Verify that required configuration (API keys, etc.) is present.
 

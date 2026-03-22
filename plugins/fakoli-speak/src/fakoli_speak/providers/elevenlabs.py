@@ -45,6 +45,10 @@ class ElevenLabsProvider:
     def display_name(self) -> str:
         return "ElevenLabs"
 
+    @property
+    def max_chars(self) -> int:
+        return 5000
+
     # ------------------------------------------------------------------
     # Configuration helpers
     # ------------------------------------------------------------------
