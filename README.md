@@ -74,10 +74,11 @@ Plugins live in directories with a `.claude-plugin/plugin.json` manifest. The ma
 |--------|-------------|
 | [**safe-fetch**](plugins/safe-fetch) | Drop-in replacement for Claude's built-in `WebFetch` and `WebSearch` that runs content through a 6-layer sanitization pipeline before it touches the LLM. Neutralizes CSS-hidden text, zero-width Unicode, fake LLM delimiters, base64 payloads, and markdown exfiltration vectors. Security-team approvable. |
 
-### Marketplace Tools
+### Development & Workflow
 
 | Plugin | Description |
 |--------|-------------|
+| [**fakoli-crew**](plugins/fakoli-crew) | Summon expert agent archetypes — a Guido-style Python architect, code reviewer, API researcher, plugin engineer, integration specialist, and more — that work independently or as coordinated crews using wave-based orchestration for complex multi-step projects. |
 | [**marketplace-manager**](plugins/marketplace-manager) | Create and manage plugins without leaving Claude Code — scaffold new plugins from template with `/add-plugin`, validate manifests, regenerate registry indices, and install GitHub Actions workflows. The tool that maintains this marketplace. |
 
 ---
@@ -181,7 +182,7 @@ The schema lives in `schemas/plugin.schema.json`. Run `./scripts/validate.sh` lo
 fakoli-plugins/
 ├── .claude-plugin/          # Marketplace-level manifest
 ├── .github/workflows/       # CI: validate, update-index, pr-check, schema-drift
-├── plugins/                 # All active plugins (7)
+├── plugins/                 # All active plugins (8)
 ├── archive/                 # Archived / deprecated plugins
 ├── registry/                # Auto-generated plugin index (do not edit manually)
 ├── schemas/                 # JSON Schema definitions for manifests
