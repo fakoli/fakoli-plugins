@@ -34,7 +34,7 @@
   "plugins": [
     {
       "name": "notebooklm-enhanced",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
       "source": "./plugins/notebooklm-enhanced"
     },

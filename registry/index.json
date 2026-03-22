@@ -1,12 +1,12 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-22T04:44:09Z",
+  "generatedAt": "2026-03-22T04:48:28Z",
   "pluginCount": 7,
   "plugins": [
     {
       "name": "notebooklm-enhanced",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
       "author": {
         "name": "Sekou Doumbouya",
@@ -26,7 +26,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-03-22T04:44:09Z"
+      "indexedAt": "2026-03-22T04:48:28Z"
     },
     {
       "name": "safe-fetch",
@@ -48,7 +48,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-22T04:44:09Z"
+      "indexedAt": "2026-03-22T04:48:28Z"
     },
     {
       "name": "fakoli-speak",
@@ -74,7 +74,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-03-22T04:44:09Z"
+      "indexedAt": "2026-03-22T04:48:28Z"
     },
     {
       "name": "marketplace-manager",
@@ -93,7 +93,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-22T04:44:09Z"
+      "indexedAt": "2026-03-22T04:48:28Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -114,7 +114,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-22T04:44:09Z"
+      "indexedAt": "2026-03-22T04:48:28Z"
     },
     {
       "name": "gws",
@@ -162,7 +162,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-03-22T04:44:09Z"
+      "indexedAt": "2026-03-22T04:48:28Z"
     },
     {
       "name": "nano-banana-pro",
@@ -183,7 +183,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-22T04:44:09Z"
+      "indexedAt": "2026-03-22T04:48:28Z"
     }
   ]
 }
