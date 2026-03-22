@@ -1,13 +1,13 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-22T01:24:47Z",
+  "generatedAt": "2026-03-22T04:33:29Z",
   "pluginCount": 7,
   "plugins": [
     {
       "name": "fakoli-speak",
-      "version": "1.1.1",
-      "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
+      "version": "2.0.0",
+      "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
       "author": {
         "name": "Sekou Doumbouya",
         "url": "https://github.com/fakoli"
@@ -18,12 +18,17 @@
         "tts",
         "text-to-speech",
         "elevenlabs",
+        "openai",
+        "deepgram",
+        "google",
+        "macos",
         "accessibility",
         "audio",
-        "streaming"
+        "streaming",
+        "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:33:29Z"
     },
     {
       "name": "marketplace-manager",
@@ -42,7 +47,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:33:29Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -63,7 +68,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:33:29Z"
     },
     {
       "name": "notebooklm-enhanced",
@@ -87,7 +92,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:33:29Z"
     },
     {
       "name": "safe-fetch",
@@ -109,7 +114,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:33:29Z"
     },
     {
       "name": "gws",
@@ -157,7 +162,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:33:29Z"
     },
     {
       "name": "nano-banana-pro",
@@ -178,7 +183,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:33:29Z"
     }
   ]
 }

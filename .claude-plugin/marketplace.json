@@ -33,21 +33,9 @@
   ],
   "plugins": [
     {
-      "name": "notebooklm-enhanced",
-      "version": "0.1.2",
-      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
-      "source": "./plugins/notebooklm-enhanced"
-    },
-    {
-      "name": "safe-fetch",
-      "version": "1.0.5",
-      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
-      "source": "./plugins/safe-fetch"
-    },
-    {
       "name": "fakoli-speak",
-      "version": "1.1.1",
-      "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
+      "version": "2.0.0",
+      "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
       "source": "./plugins/fakoli-speak"
     },
     {
@@ -61,6 +49,18 @@
       "version": "1.0.1",
       "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
       "source": "./plugins/excalidraw-diagram"
+    },
+    {
+      "name": "notebooklm-enhanced",
+      "version": "0.1.2",
+      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+      "source": "./plugins/notebooklm-enhanced"
+    },
+    {
+      "name": "safe-fetch",
+      "version": "1.0.5",
+      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+      "source": "./plugins/safe-fetch"
     },
     {
       "name": "gws",
