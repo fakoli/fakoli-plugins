@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.5 — 2026-03-21
+- Fix pyproject.toml: sync project name and version with plugin manifest
+
 ## [1.0.0] - 2026-03-14
 
 ### Added

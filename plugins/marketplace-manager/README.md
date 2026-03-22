@@ -1,91 +1,122 @@
 # Marketplace Manager
 
-Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices.
+Manage the fakoli-plugins marketplace from inside Claude Code. Scaffold new plugins, validate manifests, remove stale entries, regenerate the registry index, and install GitHub Actions workflows — all without leaving your terminal session.
 
 ## Installation
 
-This plugin is included with the fakoli-plugins marketplace.
+This plugin is bundled with the fakoli-plugins marketplace. It is available automatically once you add the marketplace:
+
+```
+/plugin marketplace add fakoli/fakoli-plugins
+/plugin install marketplace-manager
+```
 
 ## Features
 
-- Add new plugins from template
-- Remove plugins from the marketplace
-- Validate plugin manifests
-- Regenerate registry indices
-- Check marketplace status
-- Install GitHub Actions workflows
+- **Plugin scaffolding** — create a fully-structured plugin directory from the `templates/basic` starter in one command
+- **Plugin removal** — safely remove a plugin and all its files, with optional `--force` to skip confirmation
+- **Manifest validation** — run the JSON Schema validator against any plugin or the entire marketplace
+- **Registry regeneration** — rebuild `registry/index.json` from the current set of installed plugins
+- **Workflow installation** — copy the standard GitHub Actions CI suite into any repository
+- **Marketplace status** — get a live summary of installed plugins, validation state, and registry freshness
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `/add-plugin <name>` | Scaffold a new plugin from `templates/basic` |
+| `/remove-plugin <name>` | Remove a plugin from the marketplace |
+| `/install-workflows [target-dir]` | Install GitHub Actions validation workflows |
 
 ## Usage
 
-### Skill
+### Scaffold a New Plugin
 
 ```
-/marketplace-manager
+/add-plugin my-new-plugin
 ```
 
-### Commands
+Creates `plugins/my-new-plugin/` with the full directory structure, a prefilled `plugin.json` manifest, a `README.md`, and a starter skill.
 
-#### `/add-plugin <plugin-name>`
-
-Create a new plugin from the basic template.
+You can also invoke the underlying script directly:
 
 ```bash
-# Via script
 ./plugins/marketplace-manager/skills/marketplace-manager/scripts/add_plugin.sh my-new-plugin
 ```
 
-#### `/remove-plugin <plugin-name>`
+### Remove a Plugin
 
-Remove a plugin from the marketplace.
+```
+/remove-plugin old-plugin
+```
+
+Prompts for confirmation before deleting. To skip the prompt:
 
 ```bash
-# Via script
-./plugins/marketplace-manager/skills/marketplace-manager/scripts/remove_plugin.sh old-plugin
-
-# Skip confirmation
 ./plugins/marketplace-manager/skills/marketplace-manager/scripts/remove_plugin.sh old-plugin --force
 ```
 
-#### `/install-workflows [target-dir]`
+### Install GitHub Actions Workflows
 
-Install GitHub Actions workflows for plugin validation and registry updates.
+```
+/install-workflows
+```
+
+Copies three workflow files into `.github/workflows/` of the current directory:
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `validate.yml` | push, pull_request | Validates all plugin manifests against `schemas/plugin.schema.json` |
+| `update-index.yml` | push to main | Regenerates `registry/index.json` and auto-commits |
+| `pr-check.yml` | pull_request | Posts a registry diff as a PR comment |
+
+Install into a specific directory:
 
 ```bash
-# Install in current directory
-./plugins/marketplace-manager/skills/marketplace-manager/scripts/install_workflows.sh
-
-# Install in specific directory
 ./plugins/marketplace-manager/skills/marketplace-manager/scripts/install_workflows.sh /path/to/repo
 ```
 
-Installs three workflows:
-- `validate.yml` - Validates plugins on push/PR
-- `update-index.yml` - Auto-updates registry index
-- `pr-check.yml` - Previews changes on PRs
+### Check Marketplace Status
 
-### Other Scripts
-
-**Check status:**
 ```bash
 ./plugins/marketplace-manager/skills/marketplace-manager/scripts/marketplace_status.sh
 ```
 
-**Validate plugins:**
+Reports: total plugin count, which plugins pass/fail validation, and whether the registry index is up to date.
+
+### Validate Plugins
+
+Validate all plugins:
+
 ```bash
 ./scripts/validate.sh
-./scripts/validate.sh plugins/<plugin-name>
 ```
 
-**Regenerate indices:**
+Validate a single plugin:
+
+```bash
+./scripts/validate.sh plugins/my-new-plugin
+```
+
+### Regenerate the Registry Index
+
 ```bash
 ./scripts/generate-index.sh
 ```
 
+Rebuilds `registry/index.json` from all currently installed plugins. Run this after adding or removing plugins if the CI workflow hasn't triggered yet.
+
 ## Requirements
 
-- bash
-- jq (JSON processor)
+| Dependency | Why |
+|------------|-----|
+| bash | All scripts are bash |
+| jq | JSON processing for manifest validation and index generation |
 
 ## License
 
 MIT
+
+## Author
+
+Sekou Doumbouya ([@fakoli](https://github.com/fakoli))

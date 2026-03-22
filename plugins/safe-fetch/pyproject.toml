@@ -3,8 +3,8 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "safe-fetch-mcp"
-version = "0.1.0"
+name = "safe-fetch"
+version = "1.0.5"
 description = "Sanitizing web fetch MCP server for Claude Code — strips prompt injection vectors"
 requires-python = ">=3.10"
 dependencies = [

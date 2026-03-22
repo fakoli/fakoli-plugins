@@ -1,12 +1,58 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-21T23:53:10Z",
-  "pluginCount": 9,
+  "generatedAt": "2026-03-22T00:40:46Z",
+  "pluginCount": 7,
   "plugins": [
     {
+      "name": "notebooklm-enhanced",
+      "version": "0.1.2",
+      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "notebooklm",
+        "google",
+        "research",
+        "podcast",
+        "automation",
+        "notebook",
+        "quiz",
+        "slides",
+        "rpc"
+      ],
+      "path": "plugins/notebooklm-enhanced",
+      "indexedAt": "2026-03-22T00:40:46Z"
+    },
+    {
+      "name": "safe-fetch",
+      "version": "1.0.5",
+      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "security",
+        "web-fetch",
+        "sanitization",
+        "prompt-injection",
+        "ssrf",
+        "mcp",
+        "web-search"
+      ],
+      "path": "plugins/safe-fetch",
+      "indexedAt": "2026-03-22T00:40:46Z"
+    },
+    {
       "name": "fakoli-speak",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
       "author": {
         "name": "Sekou Doumbouya",
@@ -23,7 +69,7 @@
         "streaming"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-03-21T23:53:10Z"
+      "indexedAt": "2026-03-22T00:40:46Z"
     },
     {
       "name": "marketplace-manager",
@@ -42,11 +88,32 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-21T23:53:10Z"
+      "indexedAt": "2026-03-22T00:40:46Z"
     },
     {
-      "name": "gws-plugin",
-      "version": "0.3.4",
+      "name": "excalidraw-diagram",
+      "version": "1.0.1",
+      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "excalidraw",
+        "diagram",
+        "architecture",
+        "flowchart",
+        "visualization",
+        "whiteboard"
+      ],
+      "path": "plugins/excalidraw-diagram",
+      "indexedAt": "2026-03-22T00:40:46Z"
+    },
+    {
+      "name": "gws",
+      "version": "0.4.0",
       "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
       "author": {
         "name": "Sekou Doumbouya",
@@ -89,122 +156,12 @@
         "workflow",
         "automation"
       ],
-      "path": "plugins/gws-plugin",
-      "indexedAt": "2026-03-21T23:53:10Z"
-    },
-    {
-      "name": "rust-network-module",
-      "version": "1.0.1",
-      "description": "Scaffold new Rust async networking modules with Tokio, tracing, and anyhow following established project patterns",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "rust",
-        "networking",
-        "tokio",
-        "scaffold",
-        "async",
-        "tcp",
-        "proxy"
-      ],
-      "path": "plugins/rust-network-module",
-      "indexedAt": "2026-03-21T23:53:10Z"
-    },
-    {
-      "name": "excalidraw-diagram",
-      "version": "1.0.1",
-      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "excalidraw",
-        "diagram",
-        "architecture",
-        "flowchart",
-        "visualization",
-        "whiteboard"
-      ],
-      "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-21T23:53:10Z"
-    },
-    {
-      "name": "notebooklm-enhanced",
-      "version": "0.1.1",
-      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
-      "author": {
-        "name": "fakoli-plugins"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "notebooklm",
-        "google",
-        "research",
-        "podcast",
-        "automation",
-        "notebook",
-        "quiz",
-        "slides",
-        "rpc"
-      ],
-      "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-03-21T23:53:10Z"
-    },
-    {
-      "name": "safe-fetch",
-      "version": "1.0.4",
-      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "security",
-        "web-fetch",
-        "sanitization",
-        "prompt-injection",
-        "ssrf",
-        "mcp",
-        "web-search"
-      ],
-      "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-21T23:53:10Z"
-    },
-    {
-      "name": "k8s-sidecar-testing",
-      "version": "1.1.1",
-      "description": "End-to-end testing workflow for nat464-sidecar in IPv6-only Kubernetes clusters using Multipass VMs and k3s",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "kubernetes",
-        "testing",
-        "ipv6",
-        "sidecar",
-        "k3s",
-        "multipass",
-        "nat464"
-      ],
-      "path": "plugins/k8s-sidecar-testing",
-      "indexedAt": "2026-03-21T23:53:10Z"
+      "path": "plugins/gws",
+      "indexedAt": "2026-03-22T00:40:46Z"
     },
     {
       "name": "nano-banana-pro",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "author": {
         "name": "Sekou Doumbouya",
@@ -221,7 +178,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-21T23:53:10Z"
+      "indexedAt": "2026-03-22T00:40:46Z"
     }
   ]
 }

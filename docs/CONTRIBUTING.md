@@ -123,6 +123,7 @@ Include this in your PR description:
 - [ ] README.md includes installation and usage instructions
 - [ ] No sensitive information (API keys, credentials)
 - [ ] License is specified
+- [ ] Category assigned in `marketplace.json` (one of: `productivity`, `integrations`, `utilities`)
 ```
 
 ## External Plugins
