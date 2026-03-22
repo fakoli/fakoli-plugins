@@ -81,6 +81,15 @@ welder wires it in →
 critic reviews the integration
 ```
 
+### Documentation Sprint
+**herald + keeper + sentinel** — rewrite docs, update infrastructure, verify consistency.
+
+```
+herald rewrites READMEs and descriptions →
+keeper updates CLAUDE.md, CI, contributor docs →
+sentinel verifies all sources are in sync
+```
+
 ### Full Overhaul
 **All 8 agents in 5 waves** — major version bump, structural refactor, or public launch prep.
 

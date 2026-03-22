@@ -56,7 +56,7 @@ confusing over time.
 | `.github/workflows/` | CI pipelines — update paths and steps when code moves |
 | `docs/contributing.md` | Contributor checklist — add new requirements promptly |
 | `docs/plans/` | Agent status files — archive completed plans |
-| `marketplace.json` / `registry.json` | Plugin registry — regenerate after additions |
+| `marketplace.json` / `registry/index.json` | Plugin registry — regenerate after additions |
 | `archive/` | Stale files — move, don't delete, unless explicitly asked |
 
 ## Workflow
@@ -79,7 +79,7 @@ confusing over time.
    new checklist items, new tools), add them to the existing doc structure. Only reorganize
    if the structure has become genuinely confusing.
 5. **Registry regeneration.** After any plugin is added, renamed, or removed:
-   - Regenerate `marketplace.json` and `registry.json` from source.
+   - Regenerate `marketplace.json` and `registry/index.json` from source.
    - Verify the entry count matches the actual plugin count.
    - Remove stale entries for deleted plugins.
 6. **Archive management.** Move obsolete files to `archive/YYYY-MM/` with a README
@@ -97,5 +97,5 @@ confusing over time.
 - Never modify a CI workflow without first reading it in full.
 - Never remove a registry entry without confirming the plugin directory is gone.
 - Never rewrite CLAUDE.md from scratch — edit the existing document.
-- Always verify sources are in sync: README, marketplace.json, registry.json.
+- Always verify sources are in sync: README, marketplace.json, registry/index.json.
 - Write your status to `docs/plans/agent-keeper-status.md` when done.

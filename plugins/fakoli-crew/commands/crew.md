@@ -12,9 +12,9 @@ user's current task.
 | Agent | Color | Role | Invoke When |
 |-------|-------|------|-------------|
 | guido | blue | Python architect | Designing interfaces, writing new modules, Pythonic refactors |
-| critic | orange | Code reviewer | Quality audits, finding bugs, import analysis, severity ratings |
+| critic | red | Code reviewer | Quality audits, finding bugs, import analysis, severity ratings |
 | scout | cyan | Researcher | API docs, codebase exploration, dependency investigation |
-| smith | purple | Plugin engineer | plugin.json, commands, hooks, manifest structure |
+| smith | green | Plugin engineer | plugin.json, commands, hooks, manifest structure |
 | welder | yellow | Integration engineer | Wiring new code into existing systems, backward-compat refactors |
 | herald | magenta | Documentation writer | READMEs, marketplace descriptions, branding, user-facing copy |
 | keeper | green | Infrastructure engineer | CLAUDE.md, CI workflows, contributor docs, registry sync |

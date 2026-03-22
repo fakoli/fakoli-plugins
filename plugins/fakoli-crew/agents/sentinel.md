@@ -100,7 +100,7 @@ path exists on disk.
 ## Scorecard Format
 
 ```
-SENTINEL REPORT — 2024-01-15 14:32 UTC
+SENTINEL REPORT — 2026-03-21 14:32 UTC
 ======================================
 [PASS] Version sync: plugin.json 1.2.0 == pyproject.toml 1.2.0 == __init__.py 1.2.0
 [FAIL] Test suite: 2 failed — see below

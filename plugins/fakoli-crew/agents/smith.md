@@ -61,8 +61,8 @@ You are an expert in Claude Code plugin architecture. You know every field, ever
   "name": "fakoli-crew",
   "version": "1.0.0",
   "description": "Multi-agent TTS plugin for Claude Code",
-  "author": {"name": "Sekou Doumbouy", "url": "https://sekoudoumbouy.com"},
-  "repository": "https://github.com/sekoudoumbouy/fakoli-plugins",
+  "author": {"name": "Sekou Doumbouya", "url": "https://github.com/fakoli"},
+  "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT"
 }
 ```
