@@ -1,9 +1,55 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-22T04:49:11Z",
-  "pluginCount": 7,
+  "generatedAt": "2026-03-22T05:24:21Z",
+  "pluginCount": 8,
   "plugins": [
+    {
+      "name": "notebooklm-enhanced",
+      "version": "0.1.3",
+      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "notebooklm",
+        "google",
+        "research",
+        "podcast",
+        "automation",
+        "notebook",
+        "quiz",
+        "slides",
+        "rpc"
+      ],
+      "path": "plugins/notebooklm-enhanced",
+      "indexedAt": "2026-03-22T05:24:21Z"
+    },
+    {
+      "name": "safe-fetch",
+      "version": "1.0.5",
+      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "security",
+        "web-fetch",
+        "sanitization",
+        "prompt-injection",
+        "ssrf",
+        "mcp",
+        "web-search"
+      ],
+      "path": "plugins/safe-fetch",
+      "indexedAt": "2026-03-22T05:24:21Z"
+    },
     {
       "name": "fakoli-speak",
       "version": "2.0.0",
@@ -28,7 +74,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-03-22T04:49:11Z"
+      "indexedAt": "2026-03-22T05:24:21Z"
     },
     {
       "name": "marketplace-manager",
@@ -47,7 +93,30 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-22T04:49:11Z"
+      "indexedAt": "2026-03-22T05:24:21Z"
+    },
+    {
+      "name": "fakoli-crew",
+      "version": "1.0.0",
+      "description": "Summon expert agent archetypes — Guido-style Python architects, code reviewers, API researchers, plugin engineers, and more — that work independently or as coordinated crews for complex development workflows.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "agents",
+        "team",
+        "crew",
+        "orchestration",
+        "code-review",
+        "python",
+        "architecture",
+        "workflow"
+      ],
+      "path": "plugins/fakoli-crew",
+      "indexedAt": "2026-03-22T05:24:21Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -68,53 +137,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-22T04:49:11Z"
-    },
-    {
-      "name": "notebooklm-enhanced",
-      "version": "0.1.3",
-      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "notebooklm",
-        "google",
-        "research",
-        "podcast",
-        "automation",
-        "notebook",
-        "quiz",
-        "slides",
-        "rpc"
-      ],
-      "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-03-22T04:49:11Z"
-    },
-    {
-      "name": "safe-fetch",
-      "version": "1.0.5",
-      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "security",
-        "web-fetch",
-        "sanitization",
-        "prompt-injection",
-        "ssrf",
-        "mcp",
-        "web-search"
-      ],
-      "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-22T04:49:11Z"
+      "indexedAt": "2026-03-22T05:24:21Z"
     },
     {
       "name": "gws",
@@ -162,7 +185,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-03-22T04:49:11Z"
+      "indexedAt": "2026-03-22T05:24:21Z"
     },
     {
       "name": "nano-banana-pro",
@@ -183,7 +206,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-22T04:49:11Z"
+      "indexedAt": "2026-03-22T05:24:21Z"
     }
   ]
 }

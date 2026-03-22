@@ -1,7 +1,11 @@
 {
-  "generatedAt": "2026-03-22T04:33:29Z",
-  "totalTags": 73,
+  "generatedAt": "2026-03-22T05:24:21Z",
+  "totalTags": 79,
   "tags": [
+    {
+      "tag": "architecture",
+      "count": 2
+    },
     {
       "tag": "automation",
       "count": 2
@@ -15,6 +19,10 @@
       "count": 2
     },
     {
+      "tag": "workflow",
+      "count": 2
+    },
+    {
       "tag": "accessibility",
       "count": 1
     },
@@ -23,11 +31,11 @@
       "count": 1
     },
     {
-      "tag": "ai-images",
+      "tag": "agents",
       "count": 1
     },
     {
-      "tag": "architecture",
+      "tag": "ai-images",
       "count": 1
     },
     {
@@ -47,11 +55,19 @@
       "count": 1
     },
     {
+      "tag": "code-review",
+      "count": 1
+    },
+    {
       "tag": "content-creator",
       "count": 1
     },
     {
       "tag": "creative",
+      "count": 1
+    },
+    {
+      "tag": "crew",
       "count": 1
     },
     {
@@ -179,6 +195,10 @@
       "count": 1
     },
     {
+      "tag": "orchestration",
+      "count": 1
+    },
+    {
       "tag": "people",
       "count": 1
     },
@@ -204,6 +224,10 @@
     },
     {
       "tag": "prompt-injection",
+      "count": 1
+    },
+    {
+      "tag": "python",
       "count": 1
     },
     {
@@ -259,6 +283,10 @@
       "count": 1
     },
     {
+      "tag": "team",
+      "count": 1
+    },
+    {
       "tag": "team-lead",
       "count": 1
     },
@@ -288,10 +316,6 @@
     },
     {
       "tag": "whiteboard",
-      "count": 1
-    },
-    {
-      "tag": "workflow",
       "count": 1
     }
   ]

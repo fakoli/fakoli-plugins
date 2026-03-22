@@ -1,0 +1,21 @@
+{
+  "name": "fakoli-crew",
+  "version": "1.0.0",
+  "description": "Summon expert agent archetypes — Guido-style Python architects, code reviewers, API researchers, plugin engineers, and more — that work independently or as coordinated crews for complex development workflows.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "team",
+    "crew",
+    "orchestration",
+    "code-review",
+    "python",
+    "architecture",
+    "workflow"
+  ]
+}
