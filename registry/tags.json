@@ -1,9 +1,13 @@
 {
-  "generatedAt": "2026-03-22T00:40:46Z",
-  "totalTags": 69,
+  "generatedAt": "2026-03-22T04:38:18Z",
+  "totalTags": 73,
   "tags": [
     {
       "tag": "automation",
+      "count": 2
+    },
+    {
+      "tag": "google",
       "count": 2
     },
     {
@@ -52,6 +56,10 @@
     },
     {
       "tag": "customer-support",
+      "count": 1
+    },
+    {
+      "tag": "deepgram",
       "count": 1
     },
     {
@@ -107,10 +115,6 @@
       "count": 1
     },
     {
-      "tag": "google",
-      "count": 1
-    },
-    {
       "tag": "google-workspace",
       "count": 1
     },
@@ -139,6 +143,10 @@
       "count": 1
     },
     {
+      "tag": "macos",
+      "count": 1
+    },
+    {
       "tag": "marketplace",
       "count": 1
     },
@@ -155,11 +163,19 @@
       "count": 1
     },
     {
+      "tag": "multi-provider",
+      "count": 1
+    },
+    {
       "tag": "notebook",
       "count": 1
     },
     {
       "tag": "notebooklm",
+      "count": 1
+    },
+    {
+      "tag": "openai",
       "count": 1
     },
     {

@@ -65,7 +65,7 @@ Plugins live in directories with a `.claude-plugin/plugin.json` manifest. The ma
 | Plugin | Description |
 |--------|-------------|
 | [**nano-banana-pro**](plugins/nano-banana-pro) | Generate, edit, and remix production-ready images with Google Gemini 3 Pro. Includes a 5-agent PaperBanana pipeline (Retriever → Planner → Stylist → Visualizer → Critic) that iteratively refines images until they pass a quality threshold. |
-| [**fakoli-speak**](plugins/fakoli-speak) | ElevenLabs TTS inside Claude Code — stream any response as high-quality speech via `/speak`, toggle auto-narration with `/autospeak`, and track per-session spending with `/cost`. Supports all ElevenLabs voices and models. |
+| [**fakoli-speak**](plugins/fakoli-speak) | Multi-provider TTS for Claude Code — stream any response as speech via `/speak` using OpenAI ($0.015/1K), Deepgram, ElevenLabs, Google Gemini (free), or macOS Say (free). Switch with `/provider`, track spending with `/cost`, toggle auto-narration with `/autospeak`. |
 | [**excalidraw-diagram**](plugins/excalidraw-diagram) | Generate `.excalidraw` files from natural language or by analyzing your codebase. Supports flowcharts, architecture diagrams, ER diagrams, and dependency graphs across four color themes — zero dependencies beyond Node.js 18. |
 
 ### Security & Web
@@ -97,8 +97,11 @@ Plugins live in directories with a `.claude-plugin/plugin.json` manifest. The ma
 # Create an architecture diagram from your codebase
 /excalidraw Diagram the architecture of this project
 
-# Read the last Claude response aloud
+# Read the last Claude response aloud (defaults to OpenAI TTS)
 /speak
+
+# Switch TTS provider
+/provider deepgram
 
 # Scaffold a new plugin
 /add-plugin my-new-plugin

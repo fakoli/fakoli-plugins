@@ -1,70 +1,9 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-03-22T01:24:47Z",
+  "generatedAt": "2026-03-22T04:38:18Z",
   "pluginCount": 7,
   "plugins": [
-    {
-      "name": "fakoli-speak",
-      "version": "1.1.1",
-      "description": "ElevenLabs TTS for Claude Code — streaming text-to-speech with cost tracking via /speak, /stop, /voices, /cost commands",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "tts",
-        "text-to-speech",
-        "elevenlabs",
-        "accessibility",
-        "audio",
-        "streaming"
-      ],
-      "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-03-22T01:24:47Z"
-    },
-    {
-      "name": "marketplace-manager",
-      "version": "1.2.2",
-      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "marketplace",
-        "plugin-management",
-        "registry",
-        "validation"
-      ],
-      "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-03-22T01:24:47Z"
-    },
-    {
-      "name": "excalidraw-diagram",
-      "version": "1.0.1",
-      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "excalidraw",
-        "diagram",
-        "architecture",
-        "flowchart",
-        "visualization",
-        "whiteboard"
-      ],
-      "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-03-22T01:24:47Z"
-    },
     {
       "name": "notebooklm-enhanced",
       "version": "0.1.2",
@@ -87,7 +26,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:38:17Z"
     },
     {
       "name": "safe-fetch",
@@ -109,7 +48,73 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:38:17Z"
+    },
+    {
+      "name": "fakoli-speak",
+      "version": "2.0.0",
+      "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "tts",
+        "text-to-speech",
+        "elevenlabs",
+        "openai",
+        "deepgram",
+        "google",
+        "macos",
+        "accessibility",
+        "audio",
+        "streaming",
+        "multi-provider"
+      ],
+      "path": "plugins/fakoli-speak",
+      "indexedAt": "2026-03-22T04:38:18Z"
+    },
+    {
+      "name": "marketplace-manager",
+      "version": "1.2.2",
+      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "marketplace",
+        "plugin-management",
+        "registry",
+        "validation"
+      ],
+      "path": "plugins/marketplace-manager",
+      "indexedAt": "2026-03-22T04:38:18Z"
+    },
+    {
+      "name": "excalidraw-diagram",
+      "version": "1.0.1",
+      "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "excalidraw",
+        "diagram",
+        "architecture",
+        "flowchart",
+        "visualization",
+        "whiteboard"
+      ],
+      "path": "plugins/excalidraw-diagram",
+      "indexedAt": "2026-03-22T04:38:18Z"
     },
     {
       "name": "gws",
@@ -157,7 +162,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:38:18Z"
     },
     {
       "name": "nano-banana-pro",
@@ -178,7 +183,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-03-22T01:24:47Z"
+      "indexedAt": "2026-03-22T04:38:18Z"
     }
   ]
 }
