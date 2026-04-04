@@ -11,7 +11,7 @@ user's current task.
 
 | Agent | Color | Role | Invoke When |
 |-------|-------|------|-------------|
-| guido | blue | Python architect | Designing interfaces, writing new modules, Pythonic refactors |
+| guido | blue | TypeScript architect | Designing interfaces, writing new modules, type-safe refactors |
 | critic | red | Code reviewer | Quality audits, finding bugs, import analysis, severity ratings |
 | scout | cyan | Researcher | API docs, codebase exploration, dependency investigation |
 | smith | green | Plugin engineer | plugin.json, commands, hooks, manifest structure |
@@ -27,7 +27,7 @@ user's current task.
 **Use when:** You want to audit and improve an existing codebase.
 ```
 1. critic audits — finds issues, assigns severity
-2. guido rewrites — fixes MUST and SHOULD items with Pythonic alternatives
+2. guido rewrites — fixes MUST and SHOULD items with idiomatic TypeScript alternatives
 3. sentinel validates — runs tests, confirms nothing regressed
 ```
 
@@ -45,7 +45,7 @@ Wave 3: sentinel (validate) + herald (README)
 **Use when:** Integrating an external library or API you haven't used before.
 ```
 Wave 1: scout (read the docs, map the API)
-Wave 2: guido (design the wrapper/Protocol)
+Wave 2: guido (design the wrapper/interface)
 Wave 3: welder (wire into existing code)
 Wave 4: critic (review the integration)
 ```
@@ -74,7 +74,7 @@ Wave 5 (main): review scorecard, dispatch fixes
 
 To invoke an individual agent:
 ```
-/agent:guido Design a Protocol for the new storage backend.
+/agent:guido Design an interface for the new storage backend.
 /agent:sentinel Validate everything before we tag v2.0.0.
 /agent:herald Rewrite the README for fakoli-tts.
 ```

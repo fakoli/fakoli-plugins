@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Plugin Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](.claude-plugin/plugin.json)
 
-Eight specialized AI agents — Python architect, code reviewer, API researcher, plugin
+Eight specialized AI agents — TypeScript architect, code reviewer, API researcher, plugin
 engineer, integration specialist, documentation writer, infrastructure keeper, and QA
 validator — that run independently or as coordinated multi-wave crews for complex
 development projects.
@@ -18,7 +18,7 @@ claude plugin install fakoli-crew
 
 | Agent | Role | Trigger Phrases |
 |-------|------|-----------------|
-| **guido** | Python architect | "design an interface", "make this more Pythonic", "create a Protocol" |
+| **guido** | TypeScript architect | "design an interface", "make this more TypeScript", "create an interface" |
 | **critic** | Code reviewer | "review this code", "find the bugs", "audit the imports" |
 | **scout** | Researcher | "explore this codebase", "look up the API docs", "map the dependencies" |
 | **smith** | Plugin engineer | "update the manifest", "add a command", "set up the hooks" |
@@ -32,9 +32,9 @@ claude plugin install fakoli-crew
 Each agent is a focused expert. Invoke one directly when you know what you need:
 
 ```
-/agent:guido Design a ProviderProtocol for the new TTS backend.
+/agent:guido Design a Provider interface for the new TTS backend.
 
-/agent:critic Review src/client.py for correctness and Pythonic style.
+/agent:critic Review src/client.py for correctness and TypeScript style.
 
 /agent:scout Read the Stripe API docs and map the endpoints we need.
 
@@ -58,7 +58,7 @@ Use the crew skill when a task spans multiple concerns:
 
 ```
 critic finds issues (with severity ratings) →
-guido rewrites with Pythonic alternatives →
+guido rewrites with idiomatic TypeScript alternatives →
 sentinel validates with a pass/fail scorecard
 ```
 
@@ -76,7 +76,7 @@ sentinel validates, herald writes the README
 
 ```
 scout maps the API →
-guido designs the wrapper Protocol →
+guido designs the wrapper interface →
 welder wires it in →
 critic reviews the integration
 ```
@@ -117,7 +117,7 @@ coordinate without a shared conversation.
 
 ## Agent Design Principles
 
-**guido** applies PEP 8 naming, PEP 20 Zen, PEP 544 Protocols, and PEP 557 dataclasses.
+**guido** applies TypeScript naming conventions, strict typing, interface-first design, and generics.
 Reviews with severity levels: MUST / SHOULD / CONSIDER / NIT.
 
 **critic** reads line by line, proposes alternative implementations, and never approves

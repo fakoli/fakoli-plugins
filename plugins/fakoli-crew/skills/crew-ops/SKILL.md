@@ -7,7 +7,7 @@ description: Orchestrate fakoli-crew agents as coordinated teams for complex mul
 
 | Agent | Role | Best For |
 |-------|------|----------|
-| guido | Python architect | Interface design, code structure, Pythonic patterns |
+| guido | TypeScript architect | Interface design, type system patterns, project structure |
 | critic | Code reviewer | Quality audits, finding bugs, import analysis |
 | scout | Researcher | API docs, codebase exploration, technical references |
 | smith | Plugin engineer | Manifests, hooks, commands, plugin structure |
@@ -23,6 +23,13 @@ description: Orchestrate fakoli-crew agents as coordinated teams for complex mul
 - **Research & build**: scout + guido + welder + critic
 - **Full overhaul**: all 8 in waves
 
+## Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `/crew` | List agents and crew compositions |
+| Debugging | Systematic 4-phase root cause analysis (see `skills/debugging/SKILL.md`) |
+
 ## Wave Pattern
 
 1. **Research** (parallel): scout agents gather information
@@ -30,6 +37,15 @@ description: Orchestrate fakoli-crew agents as coordinated teams for complex mul
 3. **Integrate** (sequential): welder wires it together
 4. **Review** (parallel): critic + sentinel validate
 5. **Judge** (main window): review findings, send back if needed
+
+### Compressed 3-Wave Pattern (for smaller tasks)
+
+For tasks with 1-5 file changes, collapse to 3 waves:
+1. **Build** (parallel): appropriate agents create/modify
+2. **Fix** (sequential): welder resolves any conflicts or typecheck failures
+3. **Review** (parallel): critic + sentinel validate
+
+Use the full 5-wave pattern when >5 files change or multiple concerns overlap.
 
 ## File Ownership
 

@@ -1,7 +1,7 @@
 {
   "name": "fakoli-crew",
-  "version": "1.0.0",
-  "description": "Summon expert agent archetypes — Guido-style Python architects, code reviewers, API researchers, plugin engineers, and more — that work independently or as coordinated crews for complex development workflows.",
+  "version": "2.0.0",
+  "description": "Eight specialist AI agents for software engineering — TypeScript architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"
@@ -14,7 +14,7 @@
     "crew",
     "orchestration",
     "code-review",
-    "python",
+    "typescript",
     "architecture",
     "workflow"
   ]

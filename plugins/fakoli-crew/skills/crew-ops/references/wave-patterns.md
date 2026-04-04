@@ -27,7 +27,7 @@ Wave 1 (parallel)
 
 ```
 Wave 2 (parallel)
-├── guido: design Protocol interfaces, dataclasses, type-annotated APIs
+├── guido: design TypeScript interfaces, type definitions, strongly-typed APIs
 ├── smith: create/update plugin.json, commands, hooks
 └── herald: draft README and marketplace description (can be refined in Wave 5)
 ```
@@ -105,47 +105,88 @@ Wave 5:
   All counts matched → proceed to tag.
 ```
 
-### Example 2 — Multi-Provider TTS Refactor
+### Example 2 — Adding a New Agent to an Existing Plugin
 
-**Goal:** Add three new TTS providers behind a unified Protocol interface.
+**Goal:** Add a new `sentinel` agent to fakoli-crew with full validation suite, frontmatter, and registry integration.
 
 ```
 Wave 1 (parallel):
-  scout:  read existing TTS implementation, document current interface
-  critic: audit existing code for tight coupling and missing abstractions
+  scout:  read all existing agents/*.md — map frontmatter fields, allowed-tools, system prompt patterns
+  critic: audit existing agents for missing fields, incomplete examples, inconsistent severity labels
 
 Wave 2 (parallel):
-  guido: design ProviderProtocol with synthesize(), list_voices(), stream() methods
-  smith: update plugin.json with new provider config fields and hooks
+  guido: design the sentinel system prompt — validation checklist, scorecard format, evidence rules
+  smith: confirm plugin.json has no agent declarations (agents/ is auto-discovered)
 
 Wave 3 (sequential):
   welder:
-    1. Read guido's Protocol + smith's manifest
-    2. Create ElevenLabsProvider, PlayHTProvider, AzureProvider implementing Protocol
-    3. Refactor existing OpenAIProvider to implement Protocol
-    4. Add compat.py re-exporting old TTSClient name
-    5. Update CLI entry-points
-    6. Run pytest — all 47 tests pass
+    1. Read scout's pattern map + guido's system prompt draft
+    2. Write agents/sentinel.md with all required frontmatter fields
+    3. Add <example> blocks covering 3 distinct trigger phrases
+    4. Verify allowed-tools uses hyphen (not underscore) — silent failure mode
+    5. Run sentinel self-check on its own frontmatter
 
 Wave 4 (parallel):
-  sentinel: version sync check (PASS), test suite 47/47 (PASS), manifest fields (PASS)
-  critic:   flagged 2 issues — ElevenLabsProvider missing rate-limit retry,
-            AzureProvider stream() not handling chunked responses
+  sentinel: frontmatter fields PASS, example count 3/3 PASS, allowed-tools format PASS
+  critic:   flagged 1 issue — scorecard format section was missing the N/A case
 
 Wave 5:
-  Both critic findings are FAIL severity → dispatch guido to fix before release.
-  guido adds retry decorator and fixes stream() chunking.
-  Re-run sentinel → all PASS → tag v2.0.0.
+  One critic finding is SHOULD FIX → dispatch guido to add N/A documentation.
+  guido adds N/A handling to scorecard format.
+  Re-run sentinel → all PASS → merge.
 ```
+
+### Example 3 — Full-Stack Monorepo Build (BAARA Next)
+
+**Goal:** Build a 10-package TypeScript monorepo for a durable task execution engine across 6 phases.
+
+**Phase 1 (Foundation) — 3-wave compressed pattern:**
+```
+Wave 1 (parallel):
+  guido-1: scaffold monorepo root configs (package.json, tsconfig, turbo)
+  guido-2: create packages/core with all types, interfaces, events, errors
+
+Wave 2 (parallel):
+  welder-1: build packages/store + packages/orchestrator
+  welder-2: build packages/agent + packages/executor
+  welder-3: build packages/transport + packages/server + packages/cli
+
+Wave 3 (sequential):
+  critic: full codebase review — found 10 MUST FIX, 15 SHOULD FIX
+  welder: fix all issues
+  critic: re-review — PASS
+```
+
+**Phase 4 (Chat UI + MCP) — 3-wave with sub-plans:**
+```
+Wave 1 (parallel):
+  welder-A: 27-tool MCP server (packages/mcp) — 12 tasks
+  welder-D: thread model (packages/core + packages/store) — 6 tasks
+
+Wave 2 (parallel, after Wave 1):
+  welder-B: chat SSE streaming (packages/server) — 6 tasks
+  welder-E: CLI mcp-server + chat REPL (packages/cli) — 6 tasks
+
+Wave 3 (after Wave 2):
+  welder-C: web UI rewrite (packages/web) — 20 tasks
+  critic: final review — found 5 MUST FIX
+  welder: fix all
+  critic: re-review — PASS
+```
+
+**Key learning:** The critic-after-every-wave pattern caught 26 bugs total that would have compounded. Running critic early and often is cheaper than debugging later.
 
 ## When to Collapse Waves
 
-For small tasks (1-2 file changes), collapse to 3 waves:
-1. **Read** (scout or self): understand the current state.
-2. **Change** (appropriate agent): make the targeted modification.
-3. **Verify** (sentinel): confirm nothing broke.
+For tasks with 1-5 file changes, collapse to the **compressed 3-wave pattern**:
+1. **Build** (parallel): appropriate agents create or modify files.
+2. **Fix** (sequential): welder resolves any conflicts or typecheck failures.
+3. **Review** (parallel): critic + sentinel validate.
 
-Full 5-wave execution is warranted when:
-- More than 3 files will be modified.
+Use the full 5-wave pattern when:
+- More than 5 files will be modified.
 - Multiple agents need to work on different aspects simultaneously.
 - The change touches both code and infrastructure (CI, docs, registry).
+- Multiple concerns overlap and require separate build phases.
+
+See Example 3 (BAARA Next) for how the compressed 3-wave pattern scales up to handle large parallel builds by running multiple welders inside the Build wave.
