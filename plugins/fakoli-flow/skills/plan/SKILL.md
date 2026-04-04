@@ -224,6 +224,8 @@ After writing the complete plan, check it against these four criteria. Fix issue
 
 **4. Agent assignment** — Every task has an agent. The agent type matches the work. No task is assigned to critic or sentinel except for explicit review tasks at the end.
 
+**5. Code-free check** — Read each task. Does any acceptance criterion contain a code block, numbered step sequence, or function signature? If so, convert it to an intent statement and verifiable criterion.
+
 ---
 
 ## Plan Header Requirements

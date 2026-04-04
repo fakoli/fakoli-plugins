@@ -240,6 +240,11 @@ What is preventing progress and what is needed to resolve it
 
 After dispatching a wave, wait for all `docs/plans/agent-*-status.md` files to show a terminal status (COMPLETE, NEEDS_REVIEW, or BLOCKED).
 
+**Polling protocol:**
+1. Read all `docs/plans/agent-*-status.md` files.
+2. If any shows `IN_PROGRESS`: wait 10 seconds and re-read.
+3. If still `IN_PROGRESS` after 5 minutes: surface to user as a timeout — "Agent `<name>` has been IN_PROGRESS for 5 minutes. Check for errors or re-dispatch."
+
 Extract from each completed status file:
 - "Files Modified" — needed for the critic gate
 - "Decisions" — needed for the next wave's upstream context

@@ -23,9 +23,9 @@ Run the following to determine which verification commands apply:
 
 ```bash
 # Check for language markers in order of specificity
-ls tsconfig.json 2>/dev/null && echo "TypeScript"
-ls Cargo.toml 2>/dev/null && echo "Rust"
-ls pyproject.toml 2>/dev/null || ls setup.py 2>/dev/null && echo "Python"
+[ -f tsconfig.json ] && echo "TypeScript"
+[ -f Cargo.toml ] && echo "Rust"
+{ [ -f pyproject.toml ] || [ -f setup.py ]; } && echo "Python"
 ```
 
 | Marker file | Language |

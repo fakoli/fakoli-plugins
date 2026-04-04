@@ -35,7 +35,7 @@ change touches 3+ files.
 Run the SessionStart hook to show detected language and crew availability:
 
 ```bash
-bash /Users/sdoumbouya/.claude/plugins/cache/fakoli-plugins/fakoli-flow/1.0.0/hooks/detect-context.sh
+bash ./hooks/detect-context.sh
 ```
 
 ## Usage Examples

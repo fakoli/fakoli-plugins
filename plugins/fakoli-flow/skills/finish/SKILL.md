@@ -25,9 +25,9 @@ Do not rely on the verify step's results. Re-run now, in this message.
 Detect the project language first:
 
 ```bash
-ls tsconfig.json 2>/dev/null && echo "TypeScript"
-ls Cargo.toml 2>/dev/null && echo "Rust"
-ls pyproject.toml 2>/dev/null || ls setup.py 2>/dev/null && echo "Python"
+[ -f tsconfig.json ] && echo "TypeScript"
+[ -f Cargo.toml ] && echo "Rust"
+{ [ -f pyproject.toml ] || [ -f setup.py ]; } && echo "Python"
 ```
 
 Then run the appropriate test command:
@@ -68,11 +68,11 @@ Do not proceed to Step 2. Return control to the user.
 ## Step 2: Determine Base Branch
 
 ```bash
-git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null
 git branch --show-current
+git branch --list main master
 ```
 
-Use the result to name the base branch in the options. If neither `main` nor `master` is found, ask: "What is the base branch for this work?"
+If `main` exists, use `main` as the base branch. If only `master` exists, use `master`. If neither `main` nor `master` is found, ask the user: "What is the base branch?"
 
 ---
 
@@ -207,8 +207,9 @@ If the user does not type `discard`: abort. Report: "Discard cancelled. Branch p
 If the user types `discard`:
 
 ```bash
+FEATURE_BRANCH=$(git branch --show-current)
 git checkout <base-branch>
-git branch -D $(git branch --show-current)
+git branch -D "$FEATURE_BRANCH"
 ```
 
 Report: "Branch `<feature-branch>` and all its commits have been deleted."

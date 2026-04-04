@@ -119,7 +119,15 @@ Offer the visual companion ONLY when the question at hand is inherently visual: 
 
 Wait for the response. If declined, continue in terminal for all visual questions — diagrams can be rendered as ASCII.
 
-**If accepted:** run `skills/brainstorm/scripts/start-server.sh`. The script writes a PID file. Before each subsequent write to the server, run `skills/brainstorm/scripts/check-server.sh`. If it returns "dead", run `start-server.sh` again — no need to ask the user again. They already consented.
+**If accepted:** locate the plugin directory first, then run the start script:
+
+```bash
+# Note: Script paths are relative to the fakoli-flow plugin directory.
+# Use Glob to locate it if needed:
+#   ~/.claude/plugins/cache/fakoli-plugins/fakoli-flow/*/skills/brainstorm/scripts/
+```
+
+Run `skills/brainstorm/scripts/start-server.sh` from the plugin root. The script writes a PID file to `$STATE_DIR`. Before each subsequent write to the server, run `skills/brainstorm/scripts/check-server.sh "$STATE_DIR"`. If it returns "dead", run `start-server.sh` again — no need to ask the user again. They already consented.
 
 After starting or re-verifying the server, print exactly one line:
 ```

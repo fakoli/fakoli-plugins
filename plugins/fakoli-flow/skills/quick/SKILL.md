@@ -68,9 +68,9 @@ If the estimate is under 3 files: continue.
 ## Step 2: Detect Language
 
 ```bash
-ls tsconfig.json 2>/dev/null && echo "TypeScript"
-ls Cargo.toml 2>/dev/null && echo "Rust"
-ls pyproject.toml 2>/dev/null || ls setup.py 2>/dev/null && echo "Python"
+[ -f tsconfig.json ] && echo "TypeScript"
+[ -f Cargo.toml ] && echo "Rust"
+{ [ -f pyproject.toml ] || [ -f setup.py ]; } && echo "Python"
 ```
 
 This determines the verification command used in Step 4.

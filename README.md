@@ -79,6 +79,7 @@ Plugins live in directories with a `.claude-plugin/plugin.json` manifest. The ma
 | Plugin | Description |
 |--------|-------------|
 | [**fakoli-crew**](plugins/fakoli-crew) | Summon expert agent archetypes — a Guido-style Python architect, code reviewer, API researcher, plugin engineer, integration specialist, and more — that work independently or as coordinated crews using wave-based orchestration for complex multi-step projects. |
+| [**fakoli-flow**](plugins/fakoli-flow) | Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with a five-stage pipeline (brainstorm → plan → execute → verify → finish), critic gates, and evidence-based verification. Works best alongside fakoli-crew. |
 | [**marketplace-manager**](plugins/marketplace-manager) | Create and manage plugins without leaving Claude Code — scaffold new plugins from template with `/add-plugin`, validate manifests, regenerate registry indices, and install GitHub Actions workflows. The tool that maintains this marketplace. |
 
 ---
@@ -182,7 +183,7 @@ The schema lives in `schemas/plugin.schema.json`. Run `./scripts/validate.sh` lo
 fakoli-plugins/
 ├── .claude-plugin/          # Marketplace-level manifest
 ├── .github/workflows/       # CI: validate, update-index, pr-check, schema-drift
-├── plugins/                 # All active plugins (8)
+├── plugins/                 # All active plugins (9)
 ├── archive/                 # Archived / deprecated plugins
 ├── registry/                # Auto-generated plugin index (do not edit manually)
 ├── schemas/                 # JSON Schema definitions for manifests

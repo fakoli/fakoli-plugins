@@ -289,7 +289,7 @@ Agents communicate between waves via status files at `docs/plans/agent-<name>-st
 4. Extract "Files Modified" for the critic gate
 5. Extract "Decisions" and "Notes for Specific Agents" for the next wave's dispatch prompts
 
-The status file format is defined in the fakoli-crew flow protocol (`fakoli-crew/docs/flow-protocol.md`).
+The status file format is defined in `references/status-protocol.md`.
 
 ## Summary
 
