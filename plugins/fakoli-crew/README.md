@@ -1,12 +1,17 @@
 # fakoli-crew
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](.claude-plugin/plugin.json)
 
-Eight specialized AI agents — TypeScript architect, code reviewer, API researcher, plugin
-engineer, integration specialist, documentation writer, infrastructure keeper, and QA
-validator — that run independently or as coordinated multi-wave crews for complex
-development projects.
+Eight specialized AI agents — polyglot architect (TS/Py/Rust), Staff Engineer code reviewer, API researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — that run independently or as coordinated multi-wave crews for complex development projects.
+
+## Architecture
+
+![fakoli-crew Architecture](docs/images/crew-architecture.png)
+
+## Critic Gate
+
+![Critic Gate Flow](docs/images/critic-gate-flow.png)
 
 ## Installation
 

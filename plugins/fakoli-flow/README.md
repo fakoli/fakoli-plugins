@@ -5,6 +5,8 @@
 
 Intent-driven workflow orchestration for specialist agent teams.
 
+![fakoli-flow Pipeline](docs/images/flow-pipeline.png)
+
 ---
 
 fakoli-flow coordinates specialist agents through a five-stage pipeline — brainstorm,
