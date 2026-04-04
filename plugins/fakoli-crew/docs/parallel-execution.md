@@ -2,6 +2,11 @@
 
 The fakoli-crew supports running multiple agents in parallel — not just sequentially in waves.
 
+> **Automated orchestration:** If you are using **fakoli-flow**, the wave engine manages
+> parallel dispatch automatically — you do not need to invoke agents manually. See
+> [fakoli-flow/docs/wave-engine.md](../../fakoli-flow/docs/wave-engine.md) for how the
+> engine groups tasks into waves and dispatches agents in parallel within each wave.
+
 ## When to Parallelize
 
 - **Multiple packages** in a monorepo that don't depend on each other

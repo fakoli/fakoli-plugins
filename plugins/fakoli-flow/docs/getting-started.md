@@ -169,7 +169,8 @@ Add `.fakoli-flow/` to `.gitignore` if you use the visual companion.
 
 ## Further Reading
 
-- [docs/wave-engine.md](wave-engine.md) — How the wave engine groups tasks and dispatches agents
-- [docs/intent-driven-orchestration.md](intent-driven-orchestration.md) — Why intent-driven plans outperform prescriptive ones
-- [references/wave-engine-ref.md](../references/wave-engine-ref.md) — Quick reference: wave assignment, dispatch syntax, critic gate
-- [references/status-protocol.md](../references/status-protocol.md) — Agent status file format
+- [wave-engine.md](wave-engine.md) — How the wave engine groups tasks and dispatches agents
+- [intent-driven-orchestration.md](intent-driven-orchestration.md) — Why intent-driven plans outperform prescriptive ones
+- [../references/wave-engine-ref.md](../references/wave-engine-ref.md) — Quick reference: wave assignment, dispatch syntax, critic gate
+- [../references/status-protocol.md](../references/status-protocol.md) — Agent status file format
+

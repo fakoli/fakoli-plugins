@@ -53,7 +53,7 @@ These four tasks are independent. Dispatch all four agents simultaneously.
 **Acceptance criteria for `hooks/hooks.json`:**
 - Declares a single `SessionStart` hook
 - `command` points to `detect-context.sh`
-- `timeout` is `5000` (ms)
+- `timeout` is `5` (seconds in the shipped Claude Code hook schema; the design spec originally said 5000ms)
 - Valid JSON
 
 **Acceptance criteria for `hooks/detect-context.sh`:**

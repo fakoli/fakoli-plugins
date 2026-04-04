@@ -32,11 +32,16 @@ change touches 3+ files.
 
 ## Project State
 
-Run the SessionStart hook to show detected language and crew availability:
+The SessionStart hook runs `detect-context.sh` automatically when a session begins and
+prints the detected language and crew availability to the session context. Look for a
+line like:
 
-```bash
-bash ./hooks/detect-context.sh
 ```
+[fakoli-flow] Language: TypeScript | Crew: fakoli-crew 2.0.0 | Skills: brainstorm, plan, execute, verify, finish, quick
+```
+
+No manual invocation is needed. If you want to check the output again, look at the
+session start output at the top of the conversation.
 
 ## Usage Examples
 

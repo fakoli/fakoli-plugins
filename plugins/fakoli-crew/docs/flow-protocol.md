@@ -31,7 +31,7 @@ Every agent writes a status file at `docs/plans/agent-<name>-status.md`. This is
 
 **Status:** IN_PROGRESS | COMPLETE | NEEDS_REVIEW | BLOCKED
 **Wave:** <number>
-**Timestamp:** <ISO 8601>
+**Timestamp:** <YYYY-MM-DD HH:MM UTC>
 
 ## Files Modified
 - `path/to/file.ts` — what was changed
@@ -58,6 +58,14 @@ What is preventing progress and what is needed
 | `COMPLETE` | Agent finished successfully | Downstream agents may proceed |
 | `NEEDS_REVIEW` | Agent found an issue requiring human judgment | Orchestrator reviews before continuing |
 | `BLOCKED` | Agent cannot proceed | Orchestrator resolves the blocker |
+
+**Writing rule:** Write `IN_PROGRESS` immediately when the task begins, so the orchestrator
+knows the agent is active. Set `COMPLETE` only when all acceptance criteria are met.
+
+> The authoritative status file format, including reading rules, writing rules, and
+> complete examples, is defined in
+> `fakoli-flow/references/status-protocol.md`. This section summarizes the format for
+> crew agents working without the flow plugin.
 
 ## Wave Compatibility
 
@@ -99,13 +107,26 @@ Any orchestrator compatible with fakoli-crew must:
 5. **Run typecheck between waves** — `npx tsc --noEmit` or equivalent
 6. **Handle NEEDS_REVIEW** — surface the issue to the human and wait for resolution
 
-## Future: fakoli-flow
+## Integration: fakoli-flow
 
-The **fakoli-flow** plugin will implement this protocol as a first-class orchestrator with:
+**fakoli-flow** implements this protocol as a first-class orchestrator. Install it
+alongside fakoli-crew for the full workflow:
+
+```bash
+claude plugin install fakoli-crew
+claude plugin install fakoli-flow
+```
+
+fakoli-flow provides:
 - `brainstorm` → design specs with 1-question-at-a-time flow
 - `plan` → break specs into tasks assigned to crew agents
 - `execute` → dispatch agents in waves with critic gates
 - `verify` → sentinel validation before completion claims
 - `finish` → git merge/PR/keep/discard
 
-Until fakoli-flow ships, use SuperPowers for orchestration (see `docs/superpowers-integration.md`) or orchestrate manually using the Agent tool.
+The wave engine reads agent status files automatically between waves, enforces file
+ownership, and runs the critic gate after every code wave — all behaviors described in
+this document are handled without manual orchestration.
+
+See [fakoli-flow README](../../fakoli-flow/README.md) and
+[docs/workflow-orchestration.md](workflow-orchestration.md) for setup and usage.

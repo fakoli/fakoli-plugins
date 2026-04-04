@@ -368,17 +368,31 @@ Sentinel must NOT claim success without fresh evidence from a command run in thi
 
 ### `hooks/hooks.json`
 
+> **Note:** The format below was the design-time proposal. The shipped implementation
+> uses the Claude Code native hook schema — see `hooks/hooks.json` for the actual format.
+
 ```json
 {
-  "hooks": [
-    {
-      "event": "SessionStart",
-      "command": "detect-context.sh",
-      "timeout": 5000
-    }
-  ]
+  "description": "Detects project language and fakoli-crew availability at session start",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/detect-context.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
+
+Key differences from the original design: hooks is an object keyed by event name (not an
+array), `command` uses `${CLAUDE_PLUGIN_ROOT}` for portability, and `timeout` is in
+seconds (not milliseconds).
 
 ### `detect-context.sh`
 

@@ -42,11 +42,25 @@ In the BAARA Next project (10-package monorepo, 44K lines), running critic after
 - 10 MUST FIX bugs in Phase 1 (state machine violations, broken API contracts, security holes)
 - 5 MUST FIX bugs in Phase 4 (wrong HTTP methods, missing SSE fields, phantom imports)
 - 4 MUST FIX bugs in Phase 5 (migration data corruption, missing schemas)
+- 7 additional MUST FIX bugs across Phases 2, 3, and 6
 
-Total: 19 runtime bugs caught before they ever ran. The cost of a critic pass is ~2 minutes. The cost of debugging a compounded state machine violation is hours.
+Total: 26 runtime bugs caught before they ever ran across all 6 phases. The cost of a critic pass is ~2 minutes. The cost of debugging a compounded state machine violation is hours.
 
 ## Model Selection
 
 All agents default to `model: sonnet` in their frontmatter. For maximum capability:
-- Use **Sonnet 4.6** for most agents (fast, reliable)
-- Use **Opus 4.6** for critic on large codebases (deeper analysis, more context)
+- Use the **sonnet** tier for most agents (fast, reliable)
+- Use the **opus** tier for critic on large codebases (deeper analysis, more context)
+
+## Workflow Orchestration
+
+To get automatic wave dispatch, critic gates, and status file management, install
+**fakoli-flow** alongside fakoli-crew:
+
+```bash
+claude plugin install fakoli-flow
+```
+
+See [workflow-orchestration.md](workflow-orchestration.md) for the full comparison between
+fakoli-flow and SuperPowers orchestration. The [fakoli-flow getting-started guide](../../fakoli-flow/docs/getting-started.md)
+walks through a complete session from brainstorm to finish.

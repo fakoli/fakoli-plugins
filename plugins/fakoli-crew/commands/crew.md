@@ -71,7 +71,7 @@ Wave 2 (parallel):  guido + smith + herald (build)
 Wave 3:             welder (integrate)
   ── CRITIC GATE ──
 Wave 4:             sentinel (final verification)
-Wave 5:             keeper (infrastructure) + judge (review findings)
+Wave 5:             keeper (infrastructure) + orchestrator reviews findings
 ```
 
 ## Usage

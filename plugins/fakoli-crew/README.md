@@ -92,6 +92,7 @@ welder wires it in →
 
 ```
 herald rewrites READMEs and descriptions →
+  ── CRITIC GATE ──
 keeper updates CLAUDE.md, CI, contributor docs →
 sentinel verifies all sources are in sync
 ```
@@ -123,6 +124,12 @@ coordinate without a shared conversation.
 |---------|-------------|
 | `/crew` | List all 8 agents and suggested crew compositions |
 
+## Skills
+
+| Skill | Description | File |
+|-------|-------------|------|
+| Debugging | Systematic 4-phase root cause analysis — used automatically by critic, welder, and sentinel when diagnosing failures | `skills/debugging/SKILL.md` |
+
 ## Agent Design Principles
 
 **guido** applies TypeScript naming conventions, strict typing, interface-first design, and generics.
@@ -148,6 +155,19 @@ CI workflows, and contributor docs. Makes surgical edits, never wholesale rewrit
 
 **sentinel** produces a binary pass/fail scorecard for every check. Reports exact error
 output. Names the fix owner for every failure. Never modifies code itself.
+
+## Works Best With
+
+**fakoli-flow** — the crew-aware orchestrator. Install both plugins for the full workflow:
+
+```bash
+claude plugin install fakoli-crew
+claude plugin install fakoli-flow
+```
+
+fakoli-flow handles wave dispatch, critic gates, and status file coordination automatically.
+See [docs/workflow-orchestration.md](docs/workflow-orchestration.md) for the comparison
+between fakoli-flow and SuperPowers orchestration.
 
 ## Requirements
 
