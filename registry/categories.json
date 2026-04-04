@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-04-04T21:15:18Z",
+  "generatedAt": "2026-04-04T22:31:29Z",
   "categories": [
     {
       "category": "uncategorized",
-      "count": 8,
+      "count": 9,
       "plugins": [
         {
           "name": "marketplace-manager",
@@ -34,6 +34,12 @@
           "version": "1.0.1",
           "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
           "path": "plugins/excalidraw-diagram"
+        },
+        {
+          "name": "fakoli-flow",
+          "version": "1.0.0",
+          "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
+          "path": "plugins/fakoli-flow"
         },
         {
           "name": "gws",

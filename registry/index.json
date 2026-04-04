@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-04-04T21:15:18Z",
+  "generatedAt": "2026-04-04T22:31:29Z",
   "pluginCount": 9,
   "plugins": [
     {
@@ -21,7 +21,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-04-04T21:15:18Z"
+      "indexedAt": "2026-04-04T22:31:29Z"
     },
     {
       "name": "fakoli-crew",
@@ -44,7 +44,7 @@
         "workflow"
       ],
       "path": "plugins/fakoli-crew",
-      "indexedAt": "2026-04-04T21:15:18Z"
+      "indexedAt": "2026-04-04T22:31:29Z"
     },
     {
       "name": "nano-banana-pro",
@@ -65,7 +65,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-04-04T21:15:18Z"
+      "indexedAt": "2026-04-04T22:31:29Z"
     },
     {
       "name": "notebooklm-enhanced",
@@ -89,7 +89,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-04-04T21:15:18Z"
+      "indexedAt": "2026-04-04T22:31:29Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -110,7 +110,30 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-04-04T21:15:18Z"
+      "indexedAt": "2026-04-04T22:31:29Z"
+    },
+    {
+      "name": "fakoli-flow",
+      "version": "1.0.0",
+      "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "workflow",
+        "orchestration",
+        "planning",
+        "brainstorming",
+        "intent-driven",
+        "agents",
+        "wave-engine",
+        "code-review"
+      ],
+      "path": "plugins/fakoli-flow",
+      "indexedAt": "2026-04-04T22:31:29Z"
     },
     {
       "name": "gws",
@@ -158,7 +181,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-04-04T21:15:18Z"
+      "indexedAt": "2026-04-04T22:31:29Z"
     },
     {
       "name": "safe-fetch",
@@ -180,7 +203,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-04-04T21:15:18Z"
+      "indexedAt": "2026-04-04T22:31:29Z"
     },
     {
       "name": "fakoli-speak",
@@ -206,30 +229,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-04-04T21:15:18Z"
-    },
-    {
-      "name": "fakoli-flow",
-      "version": "1.0.0",
-      "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "workflow",
-        "orchestration",
-        "planning",
-        "brainstorming",
-        "intent-driven",
-        "agents",
-        "wave-engine",
-        "code-review"
-      ],
-      "path": "plugins/fakoli-flow",
-      "indexedAt": "2026-04-02T00:00:00Z"
+      "indexedAt": "2026-04-04T22:31:29Z"
     }
   ]
 }

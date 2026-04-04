@@ -1,7 +1,15 @@
 {
-  "generatedAt": "2026-04-04T21:15:18Z",
-  "totalTags": 79,
+  "generatedAt": "2026-04-04T22:31:29Z",
+  "totalTags": 83,
   "tags": [
+    {
+      "tag": "workflow",
+      "count": 3
+    },
+    {
+      "tag": "agents",
+      "count": 2
+    },
     {
       "tag": "architecture",
       "count": 2
@@ -11,15 +19,19 @@
       "count": 2
     },
     {
+      "tag": "code-review",
+      "count": 2
+    },
+    {
       "tag": "google",
       "count": 2
     },
     {
-      "tag": "slides",
+      "tag": "orchestration",
       "count": 2
     },
     {
-      "tag": "workflow",
+      "tag": "slides",
       "count": 2
     },
     {
@@ -31,15 +43,15 @@
       "count": 1
     },
     {
-      "tag": "agents",
-      "count": 1
-    },
-    {
       "tag": "ai-images",
       "count": 1
     },
     {
       "tag": "audio",
+      "count": 1
+    },
+    {
+      "tag": "brainstorming",
       "count": 1
     },
     {
@@ -52,10 +64,6 @@
     },
     {
       "tag": "classroom",
-      "count": 1
-    },
-    {
-      "tag": "code-review",
       "count": 1
     },
     {
@@ -151,6 +159,10 @@
       "count": 1
     },
     {
+      "tag": "intent-driven",
+      "count": 1
+    },
+    {
       "tag": "it-admin",
       "count": 1
     },
@@ -195,15 +207,15 @@
       "count": 1
     },
     {
-      "tag": "orchestration",
-      "count": 1
-    },
-    {
       "tag": "people",
       "count": 1
     },
     {
       "tag": "persona",
+      "count": 1
+    },
+    {
+      "tag": "planning",
       "count": 1
     },
     {
@@ -304,6 +316,10 @@
     },
     {
       "tag": "visualization",
+      "count": 1
+    },
+    {
+      "tag": "wave-engine",
       "count": 1
     },
     {

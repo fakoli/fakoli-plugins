@@ -63,6 +63,12 @@
       "source": "./plugins/excalidraw-diagram"
     },
     {
+      "name": "fakoli-flow",
+      "version": "1.0.0",
+      "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
+      "source": "./plugins/fakoli-flow"
+    },
+    {
       "name": "gws",
       "version": "0.4.0",
       "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
@@ -79,20 +85,6 @@
       "version": "2.0.0",
       "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
       "source": "./plugins/fakoli-speak"
-    },
-    {
-      "name": "fakoli-flow",
-      "version": "1.0.0",
-      "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
-      "source": "./plugins/fakoli-flow",
-      "category": "productivity",
-      "keywords": ["workflow", "orchestration", "planning", "brainstorming", "intent-driven", "agents", "wave-engine", "code-review"],
-      "license": "MIT",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins"
     }
   ]
 }
