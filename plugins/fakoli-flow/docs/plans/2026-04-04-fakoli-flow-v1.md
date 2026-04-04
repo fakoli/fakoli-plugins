@@ -305,7 +305,7 @@ Both tasks are independent. Dispatch both agents simultaneously. Both depend on 
 - Creates `SESSION_DIR/content/` and `SESSION_DIR/state/` directories
 - Writes server PID to `STATE_DIR/server.pid`
 - Auto-detects Windows/Git Bash and Codex environments, switches to foreground mode
-- If using `--project-dir`, session lives under `<project>/.fakoli/brainstorm/<session-id>/`; otherwise `/tmp/fakoli-brainstorm-<session-id>/`
+- If using `--project-dir`, session lives under `<project>/.fakoli-flow/brainstorm/<session-id>/`; otherwise `/tmp/fakoli-brainstorm-<session-id>/`
 - Outputs a JSON object: `{"type":"server-started","port":N,"url":"http://localhost:N","screen_dir":"...","state_dir":"..."}`
 - Writes the same JSON to `STATE_DIR/server-info` for recovery
 - Waits up to 5 seconds for server to confirm start; exits with error JSON if it doesn't
@@ -334,7 +334,7 @@ Both tasks are independent. Dispatch both agents simultaneously. Both depend on 
 - Records click events to `state_dir/events` as JSON lines: `{"type":"click","choice":"<id>","text":"<label>","timestamp":<unix>}`
 - Clears events file when a new screen is served (new HTML file)
 
-**Note on adaptation:** The SuperPowers scripts use `.superpowers/brainstorm/` path convention. fakoli-flow uses `.fakoli/brainstorm/`. Node.js server internals can be adapted directly; only adapt, don't reinvent.
+**Note on adaptation:** The SuperPowers scripts use `.superpowers/brainstorm/` path convention. fakoli-flow uses `.fakoli-flow/brainstorm/`. Node.js server internals can be adapted directly; only adapt, don't reinvent.
 
 **Agent:** keeper (scripts) + smith (HTML/JS if keeper delegates)
 
@@ -352,7 +352,7 @@ Both tasks are independent. Dispatch both agents simultaneously. Both depend on 
 
 **File:** `skills/brainstorm/visual-companion.md`
 
-**Intent:** A reference guide the brainstorm skill reads (after the user accepts the companion) to understand how to operate the server, write content fragments, use CSS classes, read browser events, and clean up. Adapted from the SuperPowers visual-companion.md pattern but with fakoli-flow's `.fakoli/brainstorm/` paths and the updated script names.
+**Intent:** A reference guide the brainstorm skill reads (after the user accepts the companion) to understand how to operate the server, write content fragments, use CSS classes, read browser events, and clean up. Adapted from the SuperPowers visual-companion.md pattern but with fakoli-flow's `.fakoli-flow/brainstorm/` paths and the updated script names.
 
 **Acceptance criteria:**
 - "When to use" section with clear use-the-browser vs use-the-terminal guidance (per-question decision, not per-session)
@@ -366,7 +366,7 @@ Both tasks are independent. Dispatch both agents simultaneously. Both depend on 
 - Design tips: scale fidelity to question, explain question on page, 2-4 options max
 - File naming convention: semantic names, never reuse filenames, version suffixes for iterations
 - Cleanup: `scripts/stop-server.sh $SESSION_DIR`
-- All paths use `.fakoli/brainstorm/` not `.superpowers/brainstorm/`
+- All paths use `.fakoli-flow/brainstorm/` not `.superpowers/brainstorm/`
 
 **Agent:** herald
 

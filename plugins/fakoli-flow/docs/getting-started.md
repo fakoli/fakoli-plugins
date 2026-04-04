@@ -174,3 +174,14 @@ Add `.fakoli-flow/` to `.gitignore` if you use the visual companion.
 - [../references/wave-engine-ref.md](../references/wave-engine-ref.md) — Quick reference: wave assignment, dispatch syntax, critic gate
 - [../references/status-protocol.md](../references/status-protocol.md) — Agent status file format
 
+## Troubleshooting
+
+**fakoli-crew not installed:**
+fakoli-flow works without crew — it falls back to generic subagents. Install crew for specialist agents: `claude plugin install fakoli-crew`
+
+**Visual companion won't start:**
+Check for port conflicts. The server picks a random high port. If it fails, check `$STATE_DIR/server.pid` for a stale PID and remove it.
+
+**detect-context.sh shows "unknown" language:**
+The hook checks for Cargo.toml (Rust), pyproject.toml (Python), and package.json/tsconfig.json (TypeScript) in the current directory. Make sure you're in the project root.
+

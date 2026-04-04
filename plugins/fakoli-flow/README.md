@@ -81,6 +81,10 @@ For full details on the philosophy: [docs/intent-driven-orchestration.md](docs/i
 
 ---
 
+## Orientation
+
+Run `/flow` at any time to see the available skills and detect your current project context (language, crew status). This is the entry point — start here if you are not sure which skill to use.
+
 ## Skills
 
 | Skill | Trigger | What It Does |
@@ -118,6 +122,8 @@ RCE, migration data corruption.
 
 For dispatch patterns, status file protocol, and parallel agent examples:
 [docs/wave-engine.md](docs/wave-engine.md)
+
+New to fakoli-flow? Start here: [docs/getting-started.md](docs/getting-started.md)
 
 ---
 

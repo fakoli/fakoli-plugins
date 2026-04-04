@@ -218,10 +218,12 @@ Report: "Branch `<feature-branch>` and all its commits have been deleted."
 
 ## Step 5: Worktree Cleanup
 
-Check if a worktree was used for this branch:
+Check if a worktree was used for this branch. Use the `FEATURE_BRANCH` variable captured
+at the top of the chosen option block — do NOT use `git branch --show-current` here,
+because Options 1 and 4 have already checked out the base branch by this point.
 
 ```bash
-git worktree list | grep "$(git branch --show-current)" 2>/dev/null
+git worktree list | grep "$FEATURE_BRANCH" 2>/dev/null
 ```
 
 - **Option 1 (merge) and Option 4 (discard):** Remove the worktree if present:

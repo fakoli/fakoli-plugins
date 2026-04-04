@@ -233,7 +233,12 @@ After writing the complete plan, check it against these four criteria. Fix issue
 Every plan must begin with the four-line header (Goal, Spec, Language, Crew). The Language and Crew fields are detected, not assumed:
 
 - **Language:** check for `Cargo.toml` (Rust), `pyproject.toml` (Python), `tsconfig.json` or `package.json` (TypeScript)
-- **Crew:** run `claude plugin list 2>/dev/null | grep fakoli-crew` — if present, note the version
+- **Crew:** read the manifest JSON directly to detect fakoli-crew and its version:
+  ```bash
+  grep '"version"' ~/.claude/plugins/cache/fakoli-plugins/fakoli-crew/*/.claude-plugin/plugin.json 2>/dev/null \
+    | head -1 | grep -o '"[0-9][0-9.]*"' | tr -d '"'
+  ```
+  If the file does not exist, fakoli-crew is not installed — note "generic subagents" in the plan header.
 
 ---
 

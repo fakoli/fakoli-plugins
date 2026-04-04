@@ -75,6 +75,16 @@ ls docs/plans/ | sort | tail -1
 
 Read the most recent plan file. Extract the acceptance criteria for each task (the `**Acceptance criteria:**` bullet points under each task heading).
 
+**If multiple plans exist for the current date:** Do not guess. Ask the user:
+```
+Multiple plans found for today:
+- docs/plans/2026-04-04-feature-a.md
+- docs/plans/2026-04-04-feature-b.md
+Which plan should I verify against?
+```
+
+**After `/flow:quick` (no plan file):** Quick mode does not create a plan file. If verify is invoked after a quick session, ask the user for the original task description and verify the modified files against it. Use the same evidence gate — every PASS still requires a command output to cite.
+
 **Dispatch:**
 
 ```

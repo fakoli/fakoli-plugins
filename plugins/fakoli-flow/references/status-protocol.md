@@ -28,6 +28,16 @@ append a disambiguator: `agent-welder-packages-store-status.md`.
 - path/to/file.ts
 - path/to/other.ts
 
+## Files Read
+
+- path/to/file.ts — why it was read
+
+<!-- NOTE: The "Files Read" section is informational for downstream agents only.
+     It is NOT processed by the wave engine. The wave engine reads only "Files Modified"
+     (for the critic gate) and "Decisions" (for next-wave upstream context).
+     List files here so that downstream agents know what context the writing agent had —
+     this avoids redundant reads in subsequent waves. -->
+
 ## Decisions
 
 Key decisions made during this task that downstream agents should know about:

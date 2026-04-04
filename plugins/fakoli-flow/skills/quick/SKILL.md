@@ -14,7 +14,7 @@ Skip brainstorming, planning, and wave execution for tasks that are too small to
 ```
 /flow:quick "add timeout param to retry"
 /flow:quick "fix import path in auth module"
-/flow:quick "rename voice_Id to voice_id throughout"
+/flow:quick "rename voiceId to voice_id throughout"
 ```
 
 The task description is passed inline. No spec file. No plan file. No waves.

@@ -433,3 +433,10 @@ SHOULD FIX items logged (not blocking):
 ```
 
 If the sentinel returns NEEDS_REVIEW, report each failing criterion and wait for the user's decision before declaring completion.
+
+---
+
+## Further Reading
+
+- `references/status-protocol.md` — full status file format specification
+- `docs/wave-engine.md` — detailed wave engine design and real-world examples

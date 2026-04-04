@@ -394,6 +394,13 @@ Key differences from the original design: hooks is an object keyed by event name
 array), `command` uses `${CLAUDE_PLUGIN_ROOT}` for portability, and `timeout` is in
 seconds (not milliseconds).
 
+> **Format note:** The double-nested `hooks` structure (an outer `hooks` object keyed by
+> event name, each value being an array of objects that each contain a nested `hooks`
+> array of commands) is the correct Claude Code plugin schema. This matches the
+> `safe-fetch` plugin's `hooks/hooks.json` and was verified by the `validate.sh` script.
+> The double nesting is intentional — the outer array entry holds a `matcher` (optional)
+> and the inner `hooks` array holds the actual command definitions.
+
 ### `detect-context.sh`
 
 Detects project language and crew availability. Outputs a single-line summary (~50 tokens):
@@ -411,7 +418,7 @@ CREW="not installed"
 CREW_VERSION=""
 if claude plugin list 2>/dev/null | grep -q "fakoli-crew"; then
   CREW="installed"
-  CREW_VERSION=$(grep '"version"' ~/.claude/plugins/cache/fakoli-plugins/fakoli-crew/*/. claude-plugin/plugin.json 2>/dev/null | head -1 | grep -o '"[0-9.]*"' | tr -d '"')
+  CREW_VERSION=$(grep '"version"' ~/.claude/plugins/cache/fakoli-plugins/fakoli-crew/*/.claude-plugin/plugin.json 2>/dev/null | head -1 | grep -o '"[0-9.]*"' | tr -d '"')
 fi
 
 echo "[fakoli-flow] Language: $LANG | Crew: fakoli-crew ${CREW_VERSION:-$CREW} | Skills: brainstorm, plan, execute, verify, finish, quick"

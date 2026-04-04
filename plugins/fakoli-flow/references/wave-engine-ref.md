@@ -158,6 +158,19 @@ to fix the errors — do not proceed to the critic with broken code.
 Language is detected by the SessionStart hook reading the project root: `Cargo.toml` →
 Rust, `pyproject.toml` → Python, `tsconfig.json` / `package.json` → TypeScript.
 
+## Agent Capabilities
+
+| Agent | Creates Files | Modifies Files | Reviews Only | Best For |
+|-------|--------------|----------------|--------------|----------|
+| scout | Yes (research) | No | No | API docs, codebase exploration |
+| guido | Yes (new modules) | No | No | Interface design, type patterns |
+| smith | Yes (manifests) | Yes (plugin structure) | No | Plugin manifests, commands, hooks |
+| herald | Yes (READMEs) | Yes (docs) | No | Documentation, branding |
+| welder | Yes (shims) | Yes (integration) | No | Wiring, backward compat |
+| keeper | No | Yes (infra) | No | CLAUDE.md, CI, registry |
+| critic | No | No | Yes | Code review, debugging |
+| sentinel | No | No | Yes | Testing, verification |
+
 ## Status File Location
 
 Agents write their results to `docs/plans/agent-<name>-status.md`. The wave engine reads
