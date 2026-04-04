@@ -3,7 +3,7 @@ name: critic
 description: >
   Use this agent when you need a thorough code review — line-by-line analysis of
   code quality, naming, safety, and TypeScript correctness. Reviews as a Staff Engineer
-  at a FAANG company would. Critics report; they don't fix.
+  code quality, naming, safety, and language-idiomatic correctness. Reviews as a Staff Engineer
 
   <example>
   Context: You've finished implementing a new provider module.
