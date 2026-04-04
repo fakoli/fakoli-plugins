@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-03-22T05:24:21Z",
+  "generatedAt": "2026-04-04T21:15:18Z",
   "totalTags": 79,
   "tags": [
     {
@@ -227,10 +227,6 @@
       "count": 1
     },
     {
-      "tag": "python",
-      "count": 1
-    },
-    {
       "tag": "quiz",
       "count": 1
     },
@@ -296,6 +292,10 @@
     },
     {
       "tag": "tts",
+      "count": 1
+    },
+    {
+      "tag": "typescript",
       "count": 1
     },
     {

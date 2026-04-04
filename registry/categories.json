@@ -1,16 +1,10 @@
 {
-  "generatedAt": "2026-03-22T05:39:09Z",
+  "generatedAt": "2026-04-04T21:15:18Z",
   "categories": [
     {
       "category": "uncategorized",
       "count": 8,
       "plugins": [
-        {
-          "name": "fakoli-speak",
-          "version": "2.0.0",
-          "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
-          "path": "plugins/fakoli-speak"
-        },
         {
           "name": "marketplace-manager",
           "version": "1.2.2",
@@ -19,15 +13,15 @@
         },
         {
           "name": "fakoli-crew",
-          "version": "1.0.0",
-          "description": "Summon expert agent archetypes — Guido-style Python architects, code reviewers, API researchers, plugin engineers, and more — that work independently or as coordinated crews for complex development workflows.",
+          "version": "2.0.0",
+          "description": "Eight specialist AI agents for software engineering — TypeScript architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
           "path": "plugins/fakoli-crew"
         },
         {
-          "name": "excalidraw-diagram",
-          "version": "1.0.1",
-          "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
-          "path": "plugins/excalidraw-diagram"
+          "name": "nano-banana-pro",
+          "version": "1.3.3",
+          "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
+          "path": "plugins/nano-banana-pro"
         },
         {
           "name": "notebooklm-enhanced",
@@ -36,10 +30,10 @@
           "path": "plugins/notebooklm-enhanced"
         },
         {
-          "name": "safe-fetch",
-          "version": "1.0.5",
-          "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
-          "path": "plugins/safe-fetch"
+          "name": "excalidraw-diagram",
+          "version": "1.0.1",
+          "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+          "path": "plugins/excalidraw-diagram"
         },
         {
           "name": "gws",
@@ -48,10 +42,16 @@
           "path": "plugins/gws"
         },
         {
-          "name": "nano-banana-pro",
-          "version": "1.3.3",
-          "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
-          "path": "plugins/nano-banana-pro"
+          "name": "safe-fetch",
+          "version": "1.0.5",
+          "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+          "path": "plugins/safe-fetch"
+        },
+        {
+          "name": "fakoli-speak",
+          "version": "2.0.0",
+          "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
+          "path": "plugins/fakoli-speak"
         }
       ]
     }

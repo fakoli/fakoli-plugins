@@ -33,24 +33,6 @@
   ],
   "plugins": [
     {
-      "name": "notebooklm-enhanced",
-      "version": "0.1.3",
-      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
-      "source": "./plugins/notebooklm-enhanced"
-    },
-    {
-      "name": "safe-fetch",
-      "version": "1.0.5",
-      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
-      "source": "./plugins/safe-fetch"
-    },
-    {
-      "name": "fakoli-speak",
-      "version": "2.0.0",
-      "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
-      "source": "./plugins/fakoli-speak"
-    },
-    {
       "name": "marketplace-manager",
       "version": "1.2.2",
       "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
@@ -58,9 +40,21 @@
     },
     {
       "name": "fakoli-crew",
-      "version": "1.0.0",
-      "description": "Summon expert agent archetypes — Guido-style Python architects, code reviewers, API researchers, plugin engineers, and more — that work independently or as coordinated crews for complex development workflows.",
+      "version": "2.0.0",
+      "description": "Eight specialist AI agents for software engineering — TypeScript architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
       "source": "./plugins/fakoli-crew"
+    },
+    {
+      "name": "nano-banana-pro",
+      "version": "1.3.3",
+      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
+      "source": "./plugins/nano-banana-pro"
+    },
+    {
+      "name": "notebooklm-enhanced",
+      "version": "0.1.3",
+      "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+      "source": "./plugins/notebooklm-enhanced"
     },
     {
       "name": "excalidraw-diagram",
@@ -75,10 +69,16 @@
       "source": "./plugins/gws"
     },
     {
-      "name": "nano-banana-pro",
-      "version": "1.3.3",
-      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
-      "source": "./plugins/nano-banana-pro"
+      "name": "safe-fetch",
+      "version": "1.0.5",
+      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+      "source": "./plugins/safe-fetch"
+    },
+    {
+      "name": "fakoli-speak",
+      "version": "2.0.0",
+      "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
+      "source": "./plugins/fakoli-speak"
     }
   ]
 }
