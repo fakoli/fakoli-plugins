@@ -1,0 +1,21 @@
+{
+  "name": "fakoli-flow",
+  "version": "1.0.0",
+  "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "orchestration",
+    "planning",
+    "brainstorming",
+    "intent-driven",
+    "agents",
+    "wave-engine",
+    "code-review"
+  ]
+}

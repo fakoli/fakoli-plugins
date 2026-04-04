@@ -1,0 +1,16 @@
+{
+  "description": "Detects project language and fakoli-crew availability at session start",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/detect-context.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

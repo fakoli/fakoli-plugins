@@ -2,7 +2,7 @@
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
   "generatedAt": "2026-04-04T21:15:18Z",
-  "pluginCount": 8,
+  "pluginCount": 9,
   "plugins": [
     {
       "name": "marketplace-manager",
@@ -207,6 +207,29 @@
       ],
       "path": "plugins/fakoli-speak",
       "indexedAt": "2026-04-04T21:15:18Z"
+    },
+    {
+      "name": "fakoli-flow",
+      "version": "1.0.0",
+      "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "workflow",
+        "orchestration",
+        "planning",
+        "brainstorming",
+        "intent-driven",
+        "agents",
+        "wave-engine",
+        "code-review"
+      ],
+      "path": "plugins/fakoli-flow",
+      "indexedAt": "2026-04-02T00:00:00Z"
     }
   ]
 }
