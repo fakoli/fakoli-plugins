@@ -1,0 +1,9 @@
+{
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "/Users/sdoumbouya/.claude/plugins/cache/fakoli-plugins/fakoli-flow/1.0.0/hooks/detect-context.sh",
+      "timeout": 5000
+    }
+  ]
+}
