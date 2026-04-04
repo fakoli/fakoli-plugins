@@ -41,33 +41,37 @@ Wave 3: sentinel (validate) + herald (README)
 ```
 
 ### Research & Build
-**Agents:** scout + guido + welder + critic
+**Agents:** scout + guido + welder (critic as gate)
 **Use when:** Integrating an external library or API you haven't used before.
 ```
 Wave 1: scout (read the docs, map the API)
 Wave 2: guido (design the wrapper/interface)
+  ── CRITIC GATE ──
 Wave 3: welder (wire into existing code)
-Wave 4: critic (review the integration)
+  ── CRITIC GATE ──
 ```
 
 ### Documentation Sprint
-**Agents:** herald + keeper
+**Agents:** herald + keeper + sentinel
 **Use when:** Docs are stale, READMEs are generic, or the registry is out of sync.
 ```
 Wave 1: herald (rewrite READMEs with specific value propositions)
+  ── CRITIC GATE ──
 Wave 2: keeper (sync CLAUDE.md, marketplace.json, registry)
 Wave 3: sentinel (verify counts match, links resolve)
 ```
 
 ### Full Overhaul
-**Agents:** All 8 in waves
+**Agents:** All 8 in waves (critic as standing gate)
 **Use when:** Major version bump, structural refactor, or preparing for public launch.
 ```
-Wave 1 (parallel): scout + critic
-Wave 2 (parallel): guido + smith + herald
-Wave 3 (sequential): welder
-Wave 4 (parallel): critic + sentinel
-Wave 5 (main): review scorecard, dispatch fixes
+Wave 1:             scout (research)
+Wave 2 (parallel):  guido + smith + herald (build)
+  ── CRITIC GATE ──
+Wave 3:             welder (integrate)
+  ── CRITIC GATE ──
+Wave 4:             sentinel (final verification)
+Wave 5:             keeper (infrastructure) + judge (review findings)
 ```
 
 ## Usage

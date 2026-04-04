@@ -72,13 +72,14 @@ sentinel validates, herald writes the README
 ```
 
 ### Research & Build
-**scout + guido + welder + critic** — integrate an external API you haven't used before.
+**scout + guido + welder** (critic as gate) — integrate an external API you haven't used before.
 
 ```
 scout maps the API →
 guido designs the wrapper interface →
+  ── CRITIC GATE ──
 welder wires it in →
-critic reviews the integration
+  ── CRITIC GATE ──
 ```
 
 ### Documentation Sprint
@@ -98,11 +99,13 @@ sentinel verifies all sources are in sync
 Crews execute in waves to manage dependencies. No two agents write the same file.
 
 ```
-Wave 1 — Research  (parallel): scout + critic gather information
-Wave 2 — Build     (parallel): guido + smith + herald create new artifacts
-Wave 3 — Integrate (sequential): welder wires everything together
-Wave 4 — Review    (parallel): critic + sentinel validate the result
-Wave 5 — Judge     (main window): review scorecard, send back for fixes if needed
+Wave 1 — Research:           scout gathers information
+Wave 2 — Build (parallel):   guido + smith + herald create new artifacts
+  ── CRITIC GATE ──           critic reviews all modified files (non-negotiable)
+Wave 3 — Integrate:          welder wires everything together
+  ── CRITIC GATE ──           critic reviews the integration
+Wave 4 — Final Verification: sentinel produces evidence-based scorecard
+Wave 5 — Infrastructure:     keeper syncs CLAUDE.md, CI, registry
 ```
 
 Each agent writes a status file to `docs/plans/agent-<name>-status.md` with its

@@ -4,22 +4,21 @@ Crews execute in waves to manage dependencies between agents. Each wave runs age
 parallel where possible, and sequentially only where one agent's output is another's
 input.
 
-## The Five Waves
+## The Waves + Critic Gate
 
-### Wave 1 — Research (parallel)
-**Who:** scout (and optionally critic for audit-style research)
+### Wave 1 — Research
+**Who:** scout
 **What:** Gather all information needed before anything is built.
 **Outputs:** Research notes, API references, codebase maps, existing pattern inventory.
 **Rule:** No code is written or modified in Wave 1.
 
 ```
-Wave 1 (parallel)
-├── scout: read all existing source files, map imports, find patterns
-└── critic: audit existing code for quality issues to fix during the build
+Wave 1
+└── scout: read existing source files, map imports, find patterns, produce research docs
 ```
 
 ### Wave 2 — Build (parallel)
-**Who:** guido + smith (and optionally herald for concurrent doc drafts)
+**Who:** guido + smith + herald
 **What:** Create new abstractions, interfaces, manifests, and structures.
 **Input:** Wave 1 research notes.
 **Outputs:** New modules, updated manifests, initial docs.
@@ -27,9 +26,21 @@ Wave 1 (parallel)
 
 ```
 Wave 2 (parallel)
-├── guido: design TypeScript interfaces, type definitions, strongly-typed APIs
+├── guido: design interfaces, type definitions, strongly-typed APIs
 ├── smith: create/update plugin.json, commands, hooks
-└── herald: draft README and marketplace description (can be refined in Wave 5)
+└── herald: draft README and marketplace description
+```
+
+### ── CRITIC GATE ──
+**Who:** critic (standing gate, not a wave agent)
+**What:** Review all files modified in Wave 2. Report MUST FIX / SHOULD FIX / CONSIDER / NIT.
+**Rule:** Runs after EVERY wave that writes code. Non-negotiable.
+
+```
+─── CRITIC GATE after Wave 2 ───
+critic: review all modified files → severity report
+  If MUST FIX → dispatch welder to fix → critic re-reviews (max 3 cycles)
+  If PASS → proceed to Wave 3
 ```
 
 ### Wave 3 — Integrate (sequential)
@@ -38,41 +49,56 @@ Wave 2 (parallel)
 **Input:** ALL files created or modified in Waves 1 and 2.
 **Outputs:** Updated existing files with backward-compatible integration.
 **Rule:** welder reads every file created by upstream agents before modifying anything.
-**Sequential because:** welder's changes build on guido's and smith's outputs; parallel
-execution would cause conflicts.
 
 ```
 Wave 3 (sequential)
 └── welder: read Wave 1 + 2 artifacts → refactor existing code → run tests
 ```
 
-### Wave 4 — Review (parallel)
-**Who:** critic + sentinel
-**What:** Validate the integrated result independently.
-**Input:** Final state of all modified files after Wave 3.
-**Outputs:** Code review findings, pass/fail scorecard.
-**Rule:** Neither agent makes changes. They report only.
-
+### ── CRITIC GATE ──
 ```
-Wave 4 (parallel)
-├── critic: line-by-line code review, identify issues by severity
-└── sentinel: run test suite, check version sync, verify consistency
+─── CRITIC GATE after Wave 3 ───
+critic: review all files modified by welder → severity report
+  If MUST FIX → welder fixes → critic re-reviews (max 3 cycles)
+  If PASS → proceed to Wave 4
 ```
 
-### Wave 5 — Judge (main window)
-**Who:** You (the orchestrating human or main agent)
-**What:** Review Wave 4 findings, decide what to fix, dispatch agents for a second pass
-if needed.
-**Rule:** Only send agents back for issues that are FAIL severity. Advisory findings
-can be deferred.
+### Wave 4 — Final Verification
+**Who:** sentinel
+**What:** Run the full test suite, check version sync, produce pass/fail scorecard.
+**Input:** Final state of all modified files after Wave 3 + critic gate.
+**Outputs:** Evidence-based scorecard (every PASS cites a command output).
+**Rule:** sentinel does not modify code. Reports only. Must run commands and read full output.
 
 ```
-Wave 5 (main window)
+Wave 4
+└── sentinel: run tests, check versions, verify consistency → pass/fail scorecard
+```
+
+### Wave 5 — Infrastructure + Judge (main window)
+**Who:** keeper + the orchestrating human or main agent
+**What:** Sync infrastructure (CLAUDE.md, CI, registry), then review findings and decide.
+**Rule:** Only send agents back for MUST FIX severity. Advisory findings can be deferred.
+
+```
+Wave 5
+├── keeper: update CLAUDE.md, CI workflows, registry (if needed)
 ├── Review sentinel scorecard
-├── Review critic findings
-├── If FAIL: dispatch welder (code fixes) or herald (doc fixes) or keeper (infra fixes)
-└── If all PASS: tag release, update CLAUDE.md, close the session
+├── If FAIL: dispatch welder (code fixes) or herald (doc fixes)
+└── If all PASS: tag release, close the session
 ```
+
+### The Critic Gate Pattern
+
+Critic is NOT a wave agent — it's a standing quality gate that fires after every wave
+that writes code. This is the most important pattern in the crew:
+
+- After Wave 2 (build) → critic reviews
+- After Wave 3 (integrate) → critic reviews
+- After fix cycles → critic re-reviews
+
+The critic gate caught 26 bugs across 6 phases of the BAARA Next project. Each pass
+takes ~2 minutes. Each bug caught saves hours of debugging.
 
 ## Real Examples
 
@@ -85,7 +111,6 @@ Wave 1 (parallel):
   scout-1: read plugins/fakoli-tts/ — map all commands and config options
   scout-2: read plugins/fakoli-search/ — map all commands and config options
   scout-3: read plugins/fakoli-crew/ — map all agents and skills
-  critic:  audit marketplace.json — find stale entries, missing fields
 
 Wave 2 (parallel):
   herald-1: rewrite fakoli-tts README with standard structure
@@ -93,16 +118,18 @@ Wave 2 (parallel):
   herald-3: rewrite fakoli-crew README with standard structure
   smith:   regenerate marketplace.json from updated plugin.json files
 
+─── CRITIC GATE ───
+  critic: review herald's prose for generic language and missing specifics
+  2 READMEs flagged SHOULD FIX → herald rewrites → critic re-reviews → PASS
+
 Wave 3 (sequential):
   keeper: update CLAUDE.md plugin count, remove stale references, sync registry
 
-Wave 4 (parallel):
+Wave 4:
   sentinel: verify README counts == marketplace.json counts, run validation scripts
-  critic:   review herald's prose for generic language and missing specifics
 
 Wave 5:
-  Review scorecard. 2 READMEs had generic descriptions → dispatch herald for targeted edits.
-  All counts matched → proceed to tag.
+  All PASS → proceed to tag.
 ```
 
 ### Example 2 — Adding a New Agent to an Existing Plugin
@@ -110,30 +137,32 @@ Wave 5:
 **Goal:** Add a new `sentinel` agent to fakoli-crew with full validation suite, frontmatter, and registry integration.
 
 ```
-Wave 1 (parallel):
-  scout:  read all existing agents/*.md — map frontmatter fields, allowed-tools, system prompt patterns
-  critic: audit existing agents for missing fields, incomplete examples, inconsistent severity labels
+Wave 1:
+  scout: read all existing agents/*.md — map frontmatter fields, allowed-tools, system prompt patterns
 
 Wave 2 (parallel):
   guido: design the sentinel system prompt — validation checklist, scorecard format, evidence rules
   smith: confirm plugin.json has no agent declarations (agents/ is auto-discovered)
 
+─── CRITIC GATE ───
+  critic: review guido's sentinel design for completeness
+  Flagged 1 SHOULD FIX — scorecard format missing N/A case → guido fixes → PASS
+
 Wave 3 (sequential):
   welder:
-    1. Read scout's pattern map + guido's system prompt draft
+    1. Read scout's pattern map + guido's sentinel prompt
     2. Write agents/sentinel.md with all required frontmatter fields
     3. Add <example> blocks covering 3 distinct trigger phrases
-    4. Verify allowed-tools uses hyphen (not underscore) — silent failure mode
-    5. Run sentinel self-check on its own frontmatter
+    4. Verify allowed-tools uses hyphen (not underscore)
 
-Wave 4 (parallel):
+─── CRITIC GATE ───
+  critic: review welder's integration → PASS
+
+Wave 4:
   sentinel: frontmatter fields PASS, example count 3/3 PASS, allowed-tools format PASS
-  critic:   flagged 1 issue — scorecard format section was missing the N/A case
 
 Wave 5:
-  One critic finding is SHOULD FIX → dispatch guido to add N/A documentation.
-  guido adds N/A handling to scorecard format.
-  Re-run sentinel → all PASS → merge.
+  All PASS → merge.
 ```
 
 ### Example 3 — Full-Stack Monorepo Build (BAARA Next)

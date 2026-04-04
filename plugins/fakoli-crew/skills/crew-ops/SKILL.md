@@ -20,7 +20,7 @@ description: Orchestrate fakoli-crew agents as coordinated teams for complex mul
 
 - **Code quality**: guido + critic + sentinel
 - **Plugin development**: smith + guido + sentinel + herald
-- **Research & build**: scout + guido + welder + critic
+- **Research & build**: scout + guido + welder (critic as gate)
 - **Full overhaul**: all 8 in waves
 
 ## Skills
@@ -32,18 +32,22 @@ description: Orchestrate fakoli-crew agents as coordinated teams for complex mul
 
 ## Wave Pattern
 
-1. **Research** (parallel): scout agents gather information
-2. **Build** (parallel): guido + smith create new code/structure
-3. **Integrate** (sequential): welder wires it together
-4. **Review** (parallel): critic + sentinel validate
-5. **Judge** (main window): review findings, send back if needed
+1. **Research**: scout gathers information
+2. **Build** (parallel): guido + smith + herald create new artifacts
+   - **── CRITIC GATE ──** critic reviews all modified files (non-negotiable)
+3. **Integrate**: welder wires it together
+   - **── CRITIC GATE ──** critic reviews the integration
+4. **Final Verification**: sentinel produces evidence-based scorecard
+5. **Infrastructure + Judge**: keeper syncs infra, orchestrator reviews findings
+
+**Critic is a standing gate, not a wave agent.** It fires after every wave that writes code.
 
 ### Compressed 3-Wave Pattern (for smaller tasks)
 
 For tasks with 1-5 file changes, collapse to 3 waves:
 1. **Build** (parallel): appropriate agents create/modify
-2. **Fix** (sequential): welder resolves any conflicts or typecheck failures
-3. **Review** (parallel): critic + sentinel validate
+2. **── CRITIC GATE ──** critic reviews
+3. **Verify**: sentinel validates
 
 Use the full 5-wave pattern when >5 files change or multiple concerns overlap.
 
