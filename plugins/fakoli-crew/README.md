@@ -18,7 +18,7 @@ claude plugin install fakoli-crew
 
 | Agent | Role | Trigger Phrases |
 |-------|------|-----------------|
-| **guido** | TypeScript architect | "design an interface", "make this more TypeScript", "create an interface" |
+| **guido** | Polyglot architect | "design an interface", "make this more TypeScript", "create an interface" |
 | **critic** | Code reviewer | "review this code", "find the bugs", "audit the imports" |
 | **scout** | Researcher | "explore this codebase", "look up the API docs", "map the dependencies" |
 | **smith** | Plugin engineer | "update the manifest", "add a command", "set up the hooks" |
