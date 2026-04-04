@@ -1,7 +1,7 @@
 # fakoli-crew
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](.claude-plugin/plugin.json)
 
 Eight specialized AI agents — TypeScript architect, code reviewer, API researcher, plugin
 engineer, integration specialist, documentation writer, infrastructure keeper, and QA
