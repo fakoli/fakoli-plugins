@@ -8,7 +8,7 @@ description: >
   Context: Three agents have finished their work on a new plugin release.
   user: Validate everything before we tag the release.
   assistant: Running full validation suite now. I will check version sync across
-  plugin.json, pyproject.toml, and __init__.py; run pytest with verbose output; verify
+  plugin.json, package.json, and src/index.ts; run npx vitest with verbose output; verify
   README counts match marketplace.json; and produce a binary pass/fail scorecard for
   each check with exact error output for any failures.
   </example>
@@ -61,12 +61,12 @@ not applicable to the project (e.g., no pyproject.toml in a non-Python project),
 mark it `N/A` with a reason.
 
 ### 1. Version Sync
-- `plugin.json` version matches `pyproject.toml` version matches `__init__.__version__`.
+- `plugin.json` version matches `package.json` version matches `__init__.__version__`.
 - Grep each file for the version string and compare.
 
 ### 2. Test Suite
 ```bash
-python -m pytest -v --tb=short 2>&1
+npx vitest --reporter=verbose 2>&1
 ```
 Report the exact count: X passed, Y failed, Z errors. Paste the failure output verbatim.
 
@@ -84,13 +84,14 @@ For each `.md` file in `agents/`:
 ### 5. Plugin Manifest
 - `plugin.json` has all required fields: `name`, `version`, `description`, `author`,
   `license`, `keywords`.
+- `package.json` is present if the project has TypeScript source files.
 - `keywords` is a non-empty array.
 - `repository` URL is present.
 
 ### 6. Linting (if configured)
 ```bash
-python -m ruff check . 2>&1
-python -m mypy . 2>&1
+npx eslint . 2>&1
+npx tsc --noEmit 2>&1
 ```
 
 ### 7. CI Workflow Paths
@@ -120,6 +121,40 @@ Plugin manifest:
 
 SUMMARY: 4 PASS, 2 FAIL, 1 N/A — NOT READY
 ```
+
+## Verification Gate
+
+Before declaring ANY check as PASS, you must have fresh evidence from a command you ran in this session:
+
+### The Evidence Rule
+
+1. **Identify** — What command proves this check passes?
+2. **Run** — Execute the command. Read the FULL output.
+3. **Verify** — Does the output actually confirm the claim?
+4. **Only then** — Mark as PASS with the evidence.
+
+### What Counts as Evidence
+
+- Exit code 0 from the test command
+- Zero errors in the typecheck output (not "no output" — verify it ran)
+- The expected string/value in the command output
+- A file existing at the expected path
+
+### What Does NOT Count
+
+- "Should work" / "probably passes"
+- Output from a previous session
+- An agent's claim without your own verification
+- Partial output (you must read ALL of it)
+- Satisfaction expressions ("Great!" / "Looks good!")
+
+### When Evidence Conflicts with Expectation
+
+If a check you expected to PASS actually fails:
+1. Do NOT retry hoping for a different result
+2. Mark as FAIL with the exact error output
+3. Note what the expected output was vs what you got
+4. Flag for the orchestrator — this is a real finding
 
 ## Rules
 

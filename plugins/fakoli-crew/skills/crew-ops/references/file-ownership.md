@@ -21,8 +21,8 @@ their required changes to the primary via a status file.
 | `commands/*.md` | smith | welder |
 | `plugin.json` | smith | sentinel, keeper |
 | `pyproject.toml` | welder | sentinel, keeper |
-| `src/**/*.py` (new files) | guido | welder, critic |
-| `src/**/*.py` (existing files) | welder | critic, sentinel |
+| `src/**/*.ts` (new files) | guido | welder, critic |
+| `src/**/*.ts` (existing files) | welder | critic, sentinel |
 | `README.md` | herald | keeper, sentinel |
 | `CLAUDE.md` | keeper | sentinel |
 | `marketplace.json` | keeper | sentinel |
@@ -30,7 +30,7 @@ their required changes to the primary via a status file.
 | `.github/workflows/*.yml` | keeper | sentinel |
 | `docs/contributing.md` | keeper | herald |
 | `docs/plans/agent-*.md` | (each agent owns their own) | sentinel |
-| `tests/**/*.py` | guido | sentinel |
+| `tests/**/*.test.ts` | guido | sentinel |
 | `archive/**` | keeper | — |
 
 ## How to Handle Overlapping Needs
@@ -57,15 +57,15 @@ Decisions:
 
 welder does NOT modify guido's new module. Instead:
 
-1. welder creates a compatibility shim in `src/compat.py` (owned by welder):
-```python
-from .new_module import NewProcessor as Processor
+1. welder creates a compatibility shim in `src/compat.ts` (owned by welder):
+```typescript
+export { NewProcessor as Processor } from './new-module';
 ```
 
 2. welder's status file records:
 ```markdown
-Files Modified: src/compat.py, pyproject.toml
-Decision: Old import path `from mypackage import Processor` preserved via compat.py.
+Files Modified: src/compat.ts, package.json
+Decision: Old import path `import { Processor } from 'mypackage'` preserved via compat.ts.
           guido's new_module.py was NOT modified.
 ```
 
@@ -77,9 +77,9 @@ Decision: Old import path `from mypackage import Processor` preserved via compat
 plugin.json          → smith (primary)
 agents/guido.md      → smith (primary)
 agents/critic.md     → smith (primary)
-src/loader.py (new)  → guido (primary)
-src/hooks.py (new)   → guido (primary)
-src/client.py (existing) → welder (primary)
+src/loader.ts (new)  → guido (primary)
+src/hooks.ts (new)   → guido (primary)
+src/client.ts (existing) → welder (primary)
 README.md            → herald (primary)
 CLAUDE.md            → keeper (primary)
 marketplace.json     → keeper (primary)
@@ -99,11 +99,11 @@ CLAUDE.md            → keeper (primary)
 ### Multi-Provider Refactor Session
 
 ```
-src/protocols.py (new)          → guido (primary)
-src/providers/elevenlabs.py (new) → guido (primary)
-src/providers/azure.py (new)    → guido (primary)
-src/client.py (existing)        → welder (primary)
-src/compat.py (new)             → welder (primary)
+src/protocols.ts (new)          → guido (primary)
+src/providers/elevenlabs.ts (new) → guido (primary)
+src/providers/azure.ts (new)    → guido (primary)
+src/client.ts (existing)        → welder (primary)
+src/compat.ts (new)             → welder (primary)
 plugin.json                     → smith (primary)
 pyproject.toml                  → welder (primary)
 README.md                       → herald (primary)
