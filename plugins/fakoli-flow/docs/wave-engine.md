@@ -10,48 +10,7 @@ The result: complex multi-package, multi-concern projects get built by coordinat
 
 ## How It Works
 
-```
-/flow:execute
-
-┌─────────────────────────────────────────────────┐
-│  1. Load plan file                              │
-│  2. Detect available agents (fakoli-crew?)      │
-│  3. Group tasks into waves by dependencies      │
-└──────────────────────┬──────────────────────────┘
-                       │
-                       ▼
-          ┌────────────────────────┐
-          │  For each wave:        │◄──────────────────────┐
-          │                        │                       │
-          │  a. Dispatch agents    │                       │
-          │     (parallel)         │                       │
-          │                        │                       │
-          │  b. Wait for all to    │                       │
-          │     complete           │                       │
-          │                        │                       │
-          │  c. Handle BLOCKED /   │                       │
-          │     NEEDS_REVIEW       │                       │
-          │                        │                       │
-          │  d. Run verification   │                       │
-          │     (typecheck/lint)   │                       │
-          │                        │                       │
-          │  e. Run critic gate    │──── MUST FIX? ────────┘
-          │                        │     dispatch welder
-          │  f. Proceed to next    │     re-run critic
-          │     wave               │
-          └────────────────────────┘
-                       │
-                       ▼
-          ┌────────────────────────┐
-          │  Final sentinel        │
-          │  verification          │
-          └────────────────────────┘
-                       │
-                       ▼
-          ┌────────────────────────┐
-          │  Report summary        │
-          └────────────────────────┘
-```
+![Wave Engine Execution Flow](images/wave-engine-flow.png)
 
 ## Wave Assignment
 
@@ -79,26 +38,7 @@ Tasks within the same wave are independent — they can run in parallel without 
 
 When the plan doesn't declare explicit dependencies, the wave engine uses the crew's natural wave pattern:
 
-```
-Wave 1 — Research (parallel):
-  scout tasks: read docs, explore codebase, map dependencies
-  
-Wave 2 — Build (parallel):
-  guido tasks: design interfaces, create new modules
-  smith tasks: manifests, commands, plugin structure
-  herald tasks: documentation drafts
-
-Wave 3 — Integrate (sequential):
-  welder tasks: wire new code into existing systems
-
-Wave 4 — Review (parallel):
-  critic: code review with severity ratings
-  sentinel: test suite, validation scorecard
-
-Wave 5 — Fix cycle (if needed):
-  welder: fix MUST FIX findings from critic
-  critic: re-review → PASS required to proceed
-```
+![Default Wave Pattern](images/default-wave-pattern.png)
 
 This default pattern was proven across 6 phases of the BAARA Next project (44,268 lines, 218 files).
 
@@ -182,14 +122,8 @@ Agent(
    - **MUST FIX found** → enter fix cycle
 
 4. **Fix cycle.**
-```
-dispatch welder with critic's MUST FIX findings
-  → welder fixes
-    → re-dispatch critic on the same files
-      → if still MUST FIX: repeat (max 3 cycles)
-      → if PASS: proceed
-      → if 3 cycles exhausted: surface to user as NEEDS_REVIEW
-```
+
+![Critic Gate Fix Cycle](images/critic-fix-cycle.png)
 
 ### Why Non-Negotiable
 

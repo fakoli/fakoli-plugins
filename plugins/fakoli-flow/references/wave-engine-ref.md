@@ -31,26 +31,7 @@ Tasks within the same wave are independent — they run in parallel without conf
 
 When the plan does not declare explicit dependencies, the wave engine uses the crew's natural wave pattern:
 
-```
-Wave 1 — Research (parallel):
-  scout tasks: read docs, explore codebase, map dependencies
-
-Wave 2 — Build (parallel):
-  guido tasks: design interfaces, create new modules
-  smith tasks: manifests, commands, plugin structure
-  herald tasks: documentation drafts
-
-Wave 3 — Integrate (sequential):
-  welder tasks: wire new code into existing systems
-
-Wave 4 — Review (parallel):
-  critic: code review with severity ratings
-  sentinel: test suite, validation scorecard
-
-Wave 5 — Fix cycle (if needed):
-  welder: fix MUST FIX findings from critic
-  critic: re-review — PASS required to proceed
-```
+![Default Wave Pattern](../docs/images/default-wave-pattern.png)
 
 ## Parallel Dispatch Syntax
 
@@ -125,14 +106,8 @@ The critic gate runs after every wave that writes code. It is non-negotiable.
    | MUST FIX found | Enter fix cycle |
 
 4. **Fix cycle.**
-   ```
-   dispatch welder with critic's MUST FIX findings
-     → welder fixes
-       → re-dispatch critic on the same files
-         → PASS: proceed to next wave
-         → still MUST FIX: repeat (max 3 cycles)
-         → 3 cycles exhausted: surface to user as NEEDS_REVIEW
-   ```
+
+   ![Critic Gate Fix Cycle](../docs/images/critic-fix-cycle.png)
 
 ### Severity Definitions
 

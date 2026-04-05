@@ -25,9 +25,7 @@ interface-first design).
 
 ## The Five-Stage Workflow
 
-```
-brainstorm  →  plan  →  execute  →  verify  →  finish
-```
+![fakoli-flow Pipeline](images/flow-pipeline.png)
 
 | Stage | Skill | What Happens |
 |-------|-------|-------------|
