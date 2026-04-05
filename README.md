@@ -51,6 +51,22 @@ Plugins live in directories with a `.claude-plugin/plugin.json` manifest. The ma
 
 ---
 
+## The Fakoli Ecosystem
+
+Three plugins designed to work together — each useful standalone, all three together the full stack:
+
+| Plugin | Role | What It Does |
+|--------|------|--------------|
+| [**fakoli-crew**](plugins/fakoli-crew) | Specialist agents | 8 polyglot agents (TypeScript / Python / Rust) — architect, reviewer, researcher, plugin engineer, integration specialist, documenter, infrastructure engineer, QA |
+| [**fakoli-flow**](plugins/fakoli-flow) | Workflow orchestration | Intent-driven pipeline: brainstorm → plan → execute → verify → finish. Wave-based dispatch with mandatory critic gates between every code-writing phase |
+| [**systems-thinking**](plugins/systems-thinking) | Architecture analysis | Multi-agent infrastructure analysis: discovery → extraction → synthesis. Built for decisions that affect the whole system |
+
+**fakoli-crew** provides the workers. **fakoli-flow** orchestrates them. **systems-thinking** analyzes architecture before the workers start.
+
+Install any combination — each works standalone. All three together give you a complete multi-agent development pipeline: architecture analysis, intent-driven planning, parallel agent execution, and evidence-based verification.
+
+---
+
 ## Available Plugins
 
 ### Google Workspace & Productivity
