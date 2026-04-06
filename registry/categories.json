@@ -1,51 +1,15 @@
 {
-  "generatedAt": "2026-04-04T22:31:29Z",
+  "generatedAt": "2026-04-06T08:26:20Z",
   "categories": [
     {
       "category": "uncategorized",
       "count": 9,
       "plugins": [
         {
-          "name": "marketplace-manager",
-          "version": "1.2.2",
-          "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
-          "path": "plugins/marketplace-manager"
-        },
-        {
-          "name": "fakoli-crew",
-          "version": "2.0.0",
-          "description": "Eight specialist AI agents for software engineering — TypeScript architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
-          "path": "plugins/fakoli-crew"
-        },
-        {
-          "name": "nano-banana-pro",
-          "version": "1.3.3",
-          "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
-          "path": "plugins/nano-banana-pro"
-        },
-        {
           "name": "notebooklm-enhanced",
           "version": "0.1.3",
           "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
           "path": "plugins/notebooklm-enhanced"
-        },
-        {
-          "name": "excalidraw-diagram",
-          "version": "1.0.1",
-          "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
-          "path": "plugins/excalidraw-diagram"
-        },
-        {
-          "name": "fakoli-flow",
-          "version": "1.0.0",
-          "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
-          "path": "plugins/fakoli-flow"
-        },
-        {
-          "name": "gws",
-          "version": "0.4.0",
-          "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
-          "path": "plugins/gws"
         },
         {
           "name": "safe-fetch",
@@ -58,6 +22,42 @@
           "version": "2.0.0",
           "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
           "path": "plugins/fakoli-speak"
+        },
+        {
+          "name": "marketplace-manager",
+          "version": "1.2.3",
+          "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+          "path": "plugins/marketplace-manager"
+        },
+        {
+          "name": "fakoli-crew",
+          "version": "2.0.1",
+          "description": "Eight specialist AI agents for software engineering — TypeScript architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
+          "path": "plugins/fakoli-crew"
+        },
+        {
+          "name": "excalidraw-diagram",
+          "version": "1.0.2",
+          "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+          "path": "plugins/excalidraw-diagram"
+        },
+        {
+          "name": "gws",
+          "version": "0.4.0",
+          "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
+          "path": "plugins/gws"
+        },
+        {
+          "name": "fakoli-flow",
+          "version": "1.0.1",
+          "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
+          "path": "plugins/fakoli-flow"
+        },
+        {
+          "name": "nano-banana-pro",
+          "version": "1.3.4",
+          "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
+          "path": "plugins/nano-banana-pro"
         }
       ]
     }

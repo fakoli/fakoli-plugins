@@ -1,5 +1,6 @@
 ---
-description: Design phase — refine ideas into specs through collaborative dialogue
+name: brainstorm
+description: "Design phase — refine ideas into structured specs through collaborative dialogue. Use when starting a new feature, planning architecture, exploring requirements, or turning vague ideas into actionable specifications before coding. Triggers on 'brainstorm', 'design', 'spec', 'plan a feature', 'new feature', 'requirements', and 'explore idea'."
 ---
 
 # Brainstorm — Design Phase

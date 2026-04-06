@@ -1,5 +1,6 @@
 ---
-description: Orchestrate fakoli-crew agents as coordinated teams for complex multi-step projects
+name: crew-ops
+description: "Orchestrate fakoli-crew agents as coordinated teams for complex multi-step projects. Use when assembling agent crews, coordinating multi-agent workflows, running wave-pattern builds, assigning file ownership across agents, or managing critic gates. Triggers on 'crew', 'agents', 'wave pattern', 'multi-agent', 'team workflow', and 'code review crew'."
 ---
 # Crew Operations
 
