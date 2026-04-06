@@ -1,12 +1,7 @@
 ---
 name: excalidraw
-description: Generate and modify Excalidraw diagrams from natural language and code analysis using skeleton JSON and a Node.js converter
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Glob
-  - Grep
+description: "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis using skeleton JSON and a Node.js converter. Use when creating architecture diagrams, flowcharts, sequence diagrams, component maps, or any visual diagram from code. Triggers on 'diagram', 'excalidraw', 'flowchart', 'architecture diagram', 'visualize', and 'draw'."
+allowed-tools: "Bash, Read, Write, Glob, Grep"
 ---
 
 # Excalidraw Diagram Generation Skill

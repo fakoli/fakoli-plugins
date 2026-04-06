@@ -1,72 +1,9 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-04-04T22:31:29Z",
+  "generatedAt": "2026-04-06T08:26:20Z",
   "pluginCount": 9,
   "plugins": [
-    {
-      "name": "marketplace-manager",
-      "version": "1.2.2",
-      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "marketplace",
-        "plugin-management",
-        "registry",
-        "validation"
-      ],
-      "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-04-04T22:31:29Z"
-    },
-    {
-      "name": "fakoli-crew",
-      "version": "2.0.0",
-      "description": "Eight specialist AI agents for software engineering — TypeScript architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "agents",
-        "team",
-        "crew",
-        "orchestration",
-        "code-review",
-        "typescript",
-        "architecture",
-        "workflow"
-      ],
-      "path": "plugins/fakoli-crew",
-      "indexedAt": "2026-04-04T22:31:29Z"
-    },
-    {
-      "name": "nano-banana-pro",
-      "version": "1.3.3",
-      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "image-generation",
-        "ai-images",
-        "gemini",
-        "design",
-        "creative",
-        "image-optimization"
-      ],
-      "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-04-04T22:31:29Z"
-    },
     {
       "name": "notebooklm-enhanced",
       "version": "0.1.3",
@@ -89,11 +26,101 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-04-04T22:31:29Z"
+      "indexedAt": "2026-04-06T08:26:19Z"
+    },
+    {
+      "name": "safe-fetch",
+      "version": "1.0.5",
+      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "security",
+        "web-fetch",
+        "sanitization",
+        "prompt-injection",
+        "ssrf",
+        "mcp",
+        "web-search"
+      ],
+      "path": "plugins/safe-fetch",
+      "indexedAt": "2026-04-06T08:26:19Z"
+    },
+    {
+      "name": "fakoli-speak",
+      "version": "2.0.0",
+      "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "tts",
+        "text-to-speech",
+        "elevenlabs",
+        "openai",
+        "deepgram",
+        "google",
+        "macos",
+        "accessibility",
+        "audio",
+        "streaming",
+        "multi-provider"
+      ],
+      "path": "plugins/fakoli-speak",
+      "indexedAt": "2026-04-06T08:26:19Z"
+    },
+    {
+      "name": "marketplace-manager",
+      "version": "1.2.3",
+      "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "marketplace",
+        "plugin-management",
+        "registry",
+        "validation"
+      ],
+      "path": "plugins/marketplace-manager",
+      "indexedAt": "2026-04-06T08:26:19Z"
+    },
+    {
+      "name": "fakoli-crew",
+      "version": "2.0.1",
+      "description": "Eight specialist AI agents for software engineering — TypeScript architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "agents",
+        "team",
+        "crew",
+        "orchestration",
+        "code-review",
+        "typescript",
+        "architecture",
+        "workflow"
+      ],
+      "path": "plugins/fakoli-crew",
+      "indexedAt": "2026-04-06T08:26:19Z"
     },
     {
       "name": "excalidraw-diagram",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
       "author": {
         "name": "Sekou Doumbouya",
@@ -110,30 +137,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-04-04T22:31:29Z"
-    },
-    {
-      "name": "fakoli-flow",
-      "version": "1.0.0",
-      "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
-      "author": {
-        "name": "Sekou Doumbouya",
-        "url": "https://github.com/fakoli"
-      },
-      "repository": "https://github.com/fakoli/fakoli-plugins",
-      "license": "MIT",
-      "keywords": [
-        "workflow",
-        "orchestration",
-        "planning",
-        "brainstorming",
-        "intent-driven",
-        "agents",
-        "wave-engine",
-        "code-review"
-      ],
-      "path": "plugins/fakoli-flow",
-      "indexedAt": "2026-04-04T22:31:29Z"
+      "indexedAt": "2026-04-06T08:26:19Z"
     },
     {
       "name": "gws",
@@ -181,12 +185,12 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-04-04T22:31:29Z"
+      "indexedAt": "2026-04-06T08:26:19Z"
     },
     {
-      "name": "safe-fetch",
-      "version": "1.0.5",
-      "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
+      "name": "fakoli-flow",
+      "version": "1.0.1",
+      "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
       "author": {
         "name": "Sekou Doumbouya",
         "url": "https://github.com/fakoli"
@@ -194,21 +198,22 @@
       "repository": "https://github.com/fakoli/fakoli-plugins",
       "license": "MIT",
       "keywords": [
-        "security",
-        "web-fetch",
-        "sanitization",
-        "prompt-injection",
-        "ssrf",
-        "mcp",
-        "web-search"
+        "workflow",
+        "orchestration",
+        "planning",
+        "brainstorming",
+        "intent-driven",
+        "agents",
+        "wave-engine",
+        "code-review"
       ],
-      "path": "plugins/safe-fetch",
-      "indexedAt": "2026-04-04T22:31:29Z"
+      "path": "plugins/fakoli-flow",
+      "indexedAt": "2026-04-06T08:26:20Z"
     },
     {
-      "name": "fakoli-speak",
-      "version": "2.0.0",
-      "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
+      "name": "nano-banana-pro",
+      "version": "1.3.4",
+      "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "author": {
         "name": "Sekou Doumbouya",
         "url": "https://github.com/fakoli"
@@ -216,20 +221,15 @@
       "repository": "https://github.com/fakoli/fakoli-plugins",
       "license": "MIT",
       "keywords": [
-        "tts",
-        "text-to-speech",
-        "elevenlabs",
-        "openai",
-        "deepgram",
-        "google",
-        "macos",
-        "accessibility",
-        "audio",
-        "streaming",
-        "multi-provider"
+        "image-generation",
+        "ai-images",
+        "gemini",
+        "design",
+        "creative",
+        "image-optimization"
       ],
-      "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-04-04T22:31:29Z"
+      "path": "plugins/nano-banana-pro",
+      "indexedAt": "2026-04-06T08:26:20Z"
     }
   ]
 }

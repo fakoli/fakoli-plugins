@@ -1,6 +1,6 @@
 ---
 name: marketplace-manager
-description: Manage the fakoli-plugins marketplace. Use when: (1) adding a new plugin to the marketplace, (2) removing a plugin, (3) validating plugins, (4) regenerating registry indices, (5) checking marketplace status, or (6) any plugin registry management task. Triggers on phrases like "add plugin", "validate plugins", "update registry", "marketplace status".
+description: "Manage the fakoli-plugins marketplace registry. Use when adding a new plugin, removing a plugin, validating plugin manifests, regenerating registry indices, or checking marketplace status. Triggers on phrases like 'add plugin', 'remove plugin', 'validate plugins', 'update registry', 'marketplace status', 'plugin index', and 'registry generation'."
 ---
 
 # Marketplace Manager
