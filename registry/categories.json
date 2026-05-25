@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-25T05:36:49Z",
+  "generatedAt": "2026-05-25T06:37:17Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -49,7 +49,7 @@
         },
         {
           "name": "fakoli-state",
-          "version": "1.2.0",
+          "version": "1.3.0",
           "description": "Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.",
           "path": "plugins/fakoli-state"
         },

@@ -1,5 +1,5 @@
 {
-  "description": "Detects project state and prints one-line session summary at session start",
+  "description": "Detects project state, enforces claim discipline, and records file changes",
   "hooks": {
     "SessionStart": [
       {
@@ -7,6 +7,30 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/detect-state.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/check-claim.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/record-file-change.sh",
             "timeout": 5
           }
         ]

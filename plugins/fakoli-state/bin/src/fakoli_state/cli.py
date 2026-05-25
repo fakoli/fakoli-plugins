@@ -1416,5 +1416,469 @@ def _fetch_recent_events(
         return []
 
 
+# ---------------------------------------------------------------------------
+# Stale-claim reaper helper (shared by all mutating commands)
+# ---------------------------------------------------------------------------
+
+
+def _reap_stale_claims(backend: SqliteBackend) -> None:
+    """Run the stale-claim detector against *backend*.
+
+    Called at the start of claim/release/renew/next so users always see
+    consistent state without having to think about expiry.  Failures are
+    swallowed — reaping is best-effort; a stale claim that slips through will
+    be caught on the next invocation.
+    """
+    try:
+        from fakoli_state.claims.stale import detect_and_release_stale
+        from fakoli_state.clock import SystemClock
+
+        detect_and_release_stale(backend, SystemClock())
+    except Exception:  # noqa: BLE001
+        pass  # best-effort; never block the primary command
+
+
+# ---------------------------------------------------------------------------
+# claim subcommand
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def claim(
+    task_id: str = typer.Argument(..., help="Task ID to claim (e.g. T001)."),  # noqa: B008
+    worktree: bool = typer.Option(  # noqa: B008
+        False,
+        "--worktree",
+        help="Also create a git worktree at ../wt-<task_id>/.",
+    ),
+    force: bool = typer.Option(  # noqa: B008
+        False,
+        "--force",
+        help="Override conflict warnings.",
+    ),
+    actor: str | None = typer.Option(  # noqa: B008
+        None,
+        "--actor",
+        help="Claim actor; defaults to $USER or 'agent'.",
+    ),
+    cwd: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cwd",
+        help="Project directory. Defaults to the current working directory.",
+        hidden=True,
+    ),
+) -> None:
+    """Acquire an exclusive lease on TASK_ID and create an agent/<task>-<slug> branch."""
+    import os
+
+    from fakoli_state.claims.manager import ClaimError, ClaimManager, ConflictWarning
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.git_ops.branch import create_branch_for_task
+    from fakoli_state.git_ops.worktree import create_worktree_for_task
+
+    resolved_actor = actor or os.environ.get("USER") or "agent"
+    resolved_cwd = cwd.resolve() if cwd is not None else Path.cwd().resolve()
+    state_dir = _resolve_state_dir(cwd)
+    _require_state_dir(state_dir)
+
+    backend = _open_backend(state_dir)
+    try:
+        clock = SystemClock()
+
+        # Reap stale claims before doing anything.
+        _reap_stale_claims(backend)
+
+        manager = ClaimManager(backend, clock, actor=resolved_actor)
+
+        # Gate: task must exist.
+        task = backend.get_task(task_id)
+        if task is None:
+            typer.echo(f"Error: task '{task_id}' not found.", err=True)
+            raise typer.Exit(code=1)
+
+        # Pre-claim conflict check (file overlap + group).  Fetch expected_files
+        # from likely_files — the manager uses these for overlap detection.
+        expected_files = list(task.likely_files) if task.likely_files else []
+        conflicts: list[ConflictWarning] = manager.check_conflicts(task_id, expected_files)
+        if conflicts and not force:
+            typer.echo(
+                f"Warning: task '{task_id}' has file conflicts with active claims:",
+                err=True,
+            )
+            for c in conflicts:
+                typer.echo(
+                    f"  Claim {c.other_claim_id} by '{c.other_actor}': "
+                    f"overlapping files: {c.overlapping_files}",
+                    err=True,
+                )
+            typer.echo(
+                "Pass --force to override and claim anyway.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        try:
+            result = manager.claim(task_id, expected_files=expected_files, force=force)
+        except ClaimError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        # Git branch creation — non-blocking; warnings go to stderr.
+        branch_result = create_branch_for_task(
+            task_id,
+            task.title,
+            cwd=resolved_cwd,
+        )
+        if branch_result.created and branch_result.reason:
+            typer.echo(f"Warning (branch): {branch_result.reason}", err=True)
+        elif not branch_result.created:
+            typer.echo(
+                f"Warning: git branch not created — {branch_result.reason}",
+                err=True,
+            )
+
+        # Optional worktree creation.
+        worktree_path: str | None = None
+        if worktree:
+            if branch_result.created and branch_result.branch:
+                wt_result = create_worktree_for_task(
+                    task_id,
+                    branch_result.branch,
+                    cwd=resolved_cwd,
+                )
+                if wt_result.created:
+                    worktree_path = wt_result.path
+                else:
+                    typer.echo(
+                        f"Warning: worktree not created — {wt_result.reason}",
+                        err=True,
+                    )
+            else:
+                typer.echo(
+                    "Warning: --worktree skipped because no branch was created.",
+                    err=True,
+                )
+
+        claim_obj = result.claim
+    finally:
+        backend.close()
+
+    # Confirmation output.
+    typer.echo(f"Claimed task '{task_id}' as '{resolved_actor}'.")
+    typer.echo(f"  Claim ID:    {claim_obj.id}")
+    typer.echo(f"  Lease until: {claim_obj.lease_expires_at.isoformat()}")
+    if branch_result.created and branch_result.branch:
+        typer.echo(f"  Branch:      {branch_result.branch}")
+    if worktree_path:
+        typer.echo(f"  Worktree:    {worktree_path}")
+    typer.echo("")
+    typer.echo(
+        f"Run `fakoli-state renew {claim_obj.id}` to extend the lease before it expires."
+    )
+
+
+# ---------------------------------------------------------------------------
+# release subcommand
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def release(
+    claim_id: str = typer.Argument(..., help="Claim ID to release (e.g. C001)."),  # noqa: B008
+    force: bool = typer.Option(  # noqa: B008
+        False,
+        "--force",
+        help="Force release even if the claim belongs to another actor.",
+    ),
+    reason: str | None = typer.Option(  # noqa: B008
+        None,
+        "--reason",
+        help="Human-readable reason for the release.",
+    ),
+    actor: str | None = typer.Option(  # noqa: B008
+        None,
+        "--actor",
+        help="Actor identity; defaults to $USER or 'agent'.",
+    ),
+    cwd: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cwd",
+        help="Project directory. Defaults to the current working directory.",
+        hidden=True,
+    ),
+) -> None:
+    """Release a claim by CLAIM_ID, returning the task to 'ready'."""
+    import os
+
+    from fakoli_state.claims.manager import ClaimError, ClaimManager
+    from fakoli_state.clock import SystemClock
+
+    resolved_actor = actor or os.environ.get("USER") or "agent"
+    state_dir = _resolve_state_dir(cwd)
+    _require_state_dir(state_dir)
+
+    backend = _open_backend(state_dir)
+    try:
+        clock = SystemClock()
+        _reap_stale_claims(backend)
+
+        manager = ClaimManager(backend, clock, actor=resolved_actor)
+        try:
+            manager.release(claim_id, force=force, reason=reason)
+        except ClaimError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+    finally:
+        backend.close()
+
+    typer.echo(f"Released claim '{claim_id}'.")
+    if reason:
+        typer.echo(f"  Reason: {reason}")
+
+
+# ---------------------------------------------------------------------------
+# renew subcommand
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def renew(
+    claim_id: str = typer.Argument(..., help="Claim ID to renew (e.g. C001)."),  # noqa: B008
+    actor: str | None = typer.Option(  # noqa: B008
+        None,
+        "--actor",
+        help="Actor identity; defaults to $USER or 'agent'.",
+    ),
+    cwd: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cwd",
+        help="Project directory. Defaults to the current working directory.",
+        hidden=True,
+    ),
+) -> None:
+    """Extend the lease heartbeat on CLAIM_ID."""
+    import os
+
+    from fakoli_state.claims.manager import ClaimError, ClaimManager
+    from fakoli_state.clock import SystemClock
+
+    resolved_actor = actor or os.environ.get("USER") or "agent"
+    state_dir = _resolve_state_dir(cwd)
+    _require_state_dir(state_dir)
+
+    backend = _open_backend(state_dir)
+    try:
+        clock = SystemClock()
+        _reap_stale_claims(backend)
+
+        manager = ClaimManager(backend, clock, actor=resolved_actor)
+        try:
+            updated = manager.renew(claim_id)
+        except ClaimError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+    finally:
+        backend.close()
+
+    typer.echo(f"Renewed claim '{claim_id}'.")
+    typer.echo(f"  New lease until: {updated.lease_expires_at.isoformat()}")
+    typer.echo(f"  Last heartbeat:  {updated.last_heartbeat_at.isoformat()}")
+
+
+# ---------------------------------------------------------------------------
+# next subcommand
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def next(  # noqa: A001
+    actor: str | None = typer.Option(  # noqa: B008
+        None,
+        "--actor",
+        help="Actor identity; defaults to $USER or 'agent'.",
+    ),
+    cwd: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cwd",
+        help="Project directory. Defaults to the current working directory.",
+        hidden=True,
+    ),
+) -> None:
+    """Pick the highest-priority claimable task without claiming it.
+
+    Prints the recommended task ID and title.  Run `fakoli-state claim TASK_ID`
+    to acquire the lease after reviewing the recommendation.
+    """
+    import os
+
+    from fakoli_state.claims.manager import ClaimManager
+    from fakoli_state.clock import SystemClock
+
+    resolved_actor = actor or os.environ.get("USER") or "agent"
+    state_dir = _resolve_state_dir(cwd)
+    _require_state_dir(state_dir)
+
+    backend = _open_backend(state_dir)
+    try:
+        clock = SystemClock()
+        _reap_stale_claims(backend)
+
+        manager = ClaimManager(backend, clock, actor=resolved_actor)
+        task = manager.next_claimable()
+    finally:
+        backend.close()
+
+    if task is None:
+        typer.echo("No claimable tasks available.")
+        return
+
+    typer.echo(f"Next recommended task: {task.id}")
+    typer.echo(f"  Title:    {task.title}")
+    typer.echo(f"  Priority: {task.priority.value}")
+    if task.scores.complexity is not None:
+        typer.echo(f"  Complexity: {task.scores.complexity}")
+    typer.echo("")
+    typer.echo(f"Run `fakoli-state claim {task.id}` to acquire the lease.")
+
+
+# ---------------------------------------------------------------------------
+# hook sub-app — internal helpers invoked by the plugin's bash hooks
+# ---------------------------------------------------------------------------
+
+hook_app = typer.Typer(
+    name="hook",
+    help="Internal hook helpers — invoked by the plugin's bash hooks.",
+    no_args_is_help=True,
+)
+app.add_typer(hook_app, name="hook")
+
+
+@hook_app.command("check-claim")
+def hook_check_claim(
+    file: str = typer.Option(..., "--file", help="Path of the file about to be modified."),  # noqa: B008,A002
+    actor: str = typer.Option(..., "--actor", help="Session actor / session_id."),  # noqa: B008
+    cwd: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cwd",
+        help="Project directory. Defaults to the current working directory.",
+        hidden=True,
+    ),
+) -> None:
+    """Used by hooks/check-claim.sh — exit 0 always; output goes to stderr.
+
+    Checks whether FILE is within the scope of an active claim.
+    - If FILE is in expected_files of a claim by THIS actor: silent exit 0.
+    - If FILE is in expected_files of a claim by ANOTHER actor: warn to stderr.
+    - If no active claims exist: silent exit 0.
+    """
+    # Defer all imports inside the body — this hook fires on every file edit,
+    # so startup latency is the primary concern.
+    try:
+        from fakoli_state.clock import SystemClock as _SystemClock
+        from fakoli_state.state.sqlite import SqliteBackend as _SqliteBackend
+
+        state_dir = _resolve_state_dir(cwd)
+        if not state_dir.exists():
+            raise typer.Exit(code=0)
+
+        db_path = str(state_dir / "state.db")
+        events_path = str(state_dir / "events.jsonl")
+        backend = _SqliteBackend(
+            db_path=db_path,
+            events_path=events_path,
+            clock=_SystemClock(),
+        )
+        backend.initialize()
+        try:
+            active_claims = backend.list_active_claims()
+        finally:
+            backend.close()
+
+        if not active_claims:
+            raise typer.Exit(code=0)
+
+        normalized = file.lstrip("./")
+        for active_claim in active_claims:
+            # Normalize expected_files the same way for comparison.
+            claim_files = {f.lstrip("./") for f in active_claim.expected_files}
+            if normalized in claim_files or file in claim_files:
+                if active_claim.claimed_by != actor:
+                    typer.echo(
+                        f"[fakoli-state:check-claim] WARNING: file '{file}' is "
+                        f"in the scope of claim '{active_claim.id}' owned by "
+                        f"'{active_claim.claimed_by}', not '{actor}'.",
+                        err=True,
+                    )
+    except SystemExit:
+        raise
+    except Exception:  # noqa: BLE001
+        pass  # hook must never block the tool
+    raise typer.Exit(code=0)
+
+
+@hook_app.command("record-file-change")
+def hook_record_file_change(
+    file: str = typer.Option(..., "--file", help="Path of the file that was modified."),  # noqa: B008,A002
+    tool: str = typer.Option(..., "--tool", help="Tool name (Edit, Write, NotebookEdit)."),  # noqa: B008
+    actor: str = typer.Option(..., "--actor", help="Session actor / session_id."),  # noqa: B008
+    cwd: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cwd",
+        help="Project directory. Defaults to the current working directory.",
+        hidden=True,
+    ),
+) -> None:
+    """Used by hooks/record-file-change.sh — appends a file_changed event.
+
+    Writes a file_changed event to both the SQLite events table and events.jsonl.
+    Exits 0 always; any failure is silently swallowed so the hook never blocks
+    the tool that triggered it.
+    """
+    # Defer all imports — this hook fires on every file write; keep startup fast.
+    try:
+        from fakoli_state.clock import SystemClock as _SystemClock
+        from fakoli_state.state.models import Event as _Event
+        from fakoli_state.state.sqlite import SqliteBackend as _SqliteBackend
+
+        state_dir = _resolve_state_dir(cwd)
+        if not state_dir.exists():
+            raise typer.Exit(code=0)
+
+        db_path = str(state_dir / "state.db")
+        events_path = str(state_dir / "events.jsonl")
+        clock = _SystemClock()
+        backend = _SqliteBackend(
+            db_path=db_path,
+            events_path=events_path,
+            clock=clock,
+        )
+        backend.initialize()
+        try:
+            now = clock.now()
+            event_id = _next_event_id(backend)
+            event = _Event(
+                id=event_id,
+                timestamp=now,
+                actor=actor or "hook",
+                action="file_changed",
+                target_kind="file",
+                target_id=file,
+                payload_json={
+                    "file": file,
+                    "tool": tool,
+                    "actor": actor,
+                    "changed_at": now.isoformat(),
+                },
+            )
+            backend.apply_event(event)
+        finally:
+            backend.close()
+    except SystemExit:
+        raise
+    except Exception:  # noqa: BLE001
+        pass  # hook must never block the tool
+    raise typer.Exit(code=0)
+
+
 if __name__ == "__main__":
     app()

@@ -2017,3 +2017,1065 @@ class TestReplayIncludesNewEventActions:
             f"Original dump (first 800 chars):\n{original_dump[:800]}\n\n"
             f"Replayed dump (first 800 chars):\n{replayed_dump[:800]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — claim event handler helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_claim_payload(
+    *,
+    claim_id: str = "C001",
+    task_id: str = "T001",
+    actor: str = "agent-alpha",
+    expected_files: list[str] | None = None,
+    now: datetime = _T0,
+) -> dict[str, Any]:
+    """Build a valid claim.created payload (matches Claim.model_dump(mode='json'))."""
+    return {
+        "id": claim_id,
+        "task_id": task_id,
+        "claimed_by": actor,
+        "claim_type": "task",
+        "status": "active",
+        "branch": None,
+        "worktree_path": None,
+        "expected_files": expected_files or [],
+        "created_at": now.isoformat(),
+        "lease_expires_at": (now + timedelta(hours=1)).isoformat(),
+        "last_heartbeat_at": now.isoformat(),
+        "released_at": None,
+        "release_reason": None,
+    }
+
+
+def _setup_claimable_task(b: SqliteBackend, task_id: str = "T001") -> None:
+    """Apply the minimal event chain to produce a 'ready' task."""
+    _setup_project(b)
+    b.apply_event(_make_event(
+        "prd.parsed",
+        {
+            "project_id": "proj-1",
+            "status": "draft",
+            "summary": "A test PRD.",
+            "goals": ["Goal one."],
+            "non_goals": [],
+            "requirements": [
+                {"id": "R001", "prd_section": "requirements", "text": "Req 1.",
+                 "source_paragraph": None, "derived": False}
+            ],
+            "acceptance_criteria": ["AC one."],
+            "risks": [],
+            "open_questions": [],
+        },
+        event_id="E000003", target_kind="prd", target_id="proj-1",
+    ))
+    b.apply_event(_make_event(
+        "prd.reviewed", {"project_id": "proj-1", "reviewer": "alice"},
+        event_id="E000004", target_kind="prd", target_id="proj-1",
+    ))
+    b.apply_event(_make_event(
+        "feature.created",
+        {
+            "id": "F001",
+            "title": "Feature F001",
+            "description": "A feature.",
+            "status": "proposed",
+            "requirements": [],
+            "tasks": [],
+        },
+        event_id="E000005", target_kind="feature", target_id="F001",
+    ))
+    b.apply_event(_make_event(
+        "task.created",
+        _make_task_payload(task_id=task_id),
+        event_id="E000006", target_kind="task", target_id=task_id,
+    ))
+    # proposed → drafted → reviewed → ready
+    for from_s, to_s, eid in [
+        ("proposed", "drafted", "E000007"),
+        ("drafted", "reviewed", "E000008"),
+        ("reviewed", "ready", "E000009"),
+    ]:
+        b.apply_event(_make_event(
+            "task.status_changed",
+            {"task_id": task_id, "from": from_s, "to": to_s},
+            event_id=eid, target_kind="task", target_id=task_id,
+        ))
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — TestPhase4ClaimHandlers
+# ---------------------------------------------------------------------------
+
+
+class TestPhase4ClaimHandlers:
+    def test_handle_claim_created_writes_jsonl_and_sqlite(self, tmp_path: Path) -> None:
+        """claim.created writes claim row to SQLite and JSONL; task moves to 'claimed'."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task(b)
+
+            payload = _make_claim_payload()
+            event = _make_event(
+                "claim.created", payload,
+                event_id="E000010", target_kind="claim", target_id="C001",
+            )
+            b.apply_event(event)
+
+            # JSONL line written
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "claim.created" for e in events)
+
+            # Claim in SQLite
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.status.value == "active"
+            assert claim.claimed_by == "agent-alpha"
+
+            # Task moved to 'claimed'
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "claimed"
+        finally:
+            b.close()
+
+    def test_handle_claim_created_concurrency_guard_fails_on_drift(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.created aborts if task is not in 'ready' status (concurrency guard)."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "feature.created",
+                {
+                    "id": "F001", "title": "F", "description": "d", "status": "proposed",
+                    "requirements": [], "tasks": [],
+                },
+                event_id="E000003", target_kind="feature", target_id="F001",
+            ))
+            # Task in 'proposed' — NOT ready
+            b.apply_event(_make_event(
+                "task.created",
+                _make_task_payload(task_id="T001", status="proposed"),
+                event_id="E000004", target_kind="task", target_id="T001",
+            ))
+
+            payload = _make_claim_payload()
+            event = _make_event(
+                "claim.created", payload,
+                event_id="E000005", target_kind="claim", target_id="C001",
+            )
+            with pytest.raises(TransactionAborted, match="ready|proposed|concurrency"):
+                b.apply_event(event)
+        finally:
+            b.close()
+
+    def test_handle_claim_created_idempotent_on_replay(self, tmp_path: Path) -> None:
+        """Applying claim.created twice is a no-op for the second application."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+
+            payload = _make_claim_payload()
+            event = _make_event(
+                "claim.created", payload,
+                event_id="E000010", target_kind="claim", target_id="C001",
+            )
+            b.apply_event(event)  # first: commits
+
+            # Second apply should not raise (idempotent INSERT OR IGNORE)
+            b.apply_event(event)  # second: replay no-op
+
+            # Still only one claim
+            active = b.list_active_claims()
+            assert len(active) == 1
+            assert active[0].id == "C001"
+        finally:
+            b.close()
+
+    def test_handle_claim_released_happy_path(self, tmp_path: Path) -> None:
+        """claim.released updates claim to released and task to ready."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task(b)
+
+            # First create the claim
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+
+            # Release it
+            release_event = _make_event(
+                "claim.released",
+                {
+                    "claim_id": "C001",
+                    "released_by": "agent-alpha",
+                    "release_reason": "work complete",
+                    "force": False,
+                },
+                event_id="E000011", target_kind="claim", target_id="C001",
+            )
+            b.apply_event(release_event)
+
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "claim.released" for e in events)
+
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.status.value == "released"
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "ready"
+        finally:
+            b.close()
+
+    def test_handle_claim_released_idempotent_when_already_released(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.released on an already-released claim is a no-op (logs warning, no raise)."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+
+            release_payload = {
+                "claim_id": "C001",
+                "released_by": "agent-alpha",
+                "release_reason": "done",
+                "force": False,
+            }
+            b.apply_event(_make_event(
+                "claim.released", release_payload,
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+
+            # Second release: handler logs warning, does not raise
+            b.apply_event(_make_event(
+                "claim.released", release_payload,
+                event_id="E000012", target_kind="claim", target_id="C001",
+            ))
+
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.status.value == "released"
+        finally:
+            b.close()
+
+    def test_handle_claim_renewed_updates_timestamps(self, tmp_path: Path) -> None:
+        """claim.renewed updates lease_expires_at and last_heartbeat_at in SQLite."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+
+            new_expires = (_T0 + timedelta(hours=2)).isoformat()
+            new_heartbeat = (_T0 + timedelta(minutes=30)).isoformat()
+            b.apply_event(_make_event(
+                "claim.renewed",
+                {
+                    "claim_id": "C001",
+                    "renewed_by": "agent-alpha",
+                    "lease_expires_at": new_expires,
+                    "last_heartbeat_at": new_heartbeat,
+                },
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.lease_expires_at.isoformat() == new_expires
+            assert claim.last_heartbeat_at.isoformat() == new_heartbeat
+        finally:
+            b.close()
+
+    def test_handle_claim_renewed_refuses_inactive_claim(self, tmp_path: Path) -> None:
+        """claim.renewed on a non-active claim raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+            # Release the claim first
+            b.apply_event(_make_event(
+                "claim.released",
+                {"claim_id": "C001", "released_by": "agent-alpha", "release_reason": "done"},
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+
+            # Now try to renew the released claim
+            with pytest.raises(TransactionAborted, match="active|released|status"):
+                b.apply_event(_make_event(
+                    "claim.renewed",
+                    {
+                        "claim_id": "C001",
+                        "renewed_by": "agent-alpha",
+                        "lease_expires_at": (_T0 + timedelta(hours=3)).isoformat(),
+                        "last_heartbeat_at": _T0.isoformat(),
+                    },
+                    event_id="E000012", target_kind="claim", target_id="C001",
+                ))
+        finally:
+            b.close()
+
+    def test_handle_claim_stale_happy_path(self, tmp_path: Path) -> None:
+        """claim.stale marks claim as stale and task returns to ready."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+
+            b.apply_event(_make_event(
+                "claim.stale",
+                {
+                    "claim_id": "C001",
+                    "task_id": "T001",
+                    "expired_at": (_T0 - timedelta(hours=1)).isoformat(),
+                    "detected_at": _T0.isoformat(),
+                    "reason": "lease_expired",
+                    "actor": "system",
+                },
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "claim.stale" for e in events)
+
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.status.value == "stale"
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "ready"
+        finally:
+            b.close()
+
+    def test_handle_claim_stale_idempotent(self, tmp_path: Path) -> None:
+        """Applying claim.stale twice is a no-op for the second application."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+
+            stale_payload = {
+                "claim_id": "C001",
+                "task_id": "T001",
+                "expired_at": (_T0 - timedelta(hours=1)).isoformat(),
+                "detected_at": _T0.isoformat(),
+                "reason": "lease_expired",
+                "actor": "system",
+            }
+            b.apply_event(_make_event(
+                "claim.stale", stale_payload,
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+            # Second apply: no-op, no raise
+            b.apply_event(_make_event(
+                "claim.stale", stale_payload,
+                event_id="E000012", target_kind="claim", target_id="C001",
+            ))
+
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.status.value == "stale"
+        finally:
+            b.close()
+
+    def test_handle_claim_stale_handles_task_already_completed_gracefully(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.stale when task is already 'done': claim goes stale without error."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+
+            # Manually move task to 'done' (simulating completed work)
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            conn.execute("UPDATE tasks SET status = 'done' WHERE id = 'T001'")
+            conn.commit()
+            conn.close()
+
+            # claim.stale should still mark the claim stale without raising
+            b.apply_event(_make_event(
+                "claim.stale",
+                {
+                    "claim_id": "C001",
+                    "task_id": "T001",
+                    "expired_at": (_T0 - timedelta(hours=1)).isoformat(),
+                    "detected_at": _T0.isoformat(),
+                    "reason": "lease_expired",
+                    "actor": "system",
+                },
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.status.value == "stale"
+
+            # Task remains 'done' — not reset to ready
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "done"
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — audit guarantee extended to claim event actions
+# ---------------------------------------------------------------------------
+
+
+class TestReplayIncludesPhase4ClaimActions:
+    def test_replay_includes_claim_event_actions(self, tmp_path: Path) -> None:
+        """Replay events.jsonl with all 4 claim actions; reconstructed DB matches original.
+
+        Sequence: project.created → state.initialized → prd.parsed → prd.reviewed
+        → prd.approved → feature.created → task.created → task.scored →
+        task.status_changed (→ ready) → claim.created → claim.renewed → claim.released.
+        """
+        clock = _make_clock()
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
+
+        try:
+            # E000001: project.created
+            b.apply_event(_make_project_event(event_id="E000001"))
+            # E000002: state.initialized
+            b.apply_event(_make_init_event(event_id="E000002"))
+
+            # E000003: prd.parsed
+            b.apply_event(_make_event(
+                "prd.parsed",
+                {
+                    "project_id": "proj-1",
+                    "status": "draft",
+                    "summary": "Replay test PRD.",
+                    "goals": ["Goal."],
+                    "non_goals": [],
+                    "requirements": [
+                        {"id": "R001", "prd_section": "requirements", "text": "Req.",
+                         "source_paragraph": None, "derived": False}
+                    ],
+                    "acceptance_criteria": ["AC."],
+                    "risks": [],
+                    "open_questions": [],
+                },
+                event_id="E000003", target_kind="prd", target_id="proj-1",
+            ))
+            # E000004: prd.reviewed
+            b.apply_event(_make_event(
+                "prd.reviewed",
+                {"project_id": "proj-1", "reviewer": "alice"},
+                event_id="E000004", target_kind="prd", target_id="proj-1",
+            ))
+            # E000005: prd.approved
+            b.apply_event(_make_event(
+                "prd.approved",
+                {"project_id": "proj-1", "approver": "bob"},
+                event_id="E000005", target_kind="prd", target_id="proj-1",
+            ))
+
+            # E000006: feature.created
+            b.apply_event(_make_event(
+                "feature.created",
+                _make_feature_payload(feat_id="F001"),
+                event_id="E000006", target_kind="feature", target_id="F001",
+            ))
+
+            # E000007: task.created
+            b.apply_event(_make_event(
+                "task.created",
+                _make_task_payload(task_id="T001"),
+                event_id="E000007", target_kind="task", target_id="T001",
+            ))
+
+            # E000008: task.scored
+            b.apply_event(_make_event(
+                "task.scored",
+                {
+                    "task_id": "T001",
+                    "scores": {
+                        "complexity": 2, "parallelizability": 4, "context_load": 3,
+                        "blast_radius": 2, "review_risk": 2, "agent_suitability": 4,
+                    },
+                    "explanation": "scored for replay test",
+                },
+                event_id="E000008", target_kind="task", target_id="T001",
+            ))
+
+            # E000009: task.status_changed proposed → ready (via drafted + reviewed)
+            for from_s, to_s, eid in [
+                ("proposed", "drafted", "E000009"),
+                ("drafted", "reviewed", "E000010"),
+                ("reviewed", "ready", "E000011"),
+            ]:
+                b.apply_event(_make_event(
+                    "task.status_changed",
+                    {"task_id": "T001", "from": from_s, "to": to_s},
+                    event_id=eid, target_kind="task", target_id="T001",
+                ))
+
+            # E000012: claim.created
+            b.apply_event(_make_event(
+                "claim.created",
+                _make_claim_payload(claim_id="C001", task_id="T001"),
+                event_id="E000012", target_kind="claim", target_id="C001",
+            ))
+
+            # E000013: claim.renewed
+            b.apply_event(_make_event(
+                "claim.renewed",
+                {
+                    "claim_id": "C001",
+                    "renewed_by": "agent-alpha",
+                    "lease_expires_at": (_T0 + timedelta(hours=2)).isoformat(),
+                    "last_heartbeat_at": (_T0 + timedelta(minutes=30)).isoformat(),
+                },
+                event_id="E000013", target_kind="claim", target_id="C001",
+            ))
+
+            # E000014: claim.released
+            b.apply_event(_make_event(
+                "claim.released",
+                {
+                    "claim_id": "C001",
+                    "released_by": "agent-alpha",
+                    "release_reason": "replay test done",
+                    "force": False,
+                },
+                event_id="E000014", target_kind="claim", target_id="C001",
+            ))
+
+        finally:
+            b.close()
+
+        # Capture original dump
+        original_dump = _sqlite_dump(db_path)
+
+        # Replay from empty
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            b2.replay_from_empty(events_path)
+        finally:
+            b2.close()
+
+        replayed_dump = _sqlite_dump(db_path)
+        assert original_dump == replayed_dump, (
+            "Replayed state.db does not match original after Phase 4 claim events.\n"
+            f"Original dump (first 800 chars):\n{original_dump[:800]}\n\n"
+            f"Replayed dump (first 800 chars):\n{replayed_dump[:800]}"
+        )
+
+
+    def test_replay_includes_claim_stale(self, tmp_path: Path) -> None:
+        """Audit guarantee for claim.stale: a sequence ending in stale (rather
+        than released) must replay byte-identically. Complements the primary
+        replay test above which exercises created → renewed → released."""
+        clock = _make_clock()
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
+
+        try:
+            b.apply_event(_make_project_event(event_id="E000001"))
+            b.apply_event(_make_init_event(event_id="E000002"))
+            b.apply_event(_make_event(
+                "prd.parsed",
+                {
+                    "project_id": "proj-1", "status": "draft",
+                    "summary": "Stale replay test.",
+                    "goals": ["G"], "non_goals": [],
+                    "requirements": [
+                        {"id": "R001", "prd_section": "requirements", "text": "Req.",
+                         "source_paragraph": None, "derived": False}
+                    ],
+                    "acceptance_criteria": ["AC"], "risks": [], "open_questions": [],
+                },
+                event_id="E000003", target_kind="prd", target_id="proj-1",
+            ))
+            b.apply_event(_make_event(
+                "prd.approved",
+                {"project_id": "proj-1", "approver": "bob"},
+                event_id="E000004", target_kind="prd", target_id="proj-1",
+            ))
+            b.apply_event(_make_event(
+                "feature.created",
+                _make_feature_payload(feat_id="F001"),
+                event_id="E000005", target_kind="feature", target_id="F001",
+            ))
+            b.apply_event(_make_event(
+                "task.created",
+                _make_task_payload(task_id="T001"),
+                event_id="E000006", target_kind="task", target_id="T001",
+            ))
+            for from_s, to_s, eid in [
+                ("proposed", "drafted", "E000007"),
+                ("drafted", "reviewed", "E000008"),
+                ("reviewed", "ready", "E000009"),
+            ]:
+                b.apply_event(_make_event(
+                    "task.status_changed",
+                    {"task_id": "T001", "from": from_s, "to": to_s},
+                    event_id=eid, target_kind="task", target_id="T001",
+                ))
+            # E000010: claim.created (lease expires immediately for stale path)
+            claim_payload = _make_claim_payload(claim_id="C001", task_id="T001")
+            b.apply_event(_make_event(
+                "claim.created", claim_payload,
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+            # E000011: claim.stale (lease expired)
+            b.apply_event(_make_event(
+                "claim.stale",
+                {
+                    "claim_id": "C001",
+                    "detected_at": (_T0 + timedelta(hours=2)).isoformat(),
+                    "reason": "lease_expired",
+                },
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+        finally:
+            b.close()
+
+        original_dump = _sqlite_dump(db_path)
+
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            b2.replay_from_empty(events_path)
+        finally:
+            b2.close()
+
+        replayed_dump = _sqlite_dump(db_path)
+        assert original_dump == replayed_dump, (
+            "Replayed state.db does not match original after claim.stale event."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — additional coverage tests for uncovered branches
+# ---------------------------------------------------------------------------
+
+
+class TestPhase4CoverageEdgeCases:
+    """Additional tests to push claims + state coverage above 95%.
+
+    These cover payload validation failures, concurrency guards, and
+    error paths that the primary happy-path tests do not exercise.
+    """
+
+    # ------------------------------------------------------------------
+    # claim.created edge cases
+    # ------------------------------------------------------------------
+
+    def test_handle_claim_created_missing_required_field_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.created with a missing required field raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            bad_payload = _make_claim_payload()
+            del bad_payload["claimed_by"]  # remove a required field
+            event = _make_event(
+                "claim.created", bad_payload,
+                event_id="E000010", target_kind="claim", target_id="C001",
+            )
+            with pytest.raises(TransactionAborted, match="claimed_by|required"):
+                b.apply_event(event)
+        finally:
+            b.close()
+
+    def test_handle_claim_created_task_not_found_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.created for a non-existent task raises TransactionAborted.
+
+        The handler tries to UPDATE tasks WHERE status='ready'; when the task
+        does not exist this produces 0 rows → the handler raises TransactionAborted.
+        However, the INSERT itself may fail first with a FK constraint if the DB
+        enforces foreign keys (which SQLite does with PRAGMA foreign_keys = ON).
+        Either path results in TransactionAborted.
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            # No task created — claim refers to T999
+            payload = _make_claim_payload(task_id="T999")
+            event = _make_event(
+                "claim.created", payload,
+                event_id="E000003", target_kind="claim", target_id="C001",
+            )
+            with pytest.raises(TransactionAborted):
+                b.apply_event(event)
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # claim.released edge cases
+    # ------------------------------------------------------------------
+
+    def test_handle_claim_released_missing_claim_id_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.released without claim_id raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+            bad_payload = {
+                # No claim_id
+                "released_by": "agent-alpha",
+                "release_reason": "done",
+                "force": False,
+            }
+            with pytest.raises(TransactionAborted, match="claim_id|required"):
+                b.apply_event(_make_event(
+                    "claim.released", bad_payload,
+                    event_id="E000011", target_kind="claim", target_id="C001",
+                ))
+        finally:
+            b.close()
+
+    def test_handle_claim_released_claim_not_found_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.released for a non-existent claim raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            payload = {
+                "claim_id": "C999",
+                "released_by": "agent-alpha",
+                "release_reason": "done",
+                "force": False,
+            }
+            with pytest.raises(TransactionAborted, match="C999|not found"):
+                b.apply_event(_make_event(
+                    "claim.released", payload,
+                    event_id="E000003", target_kind="claim", target_id="C999",
+                ))
+        finally:
+            b.close()
+
+    def test_handle_claim_released_task_status_concurrency_guard(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.released raises TransactionAborted when task is not in 'claimed' status
+        at the time of release (concurrency guard)."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+
+            # Manually set task status to something other than 'claimed'
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            conn.execute("UPDATE tasks SET status = 'done' WHERE id = 'T001'")
+            conn.commit()
+            conn.close()
+
+            release_payload = {
+                "claim_id": "C001",
+                "released_by": "agent-alpha",
+                "release_reason": "done",
+                "force": False,
+            }
+            with pytest.raises(TransactionAborted, match="concurrency|claimed|done"):
+                b.apply_event(_make_event(
+                    "claim.released", release_payload,
+                    event_id="E000011", target_kind="claim", target_id="C001",
+                ))
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # claim.renewed edge cases
+    # ------------------------------------------------------------------
+
+    def test_handle_claim_renewed_missing_field_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.renewed without lease_expires_at raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+            bad_payload = {
+                "claim_id": "C001",
+                "renewed_by": "agent-alpha",
+                # Missing lease_expires_at and last_heartbeat_at
+            }
+            with pytest.raises(TransactionAborted, match="lease_expires_at|required"):
+                b.apply_event(_make_event(
+                    "claim.renewed", bad_payload,
+                    event_id="E000011", target_kind="claim", target_id="C001",
+                ))
+        finally:
+            b.close()
+
+    def test_handle_claim_renewed_claim_not_found_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.renewed for a non-existent claim raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            payload = {
+                "claim_id": "C999",
+                "renewed_by": "agent-alpha",
+                "lease_expires_at": (_T0 + timedelta(hours=2)).isoformat(),
+                "last_heartbeat_at": _T0.isoformat(),
+            }
+            with pytest.raises(TransactionAborted, match="C999|not found|active"):
+                b.apply_event(_make_event(
+                    "claim.renewed", payload,
+                    event_id="E000003", target_kind="claim", target_id="C999",
+                ))
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # claim.stale edge cases
+    # ------------------------------------------------------------------
+
+    def test_handle_claim_stale_missing_field_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.stale without detected_at raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+            bad_payload = {
+                "claim_id": "C001",
+                # Missing detected_at and reason
+            }
+            with pytest.raises(TransactionAborted, match="detected_at|required"):
+                b.apply_event(_make_event(
+                    "claim.stale", bad_payload,
+                    event_id="E000011", target_kind="claim", target_id="C001",
+                ))
+        finally:
+            b.close()
+
+    def test_handle_claim_stale_claim_not_found_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """claim.stale for a non-existent claim raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            payload = {
+                "claim_id": "C999",
+                "task_id": "T001",
+                "expired_at": (_T0 - timedelta(hours=1)).isoformat(),
+                "detected_at": _T0.isoformat(),
+                "reason": "lease_expired",
+                "actor": "system",
+            }
+            with pytest.raises(TransactionAborted, match="C999|not found"):
+                b.apply_event(_make_event(
+                    "claim.stale", payload,
+                    event_id="E000003", target_kind="claim", target_id="C999",
+                ))
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # prd.parsed edge cases — invalid requirement payload
+    # ------------------------------------------------------------------
+
+    def test_handle_prd_parsed_invalid_requirement_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """prd.parsed with a malformed Requirement dict raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            bad_payload = {
+                "project_id": "proj-1",
+                "status": "draft",
+                "summary": "Bad req test.",
+                "goals": ["Goal."],
+                "non_goals": [],
+                "requirements": [
+                    # Missing required 'id' and 'text' — invalid Requirement
+                    {"prd_section": "requirements", "derived": False}
+                ],
+                "acceptance_criteria": [],
+                "risks": [],
+                "open_questions": [],
+            }
+            with pytest.raises(TransactionAborted, match="invalid Requirement|prd.parsed"):
+                b.apply_event(_make_event(
+                    "prd.parsed", bad_payload,
+                    event_id="E000003", target_kind="prd", target_id="proj-1",
+                ))
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.scored edge cases — invalid scores payload
+    # ------------------------------------------------------------------
+
+    def test_handle_task_scored_invalid_scores_payload_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """task.scored with non-integer score values raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "feature.created",
+                {
+                    "id": "F001", "title": "F", "description": "d", "status": "proposed",
+                    "requirements": [], "tasks": [],
+                },
+                event_id="E000003", target_kind="feature", target_id="F001",
+            ))
+            b.apply_event(_make_event(
+                "task.created",
+                _make_task_payload(task_id="T001"),
+                event_id="E000004", target_kind="task", target_id="T001",
+            ))
+            bad_scores = {
+                "task_id": "T001",
+                "scores": {
+                    "complexity": "NOT_A_NUMBER",  # invalid
+                    "parallelizability": 4,
+                    "context_load": 3,
+                    "blast_radius": 2,
+                    "review_risk": 2,
+                    "agent_suitability": 4,
+                },
+                "explanation": "bad",
+            }
+            with pytest.raises(TransactionAborted, match="scores|invalid"):
+                b.apply_event(_make_event(
+                    "task.scored", bad_scores,
+                    event_id="E000005", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.status_changed — missing 'to' field
+    # ------------------------------------------------------------------
+
+    def test_handle_task_status_changed_missing_to_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """task.status_changed without 'to' field raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "feature.created",
+                {
+                    "id": "F001", "title": "F", "description": "d", "status": "proposed",
+                    "requirements": [], "tasks": [],
+                },
+                event_id="E000003", target_kind="feature", target_id="F001",
+            ))
+            b.apply_event(_make_event(
+                "task.created",
+                _make_task_payload(task_id="T001"),
+                event_id="E000004", target_kind="task", target_id="T001",
+            ))
+            bad_payload = {
+                "task_id": "T001",
+                "from": "proposed",
+                # Missing 'to'
+            }
+            with pytest.raises(TransactionAborted, match="to|required"):
+                b.apply_event(_make_event(
+                    "task.status_changed", bad_payload,
+                    event_id="E000005", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.expanded — empty subtasks list
+    # ------------------------------------------------------------------
+
+    def test_handle_task_expanded_empty_subtasks_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """task.expanded with an empty subtasks list raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "feature.created",
+                {
+                    "id": "F001", "title": "F", "description": "d", "status": "proposed",
+                    "requirements": [], "tasks": [],
+                },
+                event_id="E000003", target_kind="feature", target_id="F001",
+            ))
+            b.apply_event(_make_event(
+                "task.created",
+                _make_task_payload(task_id="T001"),
+                event_id="E000004", target_kind="task", target_id="T001",
+            ))
+            bad_payload = {
+                "parent_task_id": "T001",
+                "subtasks": [],  # empty
+            }
+            with pytest.raises(TransactionAborted, match="subtasks|empty"):
+                b.apply_event(_make_event(
+                    "task.expanded", bad_payload,
+                    event_id="E000005", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
