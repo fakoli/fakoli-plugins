@@ -4693,6 +4693,34 @@ class TestPayloadValidation:
             })
 
     # ------------------------------------------------------------------
+    # progress.noted payload — Phase 6 MCP submit_progress (audit-only)
+    # ------------------------------------------------------------------
+
+    def test_progress_noted_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.ProgressNotedPayload.model_validate({
+            "task_id": "T001",
+            "actor": "agent-guido",
+            "notes": "Fixed the flaky test; CI green.",
+            "noted_at": _T0.isoformat(),
+        })
+        assert obj.task_id == "T001"
+        assert obj.actor == "agent-guido"
+        assert obj.notes == "Fixed the flaky test; CI green."
+
+    def test_progress_noted_payload_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.ProgressNotedPayload.model_validate({
+                "task_id": "T001",
+                "actor": "agent-guido",
+                "notes": "All good.",
+                "noted_at": _T0.isoformat(),
+                "injected_key": "should_be_rejected",
+            })
+
+    # ------------------------------------------------------------------
     # _apply_mutation raises ValidationError (wrapped as TransactionAborted)
     # for a malformed payload on a known action
     # ------------------------------------------------------------------

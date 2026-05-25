@@ -6,11 +6,35 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-Phases 6 (proper), 7, and 8 remain scheduled. Each phase ships as its own PR into the fakoli-plugins monorepo.
+Phases 7 and 8 remain scheduled. Each phase ships as its own PR into the fakoli-plugins monorepo.
 
-- **Phase 6 (proper)** — MCP server: 13 agent-facing tools, `.mcp.json` wiring, `bin/fakoli-state-mcp` bash wrapper, MCP integration tests, and `docs/mcp.md`.
 - **Phase 7** — LLM augmentation: Anthropic provider implementation, `--use-llm` flags on `plan`, `score`, `expand`, RecordedLLMProvider for tests, and brainstorm skill bridge to `fakoli-flow:brainstorm`.
 - **Phase 8** — GitHub sync: bidirectional Issues sync engine, `sync github` CLI command, state-keeper agent, reconciliation (`sync --fix`), nightly live-GitHub CI, `docs/github-sync.md`, marketplace.json regen, and feature-complete release.
+
+---
+
+## [1.6.0] — 2026-05-25
+
+Phase 6: MCP server. Exposes 13 agent-facing tools via FastMCP (stdio), wires them into Claude Code via `.mcp.json`, adds the `progress.noted` audit event, and ships 50 MCP integration tests. Any agent in a project with fakoli-state installed now has direct programmatic access to the full state engine without shelling out to the CLI.
+
+### Added
+
+- `bin/src/fakoli_state/mcp_server.py` — FastMCP (stdio) server with 13 agent-facing tools. Read-only tools: `get_project_summary`, `list_tasks`, `get_task`, `get_next_task`, `generate_work_packet`, `check_conflicts`, `get_dependency_graph`. Mutating tools: `claim_task`, `release_task`, `renew_claim`, `submit_progress`, `submit_completion_evidence`, `update_task_status`. Stale-claim reaping runs at the top of `get_project_summary` and all six mutating tools. The server opens a fresh `SqliteBackend` per tool call (`Path.cwd() / .fakoli-state`) — agents in different cwds see their own state, no leakage.
+- `plugins/fakoli-state/.mcp.json` — wires `fakoli-state-mcp` as a stdio MCP server via `${CLAUDE_PLUGIN_ROOT}/bin/fakoli-state-mcp`. Claude Code agents in any project with this plugin installed automatically see the 13 tools.
+- `progress.noted` event action — audit-only, structurally parallel to `file_changed`. New `ProgressNotedPayload` in `state/payloads.py` and a no-op handler in `sqlite.py`. Emitted by `submit_progress`.
+- `docs/mcp.md` — 645-line full tool reference covering each tool's signature, return shape, error cases, integration notes for fakoli-flow / fakoli-crew, and the documented error envelope contract.
+- 50 new MCP integration tests in `tests/test_mcp.py` via the FastMCP in-process Client. 2 additional `progress.noted` payload tests in the existing payload test suite.
+
+### Changed
+
+- `bin/fakoli-state-mcp` — wrapper now executes `python -m fakoli_state.mcp_server` via `uv run` (fully functional). The Phase-6 "not yet implemented" guard block is removed.
+
+### Technical notes
+
+- Error envelope: tools raise `fastmcp.exceptions.ToolError(message)` with a human-readable string. The spec's structured `{code, message, target_id, payload}` envelope is deferred — the documented contract lives in `docs/mcp.md`.
+- The process-per-request connection pattern keeps the server a thin shim. No shared in-process state, no connection pooling concerns across concurrent agent calls.
+
+Tests: 530 → 580 (+50 MCP integration tests, +2 payload tests). Ruff clean.
 
 ---
 

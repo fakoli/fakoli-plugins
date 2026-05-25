@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # fakoli-state-mcp — shell wrapper for the MCP server entry point.
-# Note: fakoli_state.mcp_server does not exist until Phase 6. Until then this
-# wrapper produces a clean ModuleNotFoundError, which is the correct behavior.
+# fakoli_state.mcp_server landed in Phase 6 and registers 13 tools via FastMCP.
 
 # Preserve caller's cwd; see bin/fakoli-state for the rationale.
 ORIGINAL_PWD="$PWD"
@@ -20,14 +19,6 @@ fi
         uv sync --quiet
     fi
 })
-
-# Phase 6 lands the MCP server. Until then, fail cleanly instead of leaking a
-# Python traceback to whatever invoked us.
-if ! uv run --quiet --project "$BIN_DIR" python -c 'import fakoli_state.mcp_server' 2> /dev/null; then
-    printf 'fakoli-state-mcp: MCP server is not yet implemented (lands in Phase 6 of v1).\n' >&2
-    printf '                  Use bin/fakoli-state for CLI access in the meantime.\n' >&2
-    exit 1
-fi
 
 cd "$ORIGINAL_PWD" || exit 1
 exec uv run --quiet --project "$BIN_DIR" python -m fakoli_state.mcp_server "$@"
