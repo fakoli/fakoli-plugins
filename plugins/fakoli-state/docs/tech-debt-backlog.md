@@ -2,7 +2,7 @@
 
 Items deferred from PR-level critic + Greptile reviews. Each entry links the originating PR + finding so the rationale survives. Ordered by priority within section.
 
-**Status legend**: `OPEN` = unaddressed; `TARGETED-PN` = scheduled for Phase N; `DONE` = closed in commit; `MOVED-P9-BACKLOG` = forward-carried into [`phase-9-backlog.md`](phase-9-backlog.md) for v2.x tracking.
+**Status legend**: `OPEN` = unaddressed; `TARGETED-PN` = scheduled for Phase N; `DONE` = closed in commit; `MOVED-P9-BACKLOG` = forward-carried into [`phase-9-backlog.md`](phase-9-backlog.md) for v2.x tracking; `MOVED-P11-BACKLOG` = consolidated under a Phase 11 audit finding in [`phase-11-backlog.md`](phase-11-backlog.md).
 
 > **Phase 9 (v1.9.0) status, 2026-05-25.** PR #49 (Phase 8) deferred a
 > handful of items that PR #50 (Phase 9) closed: the audit-honesty
@@ -13,6 +13,18 @@ Items deferred from PR-level critic + Greptile reviews. Each entry links the ori
 > `phase-9-backlog.md` where they sit alongside the v2.x roadmap
 > (Linear/Monday/Jira providers, webhook sync, immediate-apply
 > `*_applied` variants).
+>
+> **Backlog-hygiene pass, 2026-05-26 (post-v1.10.0).** Audited the 18
+> remaining `OPEN` items against the current code in `main`. Found that
+> CL-1, CL-3, CL-8, CL-11, CL-13, and PS-1 were silently closed during
+> the PR #49 / v1.7.1 welder backlog wave (those closures were recorded
+> in `CHANGELOG.md` § 1.7.1 but the per-item `Status` lines here still
+> said `OPEN`). Updated to `DONE (v1.7.1)` with commit-trail cross-refs.
+> Verified the remaining 12 items are still genuine debt — see the
+> `**Status**: OPEN` lines that survive this pass. No item was moved to
+> `phase-11-backlog.md`; the closest cross-ref is CL-10 ↔ P11-HK-N3
+> (capture-evidence pattern set), but those are independent findings
+> on the same file rather than the same fix — both stay where they are.
 
 ---
 
@@ -190,7 +202,7 @@ Zero runtime risk; pure refactor; do it BEFORE Phase 6 adds MCP wiring.
 
 ### CL-1 · check-claim.sh ignores its own CLI subcommand
 
-**From**: PR #41 Critic-2. **Status**: OPEN.
+**From**: PR #41 Critic-2. **Status**: DONE (v1.7.1 — `hooks/check-claim.sh` now invokes `fakoli-state hook check-claim --file --actor` (the Phase 5 per-file subcommand); coarse status-parse fallback fires only when the CLI is unavailable).
 
 Phase 4 added `cli.py:hook_check_claim` with full per-file `expected_files` checking. `check-claim.sh` was not updated to call it — still uses the Phase 4 coarse "any active claim → warn" approach. Per-file warning logic in CLI is dead from the hook's perspective.
 
@@ -210,7 +222,7 @@ Phase 4 added `cli.py:hook_check_claim` with full per-file `expected_files` chec
 
 ### CL-3 · `_reap_stale_claims` swallows `SchemaMismatch`
 
-**From**: PR #41 Critic-3. **Status**: OPEN.
+**From**: PR #41 Critic-3. **Status**: DONE (v1.7.1 — `cli/_helpers.py::_reap_stale_claims` now re-raises `SchemaMismatch` and narrows the swallow to `(StateLocked, TransactionAborted)`).
 
 `cli.py:1413-1427`: bare `except Exception: pass` swallows schema mismatches. A user with an outdated DB sees a confusing secondary error from their primary command instead of the clean SchemaMismatch.
 
@@ -256,7 +268,7 @@ Phase 4 added `cli.py:hook_check_claim` with full per-file `expected_files` chec
 
 ### CL-8 · Double-submit with different evidence_id inserts duplicate row
 
-**From**: PR #41 Critic-1. **Status**: OPEN.
+**From**: PR #41 Critic-1. **Status**: DONE (v1.7.1 — `_handle_evidence_submitted` now rejects double-submit with a different `evidence_id` for the same claim by emitting the established `warn.idempotent_no_op` JSONL tombstone instead of inserting a duplicate row).
 
 `_handle_evidence_submitted` only blocks duplicate evidence_id (via `INSERT OR IGNORE`). If a caller submits twice with DIFFERENT evidence_ids on a task already at `needs_review`, the second INSERT succeeds; two evidence rows now exist for one submission slot. `_fetch_latest_evidence` returns whichever has the later `submitted_at` — non-deterministic when FrozenClock gives both the same timestamp in tests.
 
@@ -266,7 +278,7 @@ Phase 4 added `cli.py:hook_check_claim` with full per-file `expected_files` chec
 
 ### CL-9 · `gates._contains_test_keyword` matches `pytest --collect-only`
 
-**From**: PR #41 Critic-1. **Status**: DONE (this PR — reject --collect-only and --co flags; 6 regression tests in test_review.py).
+**From**: PR #41 Critic-1. **Status**: DONE (v1.7.1 — `review/gates.py::_COLLECT_ONLY_RE` word-boundary regex rejects `--collect-only` / `--co`; 6 regression tests in `test_review.py`).
 
 `pytest --collect-only` exits 0 but runs zero tests. A task requiring "test pass" evidence is satisfied by an agent who only collected tests.
 
@@ -289,7 +301,7 @@ Agent running `go test ./...` gets no capture (hook skips it) but the gate passe
 
 ### CL-11 · `template.py:374` calls `datetime.now()` directly
 
-**From**: PR #41 Critic-3. **Status**: OPEN.
+**From**: PR #41 Critic-3. **Status**: DONE (v1.7.1 — `planning/template.py::_parse_tasks` now requires a `clock: Clock` parameter; `parse_prd` accepts an optional `clock: Clock` that defaults to `SystemClock()` for backwards compat. CL-11 docstring on `_parse_tasks` makes the contract explicit).
 
 `_parse_tasks` bypasses the Clock abstraction. Parsed task timestamps are not test-controllable without monkeypatching.
 
@@ -309,7 +321,7 @@ These are in `__all__` but have no callers outside the module. Misleading public
 
 ### CL-13 · `next_event_id` returns hardcoded `"E000001"` when conn is None
 
-**From**: PR #41 Critic-2. **Status**: OPEN.
+**From**: PR #41 Critic-2. **Status**: DONE (v1.7.1 — `SqliteBackend.next_event_id` now opens with `conn = self._require_conn()`; the docstring explicitly cites CL-13 and explains the silent-collision footgun the change closes).
 
 The other `Backend` methods call `_require_conn()` to raise on uninitialized state. `next_event_id` instead silently returns a plausible-looking ID. A caller invoking it before `initialize()` gets a misleading success.
 
@@ -425,7 +437,7 @@ Natural split points already marked with section comments. Split into `test_sqli
 
 ### PS-1 · `_check_group_conflicts` has N+1 query
 
-**From**: PR #41 Critic-2. **Status**: OPEN.
+**From**: PR #41 Critic-2. **Status**: DONE (v1.7.1 — `ClaimManager._check_group_conflicts` collapses 1+N round-trips into 2 via a single bulk `list_tasks()` + in-memory `dict[task_id, Task]` lookup; docstring carries the PS-1 reference).
 
 For each active claim, `manager.py:700-720` calls `backend.get_task(active_claim.task_id)` inside a loop. With 10 parallel agents, a claim operation costs 1 + N + N SQL round-trips.
 
