@@ -1,5 +1,52 @@
 # Changelog
 
+## 2.2.0 (2026-05-26)
+
+Minor release: adds 5 new cross-plugin specialist critic agents and the
+`tests/` infrastructure to verify them. Existing 8 agents (guido, critic,
+scout, smith, welder, herald, keeper, sentinel) are unchanged. The new
+critics extend fakoli-crew from "team of generalist engineering reviewers"
+to "team of generalist + 5 plugin-development specialists" so the crew can
+review the surface of any Claude Code plugin (its own or any other).
+
+First subject of the new audit pass was fakoli-state v1.9.0 — see
+`plugins/fakoli-state/docs/audits/2026-05-26-plugin-audit.md` for the full
+findings and `plugins/fakoli-state/CHANGELOG.md` § 1.10.0 for the welder
+closures.
+
+### Added — 5 new cross-plugin specialist critic agents
+
+- `agents/agent-critic.md` (color: **magenta**, model: opus, tools: Read, Grep, Glob) — reviews `<plugin>/agents/*.md`. Checks: frontmatter validity (name/description/color/model/tools), color-collision detection across siblings, description-must-have-3-`<example>`-blocks-each-with-`<commentary>` discipline, `allowed-tools:` vs `tools:` antipattern (silently-ignored command-key on agent files), allowed-tools tightness (no `Bash` on review-only agents), defer-to validity (no dangling references), model selection appropriateness, file-length proportionality.
+- `agents/skill-critic.md` (color: **teal**, model: opus, tools: Read, Grep, Glob) — reviews `<plugin>/skills/*/SKILL.md`. Checks: frontmatter validity (`name:` + triggering `description:`), one-question-at-a-time discipline, hard-gate presence on irreversible actions, decision-flow diagram presence for skills with 3+ steps, lazy-loading discipline (body short; supporting material in `references/`), the no-fuzzy-detection rule (`if X seems available` is SHOULD FIX; explicit `claude plugin list | grep -q "^X"` shell check is the bar), referenced paths must exist on disk.
+- `agents/hook-critic.md` (color: **gray**, model: opus, tools: Read, Grep, Glob, Bash) — reviews `<plugin>/hooks/*.sh` + `hooks.json`. Checks: shebang must be `#!/usr/bin/env bash`, `${CLAUDE_PLUGIN_ROOT}` usage for plugin-internal paths, no-piped-grep antipattern (use `jq` for JSON), stdin handling correctness (PostToolUse reads stdin; SessionStart doesn't), idempotency, performance on hot events (PreToolUse fires per Edit/Write), `hooks.json` matcher patterns + event-name validity + command file existence. **Critical contract-awareness rule:** before flagging `set -e` or its absence, hook-critic MUST detect the plugin's hook contract by reading `hooks.json` and the plugin's docs for "non-blocking" language. If non-blocking (e.g., fakoli-state): `set -e` is MUST FIX. If standard: `set -euo pipefail` absence is SHOULD FIX.
+- `agents/mcp-critic.md` (color: **white**, model: opus, tools: Read, Grep, Glob) — reviews `.mcp.json` + MCP server implementation source. Checks: `.mcp.json` schema validity (`mcpServers.<name>.type/command/args`), `${CLAUDE_PLUGIN_ROOT}` in `args` for portable resolution, tool `@mcp.tool()` decorations with `description=` strings, typed parameter annotations (no untyped `Any` without justification), structured error returns (no raw `repr()` or unstructured exceptions), no secret-leak in audit prints or returned strings, stdio vs sse transport choice rationale, actor-identification requirement on mutating tools (non-empty actor validation).
+- `agents/structure-critic.md` (color: **brown**, model: opus, tools: Read, Grep, Glob, Bash) — reviews `plugin.json` manifest + marketplace.json entry + registry index entry + README surface tables + CHANGELOG Keep-a-Changelog discipline + version-string sync across every source of truth (plugin.json, pyproject.toml if Python, `__init__.py` if Python, marketplace.json entry, registry/index.json entry). Bash needed for running `scripts/generate-index.sh --check` and version-grep across multiple files. **Standalone** — does NOT delegate to `plugin-dev:plugin-validator`.
+
+Color collisions checked vs the existing 8 agents (guido=blue, critic=red, scout=cyan, smith=orange, welder=green, herald=pink, keeper=purple, sentinel=yellow). The 5 new critic colors (magenta, teal, gray, white, brown) are all unused by every existing crew agent, so the 13-agent palette has no duplicates.
+
+### Added — `tests/` infrastructure
+
+fakoli-crew is a pure-markdown plugin (no `pyproject.toml`, no Python module) and had no test directory prior to this release. Phase 10 scaffolds it bash-first, matching the precedent set by `plugins/fakoli-state/tests/test_hooks.sh`:
+
+- `tests/README.md` (NEW) — conventions doc: bash-only (zero pip dependencies inherited from the test suite), script layout, the manual-verification model (bash cannot dispatch a Claude Code subagent from a shell context — agent invocation happens inside a session by following the recipe).
+- `tests/fixtures/audit-targets/` (NEW) — 5 deliberately-broken plugin fixtures, one per critic. Each contains exactly one antipattern its critic must surface at MUST FIX severity:
+  - `bad-agent.md` — missing `name` frontmatter; uses `allowed-tools:` instead of `tools:`.
+  - `bad-skill.md` — vague description ("a skill that helps with things"); no decision flow.
+  - `bad-hook.sh` + `bad-hooks.json` — `set -e` against an adjacent `hooks.json` documenting a non-blocking contract; no `${CLAUDE_PLUGIN_ROOT}` usage on plugin-internal path.
+  - `bad-mcp.json` — `.mcp.json` missing the `args` field.
+  - `bad-plugin.json` — `plugin.json` missing `version`; `description` shorter than the spec floor.
+
+  Each fixture starts with a leading comment block enumerating its antipatterns and the expected severities so future maintainers do not accidentally "fix" the deliberate bugs.
+
+- `tests/RECIPES.md` (NEW) — one section per critic. Lists (a) which fixture to feed it, (b) the exact Agent dispatch one-liner, (c) the expected severity tokens to look for in the resulting status file, (d) pass/fail interpretation.
+- `tests/test_critics.sh` (NEW, executable) — recipe-printer bash runner. `--list` outputs each critic + fixture + expected severity + RECIPES.md pointer. Safe to add to CI as a smoke check that the recipe table stays in sync with the critic roster. Does NOT attempt to dispatch Claude Code agents from bash (impossible from a shell context).
+
+### README
+
+- Agent table grows from 8 rows to 13 rows: existing 8 agents unchanged in rows 1-8; 5 new critic agents (agent-critic, skill-critic, hook-critic, mcp-critic, structure-critic) added as rows 9-13 with one-line trigger-phrase descriptions matching the existing column format.
+
+---
+
 ## 2.1.1 (2026-05-25)
 
 Cleanup patch on top of 2.1.0. Resolves remaining critic CONSIDER/NIT items.

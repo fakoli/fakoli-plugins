@@ -1,0 +1,11 @@
+{
+  "_comment": "INTENTIONAL ANTIPATTERN FIXTURE — DO NOT FIX. This plugin.json is a deliberately-broken manifest used to smoke-test fakoli-crew's `structure-critic` per the procedure in tests/RECIPES.md (T7). The bugs below are intentional. Intentional bugs: (1) `version` field is MISSING — expected critic finding: MUST FIX per the Manifest Required Fields checklist ('version present, valid semver'); without version, structure-critic cannot run its version-sync-across-sources check and the plugin cannot be released. (2) `description` is 6 characters long — expected critic finding: SHOULD FIX (or MUST FIX depending on how strictly the critic enforces the 'non-empty, accurately describes the plugin' bar); the spec floor is a meaningful description, not a placeholder. Expected verdict: FAIL (1x MUST FIX for missing version + 1x SHOULD FIX for tiny description).",
+  "name": "bad-plugin",
+  "description": "tiny.",
+  "author": {
+    "name": "fakoli-crew test fixtures"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": ["test", "fixture"]
+}

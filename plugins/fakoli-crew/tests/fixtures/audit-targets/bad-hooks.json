@@ -1,0 +1,18 @@
+{
+  "_comment": "INTENTIONAL FIXTURE — DO NOT FIX. This hooks.json pairs with bad-hook.sh to give hook-critic a complete non-blocking-contract context for its contract-detection rule. The leading `_comment` field intentionally documents the contract: 'hooks never block tool calls; always exit 0; warnings only.' This is the non-blocking signal language hook-critic greps for in Step 2 of contract detection. The bug is intentionally placed in the referenced script bad-hook.sh (set -e on a non-blocking contract + missing CLAUDE_PLUGIN_ROOT); this config file itself is structurally valid so hook-critic focuses on the script's contract violation.",
+  "_contract": "non-blocking — hooks never block tool calls, always exit 0, warning-only",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/tests/fixtures/audit-targets/bad-hook.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

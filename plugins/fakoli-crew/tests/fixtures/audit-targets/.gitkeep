@@ -1,0 +1,7 @@
+# Placeholder so the empty fixtures/audit-targets/ directory is tracked by git.
+# T6 will replace this with 5 known-bad fixture files, one per critic:
+#   - agent-critic    fixture (bad agent frontmatter)
+#   - skill-critic    fixture (bad SKILL.md description / structure)
+#   - hook-critic     fixture (bad hooks.json / hook script)
+#   - mcp-critic      fixture (bad .mcp.json / hardcoded creds)
+#   - structure-critic fixture (bad plugin.json / misplaced files)

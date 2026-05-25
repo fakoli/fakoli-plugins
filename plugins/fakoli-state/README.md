@@ -3,7 +3,7 @@
 Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.9.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.10.0-blue.svg)](.claude-plugin/plugin.json)
 [![Status](https://img.shields.io/badge/plugin--state-alpha%20%2F%20in--development-orange.svg)](.claude-plugin/plugin.json)
 
 ---
@@ -99,7 +99,7 @@ That document defines the data model, CLI command set, MCP tool surface, hook ev
 
 | Layer | What it does |
 |---|---|
-| Skills | Workflow choreography: brainstorm, prd, plan, claim, execute, verify, finish, state-ops |
+| Skills | Workflow choreography (7 skills): brainstorm, prd, plan, claim, execute, finish, state-ops. Verification is delegated to `fakoli-flow:verify` and `fakoli-crew:sentinel`. |
 | CLI (`fakoli-state`) | Pure state operations — CRUD, scoring, packet generation, sync |
 | MCP server | 13 agent-facing tools exposed via stdio to any MCP-compatible runtime |
 | Hooks | Enforce claim discipline, record file changes, capture test evidence |

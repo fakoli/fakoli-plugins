@@ -6,12 +6,68 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-v1.9.0 closes the Phase 8 audit-honesty deferrals, the Phase 7
-LLM-augmentation cleanup, and ships two new plugin-owned doc agents.
-v2.0 will add LinearIssuesProvider and MondayBoardsProvider; v2.x will
-spec webhook-based sync (vs polling) and wire the immediate-apply
-`*_applied` conflict-resolution variants — see `docs/phase-9-backlog.md`
-for the full roadmap.
+v1.10.0 closes the Phase 10 plugin-dev best-practices audit MUST FIX list,
+applies the first cross-plugin specialist-critic pass against the fakoli-state
+surface, and tracks 57 deferred items in `docs/phase-11-backlog.md`. v2.0 will
+add LinearIssuesProvider and MondayBoardsProvider; v2.x will spec webhook-based
+sync (vs polling) and wire the immediate-apply `*_applied` conflict-resolution
+variants — see `docs/phase-9-backlog.md` for the full v2.x roadmap.
+
+---
+
+## [1.10.0] — 2026-05-26
+
+Phase 10: first plugin-dev best-practices audit + 8 MUST FIX items closed
+inline. fakoli-crew v2.2.0 ships 5 new cross-plugin specialist critic agents
+(agent-critic, skill-critic, hook-critic, mcp-critic, structure-critic — see
+`plugins/fakoli-crew/CHANGELOG.md` § 2.2.0); this release applies their first
+audit pass against fakoli-state v1.9.0's surface area and closes every MUST
+FIX they surfaced. 57 SHOULD FIX / CONSIDER / NIT items are deferred to
+`docs/phase-11-backlog.md` with per-critic provenance preserved.
+
+Audit doc: [`docs/audits/2026-05-26-plugin-audit.md`](docs/audits/2026-05-26-plugin-audit.md).
+Phase plan: [`docs/plans/2026-05-26-phase-10-plugin-audit.md`](docs/plans/2026-05-26-phase-10-plugin-audit.md).
+
+Ships v1.10.0.
+
+### Fixed — MUST FIX items closed in this phase (8)
+
+1. `agents/critic.md:26` — renamed `allowed-tools:` → `tools:` (the `allowed-tools:` key is the *command* frontmatter key; on agent files it is silently ignored and the agent loads with full unrestricted tool access, defeating the Iron Rule's least-privilege intent for the read-only reviewer). Found by agent-critic.
+2. `agents/docs-scribe.md:67` — same `allowed-tools:` → `tools:` rename. Found by agent-critic.
+3. `agents/marketplace-scribe.md:67` — same rename. Found by agent-critic.
+4. `agents/planner.md:44` — same rename (highest-stakes occurrence: the Iron Rule explicitly forbids planner writes to `.fakoli-state/`, but the frontmatter that was supposed to enforce least-privilege was silently ignored). Found by agent-critic.
+5. `agents/state-keeper.md:45` — same rename (highest blast-radius occurrence given agent proximity to git and state files). Found by agent-critic.
+6. `skills/finish/SKILL.md:249-252` — removed dangling `/fakoli-state:sentinel` slash-command reference (sentinel is an agent surface, not a skill — there is no slash-command for it; the broken reference would 404 on invocation). Replaced with explicit `claude plugin list 2>/dev/null | grep -q "^fakoli-crew"` shell gate plus prose explaining the agent-dispatch contract so the next Claude session cannot re-introduce the bug by pattern-matching. As a bonus closure (welder Fix #6), this also resolves what would have been P11-SK-S5 in the Phase 11 backlog ("Fuzzy detection for `fakoli-crew:sentinel` — no shell check") — reducing the deferred SHOULD FIX count from 25 to 24. Found by skill-critic.
+7. `skills/prd/SKILL.md:57-59` — added overwrite-confirmation gate before `prd parse` mutates `state.db` rows. Mirrors the brainstorm/SKILL.md:162-176 exists-check + summary + `yes/no/save-as-backup` prompt; applied at two mutation points (the editor open in Step 1 and the re-parse during iteration) since the prd flow has two destructive entry points. Found by skill-critic.
+8. `README.md:103` — Skills row claimed a `verify` skill that does NOT exist on disk (overpromise); rewrote the row to list the 7 real skills (brainstorm, prd, plan, claim, execute, finish, state-ops) and document that verification is delegated to `fakoli-flow:verify` and `fakoli-crew:sentinel`, so the reader understands *why* `verify` is absent. Found by structure-critic.
+
+### Added — 5 new fakoli-crew critic agents (audit infrastructure)
+
+fakoli-crew v2.2.0 (see its CHANGELOG) ships 5 new cross-plugin specialist
+critic agents that this release was the first subject of:
+
+- **agent-critic** (magenta) — reviews `<plugin>/agents/*.md` frontmatter (name/description/color/model/tools), color-collision detection, `<example>` count discipline, the `allowed-tools:` vs `tools:` antipattern, defer-to validity, and file-length proportionality.
+- **skill-critic** (teal) — reviews `<plugin>/skills/*/SKILL.md` for frontmatter validity, one-question-at-a-time discipline, hard-gate presence on irreversible actions, decision-flow clarity, lazy-loading discipline, and the no-fuzzy-detection rule.
+- **hook-critic** (gray) — reviews `<plugin>/hooks/*.sh` + `hooks.json` for shebang portability, `${CLAUDE_PLUGIN_ROOT}` usage, stdin handling, hot-path performance, idempotency, matcher specificity, and — critically — whether the script's error-handling style matches the plugin's declared hook contract (e.g., fakoli-state's non-blocking contract forbids `set -e`).
+- **mcp-critic** (white) — reviews `.mcp.json` + MCP server source for schema validity, `@mcp.tool()` decoration discipline, typed parameter annotations, structured error returns, secret-leak risks, transport choice rationale, and actor-identification on mutating tools.
+- **structure-critic** (brown) — reviews cross-plugin structure: `plugin.json` required fields, version sync across `plugin.json` / `pyproject.toml` / `__init__.py` / `marketplace.json` / `registry/index.json`, README surface tables vs actual filesystem counts, CHANGELOG Keep-a-Changelog discipline, and `[Unreleased]` hygiene after a tag.
+
+Each critic ships with a known-bad fixture at `plugins/fakoli-crew/tests/fixtures/audit-targets/` and a manual-verification recipe at `plugins/fakoli-crew/tests/RECIPES.md`. Together they form the cross-plugin critic surface — fakoli-state was the first subject; future plugins (fakoli-flow, fakoli-speak, etc.) can run the same five-critic audit.
+
+### Deferred — Phase 11 backlog
+
+57 SHOULD FIX / CONSIDER / NIT items deferred (25 SHOULD FIX, 21 CONSIDER, 11 NIT) — full per-critic detail with file:line provenance, recommended actions, and cross-cutting themes (no-fuzzy-detection across skills, non-empty actor validation across MCP tools, hot-path perf budget on hook scripts, hook-contract documentation gap, phase-status table drift, composition duplication across doc/state agents, install-messaging drift in README + CHANGELOG) recorded in [`docs/phase-11-backlog.md`](docs/phase-11-backlog.md). The Phase 10 welder Fix #6 closed one SHOULD FIX item (P11-SK-S5, fuzzy detection for `fakoli-crew:sentinel`) as a bonus during the dangling-slash-command fix — `phase-11-backlog.md` marks that line `[CLOSED in Phase 10 Fix #6]`. Net deferred SHOULD FIX count is **24** (down from 25 at audit time).
+
+### Documentation
+
+- `docs/audits/2026-05-26-plugin-audit.md` (NEW) — consolidated audit with severity-sorted findings table, per-critic detail sections, and "Items applied this phase" annotations linking each MUST FIX to the welder fix that closed it.
+- `docs/phase-11-backlog.md` (NEW) — Phase 11 work-tracking doc mirroring the format of `docs/phase-9-backlog.md`. Includes 7 cross-cutting themes and explicit Phase 11 planner notes.
+- `docs/plans/2026-05-26-phase-10-plugin-audit.md` (NEW) — full 16-task / 9-wave execution plan for the audit + fix cycle.
+- `docs/specs/2026-05-26-plugin-audit-and-critics.md` (NEW) — source spec for the 5 new critic agents.
+
+### Tests
+
+- 965 passing (unchanged from v1.9.0 — all 8 MUST FIX items were markdown/frontmatter edits; no Python code touched, no behaviour drift).
 
 ---
 

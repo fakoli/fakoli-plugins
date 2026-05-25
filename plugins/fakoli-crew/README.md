@@ -1,9 +1,9 @@
 # fakoli-crew
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](.claude-plugin/plugin.json)
 
-Eight specialized AI agents — polyglot architect (TS/Py/Rust), Staff Engineer code reviewer, API researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — that run independently or as coordinated multi-wave crews for complex development projects.
+Thirteen specialized AI agents — 8 generalist engineering roles (polyglot architect, Staff Engineer code reviewer, API researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) and 5 cross-plugin specialist critics (agent-critic, skill-critic, hook-critic, mcp-critic, structure-critic) — that run independently or as coordinated multi-wave crews for complex development projects.
 
 ## Architecture
 
@@ -31,6 +31,11 @@ claude plugin install fakoli-crew
 | **herald** | Documentation writer | "improve the README", "make this appealing", "rewrite the description" |
 | **keeper** | Infrastructure engineer | "update CLAUDE.md", "fix the CI", "sync the registry" |
 | **sentinel** | QA engineer | "validate everything", "run all tests", "check if this is ready" |
+| **agent-critic** | Plugin-agent reviewer | "review my agent file", "check the agents/ frontmatter", "audit agent tool grants" |
+| **skill-critic** | Plugin-skill reviewer | "review this SKILL.md", "check skill discipline", "audit fuzzy-detection in skills" |
+| **hook-critic** | Plugin-hook reviewer | "review my hooks", "check hooks.json matchers", "audit the hook contract" |
+| **mcp-critic** | Plugin-MCP reviewer | "review my .mcp.json", "audit the MCP tool surface", "check actor validation on tools" |
+| **structure-critic** | Plugin-structure reviewer | "audit plugin.json", "check version sync", "review CHANGELOG discipline" |
 
 ## Using Agents Individually
 

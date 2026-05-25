@@ -42,7 +42,7 @@ description: >
 
 model: opus
 color: teal
-allowed-tools:
+tools:
   - Read
   - Grep
   - Glob
