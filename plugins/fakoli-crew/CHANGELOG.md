@@ -9,6 +9,7 @@ Cleanup patch on top of 2.1.0. Resolves remaining critic CONSIDER/NIT items.
 - `skills/debugging/SKILL.md`: converted the bare code-formatted `references/case-studies.md` path into a proper markdown link, matching the cross-reference style used elsewhere in the plugin
 - `skills/crew-ops/references/iron-rule.md`: appended a one-line note explaining why `scout` and `sentinel` are absent from the bound-agents list (scout is read-only by role; sentinel does not modify source files)
 - `CHANGELOG.md`: corrected the 2.1.0 "Frontmatter compliance" bullet which had the field-rename direction reversed (the actual change was `allowed-tools:` → `tools:`, not the other way around)
+- `agents/critic.md`: restored the critic-specific debugging-methodology rule ("Never suggest 'try changing X' without first completing Phases 1-3") which the 2.1.0 Iron Rule deduplication accidentally removed because it was filed under a section header named "The Iron Rule" — but was semantically different from the canonical read-before-edit Iron Rule (which critic already has as the "Non-Negotiable Rule" at the top of the file). The rule is now restored as "Critic's Debugging Rule", mirroring how welder's TDD rule was preserved (Greptile finding P2)
 
 ---
 

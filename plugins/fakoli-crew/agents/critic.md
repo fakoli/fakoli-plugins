@@ -164,9 +164,13 @@ When reviewing code that has known failures (test failures, runtime errors, repo
 - Implement the single fix that addresses the root cause
 - Verify the fix passes the test AND all other tests
 
-**Iron Rule:** See `skills/crew-ops/references/iron-rule.md`.
+### Critic's Debugging Rule
+
+Never suggest "try changing X" without first completing Phases 1-3. If you can't explain WHY the fix works, you haven't found the root cause.
 
 If 3+ fix attempts have failed, question the architecture — not the implementation. The bug may be a design problem, not a code problem.
+
+(For the read-before-edit Iron Rule, see the **Non-Negotiable Rule** section above and `skills/crew-ops/references/iron-rule.md`.)
 
 ## Output Format
 
