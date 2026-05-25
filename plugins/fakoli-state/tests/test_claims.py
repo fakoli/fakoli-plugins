@@ -823,6 +823,59 @@ class TestStaleDetection:
 
 
 # ---------------------------------------------------------------------------
+# CL-3 regression: _reap_stale_claims must NOT swallow SchemaMismatch
+# ---------------------------------------------------------------------------
+
+
+class TestReapStaleClaimsSchemaMismatch:
+    """The CLI helper ``_reap_stale_claims`` is wrapped in a try/except so
+    transient reaper failures never abort the primary command. Before CL-3
+    that except was a bare ``except Exception`` that also swallowed
+    ``SchemaMismatch`` — leaving users with a confusing secondary error
+    from their actual command instead of the clean "your DB schema is out
+    of sync" message. Verify the helper now lets SchemaMismatch propagate
+    while still swallowing operational errors (StateLocked, TransactionAborted).
+    """
+
+    def test_schema_mismatch_propagates(self, tmp_path: Path) -> None:
+        from fakoli_state.cli._helpers import _reap_stale_claims
+        from fakoli_state.state.backend import SchemaMismatch
+
+        class _Boom:
+            """Stand-in backend whose list_active_claims raises SchemaMismatch.
+            The stale detector calls this first; the mismatch surfaces from
+            inside ``detect_and_release_stale``.
+            """
+
+            def list_active_claims(self) -> list[Any]:
+                raise SchemaMismatch("on-disk user_version=99 != expected=10")
+
+        with pytest.raises(SchemaMismatch, match="user_version"):
+            _reap_stale_claims(_Boom())  # type: ignore[arg-type]
+
+    def test_state_locked_is_swallowed(self, tmp_path: Path) -> None:
+        from fakoli_state.cli._helpers import _reap_stale_claims
+        from fakoli_state.state.backend import StateLocked
+
+        class _Locked:
+            def list_active_claims(self) -> list[Any]:
+                raise StateLocked("busy_timeout exceeded")
+
+        # Must NOT raise — reaping is best-effort for transient lock contention.
+        _reap_stale_claims(_Locked())  # type: ignore[arg-type]
+
+    def test_transaction_aborted_is_swallowed(self, tmp_path: Path) -> None:
+        from fakoli_state.cli._helpers import _reap_stale_claims
+        from fakoli_state.state.backend import TransactionAborted
+
+        class _Aborted:
+            def list_active_claims(self) -> list[Any]:
+                raise TransactionAborted("rolled back")
+
+        _reap_stale_claims(_Aborted())  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
 # TestCheckConflicts
 # ---------------------------------------------------------------------------
 
@@ -966,6 +1019,101 @@ class TestCheckConflicts:
             m = _make_manager(b, actor="agent-alpha")
             conflicts = m.check_conflicts("T001", [])
             assert conflicts == []  # empty files → no file-overlap conflict
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# PS-1 regression: _check_group_conflicts must not be N+1
+# ---------------------------------------------------------------------------
+
+
+class TestCheckGroupConflictsBulkFetch:
+    """``_check_group_conflicts`` used to call ``backend.get_task`` once per
+    active claim — an N+1 query that scaled badly with parallel-agent counts.
+    After PS-1 it does one ``list_active_claims`` + one ``list_tasks`` call
+    regardless of how many active claims share a conflict_group with the
+    target. Verify by wrapping the backend in a call-counter.
+    """
+
+    def test_check_group_conflicts_does_not_call_get_task_per_claim(
+        self, tmp_path: Path
+    ) -> None:
+        clock = _make_clock()
+        b = _make_backend(tmp_path, clock)
+        try:
+            _setup_project(b)
+            _setup_prd(b)
+
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            _insert_feature_raw(conn)
+            # Target task T001 is in conflict_group "auth" and ready to claim.
+            _insert_task_raw(
+                conn, task_id="T001", status="ready",
+                conflict_groups=["auth"],
+            )
+            # Five other tasks ALSO in "auth", all already claimed by others.
+            for i in range(2, 7):
+                tid = f"T00{i}"
+                _insert_task_raw(
+                    conn, task_id=tid, status="claimed",
+                    conflict_groups=["auth"],
+                )
+                _insert_active_claim_raw(
+                    conn, claim_id=f"C00{i}", task_id=tid,
+                    actor=f"agent-{i}",
+                )
+            conn.close()
+
+            # Wrap the backend in a counter that tracks how many times each
+            # query method was invoked while computing group conflicts.
+            class _Counter:
+                def __init__(self, inner: SqliteBackend) -> None:
+                    self.inner = inner
+                    self.get_task_calls = 0
+                    self.list_tasks_calls = 0
+                    self.list_active_claims_calls = 0
+
+                def __getattr__(self, name: str) -> Any:
+                    return getattr(self.inner, name)
+
+                def get_task(self, task_id: str) -> Any:
+                    self.get_task_calls += 1
+                    return self.inner.get_task(task_id)
+
+                def list_tasks(self, **kw: Any) -> Any:
+                    self.list_tasks_calls += 1
+                    return self.inner.list_tasks(**kw)
+
+                def list_active_claims(self) -> Any:
+                    self.list_active_claims_calls += 1
+                    return self.inner.list_active_claims()
+
+            counter = _Counter(b)
+            mgr = _make_manager(counter, actor="agent-1", clock=clock)  # type: ignore[arg-type]
+            target = b.get_task("T001")
+            assert target is not None
+
+            # Directly exercise the helper to isolate its query pattern from
+            # the surrounding claim() call (which has its own queries).
+            counter.get_task_calls = 0
+            counter.list_tasks_calls = 0
+            counter.list_active_claims_calls = 0
+            conflicts = mgr._check_group_conflicts(target)  # noqa: SLF001
+
+            # All five other auth-group tasks should be flagged as conflicts.
+            assert len(conflicts) == 5
+
+            # PS-1: at most one list_active_claims + one list_tasks; ZERO
+            # per-claim get_task calls. Before the fix this was 5 get_task
+            # round-trips (one per active claim).
+            assert counter.list_active_claims_calls == 1
+            assert counter.list_tasks_calls == 1
+            assert counter.get_task_calls == 0, (
+                f"PS-1 regression: _check_group_conflicts performed "
+                f"{counter.get_task_calls} per-claim get_task call(s); "
+                "should be 0 after bulk-fetch refactor."
+            )
         finally:
             b.close()
 

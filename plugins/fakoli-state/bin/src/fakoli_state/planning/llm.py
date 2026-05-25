@@ -158,6 +158,8 @@ class LLMProvider(Protocol):
 
 # Current Sonnet id per environment context (claude-opus-4-7 is the agent;
 # claude-sonnet-4-6 is the lighter model appropriate for planning augmentation).
+# Last verified against Anthropic API: 2026-05-25. Anthropic model ids change;
+# refresh this when a newer Sonnet generation supersedes 4.6.
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 
 

@@ -106,7 +106,13 @@ def _is_test_related(item_lower: str) -> bool:
 
 
 def _contains_test_keyword(cmd_lower: str) -> bool:
-    """Return True if a command string invokes a test runner."""
+    """Return True if a command string actually runs tests.
+
+    Excludes runner invocations that only enumerate / collect tests without
+    executing them (e.g. ``pytest --collect-only``, ``pytest --co``), which
+    exit 0 with zero tests run and would falsely satisfy a "tests pass"
+    evidence gate. Reported in tech-debt-backlog CL-9 (PR #41 Critic-1).
+    """
     test_runners = (
         "pytest",
         "cargo test",
@@ -120,7 +126,13 @@ def _contains_test_keyword(cmd_lower: str) -> bool:
         "make test",
         "uv run pytest",
     )
-    return any(runner in cmd_lower for runner in test_runners)
+    if not any(runner in cmd_lower for runner in test_runners):
+        return False
+    # Reject collection-only invocations — they exit 0 but run zero tests.
+    collect_only_flags = ("--collect-only", "--co ", "--co\t", " --co")
+    if any(flag in cmd_lower for flag in collect_only_flags) or cmd_lower.rstrip().endswith("--co"):
+        return False
+    return True
 
 
 def _is_pr_related(item_lower: str) -> bool:

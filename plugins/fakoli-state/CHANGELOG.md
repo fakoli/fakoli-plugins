@@ -12,6 +12,50 @@ Phase 8 remains scheduled. It ships as its own PR into the fakoli-plugins monore
 
 ---
 
+## [1.7.1] — 2026-05-25
+
+Backlog cleanup. Closes 14 items from the deferred review backlog
+(`docs/tech-debt-backlog.md`) — 6 correctness fixes (welder), 5 doc/config
+cleanups, and the leftover deferrals from the PR #47 critic review. No
+behavior changes visible to existing CLI / MCP callers.
+
+### Fixed (correctness — welder backlog wave)
+
+- CL-1: `hooks/check-claim.sh` now invokes the `hook check-claim --file --actor` CLI subcommand (Phase 5) instead of parsing `status --hook-format` output (Phase 4 leftover that fired on any claim regardless of file scope).
+- CL-3: `_reap_stale_claims` no longer swallows `SchemaMismatch`; narrowed catch to `(StateLocked, TransactionAborted)` so DDL drift surfaces loudly.
+- CL-8: `_handle_evidence_submitted` rejects double-submit with a different `evidence_id` for the same claim; emits the established `warn.idempotent_no_op` JSONL tombstone instead of inserting a duplicate row.
+- CL-11: `planning.template.parse_prd` accepts an optional `clock: Clock`; `_parse_tasks` now requires a clock injection instead of calling `datetime.now()` directly.
+- CL-13: `SqliteBackend.next_event_id` now raises `RuntimeError` via `_require_conn()` instead of returning the hardcoded `"E000001"` when the connection is closed — eliminates the silent collision-on-reopen footgun.
+- PS-1: `ClaimManager._check_group_conflicts` collapses 1+N round-trips into 2 via a single bulk `list_tasks()` + in-memory `dict[task_id, Task]` lookup.
+
+### Fixed (small cleanups)
+
+- CL-7: `agents/critic.md` and `agents/sentinel.md` color collisions with fakoli-crew — state/critic purple → magenta, state/sentinel cyan → gray.
+- CL-9: `review.gates._contains_test_keyword` no longer matches `pytest --collect-only` / `--co` (zero-test runs were satisfying the "tests pass" evidence gate).
+- CL-14: `skills/finish/SKILL.md` text updated — the apply flow emits a single `task.applied` event, not the nonexistent `review.created` + `task.status_changed` pair.
+- PS-2: `init` no longer pre-creates `.fakoli-state/snapshots/`; the directory will be created on first use when `fakoli-state snapshot` ships.
+
+### Fixed (PR #47 critic deferrals)
+
+- S2 / Greptile-G1 (already in 1.7.0): noted closed.
+- S5: `template.DESCRIPTION_SHORT_THRESHOLD` is now public; CLI `plan --use-llm` help text references the constant rather than the literal "50".
+- N1: comment in `parse_prd` clarifies that HTML-comment stripping runs before the LLM augmentation pass.
+- N2: `parse_prd`'s reserved `prd_id` parameter now uses `# noqa: ARG001` instead of the `_ = prd_id` discard idiom.
+- N3: `planning.llm._DEFAULT_MODEL` carries a "Last verified" date comment so future maintainers know when to refresh.
+- N5: removed the unused `responses>=0.25` dev dependency (the test suite mocks the anthropic SDK at the `unittest.mock` level since `anthropic` uses `httpx`, not `requests`).
+
+### Documentation
+
+- `docs/evidence-buffer.md` (NEW) — format, lifecycle, orphan.json policy, sentinel interaction, cleanup. Closes CL-15.
+- `docs/tech-debt-backlog.md` status markers updated: P6-1..P6-5 marked DONE (closed in PR #44); CL-7/CL-9/CL-14/CL-15/PS-2 DONE (this PR); TQ-5 DONE (PR #42 fixup).
+
+### Tests
+
+- 639 → 653 pytest tests (+14): 6 for CL-9 collection-only exclusion, 3 for CL-3 SchemaMismatch propagation, 1 for CL-8 double-submit guard + strengthened existing CL-8 test, 2 for CL-11 clock injection, 1 for CL-13 require-conn guard, 1 for PS-1 N+1 → 2 query collapse.
+- 18 → 21 bash hook tests (+3 for CL-1 invocation surface).
+
+---
+
 ## [1.7.0] — 2026-05-25
 
 Phase 7: LLM augmentation. Adds an `LLMProvider` Protocol with an Anthropic-backed implementation (ephemeral prompt caching on the system block) and a `RecordedLLMProvider` test double, wires opt-in `--use-llm` flags into `plan`, `score`, and `expand`, and ships a brainstorm skill that bridges to `fakoli-flow:brainstorm`. The deterministic planning engine is unchanged — LLM enrichment is strictly additive and falls back cleanly on missing key, missing recording, or mid-operation failure.

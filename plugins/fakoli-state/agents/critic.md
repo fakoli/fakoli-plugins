@@ -22,7 +22,7 @@ description: >
   </example>
 
 model: opus
-color: purple
+color: magenta
 allowed-tools:
   - Read
   - Grep

@@ -225,6 +225,53 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Regression test (CL-1): check-claim.sh invokes the per-file CLI subcommand
+# `hook check-claim --file <PATH> --actor <ACTOR>` rather than the old
+# `status --hook-format` count-based check.  We stub a fake CLI binary that
+# records the arguments it was called with and assert the shell hook called
+# the right subcommand with the right flags.
+# ---------------------------------------------------------------------------
+CC_DIR="${TMP_DIR}/cc-cli-stub"
+mkdir -p "${CC_DIR}/.fakoli-state"
+touch "${CC_DIR}/.fakoli-state/state.db"
+
+STUB_ROOT="${TMP_DIR}/cc-plugin"
+mkdir -p "${STUB_ROOT}/bin"
+STUB_CLI="${STUB_ROOT}/bin/fakoli-state"
+STUB_LOG="${TMP_DIR}/cc-cli-args.log"
+
+# Embed the absolute log path into the stub via heredoc expansion (unquoted
+# delimiter) so the stub records to a known file regardless of caller env.
+cat > "$STUB_CLI" <<STUB
+#!/usr/bin/env bash
+# Test stub for fakoli-state CLI — record argv to ${STUB_LOG} and exit 0.
+printf '%s\n' "\$*" >> "${STUB_LOG}"
+exit 0
+STUB
+chmod +x "$STUB_CLI"
+
+cd "$CC_DIR" || exit 1
+: > "$STUB_LOG"
+PAYLOAD='{"tool_name":"Edit","tool_input":{"path":"src/foo.py"},"session_id":"sess-cl1"}'
+printf '%s' "$PAYLOAD" | CLAUDE_PLUGIN_ROOT="$STUB_ROOT" bash "$CHECK_CLAIM" 2>/dev/null
+EXIT_CODE=$?
+_assert_exit_zero "check-claim (CL-1): invokes CLI and exits 0" "$EXIT_CODE"
+
+# The stub should have been called exactly once with the per-file subcommand.
+if grep -q '^hook check-claim --file src/foo.py --actor sess-cl1$' "$STUB_LOG" 2>/dev/null; then
+  _pass "check-claim (CL-1): invoked 'hook check-claim --file <PATH> --actor <ACTOR>'"
+else
+  _fail "check-claim (CL-1): did not invoke per-file CLI subcommand (log: $(cat "$STUB_LOG"))"
+fi
+
+# The stub MUST NOT have been called with the legacy status --hook-format path.
+if grep -q 'status --hook-format' "$STUB_LOG" 2>/dev/null; then
+  _fail "check-claim (CL-1): still calls legacy 'status --hook-format' (log: $(cat "$STUB_LOG"))"
+else
+  _pass "check-claim (CL-1): legacy 'status --hook-format' invocation removed"
+fi
+
+# ---------------------------------------------------------------------------
 # Smoke test 15: capture-evidence.sh exits 0 for exit_code=1 verification command
 # (hook must never block even when the test run itself failed)
 # ---------------------------------------------------------------------------

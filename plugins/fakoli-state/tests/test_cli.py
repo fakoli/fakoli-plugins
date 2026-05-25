@@ -60,7 +60,8 @@ class TestInit:
         assert (state_dir / "events.jsonl").exists(), "events.jsonl not created"
         assert (state_dir / "config.yaml").exists(), "config.yaml not created"
         assert (state_dir / "packets").is_dir(), "packets/ not created"
-        assert (state_dir / "snapshots").is_dir(), "snapshots/ not created"
+        # snapshots/ is no longer pre-created at init (PS-2);
+        # `fakoli-state snapshot` will create it on first use.
 
     def test_init_output_contains_project_name(self, tmp_path: Path) -> None:
         """init prints confirmation with the project name."""

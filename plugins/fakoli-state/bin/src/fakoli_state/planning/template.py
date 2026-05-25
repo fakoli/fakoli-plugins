@@ -52,7 +52,6 @@ Expected PRD structure (must match docs/prd-template.md):
 
 from __future__ import annotations
 
-import datetime
 import re
 import sys
 from dataclasses import dataclass
@@ -70,6 +69,7 @@ from fakoli_state.state.models import (
 )
 
 if TYPE_CHECKING:
+    from fakoli_state.clock import Clock
     from fakoli_state.planning.llm import LLMProvider
 
 __all__ = [
@@ -88,14 +88,16 @@ _DESCRIPTION_ENRICH_SYSTEM_PROMPT = (
     "No marketing language."
 )
 _DESCRIPTION_ENRICH_MAX_TOKENS = 400
-# Tasks with descriptions shorter than this trigger LLM enrichment.
-_DESCRIPTION_SHORT_THRESHOLD = 50
+
+# Public so callers / docs / CLI help text can reference the threshold via
+# `template.DESCRIPTION_SHORT_THRESHOLD` instead of duplicating the literal.
+DESCRIPTION_SHORT_THRESHOLD = 50
+# Backwards-compat alias for any internal/test imports of the private name.
+_DESCRIPTION_SHORT_THRESHOLD = DESCRIPTION_SHORT_THRESHOLD
 
 # ---------------------------------------------------------------------------
 # Public data types
 # ---------------------------------------------------------------------------
-
-_UTC = datetime.UTC
 
 
 class ParseError(NamedTuple):
@@ -383,12 +385,19 @@ def _parse_tasks(
     start_line: int,
     known_feat_ids: set[str],
     errors: list[ParseError],
+    clock: Clock,
 ) -> list[Task]:
-    """Parse all ### TXxx: Title blocks within ## Tasks."""
+    """Parse all ### TXxx: Title blocks within ## Tasks.
+
+    CL-11: ``clock`` is required (not Optional with a default) so callers
+    cannot accidentally regress to ``datetime.now()``. ``parse_prd`` supplies
+    a ``SystemClock`` when callers do not pass one, preserving backwards
+    compatibility at the public-API boundary.
+    """
     tasks: list[Task] = []
     auto_index = 1
     blocks = _parse_h3_blocks(body, start_line)
-    now = datetime.datetime.now(_UTC)
+    now = clock.now()
 
     for block_line, heading, block_lines in blocks:
         m_h3 = _H3_RE.match(f"### {heading}")
@@ -531,8 +540,9 @@ def _parse_tasks(
 def parse_prd(
     markdown: str,
     *,
-    prd_id: str = "prd",
+    prd_id: str = "prd",  # noqa: ARG001 — reserved for future multi-PRD support
     provider: LLMProvider | None = None,
+    clock: Clock | None = None,
 ) -> ParseResult:
     """Parse a structured markdown PRD into Pydantic models.
 
@@ -541,6 +551,11 @@ def parse_prd(
         prd_id:   An optional identifier for the PRD (used in error messages).
         provider: Optional LLM provider used to enrich short Task descriptions
                   (Phase 7 Wave 2).  Pure-deterministic when ``None``.
+        clock:    Optional Clock used to stamp ``Task.created_at`` /
+                  ``updated_at``. Defaults to ``SystemClock()`` for backwards
+                  compatibility. CL-11: the parser used to call
+                  ``datetime.now()`` directly, bypassing the project's Clock
+                  abstraction and forcing tests into monkeypatch territory.
 
     Returns:
         A ParseResult containing the parsed PRD, Requirements, Features, and
@@ -558,14 +573,18 @@ def parse_prd(
           pass.  LLM failures fall back to the deterministic description with
           a warning to stderr — they NEVER abort the parse.
     """
-    # prd_id is reserved for future multi-PRD setups; not used in v0 (single
-    # PRD per project). Acknowledge to silence linters without breaking the
-    # API contract callers might rely on.
-    _ = prd_id
+    if clock is None:
+        # Default to SystemClock at call time so existing callers don't have
+        # to thread a clock through. Tests inject FrozenClock explicitly.
+        from fakoli_state.clock import SystemClock
+        clock = SystemClock()
 
     errors: list[ParseError] = []
 
     # --- Pre-processing --------------------------------------------------
+    # HTML comments are stripped here so the LLM augmentation pass at the
+    # bottom of this function sees the cleaned text — never the raw PRD
+    # markup with comments inside it.
     cleaned = _strip_html_comments(markdown)
     lines = cleaned.splitlines()
 
@@ -697,7 +716,7 @@ def parse_prd(
     task_block = sections.get("tasks")
     if task_block is not None:
         tasks = _parse_tasks(
-            task_block[1], task_block[0], known_feat_ids, errors
+            task_block[1], task_block[0], known_feat_ids, errors, clock
         )
 
     # --- Link task IDs back onto their Features -------------------------

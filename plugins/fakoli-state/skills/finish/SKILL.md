@@ -96,7 +96,7 @@ All verification commands exited 0, evidence is complete, and the diff matches t
 fakoli-state apply T012 --approve
 ```
 
-This transitions the task `needs_review → accepted → done` and writes a `Review` row to `state.db` with the approver identity, timestamp, and disposition. Two events are appended to `events.jsonl`: `review.created` and `task.status_changed`.
+This transitions the task `needs_review → accepted → done` and writes a `Review` row to `state.db` with the approver identity, timestamp, and disposition. A single `task.applied` event is appended to `events.jsonl` carrying the decision; the handler does the Review insertion and the status transition atomically in one transaction.
 
 After `apply --approve`, merge the branch via the project's normal git workflow — fakoli-state does not auto-merge. See Step 4 for the ship sequence.
 

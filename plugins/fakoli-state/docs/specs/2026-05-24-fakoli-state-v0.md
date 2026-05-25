@@ -129,7 +129,7 @@ fakoli-state/
 ├── events.jsonl               # append-only audit/event log
 ├── prd.md                     # the PRD source
 ├── packets/                   # generated work packets
-└── snapshots/                 # opt-in periodic snapshots
+└── snapshots/                 # opt-in periodic snapshots (created on first `fakoli-state snapshot`)
 ```
 
 ### Component responsibilities

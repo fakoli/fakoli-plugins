@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fakoli_state.review.gates import evidence_complete
+from fakoli_state.review.gates import _contains_test_keyword, evidence_complete
 from fakoli_state.state.models import (
     Evidence,
     Score,
@@ -282,3 +282,30 @@ class TestEvidenceComplete:
         assert isinstance(result_fail, tuple)
         assert isinstance(result_fail[0], bool)
         assert isinstance(result_fail[1], list)
+
+
+# ---------------------------------------------------------------------------
+# CL-9 regression: collection-only invocations must NOT satisfy "test ran" gate
+# ---------------------------------------------------------------------------
+
+
+class TestContainsTestKeywordCollectionOnly:
+    """`pytest --collect-only` exits 0 but runs zero tests; must NOT count."""
+
+    def test_pytest_runs_tests(self) -> None:
+        assert _contains_test_keyword("pytest tests/")
+
+    def test_pytest_collect_only_rejected(self) -> None:
+        assert not _contains_test_keyword("pytest --collect-only tests/")
+
+    def test_pytest_co_short_form_rejected(self) -> None:
+        assert not _contains_test_keyword("pytest --co tests/")
+
+    def test_pytest_collect_only_at_end_rejected(self) -> None:
+        assert not _contains_test_keyword("pytest tests/ --collect-only")
+
+    def test_pytest_co_at_end_rejected(self) -> None:
+        assert not _contains_test_keyword("pytest tests/ --co")
+
+    def test_uv_run_pytest_collect_only_rejected(self) -> None:
+        assert not _contains_test_keyword("uv run pytest --collect-only")

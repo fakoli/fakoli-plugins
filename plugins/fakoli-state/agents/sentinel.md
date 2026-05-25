@@ -19,7 +19,7 @@ description: >
   </example>
 
 model: opus
-color: cyan
+color: gray
 allowed-tools:
   - Read
   - Grep
