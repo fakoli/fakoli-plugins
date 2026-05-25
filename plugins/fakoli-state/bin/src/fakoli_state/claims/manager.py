@@ -629,31 +629,24 @@ class ClaimManager:
     # ------------------------------------------------------------------
 
     def _generate_claim_id(self) -> str:
-        """Generate a C###-format claim ID.
+        """Generate a collision-safe claim ID: 'C' + 8 hex chars from UUID4.
 
-        Queries all active claims for the max existing C### and increments.
-        Falls back to a short UUID-derived hex string if no C###-format claims
-        exist yet, prefixed with 'C' to satisfy downstream CHECK constraints.
+        The original implementation tried to produce sequential C### IDs by
+        incrementing the max of currently-ACTIVE claims. Greptile flagged
+        the silent-collision risk: if a historical (released/stale) claim
+        shares the same ID — possible when sequential allocation collides
+        with previously-issued numbers the active-only scan can't see —
+        the SQL handler's INSERT OR IGNORE would silently no-op, leaving
+        the task associated with the OLD claim row while the user is
+        told the new claim succeeded.
 
-        This method scans active claims only (what the Backend protocol exposes).
-        Full-history C### monotonicity requires welder's SQL handler to do a
-        MAX(id) query across all claims inside the transaction, so the ID in
-        the claim.created event payload is advisory; welder may override it.
+        Always using UUID-derived hex makes collision statistically
+        impossible (32 bits, ~4 billion-to-one) and removes the
+        scan-and-increment race entirely. We lose human-readable
+        sequential numbering in exchange for correctness — fine for an
+        internal identifier.
         """
-        active_claims = self._backend.list_active_claims()
-        max_n = 0
-        for claim in active_claims:
-            cid = claim.id
-            if cid.startswith("C") and cid[1:].isdigit():
-                max_n = max(max_n, int(cid[1:]))
-
-        if max_n > 0:
-            return f"C{max_n + 1:03d}"
-
-        # No C###-format claims in the active set.  Use a 6-hex UUID fragment
-        # to avoid collisions when the backend has non-active claims that we
-        # cannot see through the current protocol.
-        return "C" + uuid.uuid4().hex[:6].upper()
+        return "C" + uuid.uuid4().hex[:8].upper()
 
     def _generate_event_id(self) -> str:
         """Delegate to the backend so CLI and ClaimManager produce identical

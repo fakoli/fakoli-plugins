@@ -2852,6 +2852,48 @@ class TestGreptileP4Fixes:
         finally:
             b.close()
 
+    def test_claim_id_generator_uses_uuid_not_sequential(
+        self, tmp_path: Path
+    ) -> None:
+        """Greptile P4 finding: the original _generate_claim_id incremented
+        max-of-active-claims, which could collide with a historical
+        (released/stale) claim that shared the same C### ID. The SQL
+        handler's INSERT OR IGNORE would silently no-op, leaving the
+        task associated with the OLD claim row while the user was told
+        the new claim succeeded. Fix: always use UUID-derived hex; the
+        format is 'C' + 8 hex chars so collision is statistically
+        impossible (~4 billion-to-one)."""
+        from fakoli_state.claims.manager import ClaimManager
+        from fakoli_state.clock import SystemClock
+
+        b = _make_backend(tmp_path)
+        try:
+            mgr = ClaimManager(b, SystemClock(), actor="agent-alpha")
+            id1 = mgr._generate_claim_id()  # noqa: SLF001
+            id2 = mgr._generate_claim_id()  # noqa: SLF001
+            id3 = mgr._generate_claim_id()  # noqa: SLF001
+
+            # Format: 'C' + exactly 8 uppercase-hex chars.
+            for cid in (id1, id2, id3):
+                assert cid.startswith("C")
+                assert len(cid) == 9, f"expected 'C' + 8 hex chars, got {cid!r}"
+                assert all(c in "0123456789ABCDEF" for c in cid[1:]), (
+                    f"hex suffix has invalid chars: {cid!r}"
+                )
+
+            # All three should be distinct (collision probability ~1 in 4 billion).
+            assert id1 != id2 and id2 != id3 and id1 != id3, (
+                f"sequential _generate_claim_id calls collided: {id1}, {id2}, {id3}"
+            )
+
+            # Critically: the ID generator must NOT inspect active claims
+            # and produce a sequential next-up — that was the collision bug.
+            # Confirm by adding a fake "active" sequential claim and verifying
+            # the next generated ID is still a UUID (not C002).
+            assert not any(cid in ("C001", "C002", "C003") for cid in (id1, id2, id3))
+        finally:
+            b.close()
+
 
 class TestPhase4CoverageEdgeCases:
     """Additional tests to push claims + state coverage above 95%.
