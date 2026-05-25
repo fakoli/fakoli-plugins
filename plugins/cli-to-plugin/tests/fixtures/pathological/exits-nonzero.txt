@@ -1,0 +1,31 @@
+# This file represents stdout captured from a CLI that prints help text
+# but exits with a non-zero status code (e.g., exit code 1).
+#
+# Exit behavior: CLI exits 1 even when --help is passed.
+# discover.py should: parse this output anyway, and add a warning entry
+# to discovery.warnings (e.g., "CLI exited with code 1 during help fetch").
+# The discovery run should NOT abort on non-zero exit when stdout is non-empty.
+#
+# Real-world example: some CLIs (older versions of git subcommands,
+# certain Docker plugins) return exit 1 on --help while printing full help.
+
+BADCLI — A CLI that exits non-zero on --help.
+
+USAGE
+  badcli <command> [flags]
+
+COMMANDS
+  start:    Start the process
+  stop:     Stop the process
+  status:   Show process status
+  config:   Manage configuration
+
+FLAGS
+  --help      Show help for command
+  --version   Show version
+
+EXAMPLES
+  $ badcli start
+  $ badcli status
+
+Note: This CLI always exits 1, even when displaying help.

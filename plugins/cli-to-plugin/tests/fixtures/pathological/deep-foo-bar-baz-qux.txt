@@ -1,0 +1,11 @@
+Qux sub-subcommand group.
+
+USAGE
+  foo bar baz qux <command> [flags]
+
+COMMANDS
+  quux:   Quux (depth 4 — must NOT be walked by discover.py)
+  also:   Also depth 4 — must NOT be walked
+
+INHERITED FLAGS
+  --help   Show help for command

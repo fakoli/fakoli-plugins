@@ -1,0 +1,12 @@
+FOO — A deeply nested synthetic CLI.
+
+USAGE
+  foo <command> [flags]
+
+COMMANDS
+  bar:    Bar command group (has subcommands)
+  top:    A flat top-level command (no subcommands)
+
+FLAGS
+  --help      Show help for command
+  --version   Show version

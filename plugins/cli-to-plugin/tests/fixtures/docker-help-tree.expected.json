@@ -1,0 +1,172 @@
+{
+  "cli": {
+    "name": "docker",
+    "binary": "/usr/local/bin/docker",
+    "version": "29.3.1",
+    "summary": "A self-sufficient runtime for containers"
+  },
+  "global_flags": [
+    {
+      "long": "--config",
+      "argument": "string",
+      "description": "Location of client config files (default \"/Users/sdoumbouya/.docker\")"
+    },
+    {
+      "short": "-c",
+      "long": "--context",
+      "argument": "string",
+      "description": "Name of the context to use to connect to the daemon (overrides DOCKER_HOST env var and default context set with \"docker context use\")"
+    },
+    {
+      "short": "-D",
+      "long": "--debug",
+      "description": "Enable debug mode"
+    },
+    {
+      "short": "-H",
+      "long": "--host",
+      "argument": "string",
+      "description": "Daemon socket to connect to"
+    },
+    {
+      "short": "-l",
+      "long": "--log-level",
+      "argument": "string",
+      "description": "Set the logging level (\"debug\", \"info\", \"warn\", \"error\", \"fatal\") (default \"info\")"
+    },
+    {
+      "long": "--tls",
+      "description": "Use TLS; implied by --tlsverify"
+    },
+    {
+      "long": "--tlscacert",
+      "argument": "string",
+      "description": "Trust certs signed only by this CA (default \"/Users/sdoumbouya/.docker/ca.pem\")"
+    },
+    {
+      "long": "--tlscert",
+      "argument": "string",
+      "description": "Path to TLS certificate file (default \"/Users/sdoumbouya/.docker/cert.pem\")"
+    },
+    {
+      "long": "--tlskey",
+      "argument": "string",
+      "description": "Path to TLS key file (default \"/Users/sdoumbouya/.docker/key.pem\")"
+    },
+    {
+      "long": "--tlsverify",
+      "description": "Use TLS and verify the remote"
+    },
+    {
+      "short": "-v",
+      "long": "--version",
+      "description": "Print version information and quit"
+    }
+  ],
+  "groups": [
+    {
+      "name": "container",
+      "path": ["container"],
+      "summary": "Manage containers",
+      "commands": [
+        {
+          "name": "run",
+          "path": ["container", "run"],
+          "summary": "Create and run a new container from an image"
+        },
+        {
+          "name": "ls",
+          "path": ["container", "ls"],
+          "summary": "List containers"
+        },
+        {
+          "name": "stop",
+          "path": ["container", "stop"],
+          "summary": "Stop one or more running containers"
+        },
+        {
+          "name": "rm",
+          "path": ["container", "rm"],
+          "summary": "Remove one or more containers"
+        }
+      ]
+    },
+    {
+      "name": "image",
+      "path": ["image"],
+      "summary": "Manage images",
+      "commands": [
+        {
+          "name": "build",
+          "path": ["image", "build"],
+          "summary": "Build an image from a Dockerfile"
+        },
+        {
+          "name": "ls",
+          "path": ["image", "ls"],
+          "summary": "List images"
+        },
+        {
+          "name": "pull",
+          "path": ["image", "pull"],
+          "summary": "Download an image from a registry"
+        },
+        {
+          "name": "rm",
+          "path": ["image", "rm"],
+          "summary": "Remove one or more images"
+        }
+      ]
+    },
+    {
+      "name": "volume",
+      "path": ["volume"],
+      "summary": "Manage volumes",
+      "commands": [
+        {
+          "name": "create",
+          "path": ["volume", "create"],
+          "summary": "Create a volume"
+        },
+        {
+          "name": "ls",
+          "path": ["volume", "ls"],
+          "summary": "List volumes"
+        },
+        {
+          "name": "rm",
+          "path": ["volume", "rm"],
+          "summary": "Remove one or more volumes"
+        }
+      ]
+    },
+    {
+      "name": "network",
+      "path": ["network"],
+      "summary": "Manage networks",
+      "commands": [
+        {
+          "name": "create",
+          "path": ["network", "create"],
+          "summary": "Create a network"
+        },
+        {
+          "name": "ls",
+          "path": ["network", "ls"],
+          "summary": "List networks"
+        },
+        {
+          "name": "rm",
+          "path": ["network", "rm"],
+          "summary": "Remove one or more networks"
+        }
+      ]
+    }
+  ],
+  "discovery": {
+    "depth_reached": 2,
+    "commands_walked": 15,
+    "elapsed_ms": 0,
+    "warnings": []
+  }
+}
