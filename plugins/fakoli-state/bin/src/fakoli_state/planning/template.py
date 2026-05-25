@@ -54,8 +54,9 @@ from __future__ import annotations
 
 import datetime
 import re
+import sys
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from fakoli_state.state.models import (
     PRD,
@@ -68,11 +69,27 @@ from fakoli_state.state.models import (
     Verification,
 )
 
+if TYPE_CHECKING:
+    from fakoli_state.planning.llm import LLMProvider
+
 __all__ = [
     "ParseError",
     "ParseResult",
     "parse_prd",
 ]
+
+# ---------------------------------------------------------------------------
+# LLM augmentation constants (Phase 7 Wave 2)
+# ---------------------------------------------------------------------------
+
+_DESCRIPTION_ENRICH_SYSTEM_PROMPT = (
+    "You are turning a one-line requirement into a self-contained task "
+    "description for an AI agent. Keep it under 4 sentences. "
+    "No marketing language."
+)
+_DESCRIPTION_ENRICH_MAX_TOKENS = 400
+# Tasks with descriptions shorter than this trigger LLM enrichment.
+_DESCRIPTION_SHORT_THRESHOLD = 50
 
 # ---------------------------------------------------------------------------
 # Public data types
@@ -511,12 +528,19 @@ def _parse_tasks(
 # ---------------------------------------------------------------------------
 
 
-def parse_prd(markdown: str, *, prd_id: str = "prd") -> ParseResult:
+def parse_prd(
+    markdown: str,
+    *,
+    prd_id: str = "prd",
+    provider: LLMProvider | None = None,
+) -> ParseResult:
     """Parse a structured markdown PRD into Pydantic models.
 
     Args:
         markdown: The full PRD markdown source.
         prd_id:   An optional identifier for the PRD (used in error messages).
+        provider: Optional LLM provider used to enrich short Task descriptions
+                  (Phase 7 Wave 2).  Pure-deterministic when ``None``.
 
     Returns:
         A ParseResult containing the parsed PRD, Requirements, Features, and
@@ -529,6 +553,10 @@ def parse_prd(markdown: str, *, prd_id: str = "prd") -> ParseResult:
           ## Requirements) produce ParseError entries.
         - IDs are auto-assigned when absent.
         - HTML comments are stripped before parsing.
+        - LLM augmentation is additive: deterministic parse runs first, then
+          each Task with a short description (<50 chars) gets an enrichment
+          pass.  LLM failures fall back to the deterministic description with
+          a warning to stderr — they NEVER abort the parse.
     """
     # prd_id is reserved for future multi-PRD setups; not used in v0 (single
     # PRD per project). Acknowledge to silence linters without breaking the
@@ -678,6 +706,10 @@ def parse_prd(markdown: str, *, prd_id: str = "prd") -> ParseResult:
             if feat.id == task.feature_id and task.id not in feat.tasks:
                 feat.tasks.append(task.id)
 
+    # --- Optional: LLM enrichment of short task descriptions ------------
+    if provider is not None:
+        tasks = _augment_short_descriptions(tasks, provider)
+
     return ParseResult(
         prd=prd,
         requirements=requirements,
@@ -685,3 +717,66 @@ def parse_prd(markdown: str, *, prd_id: str = "prd") -> ParseResult:
         tasks=tasks,
         errors=errors,
     )
+
+
+# ---------------------------------------------------------------------------
+# LLM augmentation — additive enrichment of short Task descriptions
+# ---------------------------------------------------------------------------
+
+
+def _augment_short_descriptions(
+    tasks: list[Task],
+    provider: LLMProvider,
+) -> list[Task]:
+    """Return a new task list where short descriptions are LLM-enriched.
+
+    A task qualifies for enrichment when ``len(description) < 50``.  The
+    requirement-style prompt is built from the task's ``title`` (acts as the
+    one-line requirement) and current short description.  Failures fall back
+    to the deterministic description with a stderr warning — never raise.
+    """
+    # Local import to keep the optional LLM dep out of the main import graph.
+    from fakoli_state.planning.llm import LLMProviderError
+
+    enriched: list[Task] = []
+    for task in tasks:
+        if len(task.description) >= _DESCRIPTION_SHORT_THRESHOLD:
+            enriched.append(task)
+            continue
+
+        user_payload = (
+            f"Requirement: {task.title}\n"
+            f"Existing short description: {task.description!r}"
+        )
+        try:
+            response = provider.generate(
+                system=_DESCRIPTION_ENRICH_SYSTEM_PROMPT,
+                user=user_payload,
+                max_tokens=_DESCRIPTION_ENRICH_MAX_TOKENS,
+            )
+        except LLMProviderError as exc:
+            print(
+                f"warning: LLM enrichment of {task.id} description failed "
+                f"({exc}); keeping deterministic description.",
+                file=sys.stderr,
+            )
+            enriched.append(task)
+            continue
+        except Exception as exc:  # noqa: BLE001 — Phase 7 contract: LLM never aborts
+            # Non-conforming custom provider; preserve the deterministic baseline.
+            print(
+                f"warning: LLM enrichment of {task.id} raised non-conforming "
+                f"{type(exc).__name__}: {exc}; keeping deterministic description.",
+                file=sys.stderr,
+            )
+            enriched.append(task)
+            continue
+
+        new_text = response.text.strip()
+        if not new_text:
+            enriched.append(task)
+            continue
+
+        enriched.append(task.model_copy(update={"description": new_text}))
+
+    return enriched

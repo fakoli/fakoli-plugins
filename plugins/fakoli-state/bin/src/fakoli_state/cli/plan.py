@@ -1,7 +1,15 @@
-"""plan, score, expand, review tasks, list, show commands (Phase 3)."""
+"""plan, score, expand, review tasks, list, show commands (Phase 3).
+
+Phase 7 Wave 2: plan / score / expand grow a ``--use-llm`` flag that, when
+set, instantiates an :class:`fakoli_state.planning.llm.AnthropicProvider`
+and threads it into the underlying planning engine functions.  LLM
+augmentation is *additive* — the deterministic baseline always runs first;
+LLM enrichment is layered on top and may fail open with a stderr warning.
+"""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,7 +25,37 @@ from fakoli_state.cli._helpers import (
 from fakoli_state.state.backend import PENDING_EVENT_ID
 
 if TYPE_CHECKING:
-    pass
+    from fakoli_state.planning.llm import LLMProvider
+
+
+# ---------------------------------------------------------------------------
+# Shared --use-llm helper
+# ---------------------------------------------------------------------------
+
+
+def _resolve_llm_provider(use_llm: bool) -> LLMProvider | None:
+    """Return an LLM provider when ``--use-llm`` is set, else None.
+
+    Exits with code 1 if ``--use-llm`` is set but ``ANTHROPIC_API_KEY`` is
+    not present in the environment.  Imports the provider lazily so the
+    optional dependency does not load on the deterministic path.
+    """
+    if not use_llm:
+        return None
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        typer.echo(
+            "Error: --use-llm requires ANTHROPIC_API_KEY in environment. "
+            "Set it or omit --use-llm.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    # Local import: keeps the anthropic SDK out of the import graph for
+    # deterministic-only invocations.
+    from fakoli_state.planning.llm import AnthropicProvider
+
+    return AnthropicProvider()
 
 # review sub-app — registered in __init__.py as app.add_typer(review_app, name="review")
 review_app = typer.Typer(
@@ -39,12 +77,25 @@ def plan(
         help="Project directory. Defaults to the current working directory.",
         hidden=True,
     ),
+    use_llm: bool = typer.Option(  # noqa: B008
+        False,
+        "--use-llm",
+        help=(
+            "Augment planning with an LLM (Anthropic). Requires "
+            "ANTHROPIC_API_KEY in environment. Deterministic output is "
+            "always produced first; LLM enrichment is additive."
+        ),
+    ),
 ) -> None:
     """Generate features and tasks from the parsed PRD.
 
     Re-reads prd.md, emits feature.created and task.created events for each
     feature and task found.  Then runs dependency and conflict-group inference
     and promotes all tasks from proposed to drafted.
+
+    With ``--use-llm`` short Task descriptions (<50 chars) are enriched by
+    the LLM after the deterministic parse.  LLM failures fall back to the
+    deterministic description with a stderr warning — they never abort plan.
 
     Idempotent: running plan twice will not duplicate tasks (INSERT OR REPLACE
     semantics in the SQLite backend handle deduplication by task ID).
@@ -72,7 +123,8 @@ def plan(
         typer.echo(f"Error: cannot read {prd_path}: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    result = parse_prd(markdown, prd_id="prd")
+    provider = _resolve_llm_provider(use_llm)
+    result = parse_prd(markdown, prd_id="prd", provider=provider)
 
     # Non-fatal parse errors are surfaced as warnings during plan.
     if result.errors:
@@ -162,17 +214,19 @@ def plan(
                     },
                 )
                 backend.apply_event(status_event)
+        # Echo summary inside the try block so it only runs on full success;
+        # otherwise inference_result may be unbound (if apply_event raised
+        # before line 173) and the access below would NameError.
+        typer.echo(
+            f"Planned {len(result.features)} features, "
+            f"{len(result.tasks)} tasks."
+        )
+        if inference_result.conflict_groups:
+            typer.echo(
+                f"Detected {len(inference_result.conflict_groups)} conflict group(s)."
+            )
     finally:
         backend.close()
-
-    typer.echo(
-        f"Planned {len(result.features)} features, "
-        f"{len(result.tasks)} tasks."
-    )
-    if inference_result.conflict_groups:
-        typer.echo(
-            f"Detected {len(inference_result.conflict_groups)} conflict group(s)."
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -191,11 +245,23 @@ def score(
         help="Project directory. Defaults to the current working directory.",
         hidden=True,
     ),
+    use_llm: bool = typer.Option(  # noqa: B008
+        False,
+        "--use-llm",
+        help=(
+            "Augment the rule-based explanation with an LLM-written trade-off "
+            "summary (Anthropic). Requires ANTHROPIC_API_KEY. The numeric "
+            "scores themselves are never modified by the LLM."
+        ),
+    ),
 ) -> None:
     """Score tasks across six dimensions using rule-based heuristics.
 
     Without TASK_ID: scores all tasks whose scores are incomplete.
     With TASK_ID: scores that single task.
+
+    With ``--use-llm`` the deterministic explanation is appended with a 1-3
+    sentence trade-off summary from the LLM.  Numeric scores are unaffected.
 
     Emits a task.scored event per task and prints a summary table.
     """
@@ -205,6 +271,8 @@ def score(
 
     state_dir = _resolve_state_dir(cwd)
     _require_state_dir(state_dir)
+
+    provider = _resolve_llm_provider(use_llm)
 
     backend = _open_backend(state_dir)
     try:
@@ -231,7 +299,7 @@ def score(
 
         scored_tasks = []
         for task in tasks_to_score:
-            computed_score = score_task(task)
+            computed_score = score_task(task, provider=provider)
             now = clock.now()
             score_payload: dict[str, object] = {
                 "task_id": task.id,
@@ -292,16 +360,32 @@ def score(
 
 def expand(
     task_id: str = typer.Argument(..., help="Task ID to expand into subtasks."),  # noqa: B008
+    cwd: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cwd",
+        help="Project directory. Defaults to the current working directory.",
+        hidden=True,
+    ),
     use_llm: bool = typer.Option(  # noqa: B008
         False,
         "--use-llm",
-        help="Use LLM augmentation to generate subtasks (Phase 7 feature).",
+        help=(
+            "Use LLM augmentation (Anthropic) to propose 2-5 sub-tasks. "
+            "Requires ANTHROPIC_API_KEY. Only tasks with complexity >= 4 "
+            "are decomposed; lower-complexity tasks return no proposals."
+        ),
     ),
 ) -> None:
-    """Expand a task into subtasks (Phase 7 LLM feature — not yet available).
+    """Expand a task into sub-task proposals via the LLM.
 
-    Without --use-llm this command refuses with a clear error.  Deterministic
-    expansion requires manual subtask authoring in prd.md as T001.1, T001.2 entries.
+    Without ``--use-llm`` this command refuses with a clear error — the
+    deterministic engine never invents sub-tasks; manual authoring in
+    prd.md (T001.1, T001.2 …) is the deterministic path.
+
+    With ``--use-llm`` the LLM is asked for 2-5 independently-claimable
+    sub-task proposals.  Proposals are printed for the human to paste into
+    prd.md; this command does NOT mutate state.  Tasks with complexity < 4
+    are deemed simple enough to ship as-is.
     """
     if not use_llm:
         typer.echo(
@@ -311,11 +395,58 @@ def expand(
         )
         raise typer.Exit(code=1)
 
+    from fakoli_state.planning.inference import expand_task
+
+    state_dir = _resolve_state_dir(cwd)
+    _require_state_dir(state_dir)
+
+    provider = _resolve_llm_provider(use_llm)
+
+    backend = _open_backend(state_dir)
+    try:
+        task = backend.get_task(task_id)
+        if task is None:
+            typer.echo(f"Error: task '{task_id}' not found.", err=True)
+            raise typer.Exit(code=1)
+    finally:
+        backend.close()
+
+    proposals = expand_task(task, provider=provider)
+
+    if not proposals:
+        complexity = task.scores.complexity
+        if complexity is None:
+            typer.echo(
+                f"Task {task_id} has no complexity score yet — "
+                "run `fakoli-state score` first.",
+            )
+        elif complexity < 4:
+            typer.echo(
+                f"Task {task_id} complexity={complexity} is below the "
+                "expansion threshold (>= 4). No sub-tasks proposed.",
+            )
+        else:
+            typer.echo(
+                f"No sub-task proposals produced for {task_id} "
+                "(see warnings on stderr).",
+            )
+        return
+
     typer.echo(
-        "Error: --use-llm is not yet implemented (Phase 7).",
-        err=True,
+        f"Proposed {len(proposals)} sub-task(s) for {task_id}. "
+        "Paste into prd.md as ### TXxx blocks under the same ## Tasks section."
     )
-    raise typer.Exit(code=1)
+    for idx, sub in enumerate(proposals, start=1):
+        typer.echo(f"\n--- Sub-task {idx} ---")
+        typer.echo(f"Title: {sub.title}")
+        if sub.description:
+            typer.echo(f"Description: {sub.description}")
+        if sub.likely_files:
+            typer.echo("Likely files: " + ", ".join(sub.likely_files))
+        if sub.acceptance_criteria:
+            typer.echo("Acceptance criteria:")
+            for crit in sub.acceptance_criteria:
+                typer.echo(f"  - {crit}")
 
 
 # ---------------------------------------------------------------------------
