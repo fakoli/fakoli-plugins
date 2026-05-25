@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
-# validate-output.sh — Validate a generated cli-to-plugin output against all
-# marketplace rules: validate.sh, test-path-resolution.sh, plugin.json schema,
-# and SKILL.md frontmatter schema.
+# validate-output.sh — Validate a generated cli-to-plugin output.
 #
-# Usage: ./plugins/cli-to-plugin/scripts/validate-output.sh <absolute-path-to-plugin>
+# Self-contained: uses schemas bundled inside the plugin at ../schemas/. Works
+# whether the plugin is installed via the marketplace or run from a dev checkout.
+#
+# Usage: validate-output.sh <absolute-path-to-plugin>
 #
 # Exit codes:
 #   0 — all checks passed
@@ -12,9 +13,8 @@
 #
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-MARKETPLACE_ROOT="$SCRIPT_DIR/../../.."
-PLUGIN_SCHEMA="$MARKETPLACE_ROOT/schemas/plugin.schema.json"
-SKILL_SCHEMA="$MARKETPLACE_ROOT/schemas/skill.schema.json"
+PLUGIN_SCHEMA="$SCRIPT_DIR/../schemas/plugin.schema.json"
+SKILL_SCHEMA="$SCRIPT_DIR/../schemas/skill.schema.json"
 
 # Colors
 RED='\033[0;31m'
@@ -50,13 +50,24 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 1
 fi
 
+# ── Bundled-schema sanity check ──────────────────────────────────────────────
+
+if [[ ! -f "$PLUGIN_SCHEMA" ]]; then
+    echo -e "${RED}ERROR:${NC} Bundled plugin schema missing: $PLUGIN_SCHEMA" >&2
+    echo "This plugin's installation is corrupted — reinstall via /plugin install" >&2
+    exit 1
+fi
+
+if [[ ! -f "$SKILL_SCHEMA" ]]; then
+    echo -e "${RED}ERROR:${NC} Bundled skill schema missing: $SKILL_SCHEMA" >&2
+    echo "This plugin's installation is corrupted — reinstall via /plugin install" >&2
+    exit 1
+fi
+
 # ── Counters ─────────────────────────────────────────────────────────────────
 
-validate_errors=0
-validate_warns=0
-validate_result_status="PASS"
-
-path_result_status="PASS"
+manifest_status="PASS"
+manifest_warns=0
 
 plugin_json_status="PASS"
 
@@ -66,71 +77,52 @@ skill_result_status="PASS"
 
 overall_status="PASS"
 
-# ── Check 1: marketplace validate.sh ─────────────────────────────────────────
+# ── Check 1: Manifest sanity (JSON syntax + license↔LICENSE) ─────────────────
 
 echo ""
 echo "========================================"
-echo "  [1/4] Running validate.sh"
-echo "========================================"
-
-validate_output=$("$MARKETPLACE_ROOT/scripts/validate.sh" "$TARGET" 2>&1)
-validate_exit=$?
-
-echo "$validate_output"
-
-# Count ERRORs and WARNs from output
-validate_errors=$(echo "$validate_output" | grep -c '^ERROR:' 2>/dev/null || true)
-validate_warns=$(echo "$validate_output" | grep -c '^WARN:' 2>/dev/null || true)
-
-# Also catch colored variants (strip ansi then count)
-validate_errors_colored=$(echo "$validate_output" | sed 's/\x1b\[[0-9;]*m//g' | grep -c 'ERROR:' 2>/dev/null || true)
-validate_warns_colored=$(echo "$validate_output" | sed 's/\x1b\[[0-9;]*m//g' | grep -c 'WARN:' 2>/dev/null || true)
-
-# Use the larger of the two counts (colored output may include stderr-merged lines)
-if [[ "$validate_errors_colored" -gt "$validate_errors" ]]; then
-    validate_errors="$validate_errors_colored"
-fi
-if [[ "$validate_warns_colored" -gt "$validate_warns" ]]; then
-    validate_warns="$validate_warns_colored"
-fi
-
-if [[ "$validate_exit" -ne 0 ]]; then
-    validate_result_status="FAIL"
-    overall_status="FAIL"
-fi
-
-# ── Check 2: test-path-resolution.sh ─────────────────────────────────────────
-
-echo ""
-echo "========================================"
-echo "  [2/4] Running test-path-resolution.sh"
-echo "========================================"
-
-path_output=$("$MARKETPLACE_ROOT/scripts/test-path-resolution.sh" "$TARGET" 2>&1)
-path_exit=$?
-
-echo "$path_output"
-
-if [[ "$path_exit" -ne 0 ]]; then
-    path_result_status="FAIL"
-    overall_status="FAIL"
-fi
-
-# ── Check 3: plugin.json schema validation ────────────────────────────────────
-
-echo ""
-echo "========================================"
-echo "  [3/4] Validating plugin.json schema"
+echo "  [1/3] Manifest sanity"
 echo "========================================"
 
 plugin_json="$TARGET/.claude-plugin/plugin.json"
 
 if [[ ! -f "$plugin_json" ]]; then
     echo -e "${RED}ERROR:${NC} plugin.json not found at $plugin_json" >&2
-    plugin_json_status="FAIL"
+    manifest_status="FAIL"
     overall_status="FAIL"
 else
-    plugin_schema_output=$(uv run --with jsonschema python -m jsonschema \
+    if ! jq empty "$plugin_json" 2>/dev/null; then
+        echo -e "${RED}ERROR:${NC} plugin.json is not valid JSON" >&2
+        jq empty "$plugin_json" 2>&1 | sed 's/^/  /' >&2
+        manifest_status="FAIL"
+        overall_status="FAIL"
+    else
+        echo -e "${GREEN}OK:${NC} plugin.json is valid JSON"
+
+        # license↔LICENSE cross-check (the one validate.sh rule jsonschema can't replicate)
+        license_field=$(jq -r '.license // empty' "$plugin_json")
+        if [[ -n "$license_field" ]] && [[ ! -f "$TARGET/LICENSE" ]] && [[ ! -f "$TARGET/LICENSE.md" ]] && [[ ! -f "$TARGET/LICENSE.txt" ]]; then
+            echo -e "${YELLOW}WARN:${NC} license field set to '$license_field' but no LICENSE file found"
+            ((manifest_warns++)) || true
+        fi
+
+        # README hint (informational)
+        if [[ ! -f "$TARGET/README.md" ]]; then
+            echo -e "${YELLOW}WARN:${NC} No README.md found in plugin root"
+            ((manifest_warns++)) || true
+        fi
+    fi
+fi
+
+# ── Check 2: plugin.json schema validation ───────────────────────────────────
+
+echo ""
+echo "========================================"
+echo "  [2/3] plugin.json schema validation"
+echo "========================================"
+
+if [[ "$manifest_status" == "PASS" ]]; then
+    plugin_schema_output=$(uv run --with jsonschema python -W ignore::DeprecationWarning -m jsonschema \
         --instance "$plugin_json" \
         "$PLUGIN_SCHEMA" 2>&1)
     plugin_schema_exit=$?
@@ -139,17 +131,20 @@ else
         echo -e "${GREEN}OK:${NC} plugin.json passes schema validation"
     else
         echo -e "${RED}FAIL:${NC} plugin.json schema validation failed:" >&2
-        echo "$plugin_schema_output" >&2
+        echo "$plugin_schema_output" | sed 's/^/  /' >&2
         plugin_json_status="FAIL"
         overall_status="FAIL"
     fi
+else
+    echo "INFO: Skipping schema check — manifest sanity failed first"
+    plugin_json_status="SKIP"
 fi
 
-# ── Check 4: SKILL.md frontmatter validation ──────────────────────────────────
+# ── Check 3: SKILL.md frontmatter validation ─────────────────────────────────
 
 echo ""
 echo "========================================"
-echo "  [4/4] Validating SKILL.md frontmatter"
+echo "  [3/3] SKILL.md frontmatter validation"
 echo "========================================"
 
 # Find all SKILL.md files under skills/*/SKILL.md
@@ -172,7 +167,7 @@ else
         echo ""
         echo "  Checking: $skill_name/SKILL.md"
 
-        # Extract YAML frontmatter between first pair of --- markers
+        # Extract YAML frontmatter between first pair of --- markers.
         # Write to a temp file rather than shell-interpolating into Python — protects against
         # frontmatter content containing triple-quotes or other Python-string-terminators.
         frontmatter_tmp=$(mktemp)
@@ -237,10 +232,9 @@ echo ""
 echo "========================================"
 echo "  validate-output.sh summary for $TARGET"
 echo "========================================"
-echo "  Marketplace validate.sh:       $validate_result_status ($validate_errors errors, $validate_warns warnings)"
-echo "  test-path-resolution.sh:       $path_result_status"
-echo "  plugin.json schema check:      $plugin_json_status"
-echo "  SKILL.md frontmatter checks:   $skill_result_status ($skill_count skills checked, $skill_fails failed)"
+echo "  Manifest sanity:               $manifest_status ($manifest_warns warnings)"
+echo "  plugin.json schema:            $plugin_json_status"
+echo "  SKILL.md frontmatter:          $skill_result_status ($skill_count skills checked, $skill_fails failed)"
 echo "========================================"
 
 if [[ "$overall_status" == "PASS" ]]; then
