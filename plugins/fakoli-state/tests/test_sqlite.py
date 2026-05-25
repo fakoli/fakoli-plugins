@@ -3580,10 +3580,21 @@ class TestPhase5EvidenceAndApplyHandlers:
         finally:
             b.close()
 
-    def test_task_applied_rejected_transitions_to_rejected(
+    def test_task_applied_rejected_auto_promotes_to_drafted(
         self, tmp_path: Path
     ) -> None:
-        """needs_review + decision=rejected → task.status='rejected'."""
+        """needs_review + decision=rejected → task.status='drafted'.
+
+        Per spec (docs/specs/2026-05-24-fakoli-state-v0.md): the rejected
+        state is a transient audit marker; the task immediately auto-
+        promotes to drafted so it can be re-reviewed. Critic-1 + Critic-2
+        flagged that the original implementation left the task permanently
+        at 'rejected' with no path back — `task_rejected_to_drafted` in
+        transitions.py was dead code.
+
+        The audit log still records decision='rejected' on the Review row
+        (the human's call). The mechanical outcome is drafted.
+        """
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task_and_claim(b)
@@ -3600,7 +3611,17 @@ class TestPhase5EvidenceAndApplyHandlers:
 
             task = b.get_task("T001")
             assert task is not None
-            assert task.status.value == "rejected"
+            assert task.status.value == "drafted", (
+                f"rejected path must auto-promote to drafted per spec; got {task.status.value!r}"
+            )
+
+            # The Review row still records decision='rejected'.
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            review = conn.execute(
+                "SELECT decision FROM reviews WHERE id = 'RV-E000012'"
+            ).fetchone()
+            conn.close()
+            assert review is not None and review[0] == "rejected"
         finally:
             b.close()
 
@@ -3715,11 +3736,13 @@ class TestPhase5EvidenceAndApplyHandlers:
             b.close()
 
     def test_task_applied_rejected_replay_idempotent(self, tmp_path: Path) -> None:
-        """Replaying task.applied (rejected) twice is a no-op for the second application.
+        """Replaying task.applied (rejected) twice is a no-op for the second
+        application.
 
-        Exercises the idempotent replay branch in the rejected path of
-        _handle_task_applied: when the task is already 'rejected', a second
-        apply of the same event should not raise.
+        After the auto-promote fix, the task ends at 'drafted' after the
+        first apply (rejected → drafted is automatic). The idempotent
+        branch must accept both 'rejected' (transient) and 'drafted'
+        (final) as valid states to encounter on replay.
         """
         b = _make_backend(tmp_path)
         try:
@@ -3734,12 +3757,13 @@ class TestPhase5EvidenceAndApplyHandlers:
                 _make_applied_payload(decision="rejected", reviewer="bob", notes="Needs more."),
                 event_id="E000012", target_kind="task", target_id="T001",
             )
-            b.apply_event(reject_event)  # first: task → rejected
-            b.apply_event(reject_event)  # second: idempotent replay, no raise expected
+            b.apply_event(reject_event)  # first: needs_review → rejected → drafted
+            b.apply_event(reject_event)  # second: idempotent no-op (already drafted)
 
             task = b.get_task("T001")
             assert task is not None
-            assert task.status.value == "rejected"
+            # After auto-promote, the task ends at 'drafted', not 'rejected'.
+            assert task.status.value == "drafted"
         finally:
             b.close()
 

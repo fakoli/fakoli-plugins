@@ -135,6 +135,19 @@ class SqliteBackend:
         and ClaimManager so event IDs never drift into incompatible
         schemes (Greptile + critic flagged the original split — CLI used
         sequential, ClaimManager used 20-digit microsecond IDs).
+
+        Known race: this is a SELECT MAX(id) outside any lock. Two
+        concurrent processes calling next_event_id() then apply_event()
+        can both observe MAX=N, both attempt to INSERT E{N+1}, and the
+        second's INSERT OR IGNORE silently no-ops (the event survives
+        in JSONL but is missing from the events table). Critic-3 flagged
+        this on PR #41 as a real concern for the Phase 6 MCP server (the
+        first real multi-process scenario). The fix requires generating
+        the ID INSIDE apply_event's BEGIN IMMEDIATE transaction, which is
+        an apply_event API change deferred to Phase 6 ('next_event_id
+        race' on the Phase 6 backlog). Until Phase 6 ships, single-CLI
+        usage is race-free; multi-process usage should use file-based
+        coordination at the caller level.
         """
         if self._conn is None:
             return "E000001"
@@ -241,11 +254,25 @@ class SqliteBackend:
                     # writes on crash; in production we'd raise).
                     continue
 
-                # Skip abort tombstones.
-                if raw.get("action") == "error.transaction_aborted":
+                # Skip abort tombstones and informational warning lines.
+                # warn.idempotent_no_op entries (written by _append_warn_log
+                # whenever a claim release/stale is already-terminal) lack a
+                # canonical Event 'id' field — passing them to model_validate
+                # would crash mid-replay on any project that triggered a stale
+                # reaping cycle. Critic-3 flagged this on PR #41.
+                action = raw.get("action", "")
+                if action in ("error.transaction_aborted", "warn.idempotent_no_op"):
                     continue
 
-                event = Event.model_validate(raw)
+                try:
+                    event = Event.model_validate(raw)
+                except Exception:
+                    # Defensive: any future non-canonical audit line (e.g. a
+                    # hook fallback that wrote a malformed entry) shouldn't
+                    # abort replay — log skip and move on. The byte-compare
+                    # test will fail on the next phase if a real action is
+                    # dropped silently, so this is safe forwards-compat.
+                    continue
                 # During replay we write only to SQLite; the JSONL is the source.
                 # We temporarily redirect apply_event to avoid re-appending to JSONL.
                 self._apply_event_sqlite_only(event)
@@ -1522,6 +1549,12 @@ class SqliteBackend:
                     )
 
         else:  # decision == "rejected"
+            # Per spec: needs_review → rejected → drafted (automatic; same txn).
+            # The 'rejected' state is a brief audit marker; the task immediately
+            # transitions to 'drafted' so it can be re-reviewed and re-promoted.
+            # Critic-1 + Critic-2 both flagged that the original code left the
+            # task permanently at 'rejected' with no path back, contradicting
+            # docs/specs/2026-05-24-fakoli-state-v0.md and skills/finish/SKILL.md.
             conn.execute(
                 """
                 UPDATE tasks
@@ -1541,13 +1574,29 @@ class SqliteBackend:
                         f"task.applied: task '{task_id}' not found."
                     )
                 actual_status = row[0]
-                # Idempotent replay: already rejected.
-                if actual_status != "rejected":
+                # Idempotent replay: either we already rejected (transient
+                # marker before drafted) or already drafted (final state).
+                if actual_status not in ("rejected", "drafted"):
                     raise TransactionAborted(
                         f"task.applied: status-drift for task '{task_id}'. "
                         f"Expected 'needs_review', got '{actual_status}'. "
                         "The task may have been reviewed by a concurrent operation."
                     )
+            else:
+                # Initial run (not replay): auto-promote rejected → drafted
+                # in the same transaction. The audit log carries 'rejected'
+                # as the recorded decision; the task lifecycle continues
+                # at 'drafted' so it can be re-reviewed.
+                conn.execute(
+                    """
+                    UPDATE tasks
+                       SET status = 'drafted',
+                           updated_at = ?
+                     WHERE id = ?
+                       AND status = 'rejected'
+                    """,
+                    (timestamp, task_id),
+                )
 
         # Insert the Review row — INSERT OR REPLACE for replay safety.
         review_id = f"RV-{event_id}"

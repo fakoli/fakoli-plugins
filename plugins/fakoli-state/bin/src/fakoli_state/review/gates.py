@@ -12,6 +12,8 @@ Design:
 
 from __future__ import annotations
 
+import re
+
 from fakoli_state.state.models import Evidence, Task
 
 __all__ = ["evidence_complete"]
@@ -122,6 +124,15 @@ def _contains_test_keyword(cmd_lower: str) -> bool:
 
 
 def _is_pr_related(item_lower: str) -> bool:
-    """Return True if item_lower refers to a pull request link."""
-    pr_keywords = ("pr", "pull request")
-    return any(kw in item_lower for kw in pr_keywords)
+    """Return True if item_lower refers to a pull request link.
+
+    Uses word-boundary matching for the 'pr' abbreviation. A bare substring
+    match was producing false positives on common English words: "improve",
+    "sprint", "april", "approve", "process", "spread" — all contain the
+    sequence "pr". Required-evidence strings with any of those would falsely
+    route to the pr_url check and fail the gate. Greptile + Critic-1 both
+    flagged this on PR #41.
+    """
+    if "pull request" in item_lower:
+        return True
+    return bool(re.search(r"\bpr\b", item_lower))

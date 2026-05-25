@@ -2463,10 +2463,14 @@ def hook_capture_evidence(
         if claim_id is not None:
             buffer_file = buffer_dir / f"{claim_id}.json"
         else:
-            # No active claim found — write to orphan buffer.
+            # No active claim found — write to orphan buffer. Recovery path
+            # uses the existing `submit --output-file` flag; the previously-
+            # referenced `evidence attach` subcommand did not exist (Critic-2
+            # flagged that following the error message produced Typer's
+            # "No such command 'evidence'" error).
             record["note"] = (
-                "orphan — no active claim found; "
-                "attach via: fakoli-state evidence attach"
+                "orphan — no active claim found at capture time; "
+                "pass this file via: fakoli-state submit TASK_ID --output-file <THIS_FILE>"
             )
             buffer_file = buffer_dir / "orphan.json"
 

@@ -125,9 +125,10 @@ EVENTS_FILE="${INITIALIZED_DIR}/.fakoli-state/events.jsonl"
 if [ -f "$EVENTS_FILE" ] && grep -q "file_changed\|new_file.py" "$EVENTS_FILE" 2>/dev/null; then
   _pass "record-file-change: events.jsonl contains expected content after append"
 else
-  # The CLI may not be on PATH; the bash fallback requires python3 for escaping.
-  # If neither path ran, the test is inconclusive — treat as pass to avoid false failure.
-  _pass "record-file-change: events.jsonl check skipped (CLI/python3 path not exercised)"
+  # Critic-4 flagged this branch as always-passing (false confidence). Now
+  # asserts properly: if neither CLI nor python3 fallback wrote the audit
+  # entry, the hook's write contract is broken.
+  _fail "record-file-change: events.jsonl was not written or missing expected content"
 fi
 
 # ---------------------------------------------------------------------------
@@ -217,9 +218,10 @@ CE2_ORPHAN="${CE2_DIR}/.fakoli-state/.evidence-buffer/orphan.json"
 if [ -f "$CE2_ORPHAN" ] && grep -q "pytest" "$CE2_ORPHAN" 2>/dev/null; then
   _pass "capture-evidence: orphan.json written with pytest command captured"
 else
-  # CLI may have intercepted; accept if file doesn't exist (CLI path took over)
-  # or if python3 is unavailable on this system.
-  _pass "capture-evidence: orphan.json capture check (CLI/python3 path may have handled)"
+  # Critic-4 flagged this as always-passing. The orphan write IS the
+  # contract when no active claim exists; if it didn't fire, the hook
+  # is broken.
+  _fail "capture-evidence: orphan.json missing or did not capture pytest command"
 fi
 
 # ---------------------------------------------------------------------------

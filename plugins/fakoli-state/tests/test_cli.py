@@ -1554,10 +1554,13 @@ class TestApplyCommand:
         combined = result.output + (result.stderr if hasattr(result, "stderr") and result.stderr else "")
         assert "reason" in combined.lower() or "reject" in combined.lower()
 
-    def test_apply_reject_with_reason_transitions_to_rejected(
+    def test_apply_reject_auto_promotes_to_drafted(
         self, tmp_path: Path
     ) -> None:
-        """apply --reject --reason transitions needs_review → rejected."""
+        """apply --reject --reason transitions needs_review → rejected → drafted
+        per spec (rejected is a transient audit marker; drafted is the
+        landing state so the task can be re-reviewed). Critic-1 + Critic-2
+        flagged the original "stops at rejected" as a spec violation."""
         _do_init_and_plan(tmp_path, with_git=False)
         task_id = _get_first_ready_task_id(tmp_path)
         assert task_id is not None
@@ -1577,7 +1580,10 @@ class TestApplyCommand:
         assert "rejected" in result.output.lower()
 
         status = _get_task_status(tmp_path, task_id)
-        assert status == "rejected", f"Expected rejected, got {status!r}"
+        # Per spec: rejected → drafted is automatic.
+        assert status == "drafted", (
+            f"Expected drafted (auto-promoted from rejected); got {status!r}"
+        )
 
     def test_apply_without_flag_prints_review_summary(
         self, tmp_path: Path

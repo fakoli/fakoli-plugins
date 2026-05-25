@@ -48,13 +48,18 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 0
 fi
 
-EXTRACTED=$(printf '%s' "$PAYLOAD" | python3 - <<'PYEOF'
-import sys, json, datetime
+# Pass payload via env var rather than stdin. `python3 - <<'PYEOF'` reads
+# its script from stdin (the heredoc), so a `printf | python3 -` pipe is
+# discarded by the heredoc redirect — payload never reaches sys.stdin.
+# Critic-4 caught this via a tightened hook-test assertion (Greptile
+# secondary on PR #41).
+EXTRACTED=$(HOOK_PAYLOAD="$PAYLOAD" python3 - <<'PYEOF'
+import os, sys, json, datetime
 
 MAX_EXCERPT = 4000
 
 try:
-    raw = sys.stdin.read()
+    raw = os.environ.get('HOOK_PAYLOAD', '')
     d   = json.loads(raw) if raw.strip() else {}
     ti  = d.get('tool_input', {}) if isinstance(d, dict) else {}
     tr  = d.get('tool_response', {}) if isinstance(d, dict) else {}
@@ -73,7 +78,10 @@ try:
 
     stdout_excerpt = stdout_raw[:MAX_EXCERPT]
     stderr_excerpt = stderr_raw[:MAX_EXCERPT]
-    ts = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+    # tz-aware UTC: utcnow() was deprecated in 3.12, removed in 3.13.
+    # The trailing 'Z' is the standard UTC marker that downstream Pydantic
+    # _require_utc validators accept via fromisoformat().
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
     # One JSON-encoded value per line — safe against embedded newlines.
     print(json.dumps(command))
@@ -201,7 +209,7 @@ fi
 # Active-claim lookup from shell would require shelling out to the CLI again
 # (or reading state.db directly, which we must never do).  For Phase 5 we
 # always write to orphan.json so no evidence is lost.  The user can attach
-# orphan evidence to a claim later via `fakoli-state evidence attach`.
+# orphan evidence to a claim later via `fakoli-state submit --output-file`.
 #
 # When the CLI subcommand (guido Wave 2) is wired, it will:
 #   1. Look up the active claim for --actor in state.db.
@@ -244,7 +252,7 @@ record = {
     'stdout_excerpt': stdout_ex,
     'stderr_excerpt': stderr_ex,
     'actor':          actor,
-    'note':           'orphan — no active claim found; attach via: fakoli-state evidence attach',
+    'note':           'orphan — no active claim found at capture time; pass this file via: fakoli-state submit TASK_ID --output-file <THIS_FILE>',
 }
 
 line = json.dumps(record)
