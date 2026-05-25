@@ -227,6 +227,23 @@ class GitHubIssuesProvider:
             self._http_client = GithubHttpClient(repo=self.repo, token=self._token)
         return self._http_client
 
+    def close(self) -> None:
+        """Release any underlying transport handles. Safe to call repeatedly.
+
+        Called from the CLI's ``_sync_provider_dispatch`` finally block so
+        long-running ``--watch`` daemons don't leak the ``httpx.Client``
+        connection pool. The ``gh`` CLI client is process-spawn per call
+        (no persistent connection), so only the HTTP transport needs
+        cleanup, but we guard both for forward-compatibility.
+        """
+        if self._http_client is not None:
+            try:
+                self._http_client.close()
+            except Exception:  # noqa: BLE001 — close() must never raise
+                # Closing twice or after a transport error must be silent;
+                # the daemon is shutting down and there's nowhere to surface.
+                pass
+
     # ------------------------------------------------------------------
     # Internal: payload → ExternalRef / ExternalTask
     # ------------------------------------------------------------------
@@ -352,7 +369,12 @@ class GitHubIssuesProvider:
                     )
                 except SyncProviderError as exc:
                     msg = str(exc).lower()
-                    if "already exists" in msg or "already_exists" in msg:
+                    # Only trigger the O(N) title-search recovery when the
+                    # error body explicitly says an issue with this title
+                    # already exists. 422 can fire for other reasons
+                    # (malformed label, invalid assignee, etc.) and we
+                    # don't want to walk the full issue list every time.
+                    if "already exists" in msg and "issue" in msg:
                         # gh prints "an issue with this title already exists"
                         # on stderr; mirror the http 422 already-exists
                         # contract by walking list_issues for a title match
@@ -397,9 +419,19 @@ class GitHubIssuesProvider:
                 )
             except SyncProviderError as exc:
                 # 422 already_exists: fetch the existing issue and return it.
+                # Tighten the guard: 422 fires for other reasons too
+                # (malformed label, invalid assignee, body too long), so
+                # only trigger the O(N) title-search recovery when the
+                # response body explicitly says ``already_exists`` AND
+                # the resource is an Issue. This avoids a full
+                # paginated walk on every unrelated 422.
                 status_code = getattr(exc, "status_code", None)
-                body_excerpt = getattr(exc, "response_body", "") or ""
-                if status_code == 422 and "already_exists" in body_excerpt.lower():
+                body_excerpt = (getattr(exc, "response_body", "") or "").lower()
+                if (
+                    status_code == 422
+                    and "already_exists" in body_excerpt
+                    and '"issue"' in body_excerpt
+                ):
                     # Best-effort: search by title to find the existing issue.
                     existing = self._find_issue_by_title(task.title)
                     if existing is not None:
@@ -445,6 +477,12 @@ class GitHubIssuesProvider:
         Used only on the 422 already-exists fallback path. Walks the
         full issue list looking for an exact title match. Returns the
         first match, or ``None`` if none found.
+
+        Both sides are ``.strip()``'d because GitHub may store titles
+        with trailing/leading whitespace (paste artifacts, line wrapping
+        through ``gh issue create``'s argv plumbing). Without the strip,
+        the duplicate-title recovery path silently fails on every issue
+        the user actually pasted from a markdown editor.
         """
         try:
             if self._transport == "gh_cli":
@@ -453,8 +491,9 @@ class GitHubIssuesProvider:
                 items = self._make_http_client().list_issues(state="all")
         except SyncProviderError:
             return None
+        needle = title.strip()
         for item in items:
-            if (item.get("title") or "") == title:
+            if (item.get("title") or "").strip() == needle:
                 return item
         return None
 

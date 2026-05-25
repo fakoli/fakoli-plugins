@@ -75,6 +75,33 @@ The CLI does not currently expose `--transport` directly; the provider
 defaults to `auto` and that path covers both authenticated `gh` users and
 CI runners with `GITHUB_TOKEN`.
 
+### Configured providers (reconciliation)
+
+`fakoli-state sync` (bare, no subcommand) runs the reconciliation engine,
+which uses the *list of configured providers* to decide which tasks count
+as "done but unmapped" and need a sync. In v1.8.0 the list defaults to
+the registry — every provider registered in
+`PROVIDER_REGISTRY` is treated as configured for reconciliation.
+
+A future Phase 9 release will read an explicit list from `config.yaml`:
+
+```yaml
+sync:
+  providers:
+    - github_issues
+    - linear     # contributor-registered providers also accepted
+```
+
+Until then, register only the providers you actually intend to sync
+against (typically just `github_issues` via the side-effect import in
+`sync/providers/__init__.py`) — every registered provider adds rows to
+the reconciliation report for tasks that lack a mapping for it.
+
+When multiple providers are configured, the reconciliation engine emits
+one `missing_sync_mapping` discrepancy *per missing provider per done
+task* (e.g. a task mapped to `github_issues` but not `linear` produces a
+single discrepancy with `payload.missing_provider == "linear"`).
+
 ---
 
 ## CLI reference
@@ -225,6 +252,7 @@ from these events).
 | `sync.pull.started`          | per task, before `provider.fetch_task`|
 | `sync.pull.completed`        | per task, on success                |
 | `sync.pull.failed`           | per task, on `SyncProviderError`    |
+| `sync.pull.deferred`         | per task, when manual_merge parks the pull pending operator action |
 | `sync.conflict_detected`     | per conflict, every strategy        |
 | `sync_mapping.upserted`      | per successful push (after persist) |
 | `sync_mapping.deleted`       | per explicit mapping removal        |
@@ -247,7 +275,7 @@ audit row failed to write logs to stderr rather than aborting the sync.
 | `GITHUB_TOKEN` missing, no `gh auth`     | `--health` reports `auth_configured=False` with a hint; sync ops exit `1`.           |
 | `gh` uninstalled mid-`--watch`           | Transport flips to `http` on the next iteration's new provider instance (currently per-watch single instance — re-probe happens on restart). Each iteration prints the error and continues. |
 | Rate-limited                             | `RateLimitExceeded` → wrapped as `SyncProviderError` → batch loop continues; that single task gets `sync.push.failed` / `sync.pull.failed`. |
-| Issue deleted on remote                  | `fetch_task` returns `None`; sync logs `external_deleted` on stderr; SyncMapping stays with `sync_state=conflict` until operator resolves. |
+| Issue deleted on remote                  | `fetch_task` returns `None`; sync logs `external_deleted` on stderr; SyncMapping's `sync_state` flips to `external_deleted` so `fakoli-state sync` (reconciliation) surfaces a `drift_sync_state` discrepancy with `payload.reason='external_deleted'`. |
 | Provider raises arbitrary exception      | Caught by the best-effort wrapping loop in `_push_one_task` / `_pull_one_task`; surfaced on stderr with `exception_type` recorded in the audit event; loop continues with the next task. |
 | `--watch` iteration raises               | Outer `except Exception` in `_run_watch_loop` surfaces the error and keeps polling; the daemon never dies on a single bad pass. |
 

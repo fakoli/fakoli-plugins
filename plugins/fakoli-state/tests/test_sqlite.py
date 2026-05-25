@@ -6006,3 +6006,298 @@ class TestMinimalTaskPayloads:
             assert sub.parent_task_id == "T001"
         finally:
             b.close()
+
+
+# ---------------------------------------------------------------------------
+# PR #49 P1-3 regression — v2 → v3 migration actually applies ALTERs
+# ---------------------------------------------------------------------------
+
+
+class TestV2ToV3MigrationAppliesColumnAdditions:
+    """P1-3 — v2 sync_mappings table missing v3 columns must get ALTERed.
+
+    Pre-fix bug: ``_check_schema_version`` stamped the db as v3 without
+    running any ALTER TABLE — the IF NOT EXISTS DDL is a no-op against an
+    existing table, so a v2 db's ``sync_mappings`` table stayed at v2
+    shape (no ``external_url`` / ``provider_metadata_json`` / unique
+    index) while the user_version pragma claimed v3. Queries against the
+    new columns raised ``OperationalError`` at runtime.
+    """
+
+    def _stand_up_v2_sync_mappings_table(
+        self, db_path: str, events_path: str,
+    ) -> None:
+        """Create a v2-shaped sync_mappings table (no v3 columns/index).
+
+        Mirrors the v2 schema: composite PK, no ``external_url``, no
+        ``provider_metadata_json``, no UNIQUE on (external_system,
+        external_id). Stamps user_version=2 so the next ``initialize()``
+        takes the v2→v3 migration branch.
+        """
+        Path(events_path).touch()
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        # Create the minimum tables a v2 db needs to satisfy FKs.
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS projects (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                description TEXT NOT NULL,
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS features (
+                id           TEXT PRIMARY KEY,
+                title        TEXT NOT NULL,
+                description  TEXT NOT NULL,
+                status       TEXT NOT NULL DEFAULT 'proposed',
+                requirements TEXT NOT NULL DEFAULT '[]',
+                tasks        TEXT NOT NULL DEFAULT '[]'
+            );
+            CREATE TABLE IF NOT EXISTS tasks (
+                id                   TEXT PRIMARY KEY,
+                feature_id           TEXT NOT NULL,
+                title                TEXT NOT NULL,
+                description          TEXT NOT NULL,
+                status               TEXT NOT NULL DEFAULT 'proposed',
+                priority             TEXT NOT NULL DEFAULT 'medium',
+                dependencies         TEXT NOT NULL DEFAULT '[]',
+                conflict_groups      TEXT NOT NULL DEFAULT '[]',
+                scores               TEXT NOT NULL DEFAULT '{}',
+                acceptance_criteria  TEXT NOT NULL DEFAULT '[]',
+                implementation_notes TEXT NOT NULL DEFAULT '[]',
+                verification         TEXT NOT NULL DEFAULT '{}',
+                likely_files         TEXT NOT NULL DEFAULT '[]',
+                parent_task_id       TEXT,
+                created_at           TEXT NOT NULL,
+                updated_at           TEXT NOT NULL
+            );
+            -- v2 sync_mappings: composite PK only, no v3 additions.
+            CREATE TABLE sync_mappings (
+                task_id                      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                external_system              TEXT NOT NULL,
+                external_id                  TEXT NOT NULL,
+                last_synced_at               TEXT NOT NULL,
+                sync_state                   TEXT NOT NULL DEFAULT 'in_sync',
+                conflict_resolution_strategy TEXT NOT NULL DEFAULT 'prompt',
+                PRIMARY KEY (task_id, external_system)
+            );
+            """
+        )
+        # Insert a project + feature + task + sync_mapping in v2 shape so
+        # the migration has real data to preserve.
+        conn.execute(
+            "INSERT INTO projects (id, name, description, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("proj-1", "Test", "", _T0.isoformat(), _T0.isoformat()),
+        )
+        conn.execute(
+            "INSERT INTO features (id, title, description) VALUES (?, ?, ?)",
+            ("F001", "F", ""),
+        )
+        conn.execute(
+            "INSERT INTO tasks (id, feature_id, title, description, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("T001", "F001", "Old", "old", _T0.isoformat(), _T0.isoformat()),
+        )
+        conn.execute(
+            "INSERT INTO sync_mappings (task_id, external_system, "
+            "external_id, last_synced_at) VALUES (?, ?, ?, ?)",
+            ("T001", "github_issues", "gh-1", _T0.isoformat()),
+        )
+        conn.execute("PRAGMA user_version = 2")
+        conn.commit()
+        conn.close()
+
+    def test_v2_db_with_existing_sync_mappings_gets_v3_columns(
+        self, tmp_path: Path,
+    ) -> None:
+        """After v2→v3 auto-upgrade, the new columns exist and are queryable."""
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        self._stand_up_v2_sync_mappings_table(db_path, events_path)
+
+        # Re-open with v3 code: migration must add the missing columns.
+        clock = _make_clock()
+        b = SqliteBackend(
+            db_path=db_path, events_path=events_path, clock=clock,
+        )
+        b.initialize()
+        try:
+            # Verify the new columns exist by querying them — this would
+            # raise OperationalError pre-fix.
+            assert b._conn is not None  # noqa: SLF001
+            row = b._conn.execute(  # noqa: SLF001
+                "SELECT external_url, provider_metadata_json "
+                "FROM sync_mappings WHERE task_id = ?",
+                ("T001",),
+            ).fetchone()
+            assert row is not None
+            # Default values for previously-absent columns: NULL.
+            assert row[0] is None
+            assert row[1] is None
+            # user_version is now 3.
+            v = b._conn.execute("PRAGMA user_version").fetchone()[0]  # noqa: SLF001
+            assert v == 3
+        finally:
+            b.close()
+
+    def test_v2_db_after_upgrade_enforces_unique_external_constraint(
+        self, tmp_path: Path,
+    ) -> None:
+        """The v3 UNIQUE(external_system, external_id) is enforced post-upgrade.
+
+        Two distinct task rows trying to claim the same (external_system,
+        external_id) pair must fail at INSERT — that's the contract the
+        v3 migration is supposed to add.
+        """
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        self._stand_up_v2_sync_mappings_table(db_path, events_path)
+
+        # Add a second task so we have two tasks to map to the same remote id.
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO tasks (id, feature_id, title, description, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("T002", "F001", "Other", "other", _T0.isoformat(), _T0.isoformat()),
+        )
+        conn.commit()
+        conn.close()
+
+        # Trigger the upgrade.
+        clock = _make_clock()
+        b = SqliteBackend(
+            db_path=db_path, events_path=events_path, clock=clock,
+        )
+        b.initialize()
+        try:
+            assert b._conn is not None  # noqa: SLF001
+            # T001 already owns ('github_issues', 'gh-1'); T002 must NOT be
+            # able to claim the same pair after the v3 unique index lands.
+            with pytest.raises(sqlite3.IntegrityError):
+                b._conn.execute(  # noqa: SLF001
+                    "INSERT INTO sync_mappings "
+                    "(task_id, external_system, external_id, last_synced_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("T002", "github_issues", "gh-1", _T0.isoformat()),
+                )
+        finally:
+            b.close()
+
+    def test_v2_migration_preserves_existing_sync_mapping_rows(
+        self, tmp_path: Path,
+    ) -> None:
+        """The pre-existing v2 mapping row survives the v3 migration intact."""
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        self._stand_up_v2_sync_mappings_table(db_path, events_path)
+
+        clock = _make_clock()
+        b = SqliteBackend(
+            db_path=db_path, events_path=events_path, clock=clock,
+        )
+        b.initialize()
+        try:
+            stored = b.get_sync_mapping("T001")
+            assert stored is not None
+            assert stored.task_id == "T001"
+            assert stored.external_system == "github_issues"
+            assert stored.external_id == "gh-1"
+            # New optional fields default cleanly.
+            assert stored.external_url is None
+            assert stored.provider_metadata == {}
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# PR #49 P2-2 regression — multi-provider missing_sync_mapping scan
+# ---------------------------------------------------------------------------
+
+
+class TestMissingSyncMappingPerProvider:
+    """P2-2 — reconciliation must check each configured provider separately.
+
+    Pre-fix bug: ``_scan_missing_sync_mappings`` called
+    ``get_sync_mapping(task.id)`` without ``external_system``, returning
+    the ASC-first mapping. A done task mapped to ``github_issues`` but
+    NOT to ``linear`` was treated as fully mapped — the ``linear`` gap
+    was never surfaced.
+    """
+
+    def test_multi_provider_emits_per_provider_discrepancy(
+        self, tmp_path: Path,
+    ) -> None:
+        """Two providers configured, task only mapped to one → discrepancy
+        for the missing one."""
+        from fakoli_state.state.models import SyncMapping
+        from fakoli_state.sync.reconciliation import (
+            DiscrepancyKind,
+            ReconciliationEngine,
+        )
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            # Walk a task through the lifecycle to status=done.
+            b.apply_event(_make_event(
+                "feature.created",
+                _make_feature_payload(),
+                event_id="E000003", target_kind="feature", target_id="F001",
+            ))
+            b.apply_event(_make_event(
+                "task.created", _make_task_payload(task_id="T001"),
+                event_id="E000004", target_kind="task", target_id="T001",
+            ))
+            chain = [
+                ("proposed", "drafted"),
+                ("drafted", "reviewed"),
+                ("reviewed", "ready"),
+                ("ready", "claimed"),
+                ("claimed", "in_progress"),
+                ("in_progress", "needs_review"),
+                ("needs_review", "accepted"),
+                ("accepted", "done"),
+            ]
+            eid = 5
+            for frm, to in chain:
+                b.apply_event(_make_event(
+                    "task.status_changed",
+                    {"task_id": "T001", "from": frm, "to": to},
+                    event_id=f"E{eid:06d}", target_kind="task", target_id="T001",
+                ))
+                eid += 1
+            # Map T001 to github_issues ONLY.
+            b.apply_sync_mapping(SyncMapping(
+                task_id="T001",
+                external_system="github_issues",
+                external_id="gh-1",
+                last_synced_at=_T0,
+            ))
+
+            # Configure BOTH github_issues AND linear.
+            engine = ReconciliationEngine(
+                b, state_dir=tmp_path, clock=_make_clock(),
+                configured_providers=["github_issues", "linear"],
+            )
+            report = engine.scan()
+            missing = [
+                d for d in report.discrepancies
+                if d.kind == DiscrepancyKind.missing_sync_mapping
+            ]
+            # Pre-fix: 0 (ASC-first returned the github_issues row).
+            # Post-fix: 1 — the linear gap is flagged.
+            assert len(missing) == 1, (
+                f"P2-2 regression: expected exactly one missing_sync_mapping "
+                f"for the unmapped provider (linear); got {len(missing)}."
+            )
+            d = missing[0]
+            assert d.target_id == "T001"
+            assert d.payload["missing_provider"] == "linear"
+            assert "linear" in d.suggested_fix
+            assert "T001" in d.suggested_fix
+        finally:
+            b.close()

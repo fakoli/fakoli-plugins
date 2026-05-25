@@ -326,6 +326,49 @@ class SyncMappingDeletedPayload(BaseModel):
     external_system: str | None = None
 
 
+class TaskSyncedFromRemotePayload(BaseModel):
+    """Payload for 'task.synced_from_remote' — Phase 8 pull-applies-remote.
+
+    Emitted by the sync CLI's pull path when the remote payload has
+    legitimately moved ahead of local state (``remote_moved AND NOT
+    local_moved``) — i.e. a non-conflict update. The handler overwrites
+    the local Task's ``title``, ``description``, and ``status`` fields
+    with the remote values, then bumps ``updated_at``.
+
+    Why a dedicated action (rather than re-using ``task.status_changed``
+    or ``task.created``)?
+    * ``task.status_changed`` only carries status, so title/description
+      updates would silently drop.
+    * ``task.created`` with INSERT OR REPLACE semantics would risk losing
+      Task fields not present in the remote payload (scores, dependencies,
+      verification, …).
+
+    The forbid-extras schema means callers cannot accidentally smuggle
+    other Task fields through the pull path — anything the remote knows
+    must be explicitly added to this model first.
+
+    Fields
+    ------
+    task_id:
+        Local task id (``T001``) to mutate.
+    title, description, status:
+        New values pulled from the remote. ``status`` is the local
+        :class:`fakoli_state.state.models.TaskStatus` value (already
+        translated by the provider, e.g. via ``LABEL_TO_STATUS``).
+    actor:
+        Audit string for who/what triggered this pull (e.g.
+        ``"sync.github_issues"``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    title: str
+    description: str
+    status: str
+    actor: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Phase 8 Wave 3 — sync.* audit events (Task 6 / cli/sync.py)
 # ---------------------------------------------------------------------------
@@ -411,4 +454,5 @@ __all__ = [
     "TaskExpandedPayload",
     "TaskScoredPayload",
     "TaskStatusChangedPayload",
+    "TaskSyncedFromRemotePayload",
 ]

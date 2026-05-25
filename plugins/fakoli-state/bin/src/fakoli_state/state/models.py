@@ -42,6 +42,7 @@ __all__ = [
     "ReviewTargetKind",
     "ReviewDecision",
     "ExternalSystem",
+    "KNOWN_EXTERNAL_SYSTEMS",
     "SyncState",
     "ConflictResolutionStrategy",
     # Models
@@ -141,7 +142,27 @@ class ReviewDecision(enum.StrEnum):
 
 
 class ExternalSystem(enum.StrEnum):
+    """Canonical names for first-party sync providers shipped with
+    fakoli-state.
+
+    Kept as a reference enum (so ``ExternalSystem.github_issues`` still
+    evaluates to ``"github_issues"`` for code that wants the constant),
+    but ``SyncMapping.external_system`` is typed as ``str`` so that
+    contributor-registered providers (e.g. ``"monday"``, ``"linear"``,
+    ``"my_custom_tracker"``) can persist mappings without first having
+    to patch this enum.
+
+    See also :data:`KNOWN_EXTERNAL_SYSTEMS` for the tuple form used by
+    docs / introspection.
+    """
+
     github_issues = "github_issues"
+
+
+# Tuple form of the canonical first-party provider ids. Used for docs
+# and introspection; the SyncMapping DB column accepts any string so
+# contributor providers are not gated on inclusion here.
+KNOWN_EXTERNAL_SYSTEMS: tuple[str, ...] = tuple(s.value for s in ExternalSystem)
 
 
 class SyncState(enum.StrEnum):
@@ -461,7 +482,12 @@ class SyncMapping(BaseModel):
     task_id:
         FK into ``tasks``.
     external_system:
-        ``ExternalSystem`` enum (snake_case: ``github_issues``).
+        Provider id string (snake_case: ``github_issues``,
+        ``"monday"``, ``"linear"``, etc.). Matches the key under which
+        the provider is registered in
+        :data:`fakoli_state.sync.registry.PROVIDER_REGISTRY`. Not gated
+        on the :class:`ExternalSystem` enum — contributor providers can
+        register any string id and persist mappings under it.
     external_id:
         Provider-native record id (stringified for uniformity across
         providers).
@@ -487,7 +513,14 @@ class SyncMapping(BaseModel):
     model_config = _MODEL_CONFIG
 
     task_id: TaskID
-    external_system: ExternalSystem
+    # ``external_system`` is ``str`` (not the ``ExternalSystem`` enum) so
+    # that contributor-registered providers (e.g. ``"monday"``,
+    # ``"linear"``, ``"my_custom_tracker"``) can persist mappings without
+    # first having to patch the canonical-first-party enum. The DB column
+    # is TEXT and the abstraction layer (registry / Protocol) only ever
+    # carries the string ``provider_id``. See ``KNOWN_EXTERNAL_SYSTEMS``
+    # for the docs-only tuple of first-party ids.
+    external_system: str
     external_id: str
     external_url: str | None = None
     last_synced_at: datetime.datetime

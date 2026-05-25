@@ -476,37 +476,54 @@ class ReconciliationEngine:
     # ------------------------------------------------------------------
 
     def _scan_missing_sync_mappings(self) -> list[Discrepancy]:
-        """Done tasks without a SyncMapping when providers are configured."""
+        """Done tasks without a SyncMapping for EACH configured provider.
+
+        P2-2 fix: when a project configures multiple providers
+        (``github_issues`` AND ``linear``) we must emit a discrepancy
+        per provider that lacks a mapping for the task. The old code
+        called ``get_sync_mapping(task.id)`` once (no ``external_system``
+        kwarg) which returned the alphabetical-first mapping — so a task
+        mapped to ``github_issues`` but missing from ``linear`` was
+        treated as "fully mapped" and the ``linear`` gap was never
+        flagged.
+
+        Each discrepancy carries ``payload['missing_provider']`` so the
+        operator can see exactly which provider is unmapped, and the
+        suggested-fix points at that specific provider id.
+        """
         if not self._configured_providers:
             return []
-        # First provider wins for the suggested-fix CLI hint; the engine
-        # remediates lazily (creating a real mapping is push-task work
-        # owned by the CLI sync wave).
-        primary_provider = self._configured_providers[0]
         out: list[Discrepancy] = []
         for task in self._backend.list_tasks(status="done"):
-            mapping = self._backend.get_sync_mapping(task.id)
-            if mapping is not None:
-                continue
-            out.append(Discrepancy(
-                kind=DiscrepancyKind.missing_sync_mapping,
-                severity=Severity.warning,
-                target_id=task.id,
-                target_kind="task",
-                description=(
-                    f"Task '{task.id}' is status=done but has no "
-                    "SyncMapping; configured providers: "
-                    f"{', '.join(self._configured_providers)}."
-                ),
-                suggested_fix=(
-                    f"fakoli-state sync provider {primary_provider} "
-                    f"--push --task {task.id}"
-                ),
-                payload={
-                    "task_id": task.id,
-                    "configured_providers": list(self._configured_providers),
-                },
-            ))
+            for provider_id in self._configured_providers:
+                # Scoped lookup: pass ``external_system=`` so we get THIS
+                # provider's mapping (or None), not the ASC-first.
+                mapping = self._backend.get_sync_mapping(
+                    task.id, external_system=provider_id,
+                )
+                if mapping is not None:
+                    continue
+                out.append(Discrepancy(
+                    kind=DiscrepancyKind.missing_sync_mapping,
+                    severity=Severity.warning,
+                    target_id=task.id,
+                    target_kind="task",
+                    description=(
+                        f"Task '{task.id}' is status=done but has no "
+                        f"SyncMapping for provider {provider_id!r}; "
+                        "configured providers: "
+                        f"{', '.join(self._configured_providers)}."
+                    ),
+                    suggested_fix=(
+                        f"fakoli-state sync provider {provider_id} "
+                        f"--push --task {task.id}"
+                    ),
+                    payload={
+                        "task_id": task.id,
+                        "missing_provider": provider_id,
+                        "configured_providers": list(self._configured_providers),
+                    },
+                ))
         return out
 
     # ------------------------------------------------------------------
@@ -514,16 +531,27 @@ class ReconciliationEngine:
     # ------------------------------------------------------------------
 
     def _scan_drift_sync_state(self) -> list[Discrepancy]:
-        """SyncMappings in conflict OR whose last_synced_at is too old."""
+        """SyncMappings in conflict, externally deleted, or whose
+        last_synced_at is too old.
+
+        SF-5: ``external_deleted`` is surfaced as its own discrepancy
+        reason so reconciliation can list tombstoned mappings. Before
+        this fix, the tombstone path left the mapping at ``in_sync``
+        and the drift scan was blind to the fact that the remote was
+        gone — operators had to grep stderr to discover dangling
+        references.
+        """
         now = self._clock.now()
         out: list[Discrepancy] = []
         for mapping in self._backend.list_sync_mappings():
-            in_conflict = str(mapping.sync_state) == "conflict"
+            state_str = str(mapping.sync_state)
+            in_conflict = state_str == "conflict"
+            externally_deleted = state_str == "external_deleted"
             stale = (now - mapping.last_synced_at) > self._drift_threshold
-            if not in_conflict and not stale:
+            if not in_conflict and not externally_deleted and not stale:
                 continue
-            reason = "conflict" if in_conflict else "stale"
             if in_conflict:
+                reason = "conflict"
                 fix = (
                     f"fakoli-state sync provider {mapping.external_system} "
                     f"--pull --task {mapping.task_id}"
@@ -533,7 +561,26 @@ class ReconciliationEngine:
                     f"({mapping.external_system}) is in conflict; "
                     "resolve via pull or edit the manual-merge file."
                 )
+            elif externally_deleted:
+                reason = "external_deleted"
+                # The remote is gone; the operator must decide whether
+                # to delete the local task or unlink the mapping. The
+                # suggested fix points at the latter because deleting
+                # the task is a heavier mutation that we don't want to
+                # auto-suggest.
+                fix = (
+                    f"fakoli-state sync provider {mapping.external_system} "
+                    f"--task {mapping.task_id} "
+                    "# remote deleted: unlink mapping or recreate remote"
+                )
+                description = (
+                    f"SyncMapping for task '{mapping.task_id}' "
+                    f"({mapping.external_system}) references external_id "
+                    f"'{mapping.external_id}' which no longer exists on the "
+                    "remote (tombstoned)."
+                )
             else:
+                reason = "stale"
                 fix = (
                     f"fakoli-state sync provider {mapping.external_system} "
                     f"--pull --task {mapping.task_id}"

@@ -360,6 +360,17 @@ def _sync_provider_dispatch(
                 yes=yes,
             )
     finally:
+        # Providers may hold an ``httpx.Client`` (or other transport pool);
+        # in --watch mode the dispatch lives for hours, so explicit
+        # cleanup avoids the unclosed-transport warning that fires on
+        # interpreter shutdown. Providers without close() (contributor
+        # test doubles) get a duck-typed pass.
+        close_fn = getattr(provider, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:  # noqa: BLE001 — close() must not abort shutdown
+                pass
         backend.close()
 
 
@@ -371,24 +382,25 @@ def _sync_provider_dispatch(
 def _resolve_provider(provider_id: str) -> type[SyncProvider]:
     """Return the registered provider class, or exit 1 with a helpful list.
 
-    Re-imports the registry module on every call so test monkeypatching of
-    ``PROVIDER_REGISTRY`` survives — Typer command bodies are executed many
-    times per test session against the same module-level import.
-    """
-    # Late import — keeps cli.sync importable in environments where the sync
-    # subpackage has not been touched (e.g. a `--help` smoke test before
-    # init).
-    from fakoli_state.sync import registry as sync_registry
+    Delegates to :func:`fakoli_state.sync.registry.get_sync_provider` so the
+    "available providers: ..." hint is produced in exactly one place; on
+    miss we re-surface the KeyError message via typer.echo + exit 1.
 
-    if provider_id not in sync_registry.PROVIDER_REGISTRY:
-        available = ", ".join(sorted(sync_registry.PROVIDER_REGISTRY)) or "(none)"
-        typer.echo(
-            f"Error: no sync provider registered under {provider_id!r}; "
-            f"available providers: {available}",
-            err=True,
-        )
-        raise typer.Exit(code=_EXIT_GENERIC_ERROR)
-    return sync_registry.PROVIDER_REGISTRY[provider_id]
+    Late import keeps cli.sync importable in environments where the sync
+    subpackage has not been touched (e.g. a ``--help`` smoke test before
+    init). The function is called on every invocation so test
+    monkeypatching of ``PROVIDER_REGISTRY`` survives — Typer command
+    bodies execute many times per test session.
+    """
+    from fakoli_state.sync.registry import get_sync_provider
+
+    try:
+        return get_sync_provider(provider_id)
+    except KeyError as exc:
+        # KeyError's str() is the message wrapped in repr quotes; strip them.
+        message = exc.args[0] if exc.args else str(exc)
+        typer.echo(f"Error: {message}", err=True)
+        raise typer.Exit(code=_EXIT_GENERIC_ERROR) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -630,29 +642,22 @@ def _persist_mapping_from_push(
     external_ref: ExternalRef,
     existing: Any,
 ) -> None:
-    """Write or refresh the SyncMapping row after a successful push."""
+    """Write or refresh the SyncMapping row after a successful push.
+
+    The provider id is persisted as a plain string. No ``ExternalSystem``
+    enum gate: contributor providers (e.g. ``"monday"``, ``"linear"``,
+    ``"my_custom_tracker"``) MUST be able to round-trip through
+    ``apply_sync_mapping`` without first patching the canonical enum.
+    The DB column is TEXT and the prior gate caused every contributor
+    sync cycle to create a duplicate remote record (no mapping written →
+    next push has ``existing=None`` → creates a new issue/card/etc.).
+    """
     from fakoli_state.clock import SystemClock
     from fakoli_state.state.models import (
         ConflictResolutionStrategy,
-        ExternalSystem,
         SyncMapping,
         SyncState,
     )
-
-    try:
-        ext_system = ExternalSystem(provider.provider_id)
-    except ValueError:
-        # Provider id isn't in the ExternalSystem enum — that's allowed for
-        # contributor providers; the column is a string anyway. Fall back
-        # to the literal value via the enum's first member (the DB-level
-        # constraint is the enum cast).
-        # If we get here we can't safely write a SyncMapping; skip persistence.
-        typer.echo(
-            f"  warning: provider id {provider.provider_id!r} is not in the "
-            "ExternalSystem enum; mapping not persisted.",
-            err=True,
-        )
-        return
 
     strategy = (
         existing.conflict_resolution_strategy
@@ -661,7 +666,7 @@ def _persist_mapping_from_push(
     )
     mapping = SyncMapping(
         task_id=task.id,
-        external_system=ext_system,
+        external_system=provider.provider_id,
         external_id=external_ref.external_id,
         external_url=external_ref.url,
         last_synced_at=SystemClock().now(),
@@ -745,6 +750,22 @@ def _pull_one_task(
             "(external_deleted)",
             err=True,
         )
+        # SF-5: flip the mapping's sync_state to ``external_deleted`` so
+        # the reconciliation engine's drift scan can surface tombstoned
+        # mappings. Before this fix the mapping stayed at whatever it
+        # was (typically ``in_sync``) and the operator had no way to
+        # discover the dangling reference except by manually running
+        # pull and reading stderr.
+        from fakoli_state.clock import SystemClock
+        from fakoli_state.state.models import SyncState
+
+        _bump_mapping_state(
+            backend=backend,
+            existing=existing,
+            new_state=SyncState.external_deleted,
+            clock_now=SystemClock().now(),
+            actor=f"sync.{provider.provider_id}",
+        )
         results["pulled"] += 1
         _emit_audit(
             backend,
@@ -781,6 +802,7 @@ def _pull_one_task(
             remote=remote,
             strategy=strategy,
             yes=yes,
+            existing=existing,
         )
         if not resolved:
             # manual_merge: file was written, task is parked pending
@@ -791,7 +813,56 @@ def _pull_one_task(
             results["manual_merge_pending"] = (
                 results.get("manual_merge_pending", 0) + 1
             )
+            # PR#49 MF: emit a terminal `sync.pull.deferred` audit
+            # event. ``sync.pull.started`` already fired above, so
+            # without this the audit log contains a dangling start
+            # with no terminal — operators monitoring events.jsonl
+            # could not disambiguate a parked manual_merge from a
+            # process crash mid-pull.
+            _emit_audit(
+                backend,
+                action="sync.pull.deferred",
+                payload={
+                    "provider_id": provider.provider_id,
+                    "task_id": task.id,
+                    "external_id": existing.external_id,
+                    "direction": "pull",
+                    "audit_note": "manual_merge_pending",
+                },
+                target_kind="task",
+                target_id=task.id,
+            )
             return
+    elif remote_moved and not local_moved:
+        # Pull-applies-remote (P1-1): remote moved ahead, local is untouched
+        # since last_synced_at — apply the remote payload to the local task
+        # and refresh the SyncMapping to in_sync. Without this branch the
+        # audit log lies ("pull completed" but local state unchanged).
+        _apply_remote_to_local(
+            backend=backend,
+            provider=provider,
+            task=task,
+            remote=remote,
+            existing=existing,
+        )
+    else:
+        # SF-15: clean pull (neither side moved, OR local moved but
+        # remote did not). The pull succeeded — bump last_synced_at so
+        # the 7-day drift_sync_state scan does not flag this mapping
+        # as "stale" just because no remote write happened. Without
+        # this, any task that's been pull-only-synced for a week
+        # surfaces as drift even if pulls have been happening every
+        # minute.
+        from fakoli_state.clock import SystemClock
+        from fakoli_state.state.models import SyncState
+
+        _bump_mapping_state(
+            backend=backend,
+            existing=existing,
+            new_state=SyncState.in_sync,
+            clock_now=SystemClock().now(),
+            actor=f"sync.{provider.provider_id}",
+        )
 
     results["pulled"] += 1
     _emit_audit(
@@ -808,6 +879,127 @@ def _pull_one_task(
     )
 
 
+def _bump_mapping_state(
+    *,
+    backend: SqliteBackend,
+    existing: Any,
+    new_state: Any,
+    clock_now: Any,
+    actor: str,
+) -> None:
+    """Re-emit ``existing`` SyncMapping with a new ``sync_state`` and
+    refreshed ``last_synced_at``.
+
+    Called from each deferred-conflict-resolution branch (SF-4), the
+    clean-pull path (SF-15), and the tombstone path (SF-5) so the next
+    poll's ``remote_moved`` / ``local_moved`` comparison is against the
+    resolution point — not the stale pre-conflict timestamp. Without
+    this, every 60s ``--watch`` poll re-fires the same
+    ``sync.conflict_detected`` event (1440 redundant events / task / day
+    at the documented interval).
+
+    ``new_state`` is a :class:`SyncState`. ``clock_now`` is a UTC
+    datetime — typically ``SystemClock().now()``.
+    """
+    from fakoli_state.state.models import SyncMapping
+
+    refreshed = SyncMapping(
+        task_id=existing.task_id,
+        external_system=existing.external_system,
+        external_id=existing.external_id,
+        external_url=existing.external_url,
+        last_synced_at=clock_now,
+        sync_state=new_state,
+        conflict_resolution_strategy=existing.conflict_resolution_strategy,
+        provider_metadata=dict(existing.provider_metadata or {}),
+    )
+    backend.apply_sync_mapping(refreshed, actor=actor)
+
+
+def _apply_remote_to_local(
+    *,
+    backend: SqliteBackend,
+    provider: SyncProvider,
+    task: Task,
+    remote: ExternalTask,
+    existing: Any,
+) -> None:
+    """Apply a remote ExternalTask payload to the local Task (P1-1).
+
+    Called from the ``remote_moved and not local_moved`` branch of
+    :func:`_pull_one_task`. Emits two events in sequence:
+
+    1. ``task.synced_from_remote`` — rewrites the Task's title /
+       description / status from the remote payload. Status is taken
+       from the remote ``status_label`` only when it parses cleanly as
+       a ``TaskStatus`` value (provider-native labels like
+       ``"open"`` / ``"closed"`` do NOT, and we preserve local status
+       in that case rather than crashing the pull).
+    2. ``sync_mapping.upserted`` — bumps the mapping's
+       ``last_synced_at`` to now and clears the ``sync_state`` back to
+       ``in_sync`` (so subsequent reconciliation passes don't keep
+       flagging the same drift).
+    """
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.state.backend import PENDING_EVENT_ID
+    from fakoli_state.state.models import (
+        Event,
+        SyncMapping,
+        SyncState,
+        TaskStatus,
+    )
+
+    # Resolve a status from the remote payload when possible. Provider-
+    # native labels (``"open"`` for GitHub) do not match a TaskStatus, so
+    # we keep the local status in that case — the remote's status_label
+    # vocabulary is a provider concern, not a fakoli-state concern.
+    new_status: str = str(task.status)
+    if remote.status_label is not None:
+        try:
+            new_status = str(TaskStatus(remote.status_label))
+        except ValueError:
+            # Not a TaskStatus value — keep local. The provider may have
+            # a richer mapping (e.g. label→status), but that translation
+            # happens inside the provider's push_task / fetch_task; the
+            # CLI sync surface only ever sees the literal status_label.
+            new_status = str(task.status)
+
+    clock = SystemClock()
+    actor = f"sync.{provider.provider_id}"
+
+    # 1. Rewrite the local Task.
+    sync_event = Event(
+        id=PENDING_EVENT_ID,
+        timestamp=clock.now(),
+        actor=actor,
+        action="task.synced_from_remote",
+        target_kind="task",
+        target_id=task.id,
+        payload_json={
+            "task_id": task.id,
+            "title": remote.title,
+            "description": remote.body,
+            "status": new_status,
+            "actor": actor,
+        },
+    )
+    backend.apply_event(sync_event)
+
+    # 2. Refresh the SyncMapping — clear conflict state, bump
+    # last_synced_at to now.
+    refreshed = SyncMapping(
+        task_id=existing.task_id,
+        external_system=existing.external_system,
+        external_id=existing.external_id,
+        external_url=existing.external_url,
+        last_synced_at=clock.now(),
+        sync_state=SyncState.in_sync,
+        conflict_resolution_strategy=existing.conflict_resolution_strategy,
+        provider_metadata=dict(existing.provider_metadata or {}),
+    )
+    backend.apply_sync_mapping(refreshed, actor=actor)
+
+
 # ---------------------------------------------------------------------------
 # Conflict resolution strategies
 # ---------------------------------------------------------------------------
@@ -822,6 +1014,7 @@ def _resolve_conflict(
     remote: ExternalTask,
     strategy: Any,
     yes: bool,
+    existing: Any,
 ) -> bool:
     """Apply the configured conflict-resolution strategy.
 
@@ -831,11 +1024,22 @@ def _resolve_conflict(
     sync until the operator deletes it).
 
     Emits ``sync.conflict_detected`` regardless of resolution.
+
+    SF-4: every branch ALSO bumps the SyncMapping's ``sync_state`` and
+    ``last_synced_at`` via :func:`_bump_mapping_state` so the next poll's
+    ``remote_moved``/``local_moved`` comparison is against the
+    resolution point. Without this the same conflict re-fires every
+    poll forever (1440 redundant events / task / day at the default
+    60s interval).
     """
-    from fakoli_state.state.models import ConflictResolutionStrategy
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.state.models import ConflictResolutionStrategy, SyncState
 
     strategy_str = str(strategy)
     resolution: str
+    # State to write to the mapping AFTER resolving. Defaults per
+    # branch and captured in ``new_state`` so the bump is uniform.
+    new_state: SyncState
 
     if strategy == ConflictResolutionStrategy.local_wins:
         # Record the choice; the actual local→remote re-push is deferred
@@ -851,6 +1055,7 @@ def _resolve_conflict(
         # "local_wins_applied". Today the deferral relies on a
         # subsequent --push iteration or the same iteration's push pass.
         resolution = "local_wins_deferred"
+        new_state = SyncState.local_ahead
     elif strategy == ConflictResolutionStrategy.remote_wins:
         # Same story for remote_wins — we record the decision but the
         # actual local mutation from the remote payload is deferred. No
@@ -863,6 +1068,7 @@ def _resolve_conflict(
         # TODO(phase-9): wire immediate local mutation event so resolution
         # can become "remote_wins_applied".
         resolution = "remote_wins_deferred"
+        new_state = SyncState.remote_ahead
     elif strategy == ConflictResolutionStrategy.prompt:
         # Interactive prompt unless --yes / non-tty: defaults to local_wins
         # with a stderr warning per spec.
@@ -873,6 +1079,7 @@ def _resolve_conflict(
                 err=True,
             )
             resolution = "prompt_defaulted_to_local"
+            new_state = SyncState.local_ahead
         else:
             choice = typer.prompt(
                 f"  conflict T={task.id}: choose [local/remote/skip]",
@@ -880,10 +1087,16 @@ def _resolve_conflict(
             ).strip().lower()
             if choice.startswith("l"):
                 resolution = "prompt_chose_local"
+                new_state = SyncState.local_ahead
             elif choice.startswith("r"):
                 resolution = "prompt_chose_remote"
+                new_state = SyncState.remote_ahead
             else:
                 resolution = "prompt_skipped"
+                # Operator deferred — leave the mapping in `conflict`
+                # so the next sync surfaces the same situation rather
+                # than silently flipping to in_sync.
+                new_state = SyncState.conflict
     elif strategy == ConflictResolutionStrategy.manual_merge:
         merge_path = _write_manual_merge_file(
             state_dir=state_dir, task=task, remote=remote
@@ -910,6 +1123,18 @@ def _resolve_conflict(
             target_kind="task",
             target_id=task.id,
         )
+        # SF-4: park the mapping in `conflict` and bump last_synced_at
+        # so the next poll does NOT re-detect the same conflict (which
+        # would re-write the merge file on every iteration). The
+        # operator's resolution step is to delete the merge file and
+        # rerun sync — which goes through this same code path.
+        _bump_mapping_state(
+            backend=backend,
+            existing=existing,
+            new_state=SyncState.conflict,
+            clock_now=SystemClock().now(),
+            actor=f"sync.{provider.provider_id}",
+        )
         # Return False (don't raise) so the caller can continue the batch
         # — important for --watch mode where one task in manual_merge
         # must not halt the whole daemon. The batch loop tracks the
@@ -917,6 +1142,7 @@ def _resolve_conflict(
         return False
     else:  # pragma: no cover — defensive; StrEnum is exhaustive above
         resolution = f"unknown_strategy:{strategy_str}"
+        new_state = SyncState.conflict
 
     _emit_audit(
         backend,
@@ -930,6 +1156,16 @@ def _resolve_conflict(
         },
         target_kind="task",
         target_id=task.id,
+    )
+    # SF-4: bump mapping for every deferred resolution branch. Without
+    # this the next --watch poll re-detects the same conflict because
+    # last_synced_at never advances past the divergence point.
+    _bump_mapping_state(
+        backend=backend,
+        existing=existing,
+        new_state=new_state,
+        clock_now=SystemClock().now(),
+        actor=f"sync.{provider.provider_id}",
     )
     return True
 
@@ -1138,8 +1374,16 @@ def _emit_audit(
     Strips None fields so the JSONL is compact. The
     :class:`fakoli_state.state.payloads.SyncAuditPayload` model accepts
     None on every field so the strip is for ergonomics, not correctness.
+
+    Audit emission failures are non-fatal: a sync that succeeded but
+    whose audit row failed to write is strictly better than aborting
+    the sync entirely. We catch only the specific failure classes the
+    backend documents — anything else (KeyboardInterrupt, programmer
+    errors like ValidationError, etc.) propagates so we don't silently
+    swallow real bugs.
     """
     from fakoli_state.clock import SystemClock
+    from fakoli_state.state.backend import StateLocked, TransactionAborted
     from fakoli_state.state.models import Event
 
     clean: dict[str, Any] = {k: v for k, v in payload.items() if v is not None}
@@ -1154,11 +1398,7 @@ def _emit_audit(
     )
     try:
         backend.apply_event(event)
-    except Exception as exc:  # noqa: BLE001 — audit failures must not abort sync
-        # Audit emission failures are non-fatal: a sync that succeeded but
-        # whose audit row failed to write is strictly better than aborting
-        # the sync entirely. Log to stderr so an operator can investigate
-        # without the suite hiding it.
+    except (TransactionAborted, StateLocked, OSError) as exc:
         typer.echo(
             f"  warning: failed to emit audit event {action!r}: "
             f"{type(exc).__name__}: {exc}",

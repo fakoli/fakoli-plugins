@@ -65,6 +65,7 @@ from fakoli_state.state.payloads import (
     TaskExpandedPayload,
     TaskScoredPayload,
     TaskStatusChangedPayload,
+    TaskSyncedFromRemotePayload,
 )
 from fakoli_state.state.schema import DDL, SCHEMA_VERSION
 
@@ -115,6 +116,14 @@ class SqliteBackend:
 
         Idempotent — safe to call multiple times.  Raises SchemaMismatch if
         the on-disk user_version differs from SCHEMA_VERSION.
+
+        Ordering note (P1-3): the pre-DDL ``user_version`` is captured
+        BEFORE ``_apply_ddl`` runs because ``_apply_ddl`` unconditionally
+        stamps ``PRAGMA user_version = SCHEMA_VERSION`` at the end. If we
+        deferred reading until afterward, the v2→v3 migration branch
+        would never fire — every reopened db would look "already v3" to
+        ``_check_schema_version`` and the missing ALTERs would silently
+        not happen.
         """
         if self._conn is not None:
             # Already initialised — verify version and return.
@@ -141,13 +150,20 @@ class SqliteBackend:
 
         self._conn = conn
 
+        # Capture the on-disk version BEFORE _apply_ddl re-stamps it. The
+        # v2→v3 migration relies on knowing the original version (the DDL
+        # always sets user_version to SCHEMA_VERSION at the end).
+        pre_ddl_row = conn.execute("PRAGMA user_version").fetchone()
+        pre_ddl_version = pre_ddl_row[0] if pre_ddl_row else 0
+
         # Apply DDL (CREATE TABLE IF NOT EXISTS — idempotent).
         # Execute statement-by-statement; sqlite3 executescript auto-commits,
         # so we split manually to preserve our transaction control.
         self._apply_ddl()
 
-        # After DDL, verify schema version.
-        self._check_schema_version()
+        # After DDL, verify schema version. Pass the pre-DDL version so the
+        # migration logic can decide what (if any) ALTER steps are needed.
+        self._check_schema_version(pre_ddl_version=pre_ddl_version)
 
     def close(self) -> None:
         """Close the SQLite connection cleanly.  Idempotent."""
@@ -687,26 +703,76 @@ class SqliteBackend:
         conn.execute("COMMIT")
         conn.execute(version_pragma)
 
-    def _check_schema_version(self) -> None:
+    def _check_schema_version(self, *, pre_ddl_version: int | None = None) -> None:
         """Raise SchemaMismatch if on-disk version is incompatible with SCHEMA_VERSION.
 
-        Phase 8 (SF-6) auto-upgrade: v0 / v1 / v2 → v3 is purely additive
-        (new sync_mappings columns + new UNIQUE constraint). The DDL above
-        already ran via ``_apply_ddl()`` so the v3 shape is materially in
-        place — older v1/v2 databases simply had no rows that could violate
-        the new UNIQUE, and v0 (fresh init) is uninhabited. We bump
-        ``PRAGMA user_version`` in-place to acknowledge the upgrade. Older
-        gaps (e.g. a v3 db opened by code that expects v4) still raise.
-        See docs/migrations.md.
+        Auto-upgrade behaviour (Phase 8 SF-6, refined by P1-3):
+
+        - ``v0 / v1 → v3``: purely additive. The IF NOT EXISTS DDL created
+          the v3-shaped ``sync_mappings`` table from scratch (those versions
+          had no such table). Just bump ``user_version``.
+        - ``v2 → v3``: NOT purely additive. The v2 db has a real
+          ``sync_mappings`` table that ``CREATE TABLE IF NOT EXISTS``
+          cannot retroactively modify — we must explicitly ALTER it to
+          add ``external_url``, ``provider_metadata_json``, and the v3
+          UNIQUE(external_system, external_id) index. Pre-fix this branch
+          was a no-op stamp; queries against the new columns raised
+          ``OperationalError`` until the v3 ALTERs landed.
+
+        ``pre_ddl_version`` carries the user_version that was on disk
+        BEFORE ``_apply_ddl`` re-stamped it. Required for the v2→v3 path:
+        without it we'd always observe the post-DDL stamp (always equal
+        to SCHEMA_VERSION) and the migration branch would never fire.
+
+        Older gaps (e.g. a v3 db opened by code that expects v4) still
+        raise. See docs/migrations.md.
         """
         conn = self._require_conn()
-        row = conn.execute("PRAGMA user_version").fetchone()
-        on_disk = row[0] if row else 0
+        # Use the pre-DDL version when provided (initialize path); fall back
+        # to whatever PRAGMA reports now (early-return path where DDL did
+        # not run between captures).
+        if pre_ddl_version is not None:
+            on_disk = pre_ddl_version
+        else:
+            row = conn.execute("PRAGMA user_version").fetchone()
+            on_disk = row[0] if row else 0
         if on_disk == SCHEMA_VERSION:
             return
-        if on_disk in (0, 1, 2) and SCHEMA_VERSION == 3:
-            # Phase 8 auto-upgrade. DDL was already idempotently re-applied
-            # in _apply_ddl(), so all v3 columns exist. Just bump.
+        if on_disk in (0, 1) and SCHEMA_VERSION == 3:
+            # v0/v1 → v3: no sync_mappings existed pre-v2, so the DDL above
+            # created the v3-shaped table directly. Just bump.
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            return
+        if on_disk == 2 and SCHEMA_VERSION == 3:
+            # v2 → v3: add the three v3 sync_mappings additions that the
+            # IF NOT EXISTS DDL cannot retroactively apply to the v2 table.
+            # Each ALTER is wrapped because re-running the migration (e.g.
+            # crash-recovery) must remain idempotent — a "duplicate column"
+            # error means the ALTER already happened on a previous run.
+            try:
+                conn.execute(
+                    "ALTER TABLE sync_mappings ADD COLUMN external_url TEXT"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
+            try:
+                conn.execute(
+                    "ALTER TABLE sync_mappings ADD COLUMN "
+                    "provider_metadata_json TEXT"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
+            # SQLite does not support adding a table-level UNIQUE constraint
+            # via ALTER TABLE, but a UNIQUE INDEX has the same enforcement
+            # semantics for query planning AND constraint violation. The
+            # IF NOT EXISTS makes the migration replay-safe.
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "idx_sync_mappings_external_unique "
+                "ON sync_mappings (external_system, external_id)"
+            )
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             return
         raise SchemaMismatch(
@@ -763,6 +829,12 @@ class SqliteBackend:
                 TaskStatusChangedPayload,
                 self._handle_task_status_changed,
             ),
+            # Phase 8: pull-applies-remote — local Task gets title/desc/status
+            # rewritten from the remote payload after a non-conflict pull.
+            "task.synced_from_remote": (
+                TaskSyncedFromRemotePayload,
+                self._handle_task_synced_from_remote,
+            ),
             "claim.created": (ClaimCreatedPayload, self._handle_claim_created),
             "claim.released": (ClaimReleasedPayload, self._handle_claim_released),
             "claim.renewed": (ClaimRenewedPayload, self._handle_claim_renewed),
@@ -792,6 +864,14 @@ class SqliteBackend:
             "sync.pull.started": (SyncAuditPayload, self._handle_sync_audit),
             "sync.pull.completed": (SyncAuditPayload, self._handle_sync_audit),
             "sync.pull.failed": (SyncAuditPayload, self._handle_sync_audit),
+            # PR#49 MF — terminal audit event for the manual_merge branch.
+            # ``sync.pull.started`` is emitted unconditionally, so without a
+            # ``deferred`` counterpart the audit log contains a dangling
+            # start with no terminal event when the operator must
+            # intervene. Operators monitoring ``events.jsonl`` could not
+            # otherwise disambiguate a parked manual-merge from a
+            # process crash mid-iteration.
+            "sync.pull.deferred": (SyncAuditPayload, self._handle_sync_audit),
             "sync.conflict_detected": (SyncAuditPayload, self._handle_sync_audit),
             "sync.batch.started": (SyncAuditPayload, self._handle_sync_audit),
             "sync.batch.completed": (SyncAuditPayload, self._handle_sync_audit),
@@ -1266,6 +1346,61 @@ class SqliteBackend:
                 f"task.status_changed: concurrency guard failed for task '{task_id}'. "
                 f"Expected status '{from_status}', got '{actual_status}'. "
                 "The task status may have been changed by a concurrent operation."
+            )
+
+    # ------------------------------------------------------------------
+    # Phase 8 handler — pull-applies-remote (P1-1 fix)
+    # ------------------------------------------------------------------
+
+    def _handle_task_synced_from_remote(
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskSyncedFromRemotePayload,
+        event: Event,
+    ) -> None:
+        """Overwrite a Task's title / description / status from a remote pull.
+
+        Emitted by the sync CLI's pull path on the
+        ``remote_moved and not local_moved`` branch — i.e. the remote
+        legitimately moved ahead and there is no local divergence to
+        protect. The handler rewrites exactly the three fields the
+        forbid-extras payload model exposes (so no Task field outside
+        the remote's known shape can be silently lost) and bumps
+        ``updated_at`` to the event timestamp.
+
+        Does NOT touch the ``sync_mappings`` row — the caller emits a
+        separate ``sync_mapping.upserted`` event for that, keeping the
+        mutation surfaces orthogonal (a future "rebuild local from
+        remote" replay should NOT also bump the mapping's
+        last_synced_at; that's a separate decision).
+
+        ``status`` follows the same field-set rules as
+        ``task.status_changed`` — the value must be a valid TaskStatus
+        string. We do NOT enforce a from-status concurrency guard here:
+        the sync pull path already proved local was untouched
+        (``local_moved == False``) before emitting this event, so the
+        guard would just duplicate work the caller already did.
+        """
+        task_id: str = payload.task_id
+        title: str = payload.title
+        description: str = payload.description
+        status: str = payload.status
+        timestamp: str = event.timestamp.isoformat()
+
+        conn.execute(
+            """
+            UPDATE tasks
+               SET title = ?,
+                   description = ?,
+                   status = ?,
+                   updated_at = ?
+             WHERE id = ?
+            """,
+            (title, description, status, timestamp, task_id),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            raise TransactionAborted(
+                f"task.synced_from_remote: task '{task_id}' not found."
             )
 
     # ------------------------------------------------------------------

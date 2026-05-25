@@ -19,6 +19,8 @@ is purely "talk to gh and return JSON-or-raise".
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 from typing import Any
 
@@ -40,6 +42,14 @@ __all__ = [
 # command (issue create/edit/view are O(<1s)); set on every call so a
 # hung gh process can't block the sync loop forever.
 GH_DEFAULT_TIMEOUT = 30.0
+
+
+# Regex used to extract the issue number from ``gh issue create``'s stdout.
+# ``gh`` prints something like ``https://github.com/owner/repo/issues/42``
+# on a line by itself, but it may print preamble lines (deprecation
+# warnings, color escape resets) before the URL. Matching anywhere in
+# any line is more robust than ``stdout.splitlines()[-1]``.
+_ISSUE_URL_RE = re.compile(r"https?://\S+/issues/(\d+)/?\s*$")
 
 
 class GhCliResult:
@@ -140,6 +150,15 @@ class GhCliClient:
         Catches every failure mode the Protocol contract cares about.
         """
         full_argv = ["gh", *argv]
+        # Force C locale so ``_classify_gh_failure``'s English-phrase
+        # scan ("authentication required", "rate limit", "could not
+        # resolve host") works regardless of the operator's LANG /
+        # LC_ALL — localized ``gh`` builds would otherwise emit
+        # translated messages and every stderr classification would
+        # fall through to the catch-all SyncProviderError.
+        env = os.environ.copy()
+        env["LANG"] = "C"
+        env["LC_ALL"] = "C"
         try:
             completed = subprocess.run(
                 full_argv,
@@ -147,6 +166,7 @@ class GhCliClient:
                 text=True,
                 timeout=self.timeout,
                 check=False,
+                env=env,
             )
         except FileNotFoundError as exc:
             # gh not on PATH — distinct enough to deserve a specific
@@ -209,6 +229,9 @@ class GhCliClient:
         Does NOT raise on auth failure (that's the literal signal we want
         to capture). Only raises if ``gh`` itself cannot be invoked.
         """
+        env = os.environ.copy()
+        env["LANG"] = "C"
+        env["LC_ALL"] = "C"
         try:
             completed = subprocess.run(
                 ["gh", "auth", "status"],
@@ -216,6 +239,7 @@ class GhCliClient:
                 text=True,
                 timeout=self.timeout,
                 check=False,
+                env=env,
             )
         except FileNotFoundError as exc:
             raise ProviderUnavailable(
@@ -270,9 +294,22 @@ class GhCliClient:
             for assignee in assignees:
                 argv.extend(["--assignee", assignee])
         create_result = self._run(argv, parse_json=False)
-        # gh prints the issue URL on stdout; last non-empty line is the URL.
-        url_line = (create_result.stdout or "").strip().splitlines()[-1]
-        issue_number = url_line.rstrip("/").rsplit("/", 1)[-1]
+        # gh prints the issue URL on stdout; scan EVERY line for the
+        # ``/issues/<n>`` pattern rather than assuming the URL is the
+        # last line. Preamble (deprecation warnings, color resets) or
+        # trailing blank lines would otherwise break ``[-1]``.
+        stdout = create_result.stdout or ""
+        issue_number: str | None = None
+        for line in stdout.splitlines():
+            m = _ISSUE_URL_RE.search(line.strip())
+            if m:
+                issue_number = m.group(1)
+                break
+        if issue_number is None:
+            raise SyncProviderError(
+                "gh issue create succeeded but stdout did not contain an "
+                f"issue URL; got: {stdout!r}"
+            )
         return self.view_issue(number=issue_number)
 
     def edit_issue(

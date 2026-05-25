@@ -550,7 +550,17 @@ class TestPushTaskHttp:
                     json={
                         "message": "Validation Failed",
                         "errors": [
-                            {"code": "already_exists", "field": "title"}
+                            {
+                                # Real GitHub Issues 422 payload includes
+                                # resource="Issue"; the provider's 422
+                                # guard requires both already_exists AND
+                                # the Issue resource so other 422s
+                                # (malformed label, invalid assignee)
+                                # don't trigger the O(N) title walk.
+                                "resource": "Issue",
+                                "code": "already_exists",
+                                "field": "title",
+                            }
                         ],
                     },
                 )
@@ -563,6 +573,47 @@ class TestPushTaskHttp:
                 task=_make_task(title="Sample task"), mapping=None
             )
             assert ref.external_id == "55"
+
+    def test_422_already_exists_without_issue_resource_does_not_walk(
+        self, http_provider,
+    ) -> None:
+        """SF-10 regression — a 422 that says ``already_exists`` but is for
+        a non-Issue resource (e.g. label, milestone) must NOT trigger the
+        O(N) issue-list walk; the original SyncProviderError propagates.
+        """
+        # ``assert_all_called=False`` because the SF-10 guard correctly
+        # prevents the list-issues route from being called — that's the
+        # invariant under test.
+        with respx.mock(
+            base_url="https://api.github.com", assert_all_called=False,
+        ) as mock:
+            mock.post("/repos/octo/repo/issues").mock(
+                return_value=httpx.Response(
+                    422,
+                    json={
+                        "message": "Validation Failed",
+                        "errors": [
+                            {
+                                "resource": "Label",
+                                "code": "already_exists",
+                                "field": "name",
+                            }
+                        ],
+                    },
+                )
+            )
+            # If the guard wrongly fires, this would be the call we'd see.
+            list_route = mock.get("/repos/octo/repo/issues").mock(
+                return_value=httpx.Response(200, json=[])
+            )
+            with pytest.raises(SyncProviderError):
+                http_provider.push_task(
+                    task=_make_task(title="Sample task"), mapping=None
+                )
+            assert list_route.called is False, (
+                "SF-10 regression: 422 with non-Issue resource triggered "
+                "the title-walk fallback"
+            )
 
     def test_network_failure_raises_provider_unavailable(
         self, http_provider

@@ -1360,3 +1360,686 @@ class TestConflictResolutionAuditTruth:
         res = conflict_events[0]["payload_json"]["resolution"]
         assert res == "remote_wins_deferred"
         assert "applied" not in res
+
+
+# ---------------------------------------------------------------------------
+# PR #49 P1 regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestPullAppliesRemoteToLocal:
+    """P1-1 — `--pull` must apply remote payload when remote moved alone.
+
+    Pre-fix bug: the `remote_moved and not local_moved` branch printed
+    `sync.pull.completed` and incremented `results["pulled"]` but never
+    wrote the remote payload to the local task — the audit log lied.
+    """
+
+    def test_pull_overwrites_local_title_when_remote_moved_alone(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """Remote moved, local untouched → local Task.title is overwritten."""
+        from fakoli_state.cli._helpers import _open_backend
+
+        # Seed T001 with title='old' at _NOW - 2h (so updated_at < last_synced_at)
+        _seed_task(
+            initialized_project, title="old", description="old desc",
+            now=_NOW - timedelta(hours=2),
+        )
+        _seed_sync_mapping(
+            initialized_project,
+            last_synced_at=_NOW - timedelta(hours=1),
+        )
+
+        # Remote moved AFTER last_synced_at; local has NOT moved since.
+        remote = ExternalTask(
+            external_id="42",
+            title="new",
+            body="new desc",
+            status_label=None,
+            url=None,
+            last_modified=_LATER,
+            provider_metadata={},
+        )
+        cls = _make_scripted_provider_cls(fetch_returns=remote)
+        patched_registry[_TEST_PROVIDER_ID] = cls
+
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+
+        # The local Task now carries the remote title/description.
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.title == "new", (
+                f"P1-1 regression: pull did not overwrite local title "
+                f"(got {task.title!r})"
+            )
+            assert task.description == "new desc", (
+                f"P1-1 regression: pull did not overwrite description "
+                f"(got {task.description!r})"
+            )
+        finally:
+            b.close()
+
+    def test_pull_emits_task_synced_from_remote_event(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """The audit log must include the task.synced_from_remote action."""
+        _seed_task(
+            initialized_project, title="old", description="old desc",
+            now=_NOW - timedelta(hours=2),
+        )
+        _seed_sync_mapping(
+            initialized_project,
+            last_synced_at=_NOW - timedelta(hours=1),
+        )
+        remote = ExternalTask(
+            external_id="42",
+            title="new",
+            body="new desc",
+            status_label=None,
+            url=None,
+            last_modified=_LATER,
+            provider_metadata={},
+        )
+        cls = _make_scripted_provider_cls(fetch_returns=remote)
+        patched_registry[_TEST_PROVIDER_ID] = cls
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+
+        events = _read_events_jsonl(initialized_project)
+        synced = [e for e in events if e["action"] == "task.synced_from_remote"]
+        assert len(synced) == 1, (
+            f"expected exactly one task.synced_from_remote event; "
+            f"actions: {[e['action'] for e in events]}"
+        )
+        payload = synced[0]["payload_json"]
+        assert payload["task_id"] == "T001"
+        assert payload["title"] == "new"
+        assert payload["description"] == "new desc"
+        # Actor reflects the originating provider id (per P1-1 brief).
+        assert payload["actor"] == f"sync.{_TEST_PROVIDER_ID}"
+
+    def test_pull_refreshes_sync_mapping_to_in_sync(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """SyncMapping.sync_state ends as 'in_sync' after a remote-applied pull."""
+        from fakoli_state.cli._helpers import _open_backend
+
+        _seed_task(
+            initialized_project, title="old", description="old desc",
+            now=_NOW - timedelta(hours=2),
+        )
+        _seed_sync_mapping(
+            initialized_project,
+            last_synced_at=_NOW - timedelta(hours=1),
+            sync_state=SyncState.remote_ahead,  # start "drifted"
+        )
+        remote = ExternalTask(
+            external_id="42",
+            title="new",
+            body="new desc",
+            status_label=None,
+            url=None,
+            last_modified=_LATER,
+            provider_metadata={},
+        )
+        cls = _make_scripted_provider_cls(fetch_returns=remote)
+        patched_registry[_TEST_PROVIDER_ID] = cls
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            mapping = b.get_sync_mapping("T001")
+            assert mapping is not None
+            assert str(mapping.sync_state) == "in_sync", (
+                f"SyncMapping.sync_state should be in_sync after pull; "
+                f"got {mapping.sync_state!r}"
+            )
+        finally:
+            b.close()
+
+    def test_pull_no_movement_does_not_emit_synced_from_remote(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """When neither side moved, no synced_from_remote event is emitted."""
+        _seed_task(initialized_project, title="same", description="same desc")
+        _seed_sync_mapping(
+            initialized_project,
+            last_synced_at=_NOW + timedelta(hours=10),  # far future
+        )
+        # Remote last_modified is in the past relative to last_synced_at.
+        remote = ExternalTask(
+            external_id="42",
+            title="same",
+            body="same desc",
+            status_label=None,
+            url=None,
+            last_modified=_NOW - timedelta(hours=1),
+            provider_metadata={},
+        )
+        cls = _make_scripted_provider_cls(fetch_returns=remote)
+        patched_registry[_TEST_PROVIDER_ID] = cls
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+        actions = _actions_in_events(initialized_project)
+        assert "task.synced_from_remote" not in actions
+
+
+class TestContributorProviderMappingPersists:
+    """P1-2 — Contributor provider ids must persist SyncMappings.
+
+    Pre-fix bug: ``_persist_mapping_from_push`` raised ``ValueError`` when
+    ``provider.provider_id`` was not in the ``ExternalSystem`` enum,
+    silently dropped the mapping, and the next sync cycle created a
+    duplicate remote record (existing=None → push as new).
+    """
+
+    def test_custom_provider_id_persists_sync_mapping(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """Register a provider with a non-enum id; push; verify mapping row."""
+        from fakoli_state.cli._helpers import _open_backend
+
+        class _CustomProvider(_ScriptedProvider):
+            provider_id = "my_custom_tracker"  # NOT in ExternalSystem enum
+            display_name = "Custom Tracker (test)"
+
+        patched_registry["my_custom_tracker"] = _CustomProvider
+        _seed_task(initialized_project)
+
+        r = runner.invoke(
+            app,
+            [
+                "sync", "provider", "my_custom_tracker",
+                "--push", "--cwd", str(initialized_project),
+            ],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+
+        # SyncMapping row landed with external_system='my_custom_tracker'.
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            mapping = b.get_sync_mapping(
+                "T001", external_system="my_custom_tracker",
+            )
+            assert mapping is not None, (
+                "P1-2 regression: contributor provider mapping silently "
+                "dropped (no sync_mappings row for 'my_custom_tracker')."
+            )
+            assert mapping.external_system == "my_custom_tracker"
+            assert mapping.external_id == "ext-T001"
+        finally:
+            b.close()
+
+    def test_second_push_updates_existing_mapping_not_create_duplicate(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """Two pushes for the same task → one mapping row (not duplicates).
+
+        This is the core symptom of P1-2: pre-fix, every sync cycle saw
+        ``existing=None`` (mapping was never persisted), called
+        ``push_task(mapping=None)``, and created a new remote record.
+        """
+        from fakoli_state.cli._helpers import _open_backend
+
+        class _CustomProvider(_ScriptedProvider):
+            provider_id = "my_custom_tracker"
+            display_name = "Custom (test)"
+
+        patched_registry["my_custom_tracker"] = _CustomProvider
+        _seed_task(initialized_project)
+
+        # First push.
+        runner.invoke(
+            app,
+            [
+                "sync", "provider", "my_custom_tracker",
+                "--push", "--cwd", str(initialized_project),
+            ],
+            catch_exceptions=False,
+        )
+        # Second push.
+        runner.invoke(
+            app,
+            [
+                "sync", "provider", "my_custom_tracker",
+                "--push", "--cwd", str(initialized_project),
+            ],
+            catch_exceptions=False,
+        )
+
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            mappings = b.list_sync_mappings(external_system="my_custom_tracker")
+            assert len(mappings) == 1, (
+                f"P1-2 regression: two pushes created {len(mappings)} mappings "
+                f"(should be exactly 1 — composite PK upsert)."
+            )
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# PR #49 critic round-2 regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestManualMergeEmitsDeferredAudit:
+    """MF — manual_merge pull path must emit a terminal `sync.pull.deferred`.
+
+    Pre-fix: `sync.pull.started` was emitted unconditionally but the
+    manual_merge branch returned without a terminal `sync.pull.completed`
+    or `sync.pull.failed`, leaving the audit log with a dangling start.
+    Operators monitoring `events.jsonl` could not disambiguate a parked
+    manual_merge from a process crash mid-pull.
+    """
+
+    def test_manual_merge_emits_pull_deferred_not_completed(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        TestSyncConflictResolution()._setup_diverged(
+            initialized_project, patched_registry,
+            ConflictResolutionStrategy.manual_merge,
+        )
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 2, r.output
+
+        events = _read_events_jsonl(initialized_project)
+        actions = [e["action"] for e in events]
+
+        # Both the start AND the deferred terminal must be present.
+        assert "sync.pull.started" in actions, (
+            "manual_merge regression: sync.pull.started missing"
+        )
+        assert "sync.pull.deferred" in actions, (
+            f"MF regression: sync.pull.deferred missing; "
+            f"audit actions={actions}"
+        )
+        # And the pull MUST NOT claim "completed" — the pull was parked,
+        # not completed. A "completed" event here would lie.
+        assert "sync.pull.completed" not in actions, (
+            f"MF regression: sync.pull.completed fired for a parked "
+            f"manual_merge; actions={actions}"
+        )
+
+        # The deferred event carries the audit_note marker for grep.
+        deferred = [e for e in events if e["action"] == "sync.pull.deferred"]
+        assert len(deferred) == 1
+        assert deferred[0]["payload_json"].get("audit_note") == "manual_merge_pending"
+        assert deferred[0]["target_id"] == "T001"
+
+
+class TestDeferredConflictResolutionBumpsMappingState:
+    """SF-4 — deferred conflict resolutions must update SyncMapping.
+
+    Pre-fix: local_wins / remote_wins / manual_merge / prompt_skipped
+    emitted the audit event but never updated `sync_state` or
+    `last_synced_at` on the SyncMapping. The next `--watch` iteration's
+    `remote_moved AND local_moved` was unchanged → the same conflict
+    fired again every poll (1440 redundant events / task / day at the
+    documented 60s interval).
+    """
+
+    def test_local_wins_advances_last_synced_at_so_next_pull_is_clean(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """After a local_wins resolution, a second pull with the same
+        remote payload must NOT re-detect the conflict because
+        last_synced_at has advanced past remote.last_modified."""
+        from fakoli_state.cli._helpers import _open_backend
+
+        TestSyncConflictResolution()._setup_diverged(
+            initialized_project, patched_registry,
+            ConflictResolutionStrategy.local_wins,
+        )
+
+        # First pull — detects the conflict, resolves local_wins.
+        r1 = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r1.exit_code == 0, r1.output
+
+        # Sanity: one conflict was detected on the first pass.
+        events_1 = _read_events_jsonl(initialized_project)
+        conflicts_1 = [e for e in events_1 if e["action"] == "sync.conflict_detected"]
+        assert len(conflicts_1) == 1
+
+        # Mapping must now reflect the resolution: local_ahead, with
+        # last_synced_at advanced past remote.last_modified.
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            mapping = b.get_sync_mapping("T001")
+            assert mapping is not None
+            assert str(mapping.sync_state) == "local_ahead", (
+                f"SF-4 regression: local_wins did not bump sync_state to "
+                f"local_ahead (got {mapping.sync_state!r})"
+            )
+        finally:
+            b.close()
+
+        # Second pull with the SAME remote payload — must NOT re-detect
+        # the conflict because last_synced_at has advanced.
+        r2 = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r2.exit_code == 0, r2.output
+
+        events_2 = _read_events_jsonl(initialized_project)
+        conflicts_2 = [e for e in events_2 if e["action"] == "sync.conflict_detected"]
+        # Still only one conflict total — the second iteration must NOT
+        # have re-fired it.
+        assert len(conflicts_2) == 1, (
+            f"SF-4 regression: second pull re-fired conflict "
+            f"({len(conflicts_2)} total, expected 1). "
+            "last_synced_at was not advanced past the resolution point."
+        )
+
+    def test_manual_merge_parks_mapping_in_conflict_state(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """SF-4 — manual_merge parks the mapping at sync_state=conflict."""
+        from fakoli_state.cli._helpers import _open_backend
+
+        TestSyncConflictResolution()._setup_diverged(
+            initialized_project, patched_registry,
+            ConflictResolutionStrategy.manual_merge,
+        )
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 2, r.output
+
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            mapping = b.get_sync_mapping("T001")
+            assert mapping is not None
+            assert str(mapping.sync_state) == "conflict", (
+                f"SF-4 regression: manual_merge did not park mapping at "
+                f"sync_state=conflict (got {mapping.sync_state!r})"
+            )
+        finally:
+            b.close()
+
+
+class TestTombstoneFlipsSyncStateAndIsReconciled:
+    """SF-5 — `fetch_task` returning None must flip sync_state to
+    `external_deleted` AND surface a reconciliation drift discrepancy
+    with `payload['reason']='external_deleted'`.
+    """
+
+    def test_pull_with_none_remote_flips_sync_state_to_external_deleted(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        from fakoli_state.cli._helpers import _open_backend
+
+        _seed_task(initialized_project)
+        _seed_sync_mapping(initialized_project)
+
+        # Provider returns None from fetch_task — remote was deleted.
+        cls = _make_scripted_provider_cls(fetch_returns=None)
+        patched_registry[_TEST_PROVIDER_ID] = cls
+
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            mapping = b.get_sync_mapping("T001")
+            assert mapping is not None
+            assert str(mapping.sync_state) == "external_deleted", (
+                f"SF-5 regression: tombstone path did not flip "
+                f"sync_state to external_deleted "
+                f"(got {mapping.sync_state!r})"
+            )
+        finally:
+            b.close()
+
+    def test_reconciliation_surfaces_external_deleted_discrepancy(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """After a tombstone, `fakoli-state sync` (reconciliation) must
+        surface a `drift_sync_state` discrepancy whose payload tags the
+        reason as `external_deleted` so the operator can act."""
+        from fakoli_state.cli._helpers import _open_backend
+
+        _seed_task(initialized_project)
+        _seed_sync_mapping(initialized_project)
+
+        cls = _make_scripted_provider_cls(fetch_returns=None)
+        patched_registry[_TEST_PROVIDER_ID] = cls
+
+        # Step 1: pull → flips mapping to external_deleted.
+        r1 = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r1.exit_code == 0, r1.output
+
+        # Step 2: reconciliation scan. Use the engine directly so we
+        # can inspect the discrepancy payload rather than parsing stdout.
+        from fakoli_state.clock import SystemClock
+        from fakoli_state.sync.reconciliation import ReconciliationEngine
+
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            engine = ReconciliationEngine(
+                b,
+                state_dir=state_dir,
+                clock=SystemClock(),
+                configured_providers=[_TEST_PROVIDER_ID],
+            )
+            report = engine.scan()
+        finally:
+            b.close()
+
+        # The drift discrepancy must be present and labelled as
+        # external_deleted (not "conflict" or "stale").
+        tombstone_drifts = [
+            d for d in report.discrepancies
+            if str(d.kind) == "drift_sync_state"
+            and d.payload.get("reason") == "external_deleted"
+        ]
+        assert len(tombstone_drifts) == 1, (
+            f"SF-5 regression: reconciliation did not surface tombstone "
+            f"as drift_sync_state[reason=external_deleted]; got drifts: "
+            f"{[d.payload for d in report.discrepancies]}"
+        )
+
+
+class TestCleanPullBumpsLastSyncedAt:
+    """SF-15 — every clean pull must refresh `last_synced_at` so the 7-day
+    drift_sync_state scan doesn't false-positive on pull-only-synced
+    tasks.
+
+    Pre-fix: when neither side moved, `_pull_one_task` emitted
+    `sync.pull.completed` but never updated the SyncMapping. After 7
+    days of pull-only sync, the drift scan flagged the mapping as
+    "stale" even though pulls had been happening every minute.
+    """
+
+    def test_clean_pull_advances_last_synced_at(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        from datetime import datetime as _dt
+
+        from fakoli_state.cli._helpers import _open_backend
+
+        # Seed with last_synced_at well in the past so we can detect
+        # the advance.
+        seed_time = _NOW - timedelta(days=14)
+        _seed_task(initialized_project, now=seed_time)
+        _seed_sync_mapping(
+            initialized_project,
+            last_synced_at=seed_time,
+        )
+
+        # Remote payload last_modified is BEFORE seed_time → no movement
+        # on either side → clean pull, no conflict, no remote-apply.
+        remote = ExternalTask(
+            external_id="42",
+            title="Test task",
+            body="desc",
+            status_label="open",
+            url=None,
+            last_modified=seed_time - timedelta(days=1),
+            provider_metadata={},
+        )
+        cls = _make_scripted_provider_cls(fetch_returns=remote)
+        patched_registry[_TEST_PROVIDER_ID] = cls
+
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            mapping = b.get_sync_mapping("T001")
+            assert mapping is not None
+            # last_synced_at must have advanced significantly past seed_time
+            # (it's bumped to clock.now() which is far past seed_time-14d).
+            now_floor = _dt.now(UTC) - timedelta(minutes=5)
+            assert mapping.last_synced_at > now_floor, (
+                f"SF-15 regression: clean pull did not advance "
+                f"last_synced_at; still at {mapping.last_synced_at.isoformat()}"
+            )
+            # state preserved as in_sync.
+            assert str(mapping.sync_state) == "in_sync"
+        finally:
+            b.close()
+
+    def test_clean_pull_does_not_trigger_stale_drift_scan(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """After a clean pull, the reconciliation drift scan must NOT
+        flag the mapping as stale — last_synced_at was advanced."""
+        from fakoli_state.cli._helpers import _open_backend
+
+        # Initial state: mapping is 14 days old (well past the 7-day
+        # threshold).
+        seed_time = _NOW - timedelta(days=14)
+        _seed_task(initialized_project, now=seed_time)
+        _seed_sync_mapping(
+            initialized_project,
+            last_synced_at=seed_time,
+        )
+
+        # Clean pull — remote did not move.
+        remote = ExternalTask(
+            external_id="42",
+            title="Test task",
+            body="desc",
+            status_label="open",
+            url=None,
+            last_modified=seed_time - timedelta(days=1),
+            provider_metadata={},
+        )
+        cls = _make_scripted_provider_cls(fetch_returns=remote)
+        patched_registry[_TEST_PROVIDER_ID] = cls
+
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+
+        # Now run reconciliation — no stale drift should fire.
+        from fakoli_state.clock import SystemClock
+        from fakoli_state.sync.reconciliation import ReconciliationEngine
+
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            engine = ReconciliationEngine(
+                b,
+                state_dir=state_dir,
+                clock=SystemClock(),
+                configured_providers=[_TEST_PROVIDER_ID],
+            )
+            report = engine.scan()
+        finally:
+            b.close()
+
+        stale_drifts = [
+            d for d in report.discrepancies
+            if str(d.kind) == "drift_sync_state"
+            and d.payload.get("reason") == "stale"
+        ]
+        assert len(stale_drifts) == 0, (
+            f"SF-15 regression: clean pull did not reset drift counter; "
+            f"stale drifts: {[d.payload for d in stale_drifts]}"
+        )
