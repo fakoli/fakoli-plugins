@@ -1837,7 +1837,11 @@ def packet(
     out_path.write_text(content, encoding="utf-8")
     typer.echo(f"Wrote packet to {out_path}")
     typer.echo("")
-    typer.echo(work_packet.markdown)
+    # Echo the rendered content matching the selected format. Greptile PR #41
+    # flagged that we always echoed markdown regardless of --format, so
+    # `packet --format json` printed markdown to stdout while writing JSON to
+    # the file — confusing for any caller piping the output downstream.
+    typer.echo(content)
 
 
 # ---------------------------------------------------------------------------
@@ -2211,6 +2215,14 @@ def _fetch_latest_evidence(
 
         from fakoli_state.state.models import Evidence
 
+        # Parse the submitted_at timestamp ONCE rather than three times in
+        # an inline conditional (Greptile PR #41 finding). Ensures tz-aware
+        # UTC if the stored value happens to be naive (defensive — events
+        # always carry timezone today).
+        submitted_at = datetime.datetime.fromisoformat(row[10])
+        if submitted_at.tzinfo is None:
+            submitted_at = submitted_at.replace(tzinfo=datetime.UTC)
+
         return Evidence(
             id=row[0],
             task_id=row[1],
@@ -2222,10 +2234,7 @@ def _fetch_latest_evidence(
             commit_sha=row[7],
             screenshots=json.loads(row[8] or "[]"),
             known_limitations=row[9],
-            submitted_at=datetime.datetime.fromisoformat(row[10]).replace(
-                tzinfo=datetime.UTC
-            ) if not datetime.datetime.fromisoformat(row[10]).tzinfo else
-            datetime.datetime.fromisoformat(row[10]),
+            submitted_at=submitted_at,
             submitted_by=row[11],
         )
     except Exception:  # noqa: BLE001

@@ -41,22 +41,29 @@ else
   PAYLOAD=$(cat)
 fi
 
-# --- Extract fields via a single python3 call (stays within 200ms budget) --
-# Outputs six tab-delimited lines, each JSON-encoded so newlines inside values
-# survive the shell assignment safely.
+# --- Extract fields via ONE python3 call ----------------------------------
+# Previously this section spawned 7 python3 processes (1 bulk extraction +
+# 6 separate parsers for individual field re-decoding). Greptile + Critic-1
+# flagged the perf budget violation: on cold paths each python3 is 50-150ms,
+# so the hook could hit the 5-second timeout mid-write leaving partial
+# orphan.json. Now the extraction emits shell-sourceable assignments via
+# shlex.quote() and shell `eval`s them in one round-trip.
 if ! command -v python3 >/dev/null 2>&1; then
   exit 0
 fi
 
-# Pass payload via env var rather than stdin. `python3 - <<'PYEOF'` reads
-# its script from stdin (the heredoc), so a `printf | python3 -` pipe is
-# discarded by the heredoc redirect — payload never reaches sys.stdin.
-# Critic-4 caught this via a tightened hook-test assertion (Greptile
-# secondary on PR #41).
-EXTRACTED=$(HOOK_PAYLOAD="$PAYLOAD" python3 - <<'PYEOF'
-import os, sys, json, datetime
+# Payload via env var (not stdin): `python3 - <<'PYEOF'` reads its script
+# from stdin (the heredoc), overriding any pipe redirect. Critic-4 caught
+# this via a tightened hook-test assertion.
+ASSIGNMENTS=$(HOOK_PAYLOAD="$PAYLOAD" python3 - <<'PYEOF' 2>/dev/null
+import os, json, datetime, shlex
 
 MAX_EXCERPT = 4000
+
+def emit(name: str, value: str) -> None:
+    # Use shlex.quote so embedded quotes/newlines/special chars survive the
+    # subsequent shell `eval`. The output looks like: COMMAND='pytest -x'
+    print(f"{name}={shlex.quote(value)}")
 
 try:
     raw = os.environ.get('HOOK_PAYLOAD', '')
@@ -70,68 +77,32 @@ try:
     stderr_raw = tr.get('stderr') or ''
     actor      = d.get('session_id') or ''
 
-    # Normalise exit_code.
     try:
         exit_code_int = int(exit_code) if exit_code is not None else 0
     except (ValueError, TypeError):
         exit_code_int = 0
 
-    stdout_excerpt = stdout_raw[:MAX_EXCERPT]
-    stderr_excerpt = stderr_raw[:MAX_EXCERPT]
-    # tz-aware UTC: utcnow() was deprecated in 3.12, removed in 3.13.
-    # The trailing 'Z' is the standard UTC marker that downstream Pydantic
-    # _require_utc validators accept via fromisoformat().
+    # tz-aware UTC (utcnow() was deprecated in 3.12, removed in 3.13).
     ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    # One JSON-encoded value per line — safe against embedded newlines.
-    print(json.dumps(command))
-    print(json.dumps(exit_code_int))
-    print(json.dumps(stdout_excerpt))
-    print(json.dumps(stderr_excerpt))
-    print(json.dumps(actor))
-    print(json.dumps(ts))
+    emit('COMMAND',        command)
+    emit('EXIT_CODE',      str(exit_code_int))
+    emit('STDOUT_EXCERPT', stdout_raw[:MAX_EXCERPT])
+    emit('STDERR_EXCERPT', stderr_raw[:MAX_EXCERPT])
+    emit('ACTOR',          actor)
+    emit('TIMESTAMP',      ts)
 except Exception:
-    for _ in range(6):
-        print('""')
+    # On any failure, emit empty assignments so the early-exit on $COMMAND
+    # fires and the hook exits 0 cleanly.
+    for name in ('COMMAND', 'EXIT_CODE', 'STDOUT_EXCERPT',
+                 'STDERR_EXCERPT', 'ACTOR', 'TIMESTAMP'):
+        print(f"{name}=''")
 PYEOF
-2>/dev/null)
+)
 
-# Parse the six lines back from JSON strings.
-COMMAND=$(printf '%s\n' "$EXTRACTED" | python3 -c "
-import sys, json
-lines = sys.stdin.read().splitlines()
-print(json.loads(lines[0]) if len(lines) > 0 and lines[0] else '')
-" 2>/dev/null)
-
-EXIT_CODE=$(printf '%s\n' "$EXTRACTED" | python3 -c "
-import sys, json
-lines = sys.stdin.read().splitlines()
-print(json.loads(lines[1]) if len(lines) > 1 and lines[1] else '0')
-" 2>/dev/null)
-
-STDOUT_EXCERPT=$(printf '%s\n' "$EXTRACTED" | python3 -c "
-import sys, json
-lines = sys.stdin.read().splitlines()
-print(json.loads(lines[2]) if len(lines) > 2 and lines[2] else '')
-" 2>/dev/null)
-
-STDERR_EXCERPT=$(printf '%s\n' "$EXTRACTED" | python3 -c "
-import sys, json
-lines = sys.stdin.read().splitlines()
-print(json.loads(lines[3]) if len(lines) > 3 and lines[3] else '')
-" 2>/dev/null)
-
-ACTOR=$(printf '%s\n' "$EXTRACTED" | python3 -c "
-import sys, json
-lines = sys.stdin.read().splitlines()
-print(json.loads(lines[4]) if len(lines) > 4 and lines[4] else 'unknown')
-" 2>/dev/null)
-
-TIMESTAMP=$(printf '%s\n' "$EXTRACTED" | python3 -c "
-import sys, json
-lines = sys.stdin.read().splitlines()
-print(json.loads(lines[5]) if len(lines) > 5 and lines[5] else '')
-" 2>/dev/null)
+# Source the assignments. `eval` here is safe because shlex.quote() in the
+# python emit() function ensures every value is single-quoted shell-safe.
+eval "$ASSIGNMENTS"
 
 # If we could not extract a command, nothing useful to do.
 if [ -z "$COMMAND" ]; then
