@@ -1,3 +1,13 @@
+> ## Archived — see [roadmap.md](roadmap.md) for live planning
+>
+> This file is preserved as a historical audit trail of what was deferred at the
+> close of Phase 9. The live forward-planning source of truth has moved to
+> [`docs/roadmap.md`](roadmap.md) (version × theme organized; evolves continuously).
+>
+> Every forward-looking item below (P9B-1 through P9B-9) has been re-homed in the
+> roadmap with its original ID preserved. Use this file only to understand the
+> Phase 9 decision context. For "what's planned next", read `roadmap.md`.
+
 # fakoli-state — Post-v1.9.0 Backlog (v2.x roadmap + carry-forward tech debt)
 
 This file is the forward-looking companion to
