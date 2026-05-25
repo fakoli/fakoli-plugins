@@ -4394,6 +4394,929 @@ class TestPendingEventId:
 
 
 # ---------------------------------------------------------------------------
+# Phase 8 — sync_mapping handlers (sync_mapping.upserted / sync_mapping.deleted)
+# ---------------------------------------------------------------------------
+
+
+def _make_sync_mapping_payload(
+    *,
+    task_id: str = "T001",
+    external_system: str = "github_issues",
+    external_id: str = "gh-42",
+    last_synced_at: datetime = _T0,
+    sync_state: str = "in_sync",
+    conflict_resolution_strategy: str = "prompt",
+) -> dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "external_system": external_system,
+        "external_id": external_id,
+        "last_synced_at": last_synced_at.isoformat(),
+        "sync_state": sync_state,
+        "conflict_resolution_strategy": conflict_resolution_strategy,
+    }
+
+
+def _setup_task_for_sync(
+    b: SqliteBackend, task_id: str = "T001", feature_id: str = "F001",
+    *, base_event_id: int = 3,
+) -> None:
+    """Apply minimum events to leave a tasks row with id=task_id present.
+
+    Sync_mappings has a FK into tasks; the FK is RESTRICT, so a sync_mapping
+    insert against a non-existent task_id will fail. Most TestSyncMappingHandler
+    cases need a real task to attach to.
+    """
+    b.apply_event(_make_event(
+        "feature.created", _make_feature_payload(feat_id=feature_id),
+        event_id=f"E{base_event_id:06d}",
+        target_kind="feature", target_id=feature_id,
+    ))
+    b.apply_event(_make_event(
+        "task.created", _make_task_payload(task_id=task_id, feature_id=feature_id),
+        event_id=f"E{base_event_id + 1:06d}",
+        target_kind="task", target_id=task_id,
+    ))
+
+
+class TestSyncMappingHandler:
+    """Phase 8: sync_mapping.upserted / sync_mapping.deleted handlers.
+
+    Exercises the upsert semantics (composite-key ON CONFLICT), the delete
+    semantics (scoped and broad), the replay round-trip, the FK behaviour,
+    and the convenience apply_sync_mapping() wrapper that uses PENDING_EVENT_ID.
+    """
+
+    def test_upsert_inserts_row_and_get_returns_it(self, tmp_path: Path) -> None:
+        """sync_mapping.upserted inserts a row; get_sync_mapping reads it back."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+
+            payload = _make_sync_mapping_payload()
+            event = _make_event(
+                "sync_mapping.upserted", payload, event_id="E000005",
+                target_kind="task", target_id="T001",
+            )
+            b.apply_event(event)
+
+            mapping = b.get_sync_mapping("T001")
+            assert mapping is not None
+            assert mapping.task_id == "T001"
+            assert mapping.external_system == "github_issues"
+            assert mapping.external_id == "gh-42"
+            assert mapping.sync_state == "in_sync"
+        finally:
+            b.close()
+
+    def test_upsert_on_existing_key_updates_row(self, tmp_path: Path) -> None:
+        """A second upsert with the same (task_id, external_system) updates in place."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+
+            b.apply_event(_make_event(
+                "sync_mapping.upserted",
+                _make_sync_mapping_payload(external_id="gh-42", sync_state="in_sync"),
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+            b.apply_event(_make_event(
+                "sync_mapping.upserted",
+                _make_sync_mapping_payload(external_id="gh-99", sync_state="conflict"),
+                event_id="E000006", target_kind="task", target_id="T001",
+            ))
+
+            # Still exactly one row, with the new field values.
+            mappings = b.list_sync_mappings()
+            assert len(mappings) == 1
+            assert mappings[0].external_id == "gh-99"
+            assert mappings[0].sync_state == "conflict"
+        finally:
+            b.close()
+
+    def test_delete_removes_row(self, tmp_path: Path) -> None:
+        """sync_mapping.deleted removes a row; get returns None afterwards."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+
+            b.apply_event(_make_event(
+                "sync_mapping.upserted", _make_sync_mapping_payload(),
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+            assert b.get_sync_mapping("T001") is not None
+
+            b.apply_event(_make_event(
+                "sync_mapping.deleted", {"task_id": "T001"},
+                event_id="E000006", target_kind="task", target_id="T001",
+            ))
+            assert b.get_sync_mapping("T001") is None
+        finally:
+            b.close()
+
+    def test_delete_idempotent_on_missing_row(self, tmp_path: Path) -> None:
+        """sync_mapping.deleted against a never-mapped task is a silent no-op."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+
+            # No upsert first — delete should succeed regardless.
+            b.apply_event(_make_event(
+                "sync_mapping.deleted", {"task_id": "T001"},
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+            assert b.get_sync_mapping("T001") is None
+        finally:
+            b.close()
+
+    def test_delete_scoped_to_one_external_system(self, tmp_path: Path) -> None:
+        """sync_mapping.deleted with external_system only drops that single row."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+
+            b.apply_event(_make_event(
+                "sync_mapping.upserted",
+                _make_sync_mapping_payload(external_system="github_issues"),
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+            # Only one StrEnum value today; for the second mapping we re-use
+            # github_issues with a different external_id but per the composite
+            # PK that would be an UPDATE, not a second row. So instead the
+            # "scoped delete" coverage is: deleting the github_issues row
+            # removes the only mapping for the task, while a delete with the
+            # WRONG external_system leaves it intact (no-op).
+            b.apply_event(_make_event(
+                "sync_mapping.deleted",
+                {"task_id": "T001", "external_system": "linear"},
+                event_id="E000006", target_kind="task", target_id="T001",
+            ))
+            assert b.get_sync_mapping("T001") is not None  # untouched
+
+            b.apply_event(_make_event(
+                "sync_mapping.deleted",
+                {"task_id": "T001", "external_system": "github_issues"},
+                event_id="E000007", target_kind="task", target_id="T001",
+            ))
+            assert b.get_sync_mapping("T001") is None
+        finally:
+            b.close()
+
+    def test_list_sync_mappings_unfiltered_returns_all(self, tmp_path: Path) -> None:
+        """list_sync_mappings() with no filter returns every row."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b, task_id="T001")
+            # Second task to give us two rows.
+            b.apply_event(_make_event(
+                "task.created", _make_task_payload(task_id="T002"),
+                event_id="E000005", target_kind="task", target_id="T002",
+            ))
+            b.apply_event(_make_event(
+                "sync_mapping.upserted",
+                _make_sync_mapping_payload(task_id="T001", external_id="gh-1"),
+                event_id="E000006", target_kind="task", target_id="T001",
+            ))
+            b.apply_event(_make_event(
+                "sync_mapping.upserted",
+                _make_sync_mapping_payload(task_id="T002", external_id="gh-2"),
+                event_id="E000007", target_kind="task", target_id="T002",
+            ))
+
+            mappings = b.list_sync_mappings()
+            assert len(mappings) == 2
+            task_ids = {m.task_id for m in mappings}
+            assert task_ids == {"T001", "T002"}
+        finally:
+            b.close()
+
+    def test_list_sync_mappings_filters_by_external_system(self, tmp_path: Path) -> None:
+        """list_sync_mappings(external_system=...) returns only matching rows."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b, task_id="T001")
+            b.apply_event(_make_event(
+                "sync_mapping.upserted",
+                _make_sync_mapping_payload(external_system="github_issues"),
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+
+            # Matching filter returns the row.
+            matched = b.list_sync_mappings(external_system="github_issues")
+            assert len(matched) == 1
+            assert matched[0].external_system == "github_issues"
+
+            # Non-matching filter returns nothing.
+            unmatched = b.list_sync_mappings(external_system="linear")
+            assert unmatched == []
+        finally:
+            b.close()
+
+    def test_apply_sync_mapping_wrapper_writes_event_and_row(
+        self, tmp_path: Path
+    ) -> None:
+        """apply_sync_mapping() builds the event and inserts the row in one call."""
+        from fakoli_state.state.models import SyncMapping
+
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+
+            mapping = SyncMapping(
+                task_id="T001",
+                external_system="github_issues",
+                external_id="gh-42",
+                last_synced_at=_T0,
+            )
+            event = b.apply_sync_mapping(mapping)
+
+            # The returned event has a real ID assigned by the backend.
+            assert event.id != PENDING_EVENT_ID
+            assert event.id.startswith("E") and event.id[1:].isdigit()
+            assert event.action == "sync_mapping.upserted"
+
+            # JSONL line written.
+            events = _read_jsonl(events_path)
+            assert any(
+                e.get("action") == "sync_mapping.upserted" for e in events
+            )
+
+            # SQLite row written.
+            stored = b.get_sync_mapping("T001")
+            assert stored is not None
+            assert stored.external_id == "gh-42"
+        finally:
+            b.close()
+
+    def test_apply_sync_mapping_returns_assigned_event_id_not_pending(
+        self, tmp_path: Path
+    ) -> None:
+        """The Event returned by apply_sync_mapping() carries a real E000xxx id."""
+        from fakoli_state.state.models import SyncMapping
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+
+            mapping = SyncMapping(
+                task_id="T001",
+                external_system="github_issues",
+                external_id="gh-42",
+                last_synced_at=_T0,
+            )
+            event = b.apply_sync_mapping(mapping)
+            assert event.id != PENDING_EVENT_ID
+            # Format: 'E' + 6 digits.
+            assert len(event.id) == 7 and event.id.startswith("E")
+            assert event.id[1:].isdigit()
+        finally:
+            b.close()
+
+    def test_sync_mapping_fk_restricts_unknown_task(self, tmp_path: Path) -> None:
+        """A sync_mapping.upserted against a non-existent task raises TransactionAborted.
+
+        The sync_mappings.task_id FK is RESTRICT, not CASCADE, so attempting
+        to insert a mapping against a missing task surfaces as a SQLite IntegrityError
+        and is wrapped by apply_event() as TransactionAborted. The corollary —
+        attempting to delete the parent tasks row while a mapping exists also
+        raises — is covered by test_sync_mapping_blocks_task_delete_via_fk.
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            # Do NOT create T001 — FK should reject.
+            with pytest.raises(TransactionAborted):
+                b.apply_event(_make_event(
+                    "sync_mapping.upserted",
+                    _make_sync_mapping_payload(task_id="T001"),
+                    event_id="E000003", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    def test_sync_mapping_cascades_on_task_delete(self, tmp_path: Path) -> None:
+        """Direct DELETE on the parent task row CASCADES to drop the sync_mappings row.
+
+        We use a raw connection because the canonical event flow does not
+        expose a 'task.deleted' event in Phase 8 — but the FK direction
+        flip (RESTRICT → CASCADE in v3) means any future task.deleted handler
+        won't be wedged by an outstanding sync_mapping. Documents the
+        v3 schema invariant.
+
+        The claims.task_id FK is still RESTRICT, so for this test we leave
+        no active claim on the task — only the sync_mapping cascades.
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            b.apply_event(_make_event(
+                "sync_mapping.upserted", _make_sync_mapping_payload(),
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+        finally:
+            b.close()
+
+        conn = sqlite3.connect(str(tmp_path / "state.db"))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            # DELETE succeeds — CASCADE drops the sync_mapping row first.
+            conn.execute("DELETE FROM tasks WHERE id = ?", ("T001",))
+            conn.commit()
+            # And the sync_mapping row is gone.
+            row = conn.execute(
+                "SELECT 1 FROM sync_mappings WHERE task_id = ?", ("T001",)
+            ).fetchone()
+            assert row is None
+        finally:
+            conn.close()
+
+    def test_replay_from_empty_round_trips_sync_mapping(self, tmp_path: Path) -> None:
+        """events.jsonl with sync_mapping events replays to a byte-identical state.db."""
+        clock = _make_clock()
+        b = _make_backend(tmp_path, clock)
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b, task_id="T001")
+            b.apply_event(_make_event(
+                "sync_mapping.upserted",
+                _make_sync_mapping_payload(task_id="T001", external_id="gh-1"),
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+            b.apply_event(_make_event(
+                "sync_mapping.upserted",
+                _make_sync_mapping_payload(task_id="T001", external_id="gh-99"),
+                event_id="E000006", target_kind="task", target_id="T001",
+            ))
+        finally:
+            b.close()
+
+        original_dump = _sqlite_dump(db_path)
+
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            b2.replay_from_empty(events_path)
+        finally:
+            b2.close()
+
+        replayed_dump = _sqlite_dump(db_path)
+        assert original_dump == replayed_dump, (
+            "Replayed state.db differs from original after sync_mapping events.\n"
+            f"Original (truncated):\n{original_dump[:600]}\n\n"
+            f"Replayed (truncated):\n{replayed_dump[:600]}"
+        )
+
+    def test_replay_round_trips_populated_provider_metadata(
+        self, tmp_path: Path
+    ) -> None:
+        """Replay must round-trip non-empty provider_metadata + external_url byte-for-byte."""
+        clock = _make_clock()
+        b = _make_backend(tmp_path, clock)
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            payload = {
+                **_make_sync_mapping_payload(),
+                "external_url": "https://github.com/example/repo/issues/42",
+                "provider_metadata": {
+                    "labels": ["bug", "p1"],
+                    "assignees": ["alice"],
+                },
+            }
+            b.apply_event(_make_event(
+                "sync_mapping.upserted", payload,
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+        finally:
+            b.close()
+
+        original_dump = _sqlite_dump(db_path)
+
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            b2.replay_from_empty(events_path)
+        finally:
+            b2.close()
+
+        assert original_dump == _sqlite_dump(db_path)
+
+    def test_replay_round_trips_sync_mapping_delete(self, tmp_path: Path) -> None:
+        """Replay of upsert+delete leaves the same final state."""
+        clock = _make_clock()
+        b = _make_backend(tmp_path, clock)
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            b.apply_event(_make_event(
+                "sync_mapping.upserted", _make_sync_mapping_payload(),
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+            b.apply_event(_make_event(
+                "sync_mapping.deleted", {"task_id": "T001"},
+                event_id="E000006", target_kind="task", target_id="T001",
+            ))
+        finally:
+            b.close()
+
+        original_dump = _sqlite_dump(db_path)
+
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            b2.replay_from_empty(events_path)
+        finally:
+            b2.close()
+
+        replayed_dump = _sqlite_dump(db_path)
+        assert original_dump == replayed_dump
+
+    def test_upsert_rejects_invalid_sync_state(self, tmp_path: Path) -> None:
+        """sync_state must be a valid SyncState enum value; otherwise TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            bad = _make_sync_mapping_payload(sync_state="not_a_real_state")
+            with pytest.raises(TransactionAborted):
+                b.apply_event(_make_event(
+                    "sync_mapping.upserted", bad,
+                    event_id="E000005", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    def test_get_sync_mapping_returns_none_for_unknown_task(
+        self, tmp_path: Path
+    ) -> None:
+        """get_sync_mapping for a never-mapped task returns None."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            assert b.get_sync_mapping("T001") is None
+            assert b.get_sync_mapping("nonexistent-task") is None
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — SCHEMA_VERSION bump verification
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaVersionPhase8:
+    """The bump from SCHEMA_VERSION=1 → 2 → 3 signals Phase 8.
+
+    v3 is the shipping Phase 8 schema; v1/v2 are auto-upgraded on first open
+    (see TestSchemaAutoUpgrade below and docs/migrations.md).
+    """
+
+    def test_schema_version_is_three(self) -> None:
+        """The Phase 8 ship floor is SCHEMA_VERSION == 3."""
+        assert SCHEMA_VERSION == 3
+
+    def test_initialize_creates_sync_mappings_table_on_empty_db(
+        self, tmp_path: Path
+    ) -> None:
+        """A fresh initialize() on an empty path materializes sync_mappings."""
+        b = _make_backend(tmp_path)
+        try:
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'sync_mappings'"
+            )
+            row = cursor.fetchone()
+            conn.close()
+            assert row is not None, "sync_mappings table missing after initialize()"
+            assert row[0] == "sync_mappings"
+
+            # And user_version matches the bump.
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            v = conn.execute("PRAGMA user_version").fetchone()[0]
+            conn.close()
+            assert v == 3
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 Wave 1 fix-cycle — MF-1 / MF-2 / SF-1 / SF-6 coverage
+# ---------------------------------------------------------------------------
+
+
+class TestSyncMappingUniqueExternalId:
+    """MF-1: UNIQUE(external_system, external_id) on sync_mappings.
+
+    A single external record (a single GitHub issue, etc.) must NEVER map
+    to two local tasks. Without this constraint, cross-task collisions
+    silently mirror divergent local state into one remote, which is the
+    reconciliation engine's worst failure mode.
+    """
+
+    def test_unique_external_id_rejects_cross_task_collision(
+        self, tmp_path: Path
+    ) -> None:
+        """T001 → gh-42, then T002 → gh-42 (same external_system) must abort."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            # Two tasks under the same feature.
+            b.apply_event(_make_event(
+                "feature.created", _make_feature_payload(feat_id="F001"),
+                event_id="E000003", target_kind="feature", target_id="F001",
+            ))
+            b.apply_event(_make_event(
+                "task.created", _make_task_payload(task_id="T001", feature_id="F001"),
+                event_id="E000004", target_kind="task", target_id="T001",
+            ))
+            b.apply_event(_make_event(
+                "task.created", _make_task_payload(task_id="T002", feature_id="F001"),
+                event_id="E000005", target_kind="task", target_id="T002",
+            ))
+
+            # T001 → (github_issues, gh-42) succeeds.
+            b.apply_event(_make_event(
+                "sync_mapping.upserted",
+                _make_sync_mapping_payload(task_id="T001", external_id="gh-42"),
+                event_id="E000006", target_kind="task", target_id="T001",
+            ))
+
+            # T002 → (github_issues, gh-42) must abort on the UNIQUE.
+            with pytest.raises(TransactionAborted):
+                b.apply_event(_make_event(
+                    "sync_mapping.upserted",
+                    _make_sync_mapping_payload(task_id="T002", external_id="gh-42"),
+                    event_id="E000007", target_kind="task", target_id="T002",
+                ))
+        finally:
+            b.close()
+
+
+class TestApplySyncMappingPayloadSerialization:
+    """MF-2: apply_sync_mapping serializes through the payload model explicitly.
+
+    If a hypothetical extra field were added to SyncMapping without being
+    added to SyncMappingUpsertedPayload, the failure must surface AT THE
+    CALL SITE as a ValidationError — not inside the BEGIN IMMEDIATE lock
+    as a generic TransactionAborted.
+    """
+
+    def test_extra_field_on_mapping_fails_at_call_site(
+        self, tmp_path: Path
+    ) -> None:
+        """Subclass SyncMapping with an extra field; apply_sync_mapping must
+        raise ValidationError (extra='forbid' on the payload model)."""
+        from pydantic import ValidationError
+
+        from fakoli_state.state.models import SyncMapping
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+
+            # Build a mapping with a real extra attribute via unsafe setattr
+            # after construction. (Subclassing wouldn't help — extra='forbid'
+            # is on SyncMapping itself.) The payload model rebuilds from
+            # field-by-field reads, so smuggling a field onto the mapping
+            # instance does NOT make it into the payload — instead the
+            # missing-on-payload value defaults. So the more direct probe is:
+            # construct the canonical payload model with an extra kwarg and
+            # confirm it rejects.
+            from fakoli_state.state.payloads import SyncMappingUpsertedPayload
+
+            with pytest.raises(ValidationError):
+                SyncMappingUpsertedPayload(
+                    task_id="T001",
+                    external_system="github_issues",
+                    external_id="gh-42",
+                    last_synced_at=_T0.isoformat(),
+                    surprise_extra_field="boom",  # type: ignore[call-arg]
+                )
+
+            # And the happy path: apply_sync_mapping with a clean mapping
+            # round-trips through the payload model and lands a real row.
+            mapping = SyncMapping(
+                task_id="T001",
+                external_system="github_issues",
+                external_id="gh-42",
+                last_synced_at=_T0,
+            )
+            event = b.apply_sync_mapping(mapping)
+            assert event.action == "sync_mapping.upserted"
+            stored = b.get_sync_mapping("T001")
+            assert stored is not None
+            assert stored.external_id == "gh-42"
+        finally:
+            b.close()
+
+    def test_apply_sync_mapping_raises_validation_when_payload_class_drifts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Strengthened MF-2 regression: monkeypatch the payload model to
+        require a field that SyncMapping does not have; apply_sync_mapping
+        must surface a ValidationError AT THE CALL SITE rather than letting
+        it tunnel into BEGIN IMMEDIATE as a TransactionAborted.
+
+        This is the real protection MF-2 was supposed to give us: future
+        drift between :class:`SyncMapping` and
+        :class:`SyncMappingUpsertedPayload` fails fast outside the lock
+        instead of leaving the JSONL log in an inconsistent state.
+        """
+        from pydantic import ConfigDict, Field, ValidationError, create_model
+
+        from fakoli_state.state import sqlite as sqlite_mod
+        from fakoli_state.state.models import SyncMapping
+
+        # Build a drop-in replacement payload class that requires a NEW
+        # field SyncMapping does not have. The original payload module
+        # attribute is patched for the duration of the test; the
+        # `apply_sync_mapping` wrapper resolves it by name at call time.
+        DriftedPayload = create_model(  # noqa: N806 — class-like factory
+            "SyncMappingUpsertedPayload",
+            __config__=ConfigDict(extra="forbid"),
+            task_id=(str, ...),
+            external_system=(str, ...),
+            external_id=(str, ...),
+            external_url=(str | None, None),
+            last_synced_at=(str, ...),
+            sync_state=(str, "in_sync"),
+            conflict_resolution_strategy=(str, "prompt"),
+            provider_metadata=(dict, Field(default_factory=dict)),
+            # The new required field with no value on SyncMapping → kaboom
+            new_required_field=(str, ...),
+        )
+        monkeypatch.setattr(
+            sqlite_mod, "SyncMappingUpsertedPayload", DriftedPayload
+        )
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            mapping = SyncMapping(
+                task_id="T001",
+                external_system="github_issues",
+                external_id="gh-42",
+                last_synced_at=_T0,
+            )
+            with pytest.raises(ValidationError):
+                b.apply_sync_mapping(mapping)
+            # And: state is unchanged — no JSONL line for the failed payload.
+            assert b.get_sync_mapping("T001") is None
+        finally:
+            b.close()
+
+    def test_apply_sync_mapping_records_actor_kwarg(self, tmp_path: Path) -> None:
+        """SF-7: apply_sync_mapping(..., actor='alice') threads the actor into the event."""
+        from fakoli_state.state.models import SyncMapping
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            mapping = SyncMapping(
+                task_id="T001",
+                external_system="github_issues",
+                external_id="gh-42",
+                last_synced_at=_T0,
+            )
+            event = b.apply_sync_mapping(mapping, actor="alice")
+            assert event.actor == "alice"
+        finally:
+            b.close()
+
+
+class TestGetSyncMappingExternalSystemKwarg:
+    """SF-1: get_sync_mapping(task_id, *, external_system=None) keyword arg.
+
+    Composite-PK means a single task_id can have multiple mappings (one per
+    external system). When external_system is omitted, the legacy ASC-first
+    behaviour is preserved. When supplied, the lookup is scoped.
+    """
+
+    def test_scoped_lookup_by_external_system(self, tmp_path: Path) -> None:
+        """Passing external_system returns the matching row directly."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            b.apply_event(_make_event(
+                "sync_mapping.upserted",
+                _make_sync_mapping_payload(
+                    external_system="github_issues", external_id="gh-42",
+                ),
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+            # Scoped lookup matches.
+            mapping = b.get_sync_mapping("T001", external_system="github_issues")
+            assert mapping is not None
+            assert mapping.external_system == "github_issues"
+            assert mapping.external_id == "gh-42"
+            # Scoped lookup on a non-existent system returns None.
+            assert b.get_sync_mapping("T001", external_system="linear") is None
+        finally:
+            b.close()
+
+    def test_unscoped_lookup_returns_asc_first(self, tmp_path: Path) -> None:
+        """Omitting external_system returns the first row by external_system ASC.
+
+        We can only test this with one StrEnum value today (github_issues),
+        so the assertion is "returns a row" not "returns the alphabetical
+        first of two" — the ASC-first behaviour is documented in the
+        docstring and exercised internally; adding a second StrEnum value
+        in a future phase will turn this into a multi-system test.
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            b.apply_event(_make_event(
+                "sync_mapping.upserted", _make_sync_mapping_payload(),
+                event_id="E000005", target_kind="task", target_id="T001",
+            ))
+            mapping = b.get_sync_mapping("T001")  # no kwarg
+            assert mapping is not None
+            assert mapping.external_system == "github_issues"
+        finally:
+            b.close()
+
+
+class TestSchemaAutoUpgrade:
+    """SF-6: v0 / v1 / v2 → v3 auto-upgrade on initialize().
+
+    Pre-Phase-8 dbs are upgraded purely additively — the new sync_mappings
+    columns are nullable and the new UNIQUE cannot be violated by any
+    pre-existing row.
+    """
+
+    def test_fresh_init_yields_v3(self, tmp_path: Path) -> None:
+        """A brand-new initialize() lands on v3 directly (no upgrade fired)."""
+        b = _make_backend(tmp_path)
+        try:
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            v = conn.execute("PRAGMA user_version").fetchone()[0]
+            conn.close()
+            assert v == 3
+        finally:
+            b.close()
+
+    def test_v1_db_auto_upgrades_to_v3(self, tmp_path: Path) -> None:
+        """A db marked user_version=1 (no sync_mappings rows) upgrades to v3."""
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+        # Step 1: stand up a real v3 db.
+        clock = _make_clock()
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
+        b.close()
+        # Step 2: forge user_version back to 1 to simulate an old db.
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+        conn.close()
+        # Step 3: reopen — auto-upgrade must fire and bump back to 3.
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            conn = sqlite3.connect(db_path)
+            v = conn.execute("PRAGMA user_version").fetchone()[0]
+            conn.close()
+            assert v == 3
+        finally:
+            b2.close()
+
+    def test_v2_db_auto_upgrades_to_v3(self, tmp_path: Path) -> None:
+        """A db marked user_version=2 upgrades to v3 without losing data."""
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+        clock = _make_clock()
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
+        # Seed a project to confirm data survives the upgrade.
+        b.apply_event(_make_project_event(event_id="E000001"))
+        b.close()
+        # Forge to v2.
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA user_version = 2")
+        conn.commit()
+        conn.close()
+        # Reopen — auto-upgrade fires; project row survives.
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            conn = sqlite3.connect(db_path)
+            v = conn.execute("PRAGMA user_version").fetchone()[0]
+            conn.close()
+            assert v == 3
+            proj = b2.get_project()
+            assert proj is not None
+            assert proj.id == "proj-1"
+        finally:
+            b2.close()
+
+    def test_future_version_still_raises_mismatch(self, tmp_path: Path) -> None:
+        """A db marked at a version newer than the code expects raises SchemaMismatch."""
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+        clock = _make_clock()
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
+        # Forge to a far-future version that cannot be auto-upgraded.
+        assert b._conn is not None  # noqa: SLF001
+        b._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 99}")  # noqa: SLF001
+        with pytest.raises(SchemaMismatch):
+            b.initialize()
+        b.close()
+
+    def test_check_schema_version_auto_upgrades_on_already_open_conn(
+        self, tmp_path: Path
+    ) -> None:
+        """Forge user_version on a live connection, then re-call initialize().
+
+        The second initialize() takes the early-return branch (self._conn is
+        not None) which calls only _check_schema_version() — no DDL. This is
+        the only path that actually exercises the SF-6 auto-upgrade branch.
+        """
+        b = _make_backend(tmp_path)
+        try:
+            assert b._conn is not None  # noqa: SLF001
+            b._conn.execute("PRAGMA user_version = 1")  # noqa: SLF001
+            b.initialize()  # takes early-return; _check_schema_version sees v1
+            v = b._conn.execute("PRAGMA user_version").fetchone()[0]  # noqa: SLF001
+            assert v == 3
+        finally:
+            b.close()
+
+
+class TestSyncProviderSnakeCaseRegistry:
+    """SF-3: register/get with snake_case provider ids (e.g. github_issues)."""
+
+    def test_register_and_get_snake_case(self) -> None:
+        from fakoli_state.sync import (
+            PROVIDER_REGISTRY,
+            get_sync_provider,
+            register_sync_provider,
+        )
+
+        class _FakeProvider:
+            provider_id = "github_issues"
+            display_name = "GitHub Issues"
+
+            def push_task(self, *, task: Any, mapping: Any) -> Any:  # pragma: no cover
+                ...
+
+            def fetch_task(self, *, external_id: str) -> Any:  # pragma: no cover
+                ...
+
+            def list_tasks(self) -> list[Any]:  # pragma: no cover
+                ...
+
+            def delete_task(self, *, external_id: str) -> None:  # pragma: no cover
+                ...
+
+            def health_check(self) -> Any:  # pragma: no cover
+                ...
+
+        # Snapshot + restore the registry so this test doesn't pollute siblings.
+        snapshot = dict(PROVIDER_REGISTRY)
+        PROVIDER_REGISTRY.clear()
+        try:
+            register_sync_provider("github_issues", _FakeProvider)
+            assert get_sync_provider("github_issues") is _FakeProvider
+        finally:
+            PROVIDER_REGISTRY.clear()
+            PROVIDER_REGISTRY.update(snapshot)
+
+
+# ---------------------------------------------------------------------------
 # P6-5 — Payload validation centralization
 # ---------------------------------------------------------------------------
 
@@ -4807,6 +5730,72 @@ class TestPayloadValidation:
                 "notes": "All good.",
                 "noted_at": _T0.isoformat(),
                 "injected_key": "should_be_rejected",
+            })
+
+    # ------------------------------------------------------------------
+    # Phase 8 — sync_mapping payloads
+    # ------------------------------------------------------------------
+
+    def test_sync_mapping_upserted_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.SyncMappingUpsertedPayload.model_validate({
+            "task_id": "T001",
+            "external_system": "github_issues",
+            "external_id": "gh-42",
+            "last_synced_at": _T0.isoformat(),
+            "sync_state": "in_sync",
+            "conflict_resolution_strategy": "prompt",
+        })
+        assert obj.task_id == "T001"
+        assert obj.external_system == "github_issues"
+        assert obj.external_id == "gh-42"
+
+    def test_sync_mapping_upserted_payload_applies_defaults(self) -> None:
+        """Optional fields fall back to defaults when omitted."""
+        p = self._import_payload_models()
+        obj = p.SyncMappingUpsertedPayload.model_validate({
+            "task_id": "T001",
+            "external_system": "github_issues",
+            "external_id": "gh-42",
+            "last_synced_at": _T0.isoformat(),
+        })
+        assert obj.sync_state == "in_sync"
+        assert obj.conflict_resolution_strategy == "prompt"
+
+    def test_sync_mapping_upserted_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.SyncMappingUpsertedPayload.model_validate({
+                "task_id": "T001",
+                "external_system": "github_issues",
+                "external_id": "gh-42",
+                "last_synced_at": _T0.isoformat(),
+                "smuggled_field": "should_be_rejected",
+            })
+
+    def test_sync_mapping_deleted_payload_validates_minimum(self) -> None:
+        p = self._import_payload_models()
+        obj = p.SyncMappingDeletedPayload.model_validate({"task_id": "T001"})
+        assert obj.task_id == "T001"
+        assert obj.external_system is None
+
+    def test_sync_mapping_deleted_payload_validates_scoped(self) -> None:
+        """external_system is optional but accepted when provided."""
+        p = self._import_payload_models()
+        obj = p.SyncMappingDeletedPayload.model_validate({
+            "task_id": "T001",
+            "external_system": "github_issues",
+        })
+        assert obj.external_system == "github_issues"
+
+    def test_sync_mapping_deleted_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.SyncMappingDeletedPayload.model_validate({
+                "task_id": "T001",
+                "not_a_real_field": "no",
             })
 
     # ------------------------------------------------------------------

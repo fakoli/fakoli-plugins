@@ -6,9 +6,87 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-Phase 8 remains scheduled. It ships as its own PR into the fakoli-plugins monorepo.
+v1.8.0 ships feature-complete v0 per the spec at
+docs/specs/2026-05-24-fakoli-state-v0.md. Future minor bumps will
+land additional sync providers (Monday, Linear, Jira), webhook-based
+sync (vs polling), and the Phase 9 immediate-apply conflict resolution
+wired to `*_applied` audit events.
 
-- **Phase 8** — GitHub sync: bidirectional Issues sync engine, `sync github` CLI command, state-keeper agent, reconciliation (`sync --fix`), nightly live-GitHub CI, `docs/github-sync.md`, marketplace.json regen, and feature-complete release.
+---
+
+## [1.8.0] — 2026-05-25
+
+Phase 8: bidirectional sync. Adds a multi-provider `SyncProvider` Protocol
+abstraction with GitHub Issues as the first concrete implementation, wires
+opt-in `fakoli-state sync` CLI surface with bidirectional push/pull, four
+conflict-resolution strategies, watch-loop polling, and full reconciliation
+between SQLite state / filesystem / git. The Protocol is registry-driven
+so Monday, Linear, Jira, and custom providers can plug in without engine
+changes — see docs/sync-providers.md for the contributor guide.
+
+The schema gains a sync_mappings table (SCHEMA_VERSION 2 → 3) with an
+auto-upgrade path for existing v1.7.x databases; the diff is purely
+additive. See docs/migrations.md.
+
+### Added — Sync abstraction layer
+
+- `bin/src/fakoli_state/sync/` package — `SyncProvider` Protocol (`push_task`, `fetch_task`, `list_tasks`, `delete_task`, `health_check`), `ExternalRef` + `ExternalTask` + `ProviderHealth` Pydantic models, `SyncProviderError` hierarchy (`AuthenticationFailed`, `RateLimitExceeded`, `ProviderUnavailable`, `SyncConflict`), `RecordedSyncProvider` test double (sha256 length-prefixed keyed), `PROVIDER_REGISTRY` + `register_sync_provider` / `get_sync_provider` / `list_sync_providers`. snake_case `provider_id` discipline.
+- `bin/src/fakoli_state/sync/providers/github_issues.py` — `GitHubIssuesProvider` concrete impl. Auto-registers as `"github_issues"` on package import. Dual transport: `gh` CLI primary, `httpx` + `GITHUB_TOKEN` fallback. Status mapping: 11 TaskStatus values → `status:*` labels; only `done` closes the issue. Body footer convention (`---\n_synced from fakoli-state task {task_id}_`) is round-trippable via `_strip_footer`. Label preservation across pushes (HTTP transport reads existing labels first, preserves non-`status:*`).
+- `bin/src/fakoli_state/sync/clients/gh_cli.py` — subprocess wrapper for `gh issue create/edit/view/list/close`. Stderr-scan error classification (auth/rate-limit/network).
+- `bin/src/fakoli_state/sync/clients/github_http.py` — httpx wrapper with Link-header pagination + 1000-page safety cap + `responses`-style HTTP mocking via respx in tests.
+- `bin/src/fakoli_state/sync/reconciliation.py` — `ReconciliationEngine.scan() / fix(dry_run=False)` covering 6 discrepancy kinds: orphan_branch, orphan_packet, orphan_worktree, stale_claim, missing_sync_mapping, drift_sync_state. The first 4 have full fix paths; the latter 2 emit operator-facing CLI commands (`fakoli-state sync provider <id> --pull --task T001`) for Phase 9 immediate-apply.
+
+### Added — State schema (SCHEMA_VERSION 3)
+
+- `sync_mappings` table: composite PK `(task_id, external_system)` + `UNIQUE(external_system, external_id)` (prevents cross-task collisions) + `FK ON DELETE CASCADE` to tasks + `external_url` + `provider_metadata_json`. Auto-upgrade from v1/v2 dbs in `_check_schema_version`; purely additive.
+- New Pydantic models: `SyncMapping`, `SyncState`, `ConflictResolutionStrategy` (enums), `ExternalSystem` (snake_case enum).
+- New payload models in `state/payloads.py`: `SyncMappingUpsertedPayload`, `SyncMappingDeletedPayload`, `SyncAuditPayload`. All `extra="forbid"`.
+- New event handlers in `state/sqlite.py`: `_handle_sync_mapping_upserted`, `_handle_sync_mapping_deleted`, `_handle_sync_audit` (no-op like file_changed / progress.noted).
+- New Backend Protocol methods: `get_sync_mapping(task_id, *, external_system=None)`, `list_sync_mappings(external_system=None)`, `apply_sync_mapping(mapping, *, actor='system')` (uses PENDING_EVENT_ID for race-free assignment).
+- Nine new `sync.*` audit-event actions: `sync.batch.started/completed`, `sync.push.started/completed/failed`, `sync.pull.started/completed/failed`, `sync.conflict_detected`.
+
+### Added — CLI surface
+
+- `fakoli-state sync` — runs reconciliation only (scan + print report).
+- `fakoli-state sync --fix --yes` — reconciliation + apply remediations (`--yes` required for non-interactive; refuses without `--yes` on cron/CI).
+- `fakoli-state sync <provider>` — push+pull all tasks via the named provider.
+- `fakoli-state sync github` — backwards-compat alias for `sync github_issues`.
+- `fakoli-state sync provider <id>` — generic provider invocation.
+- Flags: `--push` (push-only), `--pull` (pull-only), `--task T001` (single-task), `--watch --interval N` (long-running poll loop with per-iteration error recovery), `--health` (provider auth probe, works pre-init), `--fix` (forces remote_wins conflict strategy).
+- Conflict resolution: per-task `SyncMapping.conflict_resolution_strategy` ∈ {`local_wins`, `remote_wins`, `prompt`, `manual_merge`}. Resolution events emit `*_deferred` audit strings (truthful — actual mutations happen on the next pass; Phase 9 will wire immediate apply). `manual_merge` writes `.fakoli-state/.sync-conflicts/<task_id>.md`; batch exits 2 if any task needed operator input.
+
+### Added — Plugin-owned agent
+
+- `plugins/fakoli-state/agents/state-keeper.md` (color `teal`, model `opus`) — specialized agent for sync drift detection + reconciliation triage. Defers to `fakoli-crew:keeper` when crew is installed.
+
+### Added — Documentation
+
+- `docs/github-sync.md` (245 lines, 12 sections) — user-facing GitHub Issues sync reference.
+- `docs/sync-providers.md` (280 lines, 11 sections) — contributor-facing Protocol reference with a step-by-step Linear-provider walkthrough.
+- `docs/live-tests.md` — operator runbook for the nightly live-GitHub CI.
+- `docs/migrations.md` — already shipped in 1.7.1; documents the v1/v2 → v3 auto-upgrade.
+
+### Added — Nightly CI
+
+- `.github/workflows/fakoli-state-live-github.yml` — daily cron at 06:00 UTC. Gated on `secrets.FAKOLI_STATE_TEST_GH_TOKEN` (job exits 0 with a notice if secret missing). Runs `pytest -m live_github -v` against a real test repo.
+- `tests/test_github_issues_live.py` — 3 live tests (lifecycle, label preservation, rate-limit handling). All decorated `@pytest.mark.live_github`; excluded from default `pytest -q` via `addopts = "-m 'not live_github'"` in pyproject.toml. Cleanup contract: every test closes its own issues + leaves a `[fakoli-test]` UUID prefix for orphan sweeping.
+
+### Changed
+
+- `bin/pyproject.toml` — dropped unused `responses>=0.25` dev dep; added `httpx>=0.27` runtime; added `respx>=0.21` dev (for httpx-side HTTP mocking); registered `live_github` pytest marker.
+- `cli/__init__.py` — wires the new `sync_app` Typer sub-app into the main CLI.
+
+### Tests
+
+- 750 → 917 baseline tests (+167) plus 3 live-github tests (excluded from default).
+- Across waves: 58 sync_provider tests, 23 sync_mapping tests, 82 github_issues_provider tests, 37 reconciliation tests, 42+ cli_sync tests, 4 follow-up + Wave 3 fix-cycle additions.
+- Ruff clean. Migration auto-upgrade path tested for v0/v1/v2 → v3.
+
+### Migration notes
+
+- Schema bumps 2 → 3. Existing v1.7.x databases auto-upgrade on first `fakoli-state` invocation under 1.8.0. The diff is purely additive (new table, no shape changes to existing tables). No manual action required.
+- The `responses` dev dep has been dropped; if you have a custom test that imported it, switch to `respx` for httpx mocking.
+- `fakoli-state sync` is a NEW command. Existing CLI commands are unchanged.
 
 ---
 

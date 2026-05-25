@@ -454,18 +454,48 @@ class Event(BaseModel):
 
 
 class SyncMapping(BaseModel):
-    """Tracks a Task's relationship to an issue in an external system."""
+    """Tracks a Task's relationship to an issue in an external system.
+
+    Fields
+    ------
+    task_id:
+        FK into ``tasks``.
+    external_system:
+        ``ExternalSystem`` enum (snake_case: ``github_issues``).
+    external_id:
+        Provider-native record id (stringified for uniformity across
+        providers).
+    external_url:
+        Optional human-facing URL to the remote record. Stored on the
+        mapping so the CLI can render a link without a re-fetch.
+    last_synced_at:
+        UTC timestamp of the last successful round-trip.
+    sync_state:
+        Per-mapping conflict / health label (in_sync / local_ahead / ...).
+    conflict_resolution_strategy:
+        Per-mapping strategy (local_wins / remote_wins / prompt /
+        manual_merge). Falls back to project-level config at the CLI
+        layer if not set explicitly.
+    provider_metadata:
+        Opaque provider-specific extension dict. GitHub puts
+        ``{"labels": [...], "assignees": [...]}`` here; Jira puts
+        ``{"watchers": [...], "reporter": ...}``; etc. The
+        reconciliation engine never inspects this — only the originating
+        provider knows its shape.
+    """
 
     model_config = _MODEL_CONFIG
 
     task_id: TaskID
     external_system: ExternalSystem
     external_id: str
+    external_url: str | None = None
     last_synced_at: datetime.datetime
     sync_state: SyncState = SyncState.in_sync
     conflict_resolution_strategy: ConflictResolutionStrategy = (
         ConflictResolutionStrategy.prompt
     )
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("last_synced_at", mode="after")
     @classmethod

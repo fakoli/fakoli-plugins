@@ -40,6 +40,7 @@ from fakoli_state.state.models import (
     Project,
     Requirement,
     Score,
+    SyncMapping,
     Task,
 )
 from fakoli_state.state.payloads import (
@@ -56,6 +57,9 @@ from fakoli_state.state.payloads import (
     ProgressNotedPayload,
     ProjectCreatedPayload,
     StateInitializedPayload,
+    SyncAuditPayload,
+    SyncMappingDeletedPayload,
+    SyncMappingUpsertedPayload,
     TaskAppliedPayload,
     TaskCreatedPayload,
     TaskExpandedPayload,
@@ -556,6 +560,114 @@ class SqliteBackend:
         )
 
     # ------------------------------------------------------------------
+    # Phase 8 — sync mapping query helpers
+    # ------------------------------------------------------------------
+
+    def get_sync_mapping(
+        self,
+        task_id: str,
+        *,
+        external_system: str | None = None,
+    ) -> SyncMapping | None:
+        """Return the SyncMapping for ``task_id``, or None if not mapped.
+
+        If ``external_system`` is None, returns the first mapping by
+        ``external_system`` ASC — kept for backward-compat single-provider
+        callers. Multi-provider callers MUST pass ``external_system``
+        explicitly to get a scoped lookup; otherwise which provider's
+        mapping wins is ASC-sort-position-dependent and brittle.
+        """
+        conn = self._require_conn()
+        base = (
+            "SELECT task_id, external_system, external_id, external_url, "
+            "last_synced_at, sync_state, conflict_resolution_strategy, "
+            "provider_metadata_json FROM sync_mappings WHERE task_id = ?"
+        )
+        if external_system is None:
+            row = conn.execute(
+                base + " ORDER BY external_system ASC LIMIT 1",
+                (task_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                base + " AND external_system = ? LIMIT 1",
+                (task_id, external_system),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_sync_mapping(row)
+
+    def list_sync_mappings(
+        self,
+        external_system: str | None = None,
+    ) -> list[SyncMapping]:
+        """Return SyncMapping rows, optionally filtered by external_system.
+
+        Sorted by (task_id, external_system) ASC for deterministic output —
+        important for replay-equality tests and for any CLI rendering that
+        relies on stable ordering across runs.
+        """
+        conn = self._require_conn()
+        base = (
+            "SELECT task_id, external_system, external_id, external_url, "
+            "last_synced_at, sync_state, conflict_resolution_strategy, "
+            "provider_metadata_json FROM sync_mappings"
+        )
+        if external_system is None:
+            rows = conn.execute(
+                base + " ORDER BY task_id ASC, external_system ASC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                base + " WHERE external_system = ? "
+                "ORDER BY task_id ASC, external_system ASC",
+                (external_system,),
+            ).fetchall()
+        return [self._row_to_sync_mapping(r) for r in rows]
+
+    def apply_sync_mapping(
+        self,
+        mapping: SyncMapping,
+        *,
+        actor: str = "system",
+    ) -> Event:
+        """Build a sync_mapping.upserted event and dispatch it via apply_event().
+
+        Convenience for callers that want to write a mapping without having to
+        construct the Event/payload boilerplate. Uses PENDING_EVENT_ID so the
+        Backend assigns a fresh sequential ID inside the BEGIN IMMEDIATE lock
+        (race-free); the returned Event carries the assigned ID.
+
+        Serializes the mapping through the canonical
+        :class:`SyncMappingUpsertedPayload` model EXPLICITLY — not via
+        ``mapping.model_dump()`` — so a hypothetical extra field on
+        ``SyncMapping`` that hasn't been added to the payload model fails
+        fast at THIS call site with a ``ValidationError`` rather than
+        surfacing as ``TransactionAborted`` inside the BEGIN IMMEDIATE
+        lock. (Wave 1 critic fix MF-2.)
+        """
+        payload = SyncMappingUpsertedPayload(
+            task_id=mapping.task_id,
+            external_system=str(mapping.external_system),
+            external_id=mapping.external_id,
+            external_url=mapping.external_url,
+            last_synced_at=mapping.last_synced_at.isoformat(),
+            sync_state=str(mapping.sync_state),
+            conflict_resolution_strategy=str(mapping.conflict_resolution_strategy),
+            provider_metadata=dict(mapping.provider_metadata),
+        )
+        event = Event(
+            id=PENDING_EVENT_ID,
+            timestamp=self._clock.now(),
+            actor=actor,
+            action="sync_mapping.upserted",
+            target_kind="task",
+            target_id=mapping.task_id,
+            payload_json=payload.model_dump(mode="json"),
+        )
+        return self.apply_event(event)
+
+    # ------------------------------------------------------------------
     # Internal helpers — DDL & version
     # ------------------------------------------------------------------
 
@@ -576,16 +688,32 @@ class SqliteBackend:
         conn.execute(version_pragma)
 
     def _check_schema_version(self) -> None:
-        """Raise SchemaMismatch if on-disk version != SCHEMA_VERSION."""
+        """Raise SchemaMismatch if on-disk version is incompatible with SCHEMA_VERSION.
+
+        Phase 8 (SF-6) auto-upgrade: v0 / v1 / v2 → v3 is purely additive
+        (new sync_mappings columns + new UNIQUE constraint). The DDL above
+        already ran via ``_apply_ddl()`` so the v3 shape is materially in
+        place — older v1/v2 databases simply had no rows that could violate
+        the new UNIQUE, and v0 (fresh init) is uninhabited. We bump
+        ``PRAGMA user_version`` in-place to acknowledge the upgrade. Older
+        gaps (e.g. a v3 db opened by code that expects v4) still raise.
+        See docs/migrations.md.
+        """
         conn = self._require_conn()
         row = conn.execute("PRAGMA user_version").fetchone()
         on_disk = row[0] if row else 0
-        if on_disk != SCHEMA_VERSION:
-            raise SchemaMismatch(
-                f"Database schema version {on_disk} does not match "
-                f"expected version {SCHEMA_VERSION}. "
-                "Run a migration or delete state.db to start fresh."
-            )
+        if on_disk == SCHEMA_VERSION:
+            return
+        if on_disk in (0, 1, 2) and SCHEMA_VERSION == 3:
+            # Phase 8 auto-upgrade. DDL was already idempotently re-applied
+            # in _apply_ddl(), so all v3 columns exist. Just bump.
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            return
+        raise SchemaMismatch(
+            f"Database schema version {on_disk} does not match "
+            f"expected version {SCHEMA_VERSION}. "
+            "Run a migration or delete state.db to start fresh."
+        )
 
     def _require_conn(self) -> sqlite3.Connection:
         """Return the open connection or raise if not initialised."""
@@ -644,6 +772,29 @@ class SqliteBackend:
             "file_changed": (FileChangedPayload, self._handle_file_changed),
             # Phase 6: MCP submit_progress — audit-only, no SQLite mutation.
             "progress.noted": (ProgressNotedPayload, self._handle_progress_noted),
+            # Phase 8: sync_mappings table — external-system mirroring.
+            "sync_mapping.upserted": (
+                SyncMappingUpsertedPayload,
+                self._handle_sync_mapping_upserted,
+            ),
+            "sync_mapping.deleted": (
+                SyncMappingDeletedPayload,
+                self._handle_sync_mapping_deleted,
+            ),
+            # Phase 8 Wave 3: sync.* audit events (CLI sync surface). Every
+            # one is an audit-only no-op handler; the JSONL row is the
+            # entire audit record. State mutation flows through the
+            # `sync_mapping.upserted` event above, kept separate so replay
+            # can rebuild the mappings table without `sync.*` semantics.
+            "sync.push.started": (SyncAuditPayload, self._handle_sync_audit),
+            "sync.push.completed": (SyncAuditPayload, self._handle_sync_audit),
+            "sync.push.failed": (SyncAuditPayload, self._handle_sync_audit),
+            "sync.pull.started": (SyncAuditPayload, self._handle_sync_audit),
+            "sync.pull.completed": (SyncAuditPayload, self._handle_sync_audit),
+            "sync.pull.failed": (SyncAuditPayload, self._handle_sync_audit),
+            "sync.conflict_detected": (SyncAuditPayload, self._handle_sync_audit),
+            "sync.batch.started": (SyncAuditPayload, self._handle_sync_audit),
+            "sync.batch.completed": (SyncAuditPayload, self._handle_sync_audit),
         }
         self._action_handlers_cache = table
         return table
@@ -1815,6 +1966,125 @@ class SqliteBackend:
         _ = conn
         _ = event
 
+    def _handle_sync_audit(
+        self,
+        conn: sqlite3.Connection,
+        payload: SyncAuditPayload,
+        event: Event,
+    ) -> None:
+        """Audit-trail-only handler for every `sync.*` action (Phase 8 Wave 3).
+
+        Covers `sync.push.started|completed|failed`,
+        `sync.pull.started|completed|failed`, `sync.conflict_detected`,
+        `sync.batch.started|completed`. The actual mapping persistence is
+        emitted by the CLI as a separate `sync_mapping.upserted` event so
+        replay-from-empty can rebuild the mappings table without depending
+        on the audit stream.
+
+        No SQLite mutation: the JSONL row and the events-table INSERT
+        (recorded by the caller) are the entire audit record. The validated
+        payload ensures every sync audit row carries the known field
+        schema via SyncAuditPayload's extra='forbid'.
+        """
+        # No-op — the event row is recorded by the caller in the events table.
+        _ = payload
+        _ = conn
+        _ = event
+
+    # ------------------------------------------------------------------
+    # Phase 8 handlers — sync_mappings (external-system mirror)
+    # ------------------------------------------------------------------
+
+    def _handle_sync_mapping_upserted(
+        self,
+        conn: sqlite3.Connection,
+        payload: SyncMappingUpsertedPayload,
+        event: Event,
+    ) -> None:
+        """Insert a sync_mappings row, or UPDATE on (task_id, external_system) conflict.
+
+        The composite primary key is (task_id, external_system), so a task that
+        is mirrored into two external systems gets two rows — the upsert keys
+        on the full PK, not on task_id alone. This is intentional: a task can
+        legitimately have a github_issues mapping AND, in the future, a
+        linear mapping, both kept in sync.
+        """
+        # Validate against the SyncMapping model so the enum / UTC checks fire
+        # before we hit SQLite. Any validation failure is wrapped as
+        # TransactionAborted so the JSONL tombstone records the reason.
+        try:
+            mapping = SyncMapping.model_validate(payload.model_dump())
+        except Exception as exc:
+            raise TransactionAborted(
+                f"sync_mapping.upserted: invalid SyncMapping payload: {exc}"
+            ) from exc
+
+        # Use the validated model's serialized form so enum values become the
+        # canonical string. last_synced_at is already an ISO string from the
+        # payload model.
+        data = mapping.model_dump(mode="json")
+        _ = event  # event-level timestamp not used; mapping carries last_synced_at
+        # provider_metadata is opaque dict — serialise to JSON for the
+        # provider_metadata_json TEXT column.
+        provider_metadata_json = json.dumps(data.get("provider_metadata") or {})
+        conn.execute(
+            """
+            INSERT INTO sync_mappings
+                (task_id, external_system, external_id, external_url,
+                 last_synced_at, sync_state, conflict_resolution_strategy,
+                 provider_metadata_json)
+            VALUES
+                (:task_id, :external_system, :external_id, :external_url,
+                 :last_synced_at, :sync_state, :conflict_resolution_strategy,
+                 :provider_metadata_json)
+            ON CONFLICT(task_id, external_system) DO UPDATE SET
+                external_id                  = excluded.external_id,
+                external_url                 = excluded.external_url,
+                last_synced_at               = excluded.last_synced_at,
+                sync_state                   = excluded.sync_state,
+                conflict_resolution_strategy = excluded.conflict_resolution_strategy,
+                provider_metadata_json       = excluded.provider_metadata_json
+            """,
+            {
+                "task_id": data["task_id"],
+                "external_system": data["external_system"],
+                "external_id": data["external_id"],
+                "external_url": data.get("external_url"),
+                "last_synced_at": data["last_synced_at"],
+                "sync_state": data["sync_state"],
+                "conflict_resolution_strategy": data["conflict_resolution_strategy"],
+                "provider_metadata_json": provider_metadata_json,
+            },
+        )
+
+    def _handle_sync_mapping_deleted(
+        self,
+        conn: sqlite3.Connection,
+        payload: SyncMappingDeletedPayload,
+        event: Event,
+    ) -> None:
+        """Delete sync_mappings row(s) for ``task_id``.
+
+        If ``external_system`` is provided the delete is scoped to that single
+        row (composite-key delete). If absent, every mapping for the task is
+        removed — supports the "untrack everything" case.
+
+        Idempotent: a delete against an already-absent row is a silent no-op.
+        Audit visibility comes from the event row itself, recorded by the
+        caller in the events table.
+        """
+        _ = event  # event-level timestamp not used; delete carries no audit field
+        if payload.external_system is None:
+            conn.execute(
+                "DELETE FROM sync_mappings WHERE task_id = ?",
+                (payload.task_id,),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM sync_mappings WHERE task_id = ? AND external_system = ?",
+                (payload.task_id, payload.external_system),
+            )
+
     # ------------------------------------------------------------------
     # Internal helpers — task row insertion (shared by task.created and
     # task.expanded)
@@ -2091,3 +2361,20 @@ class SqliteBackend:
     def _row_to_project(self, row: Any) -> Project:
         """Deserialise a projects row into a Project model instance."""
         return Project.model_validate(dict(row))
+
+    @staticmethod
+    def _row_to_sync_mapping(row: Any) -> SyncMapping:
+        """Deserialise a sync_mappings row into a SyncMapping model instance.
+
+        The DB column ``provider_metadata_json`` is renamed to the model
+        field ``provider_metadata`` after a JSON parse; ``external_url``
+        passes through directly. Missing columns (older rows) default
+        cleanly via the model's own defaults.
+        """
+        d = dict(row)
+        raw_meta = d.pop("provider_metadata_json", None)
+        if raw_meta:
+            d["provider_metadata"] = json.loads(raw_meta)
+        else:
+            d["provider_metadata"] = {}
+        return SyncMapping.model_validate(d)
