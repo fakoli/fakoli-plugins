@@ -186,7 +186,18 @@ loses the LLM mid-batch still writes every numeric score; an `expand` that error
 `[]` with the warning visible on stderr.
 
 `LLMProviderError` is the single exception type to catch in custom callers — it wraps
-`anthropic.AnthropicError` and any other SDK / network / lookup failure.
+`anthropic.AnthropicError` and any other SDK / network / lookup failure. The engine's
+augmentation sites widen this guard further: any non-conforming custom provider that
+raises a different exception type is also caught and logged, so the deterministic
+baseline always survives.
+
+**Mid-batch interrupt.** `score --use-llm` and `plan --use-llm` commit per-task events
+inside their own `BEGIN IMMEDIATE` transactions, so a SIGINT (Ctrl-C) after 10 of 50
+tasks leaves 10 task.scored events durably committed and 40 untouched. The committed
+rows reflect whatever the LLM produced at the time (some may have full LLM-augmented
+explanations, some may have deterministic-only if the LLM was already failing). Re-run
+the command without arguments to resume; tasks that already have explanations are
+re-scored idempotently.
 
 ---
 

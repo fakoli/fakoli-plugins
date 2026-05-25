@@ -762,6 +762,15 @@ def _augment_short_descriptions(
             )
             enriched.append(task)
             continue
+        except Exception as exc:  # noqa: BLE001 — Phase 7 contract: LLM never aborts
+            # Non-conforming custom provider; preserve the deterministic baseline.
+            print(
+                f"warning: LLM enrichment of {task.id} raised non-conforming "
+                f"{type(exc).__name__}: {exc}; keeping deterministic description.",
+                file=sys.stderr,
+            )
+            enriched.append(task)
+            continue
 
         new_text = response.text.strip()
         if not new_text:

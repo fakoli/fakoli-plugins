@@ -703,11 +703,11 @@ class TestExpand:
         combined = result.output + (result.stderr if hasattr(result, "stderr") and result.stderr else "")
         assert "use-llm" in combined.lower() or "--use-llm" in combined
 
-    def test_expand_with_use_llm_also_exits_1(self, tmp_path: Path) -> None:
-        """expand --use-llm is also not implemented yet → exit 1."""
-        _do_init(tmp_path)
-        result = _invoke_cmd(tmp_path, ["expand", "T001", "--use-llm"])
-        assert result.exit_code == 1
+# Note: a previous test asserted `expand --use-llm` exits 1 unconditionally.
+# Phase 7 Wave 2 implemented --use-llm, so the test was stale and only passed
+# by accident (empty state OR missing ANTHROPIC_API_KEY). The missing-key
+# branch is now covered properly by
+# TestUseLlmRequiresApiKey::test_expand_use_llm_without_env_exits_1 below.
 
 
 # ---------------------------------------------------------------------------

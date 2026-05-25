@@ -214,17 +214,19 @@ def plan(
                     },
                 )
                 backend.apply_event(status_event)
+        # Echo summary inside the try block so it only runs on full success;
+        # otherwise inference_result may be unbound (if apply_event raised
+        # before line 173) and the access below would NameError.
+        typer.echo(
+            f"Planned {len(result.features)} features, "
+            f"{len(result.tasks)} tasks."
+        )
+        if inference_result.conflict_groups:
+            typer.echo(
+                f"Detected {len(inference_result.conflict_groups)} conflict group(s)."
+            )
     finally:
         backend.close()
-
-    typer.echo(
-        f"Planned {len(result.features)} features, "
-        f"{len(result.tasks)} tasks."
-    )
-    if inference_result.conflict_groups:
-        typer.echo(
-            f"Detected {len(inference_result.conflict_groups)} conflict group(s)."
-        )
 
 
 # ---------------------------------------------------------------------------

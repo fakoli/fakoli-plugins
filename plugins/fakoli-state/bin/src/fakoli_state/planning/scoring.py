@@ -367,6 +367,16 @@ def _augment_explanation(
             file=sys.stderr,
         )
         return None
+    except Exception as exc:  # noqa: BLE001 — Phase 7 contract: LLM never aborts
+        # Non-conforming custom provider raised something other than
+        # LLMProviderError. Treat as fall-back to preserve the deterministic
+        # baseline rather than abort the entire score batch.
+        print(
+            f"warning: LLM augmentation of {task.id} raised non-conforming "
+            f"{type(exc).__name__}: {exc}; falling back to rule-based only.",
+            file=sys.stderr,
+        )
+        return None
 
     text = response.text.strip()
     if not text:

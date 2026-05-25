@@ -43,7 +43,7 @@ from typing import Protocol, cast
 # import at module load is fine.
 import anthropic
 from anthropic.types import TextBlockParam
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 __all__ = [
     "LLMResponse",
@@ -70,7 +70,13 @@ class LLMResponse(BaseModel):
 
     text: str = Field(description="The completion text (joined first text block).")
     input_tokens: int = Field(
-        ge=0, description="Non-cached input tokens (input_tokens - cache_read)."
+        ge=0,
+        description=(
+            "Non-cached input tokens for this completion. The Anthropic SDK "
+            "reports input_tokens as the non-cached portion separately from "
+            "cache_read_input_tokens, so this field is the SDK's "
+            "Usage.input_tokens passed through unchanged."
+        ),
     )
     cached_input_tokens: int = Field(
         ge=0,
@@ -254,23 +260,25 @@ class AnthropicProvider:
                 break
 
         cached = getattr(msg.usage, "cache_read_input_tokens", 0) or 0
-        total_input = msg.usage.input_tokens or 0
-        # ``input_tokens`` from the SDK is the NON-cached portion already, but
-        # we belt-and-braces the math to stay correct if Anthropic ever
-        # changes that semantic.  Using max() makes the result robust to
-        # either interpretation: it's the larger of (reported input_tokens)
-        # and (reported input_tokens − cache_read), which collapses to the
-        # right number under both billing models.
-        non_cached_input = max(total_input - cached, total_input)
+        # Anthropic reports cache_read_input_tokens separately from input_tokens;
+        # input_tokens is already the non-cached portion. Trust it directly.
+        non_cached_input = msg.usage.input_tokens or 0
 
-        return LLMResponse(
-            text=text,
-            input_tokens=non_cached_input,
-            cached_input_tokens=cached,
-            output_tokens=msg.usage.output_tokens or 0,
-            model=msg.model,
-            finish_reason=msg.stop_reason or "unknown",
-        )
+        try:
+            return LLMResponse(
+                text=text,
+                input_tokens=non_cached_input,
+                cached_input_tokens=cached,
+                output_tokens=msg.usage.output_tokens or 0,
+                model=msg.model,
+                finish_reason=msg.stop_reason or "unknown",
+            )
+        except ValidationError as exc:
+            # Wrap pydantic schema-validation errors so callers only have to
+            # catch LLMProviderError (Phase 7 contract per docstring).
+            raise LLMProviderError(
+                f"Anthropic response failed schema validation: {exc}"
+            ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -281,10 +289,10 @@ class AnthropicProvider:
 class RecordedLLMProvider:
     """Deterministic ``LLMProvider`` for tests.
 
-    Tests build a ``{key: LLMResponse}`` map where the key is the
-    sha256 of ``system + "\\n---\\n" + user``, then inject the provider.
-    On a key miss the provider raises ``LLMProviderError`` so tests fail
-    loudly rather than silently calling out to a real API.
+    Tests build a ``{key: LLMResponse}`` map where the key is a sha256
+    of length-prefixed (``system``, ``user``) byte strings, then inject
+    the provider.  On a key miss the provider raises ``LLMProviderError``
+    so tests fail loudly rather than silently calling out to a real API.
     """
 
     def __init__(self, recordings: dict[str, LLMResponse]) -> None:
@@ -295,14 +303,19 @@ class RecordedLLMProvider:
     def record_key(cls, system: str, user: str) -> str:
         """Stable lookup key for a (system, user) pair.
 
-        Tests use this to populate the recordings dict.  Two calls with the
-        same inputs always return the same hex digest, regardless of
+        Length-prefixed encoding is collision-free across any byte boundary —
+        a separator-based scheme could collide if ``system`` ended with the
+        separator-suffix and ``user`` began with its prefix.  Two calls with
+        the same inputs always return the same hex digest, regardless of
         process / interpreter / hash randomization.
         """
         h = hashlib.sha256()
-        h.update(system.encode("utf-8"))
-        h.update(b"\n---\n")
-        h.update(user.encode("utf-8"))
+        sys_bytes = system.encode("utf-8")
+        usr_bytes = user.encode("utf-8")
+        h.update(len(sys_bytes).to_bytes(8, "big"))
+        h.update(sys_bytes)
+        h.update(len(usr_bytes).to_bytes(8, "big"))
+        h.update(usr_bytes)
         return h.hexdigest()
 
     def generate(

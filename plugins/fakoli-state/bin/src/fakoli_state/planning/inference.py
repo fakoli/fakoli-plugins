@@ -347,6 +347,14 @@ def expand_task(
             file=sys.stderr,
         )
         return []
+    except Exception as exc:  # noqa: BLE001 — Phase 7 contract: LLM never aborts
+        # Non-conforming custom provider; preserve deterministic-empty result.
+        print(
+            f"warning: LLM expansion of {task.id} raised non-conforming "
+            f"{type(exc).__name__}: {exc}; no sub-task proposals produced.",
+            file=sys.stderr,
+        )
+        return []
 
     proposals = _parse_subtask_response(task.id, response.text)
     return proposals
