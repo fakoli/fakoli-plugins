@@ -10,6 +10,8 @@ in a state that can be replayed cleanly.
 Phase 2 note: only 'project.created' and 'state.initialized' are routed;
 Phase 3 extends routing with: prd.parsed, prd.reviewed, prd.approved,
 feature.created, task.created, task.scored, task.expanded, task.status_changed.
+Phase 4 extends routing with: claim.created, claim.released, claim.renewed,
+claim.stale.
 """
 
 from __future__ import annotations
@@ -124,6 +126,22 @@ class SqliteBackend:
             except Exception:  # noqa: BLE001
                 pass
             self._conn = None
+
+    def next_event_id(self) -> str:
+        """Return the next sequential event ID in E%06d format.
+
+        Queries MAX(id) on the events mirror table. Used by both the CLI
+        and ClaimManager so event IDs never drift into incompatible
+        schemes (Greptile + critic flagged the original split — CLI used
+        sequential, ClaimManager used 20-digit microsecond IDs).
+        """
+        if self._conn is None:
+            return "E000001"
+        row = self._conn.execute(
+            "SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) FROM events"
+        ).fetchone()
+        max_num: int = row[0] if row and row[0] is not None else 0
+        return f"E{max_num + 1:06d}"
 
     # ------------------------------------------------------------------
     # Core mutation
@@ -350,6 +368,7 @@ class SqliteBackend:
         Phase 2 handles 'project.created' and 'state.initialized'.
         Phase 3 adds: prd.parsed, prd.reviewed, prd.approved, feature.created,
         task.created, task.scored, task.expanded, task.status_changed.
+        Phase 4 adds: claim.created, claim.released, claim.renewed, claim.stale.
         """
         action = event.action
         payload = event.payload_json
@@ -374,6 +393,23 @@ class SqliteBackend:
             self._handle_task_expanded(conn, payload)
         elif action == "task.status_changed":
             self._handle_task_status_changed(conn, payload, event.timestamp.isoformat())
+        elif action == "claim.created":
+            self._handle_claim_created(conn, payload, event.timestamp.isoformat())
+        elif action == "claim.released":
+            self._handle_claim_released(conn, payload, event.timestamp.isoformat())
+        elif action == "claim.renewed":
+            self._handle_claim_renewed(conn, payload, event.timestamp.isoformat())
+        elif action == "claim.stale":
+            self._handle_claim_stale(conn, payload, event.timestamp.isoformat())
+        elif action == "file_changed":
+            # Audit-trail-only event emitted by the PostToolUse hook
+            # (record-file-change.sh → fakoli-state hook record-file-change).
+            # No SQLite mutation: the JSONL line is the audit record. Greptile
+            # + critic flagged that the original code had no handler, so this
+            # action triggered NotImplementedError, the transaction rolled back,
+            # an error.transaction_aborted tombstone followed in JSONL, and the
+            # event was silently dropped from the events table on replay.
+            pass
         else:
             raise NotImplementedError(
                 f"Event action {action!r} is not yet supported. "
@@ -837,6 +873,388 @@ class SqliteBackend:
             )
 
     # ------------------------------------------------------------------
+    # Phase 4 handlers — claim lifecycle
+    # ------------------------------------------------------------------
+
+    def _handle_claim_created(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Atomically INSERT the claim and transition the task to 'claimed'.
+
+        Payload fields (all required):
+            id (str)                — claim PK
+            task_id (str)          — FK into tasks
+            claimed_by (str)       — agent identifier
+            claim_type (str)       — ClaimType value
+            status (str)           — must be 'active' for a new claim
+            branch (str | None)
+            worktree_path (str | None)
+            expected_files (list[str])
+            created_at (str)       — ISO 8601 UTC
+            lease_expires_at (str) — ISO 8601 UTC
+            last_heartbeat_at (str) — ISO 8601 UTC
+
+        Idempotent: INSERT OR IGNORE on the claim id PK — replay is safe.
+
+        Concurrency guard: the task status UPDATE uses WHERE status='ready'
+        so a parallel claim attempt that has already transitioned the task
+        results in 0 rows updated → TransactionAborted.  The task→claimed
+        transition is a side effect of claim.created; it does NOT need a
+        separate task.status_changed event.
+        """
+        claim_id: str | None = payload.get("id")
+        task_id: str | None = payload.get("task_id")
+        claimed_by: str | None = payload.get("claimed_by")
+        claim_type: str | None = payload.get("claim_type")
+        status: str | None = payload.get("status")
+        created_at: str | None = payload.get("created_at")
+        lease_expires_at: str | None = payload.get("lease_expires_at")
+        last_heartbeat_at: str | None = payload.get("last_heartbeat_at")
+
+        for field_name, value in (
+            ("id", claim_id),
+            ("task_id", task_id),
+            ("claimed_by", claimed_by),
+            ("claim_type", claim_type),
+            ("status", status),
+            ("created_at", created_at),
+            ("lease_expires_at", lease_expires_at),
+            ("last_heartbeat_at", last_heartbeat_at),
+        ):
+            if not value:
+                raise TransactionAborted(
+                    f"claim.created payload missing required field {field_name!r}."
+                )
+
+        branch: str | None = payload.get("branch")
+        worktree_path: str | None = payload.get("worktree_path")
+        expected_files = payload.get("expected_files", [])
+
+        # INSERT OR IGNORE: idempotent on replay — duplicate claim.created events
+        # (after crash mid-transaction) do not produce duplicate rows.
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO claims
+                (id, task_id, claimed_by, claim_type, status, branch,
+                 worktree_path, expected_files, created_at,
+                 lease_expires_at, last_heartbeat_at, released_at, release_reason)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+            """,
+            (
+                claim_id,
+                task_id,
+                claimed_by,
+                claim_type,
+                status,
+                branch,
+                worktree_path,
+                json.dumps(expected_files),
+                created_at,
+                lease_expires_at,
+                last_heartbeat_at,
+            ),
+        )
+
+        # Side-effect: transition the task status from 'ready' → 'claimed'.
+        # The WHERE status='ready' is the concurrency guard — if another claim
+        # has already moved the task to 'claimed', 0 rows are updated and we
+        # abort (the INSERT OR IGNORE above means the claim row itself is also
+        # a no-op on replay, keeping the two mutations consistent).
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'claimed',
+                   updated_at = ?
+             WHERE id = ?
+               AND status = 'ready'
+            """,
+            (timestamp, task_id),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            # Determine whether the task exists and what its current status is.
+            row = conn.execute(
+                "SELECT status FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"claim.created: task '{task_id}' not found."
+                )
+            actual_status = row[0]
+            # Idempotent replay path: if the INSERT OR IGNORE above was a no-op
+            # (claim already existed) AND the task is already 'claimed', this
+            # is a replay of a previously-committed claim.created — treat as
+            # no-op instead of raising.
+            if actual_status == "claimed":
+                return
+            raise TransactionAborted(
+                f"claim.created: concurrency guard failed for task '{task_id}'. "
+                f"Expected status 'ready', got '{actual_status}'. "
+                "Another claim may have already acquired this task."
+            )
+
+    def _handle_claim_released(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Release an active claim and return the task to 'ready'.
+
+        Payload fields (all required):
+            claim_id (str)       — PK of the claim to release
+            released_by (str)    — agent releasing the claim
+            release_reason (str) — human-readable reason
+
+        On already-released (idempotent): log a warning tombstone to the event
+        log via _append_abort_event but do NOT raise — the stale detector runs
+        frequently and should not error on already-released claims.
+
+        Side-effect: UPDATE tasks SET status='ready' WHERE id=task_id AND
+        status='claimed' — uses the WHERE guard for concurrency safety.
+        """
+        claim_id: str | None = payload.get("claim_id")
+        released_by: str | None = payload.get("released_by")
+        # release_reason is optional — the ClaimManager passes None when the
+        # caller provides no explicit reason.  Only claim_id and released_by are
+        # strictly required.
+        release_reason: str | None = payload.get("release_reason")
+        # `force` honours the CLI's --force flag: lets non-owners release a
+        # claim and lets release succeed even on already-stale/non-active
+        # claims (Greptile + critic both flagged that the original handler
+        # silently no-op'd force-release of stale claims).
+        force: bool = bool(payload.get("force", False))
+
+        for field_name, value in (
+            ("claim_id", claim_id),
+            ("released_by", released_by),
+        ):
+            if not value:
+                raise TransactionAborted(
+                    f"claim.released payload missing required field {field_name!r}."
+                )
+
+        # Force-release writes a distinct terminal status (force_released) so
+        # the audit trail captures the override; normal release uses 'released'.
+        # Force also allows non-active claims to be released so a stranded
+        # stale claim can be cleaned up after the fact.
+        target_status = "force_released" if force else "released"
+        if force:
+            status_guard = "status NOT IN ('released', 'force_released')"
+        else:
+            status_guard = "status = 'active'"
+
+        conn.execute(
+            f"""
+            UPDATE claims
+               SET status = ?,
+                   released_at = ?,
+                   release_reason = ?
+             WHERE id = ?
+               AND {status_guard}
+            """,  # noqa: S608 — status_guard is a literal, not user input
+            (target_status, timestamp, release_reason, claim_id),
+        )
+
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            # Check whether the claim exists at all, or was already released.
+            row = conn.execute(
+                "SELECT status FROM claims WHERE id = ?", (claim_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"claim.released: claim '{claim_id}' not found."
+                )
+            # Already in a terminal state — idempotent no-op; log but don't raise.
+            current_status = row[0]
+            self._append_warn_log(
+                action="claim.released",
+                target_id=claim_id or "",
+                reason=(
+                    f"claim.released: claim '{claim_id}' already has status "
+                    f"'{current_status}'; treating as idempotent no-op."
+                ),
+            )
+            return
+
+        # Side-effect: return the task to 'ready'. Widened from the original
+        # WHERE status='claimed' (which would TransactionAborted on tasks that
+        # had advanced to in_progress or blocked) to all post-claim, pre-done
+        # statuses. Critic flagged this: release --force is supposed to work
+        # even when the task has progressed mid-work.
+        task_row = conn.execute(
+            "SELECT task_id FROM claims WHERE id = ?", (claim_id,)
+        ).fetchone()
+        if task_row is not None:
+            task_id = task_row[0]
+            conn.execute(
+                """
+                UPDATE tasks
+                   SET status = 'ready',
+                       updated_at = ?
+                 WHERE id = ?
+                   AND status IN ('claimed', 'in_progress', 'blocked')
+                """,
+                (timestamp, task_id),
+            )
+            # 0 rows is now acceptable: the task may have legitimately advanced
+            # to needs_review, accepted, or done in parallel (Phase 5 completion).
+            # No error — releasing the claim is the right behaviour regardless.
+
+    def _handle_claim_renewed(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Extend the lease on an active claim.
+
+        Payload fields (all required):
+            claim_id (str)          — PK of the claim to renew
+            lease_expires_at (str)  — new expiry (ISO 8601 UTC)
+            last_heartbeat_at (str) — updated heartbeat timestamp (ISO 8601 UTC)
+
+        Does NOT mutate the tasks table.
+
+        Raises TransactionAborted if the claim does not exist or is not active.
+
+        The event-level `timestamp` parameter is taken for signature symmetry
+        with the other claim handlers (the router dispatches uniformly); the
+        renewed lease timestamps come from the payload itself.
+        """
+        del timestamp  # see docstring
+        claim_id: str | None = payload.get("claim_id")
+        lease_expires_at: str | None = payload.get("lease_expires_at")
+        last_heartbeat_at: str | None = payload.get("last_heartbeat_at")
+
+        for field_name, value in (
+            ("claim_id", claim_id),
+            ("lease_expires_at", lease_expires_at),
+            ("last_heartbeat_at", last_heartbeat_at),
+        ):
+            if not value:
+                raise TransactionAborted(
+                    f"claim.renewed payload missing required field {field_name!r}."
+                )
+
+        conn.execute(
+            """
+            UPDATE claims
+               SET lease_expires_at = ?,
+                   last_heartbeat_at = ?
+             WHERE id = ?
+               AND status = 'active'
+            """,
+            (lease_expires_at, last_heartbeat_at, claim_id),
+        )
+
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            row = conn.execute(
+                "SELECT status FROM claims WHERE id = ?", (claim_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"claim.renewed: claim '{claim_id}' not found."
+                )
+            actual_status = row[0]
+            raise TransactionAborted(
+                f"claim.renewed: cannot renew claim '{claim_id}' "
+                f"with status '{actual_status}' (must be 'active')."
+            )
+
+    def _handle_claim_stale(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Mark an active claim as stale and return the task to 'ready'.
+
+        Payload fields (all required):
+            claim_id (str)    — PK of the claim to mark stale
+            detected_at (str) — when staleness was detected (ISO 8601 UTC)
+            reason (str)      — typically 'lease_expired'
+
+        On already-stale (idempotent): log a warning tombstone but do NOT raise.
+        The stale detector runs on every CLI call and should not error on claims
+        it has already processed.
+
+        Side-effect: UPDATE tasks SET status='ready' WHERE id=task_id AND
+        status IN ('claimed', 'in_progress', 'blocked').  If the task status
+        has already moved beyond those states (e.g., accepted, done), the
+        UPDATE is a no-op — that is intentional and not an error.
+        """
+        claim_id: str | None = payload.get("claim_id")
+        detected_at: str | None = payload.get("detected_at")
+        reason: str | None = payload.get("reason")
+
+        for field_name, value in (
+            ("claim_id", claim_id),
+            ("detected_at", detected_at),
+            ("reason", reason),
+        ):
+            if not value:
+                raise TransactionAborted(
+                    f"claim.stale payload missing required field {field_name!r}."
+                )
+
+        conn.execute(
+            """
+            UPDATE claims
+               SET status = 'stale',
+                   released_at = ?,
+                   release_reason = 'lease_expired'
+             WHERE id = ?
+               AND status = 'active'
+            """,
+            (timestamp, claim_id),
+        )
+
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            # Check whether it's already stale (idempotent no-op) or truly missing.
+            row = conn.execute(
+                "SELECT status FROM claims WHERE id = ?", (claim_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"claim.stale: claim '{claim_id}' not found."
+                )
+            # Already stale (or force_released) — idempotent; log warning only.
+            current_status = row[0]
+            self._append_warn_log(
+                action="claim.stale",
+                target_id=claim_id or "",
+                reason=(
+                    f"claim.stale: claim '{claim_id}' already has status "
+                    f"'{current_status}'; treating as idempotent no-op."
+                ),
+            )
+            return
+
+        # Side-effect: return the task to 'ready' if it is still in an
+        # active-work status.  Tasks already at accepted/done/rejected are
+        # left untouched — the work completed before the lease expired.
+        task_row = conn.execute(
+            "SELECT task_id FROM claims WHERE id = ?", (claim_id,)
+        ).fetchone()
+        if task_row is not None:
+            task_id = task_row[0]
+            conn.execute(
+                """
+                UPDATE tasks
+                   SET status = 'ready',
+                       updated_at = ?
+                 WHERE id = ?
+                   AND status IN ('claimed', 'in_progress', 'blocked')
+                """,
+                (timestamp, task_id),
+            )
+            # No error if 0 rows — the task may have been completed already.
+
+    # ------------------------------------------------------------------
     # Internal helpers — task row insertion (shared by task.created and
     # task.expanded)
     # ------------------------------------------------------------------
@@ -993,6 +1411,37 @@ class SqliteBackend:
         except OSError:
             # If we can't write the abort tombstone, swallow the error — the
             # caller already has the TransactionAborted exception.
+            pass
+
+    def _append_warn_log(
+        self,
+        action: str,
+        target_id: str,
+        reason: str,
+    ) -> None:
+        """Append a warn.idempotent_no_op entry to the JSONL log.
+
+        Used for idempotent no-ops (already-released / already-stale claims)
+        where we need an audit trail but must not raise TransactionAborted.
+        Unlike _append_abort_event this method does not require an Event object,
+        so it avoids constructing a model with a non-standard ID.
+        """
+        now = self._clock.now()
+        warn_data = {
+            "timestamp": now.isoformat(),
+            "actor": "system",
+            "action": "warn.idempotent_no_op",
+            "target_kind": "claim",
+            "target_id": target_id,
+            "payload_json": {
+                "original_action": action,
+                "reason": reason,
+            },
+        }
+        try:
+            with open(self._events_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(warn_data) + "\n")
+        except OSError:
             pass
 
     # ------------------------------------------------------------------

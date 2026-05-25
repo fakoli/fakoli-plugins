@@ -93,6 +93,17 @@ class Backend(Protocol):
         """Release any held resources (connections, file handles)."""
         ...
 
+    def next_event_id(self) -> str:
+        """Return the next sequential event ID in canonical E%06d format.
+
+        Single source of truth for event IDs so the CLI and ClaimManager
+        cannot drift into incompatible schemes (the original Phase 4 bug:
+        CLI used E000003-style sequential, ClaimManager used 20-digit
+        microsecond IDs; once both landed in the same events table the
+        MAX-based sequential generator silently produced 20-digit IDs).
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Exception hierarchy

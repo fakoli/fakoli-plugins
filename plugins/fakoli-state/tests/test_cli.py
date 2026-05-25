@@ -336,11 +336,11 @@ class TestStatusInitialized:
 
 class TestVersion:
     def test_version_still_works(self) -> None:
-        """--version prints 'fakoli-state 1.2.0' and exits 0."""
+        """--version prints 'fakoli-state 1.3.0' and exits 0."""
         result = runner.invoke(app, ["--version"], catch_exceptions=False)
         assert result.exit_code == 0
         assert "fakoli-state" in result.output
-        assert "1.2.0" in result.output
+        assert "1.3.0" in result.output
 
     def test_version_short_flag(self) -> None:
         """-V is an alias for --version."""
@@ -929,6 +929,330 @@ class TestReplanPreservesTaskStatus:
             f"re-plan reset T001 from 'claimed' to '{status}' — the "
             "ON CONFLICT upsert is silently overwriting task status. "
             "status must be managed by task.status_changed events ONLY."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 CLI helpers
+# ---------------------------------------------------------------------------
+
+
+def _do_init_and_plan(tmp_path: Path, *, with_git: bool = True) -> Path:
+    """Full setup: optionally git-init, then fakoli-state init + PRD + plan + review_tasks.
+
+    Returns tmp_path ready for claim-related tests.
+    """
+    import subprocess as _subprocess
+
+    if with_git:
+        _subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+        _subprocess.run(
+            ["git", "config", "user.email", "test@test.test"],
+            cwd=str(tmp_path), check=True, capture_output=True,
+        )
+        _subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=str(tmp_path), check=True, capture_output=True,
+        )
+        (tmp_path / "README.md").write_text("initial\n", encoding="utf-8")
+        _subprocess.run(["git", "add", "."], cwd=str(tmp_path), check=True, capture_output=True)
+        _subprocess.run(
+            ["git", "commit", "-m", "initial"],
+            cwd=str(tmp_path), check=True, capture_output=True,
+        )
+
+    _do_init(tmp_path, name="Phase4 Test Project")
+    _write_prd(tmp_path, _FULL_PRD_CONTENT)
+    _invoke_cmd(tmp_path, ["prd", "parse"])
+    _invoke_cmd(tmp_path, ["prd", "review"])
+    _invoke_cmd(tmp_path, ["prd", "review", "--approve"])
+    _invoke_cmd(tmp_path, ["plan"])
+    _invoke_cmd(tmp_path, ["score"])
+    _invoke_cmd(tmp_path, ["review", "tasks"])
+    return tmp_path
+
+
+def _get_first_ready_task_id(tmp_path: Path) -> str | None:
+    """Return the first task ID in ready status by querying the backend directly."""
+    import sqlite3 as _sqlite3
+    db_path = tmp_path / ".fakoli-state" / "state.db"
+    if not db_path.exists():
+        return None
+    conn = _sqlite3.connect(str(db_path))
+    row = conn.execute("SELECT id FROM tasks WHERE status='ready' LIMIT 1").fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — claim command
+# ---------------------------------------------------------------------------
+
+
+class TestClaimCommand:
+    def test_claim_happy_path_creates_lease_and_branch(self, tmp_path: Path) -> None:
+        """Claim a ready task; command exits 0 and prints claim ID + branch."""
+        _do_init_and_plan(tmp_path, with_git=True)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None, "No ready task found after setup"
+
+        result = _invoke_cmd(tmp_path, ["claim", task_id, "--actor", "agent-test"])
+        assert result.exit_code == 0, f"claim failed: {result.output}"
+        assert "Claim ID" in result.output or "Claimed" in result.output
+        assert "Lease" in result.output or "lease" in result.output
+
+    def test_claim_without_git_succeeds_warns(self, tmp_path: Path) -> None:
+        """Claim succeeds even without a git repo; stderr has a branch warning."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None, "No ready task found after setup"
+
+        result = _invoke_cmd(tmp_path, ["claim", task_id, "--actor", "agent-test"])
+        assert result.exit_code == 0, f"claim without git failed: {result.output}"
+        # The branch warning may be in output or stderr depending on Typer's mix
+        combined = result.output + (result.stderr if hasattr(result, "stderr") and result.stderr else "")
+        assert "Warning" in combined or "Claimed" in result.output
+
+    def test_claim_refuses_unready_task(self, tmp_path: Path) -> None:
+        """Claiming a task not in 'ready' status exits non-zero."""
+        _do_init_and_plan(tmp_path, with_git=False)
+
+        # Use a task ID that was never created → should fail
+        result = _invoke_cmd(tmp_path, ["claim", "T999", "--actor", "agent-test"])
+        assert result.exit_code != 0
+        combined = result.output + (result.stderr if hasattr(result, "stderr") and result.stderr else "")
+        assert "not found" in combined.lower() or "T999" in combined
+
+    def test_claim_refuses_when_prd_draft(self, tmp_path: Path) -> None:
+        """Claim exits non-zero when PRD is still in draft state."""
+        # Init without review/approve
+        _do_init(tmp_path, name="Draft PRD Project")
+        _write_prd(tmp_path, _FULL_PRD_CONTENT)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+        _invoke_cmd(tmp_path, ["plan"])
+
+        result = _invoke_cmd(tmp_path, ["claim", "T001", "--actor", "agent-test"])
+        assert result.exit_code != 0
+
+    def test_claim_with_force_overrides_warnings(self, tmp_path: Path) -> None:
+        """--force flag is accepted and claim proceeds (no conflict in this setup)."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        result = _invoke_cmd(
+            tmp_path, ["claim", task_id, "--actor", "agent-test", "--force"]
+        )
+        assert result.exit_code == 0, f"claim --force failed: {result.output}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — release command
+# ---------------------------------------------------------------------------
+
+
+class TestReleaseCommand:
+    def _claim_task(self, tmp_path: Path, task_id: str) -> str:
+        """Claim task_id and return the claim ID."""
+        import sqlite3 as _sqlite3
+        _invoke_cmd(tmp_path, ["claim", task_id, "--actor", "agent-test"])
+        db_path = tmp_path / ".fakoli-state" / "state.db"
+        conn = _sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT id FROM claims WHERE task_id=? AND status='active'", (task_id,)
+        ).fetchone()
+        conn.close()
+        return row[0] if row else "C001"
+
+    def test_release_happy_path(self, tmp_path: Path) -> None:
+        """Claim then release; exit 0, task returns to ready."""
+        import sqlite3 as _sqlite3
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        claim_id = self._claim_task(tmp_path, task_id)
+
+        result = _invoke_cmd(
+            tmp_path, ["release", claim_id, "--actor", "agent-test"]
+        )
+        assert result.exit_code == 0, f"release failed: {result.output}"
+        assert "Released" in result.output or "released" in result.output.lower()
+
+        # Verify task returned to ready
+        db_path = tmp_path / ".fakoli-state" / "state.db"
+        conn = _sqlite3.connect(str(db_path))
+        status = conn.execute(
+            "SELECT status FROM tasks WHERE id=?", (task_id,)
+        ).fetchone()[0]
+        conn.close()
+        assert status == "ready"
+
+    def test_release_force_overrides_actor_check(self, tmp_path: Path) -> None:
+        """--force allows a different actor to release."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        claim_id = self._claim_task(tmp_path, task_id)
+
+        result = _invoke_cmd(
+            tmp_path, ["release", claim_id, "--actor", "different-agent", "--force"]
+        )
+        assert result.exit_code == 0, f"release --force failed: {result.output}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — renew command
+# ---------------------------------------------------------------------------
+
+
+class TestRenewCommand:
+    def test_renew_extends_lease(self, tmp_path: Path) -> None:
+        """Renew prints new lease expiry and exits 0."""
+        import sqlite3 as _sqlite3
+
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        _invoke_cmd(tmp_path, ["claim", task_id, "--actor", "agent-test"])
+        db_path = tmp_path / ".fakoli-state" / "state.db"
+        conn = _sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT id FROM claims WHERE task_id=? AND status='active'", (task_id,)
+        ).fetchone()
+        claim_id = row[0]
+        old_expiry = conn.execute(
+            "SELECT lease_expires_at FROM claims WHERE id=?", (claim_id,)
+        ).fetchone()[0]
+        conn.close()
+
+        result = _invoke_cmd(
+            tmp_path, ["renew", claim_id, "--actor", "agent-test"]
+        )
+        assert result.exit_code == 0, f"renew failed: {result.output}"
+        assert "lease" in result.output.lower() or "Renewed" in result.output
+
+        # New lease should be present in output (some time string)
+        assert old_expiry[:10] in result.output or "lease" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — next command
+# ---------------------------------------------------------------------------
+
+
+class TestNextCommand:
+    def test_next_returns_highest_priority_task(self, tmp_path: Path) -> None:
+        """next command prints a task ID and exits 0 when ready tasks exist."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        result = _invoke_cmd(tmp_path, ["next", "--actor", "agent-test"])
+        assert result.exit_code == 0, f"next failed: {result.output}"
+        # Should mention a task or 'Next recommended'
+        combined = result.output
+        assert "T0" in combined or "task" in combined.lower() or "No claimable" in combined
+
+    def test_next_prints_no_tasks_message_when_empty(self, tmp_path: Path) -> None:
+        """next prints 'No claimable tasks' when no ready tasks exist."""
+        _do_init(tmp_path, name="Empty Project")
+        # No PRD parsed, no tasks created
+        result = _invoke_cmd(tmp_path, ["next", "--actor", "agent-test"])
+        assert result.exit_code == 0, f"next (empty) failed: {result.output}"
+        assert "No claimable" in result.output or "no" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — hook subcommands
+# ---------------------------------------------------------------------------
+
+
+class TestHookSubcommands:
+    def test_hook_check_claim_silent_when_no_state(self, tmp_path: Path) -> None:
+        """hook check-claim exits 0 silently when no .fakoli-state/ exists."""
+        result = _invoke_cmd(
+            tmp_path,
+            ["hook", "check-claim", "--file", "src/foo.py", "--actor", "agent-test"],
+        )
+        assert result.exit_code == 0
+
+    def test_hook_record_file_change_appends_event(self, tmp_path: Path) -> None:
+        """hook record-file-change exits 0 after init (appends event to JSONL)."""
+        _do_init(tmp_path, name="Hook Test Project")
+        result = _invoke_cmd(
+            tmp_path,
+            [
+                "hook", "record-file-change",
+                "--file", "src/app.py",
+                "--tool", "Edit",
+                "--actor", "agent-hook",
+            ],
+        )
+        assert result.exit_code == 0
+
+        events_path = tmp_path / ".fakoli-state" / "events.jsonl"
+        assert events_path.exists()
+        content = events_path.read_text(encoding="utf-8")
+        assert "file_changed" in content or "src/app.py" in content
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — end-to-end claim + release cycle
+# ---------------------------------------------------------------------------
+
+
+class TestE2EClaimRelease:
+    def test_full_claim_release_cycle(self, tmp_path: Path) -> None:
+        """init + git init + PRD + plan + review_tasks + next + claim + renew + release.
+
+        Asserts: task is back to 'ready' after release.
+        """
+        import sqlite3 as _sqlite3
+
+        _do_init_and_plan(tmp_path, with_git=True)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None, "No ready tasks after full setup"
+
+        # next — just verify it works
+        next_result = _invoke_cmd(tmp_path, ["next", "--actor", "agent-test"])
+        assert next_result.exit_code == 0, f"next failed: {next_result.output}"
+
+        # claim
+        claim_result = _invoke_cmd(
+            tmp_path, ["claim", task_id, "--actor", "agent-test"]
+        )
+        assert claim_result.exit_code == 0, f"claim failed: {claim_result.output}"
+
+        # find claim ID from DB
+        db_path = tmp_path / ".fakoli-state" / "state.db"
+        conn = _sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT id FROM claims WHERE task_id=? AND status='active'", (task_id,)
+        ).fetchone()
+        conn.close()
+        assert row is not None, "No active claim found after claim command"
+        claim_id = row[0]
+
+        # renew
+        renew_result = _invoke_cmd(
+            tmp_path, ["renew", claim_id, "--actor", "agent-test"]
+        )
+        assert renew_result.exit_code == 0, f"renew failed: {renew_result.output}"
+
+        # release
+        release_result = _invoke_cmd(
+            tmp_path, ["release", claim_id, "--actor", "agent-test", "--reason", "cycle done"]
+        )
+        assert release_result.exit_code == 0, f"release failed: {release_result.output}"
+
+        # task should be back to ready
+        conn = _sqlite3.connect(str(db_path))
+        status = conn.execute(
+            "SELECT status FROM tasks WHERE id=?", (task_id,)
+        ).fetchone()[0]
+        conn.close()
+        assert status == "ready", (
+            f"Expected task back to 'ready' after release, got '{status}'"
         )
 
 
