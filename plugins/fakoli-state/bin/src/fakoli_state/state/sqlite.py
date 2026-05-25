@@ -53,6 +53,7 @@ from fakoli_state.state.payloads import (
     PrdApprovedPayload,
     PrdParsedPayload,
     PrdReviewedPayload,
+    ProgressNotedPayload,
     ProjectCreatedPayload,
     StateInitializedPayload,
     TaskAppliedPayload,
@@ -635,6 +636,8 @@ class SqliteBackend:
             "evidence.submitted": (EvidenceSubmittedPayload, self._handle_evidence_submitted),
             "task.applied": (TaskAppliedPayload, self._handle_task_applied),
             "file_changed": (FileChangedPayload, self._handle_file_changed),
+            # Phase 6: MCP submit_progress — audit-only, no SQLite mutation.
+            "progress.noted": (ProgressNotedPayload, self._handle_progress_noted),
         }
         self._action_handlers_cache = table
         return table
@@ -1756,6 +1759,25 @@ class SqliteBackend:
         No SQLite mutation: the JSONL line is the audit record.  The validated
         payload model is accepted here to keep the dispatch table uniform and to
         enforce the known field schema via extra='forbid'.
+        """
+        # No-op — the event row is recorded by the caller in the events table.
+        _ = payload
+        _ = conn
+        _ = event
+
+    def _handle_progress_noted(
+        self,
+        conn: sqlite3.Connection,
+        payload: ProgressNotedPayload,
+        event: Event,
+    ) -> None:
+        """Audit-trail-only event emitted by the MCP submit_progress tool (Phase 6).
+
+        No SQLite mutation: the JSONL row and the events-table INSERT (done by
+        the caller) are the full audit record.  Task status does NOT change.
+
+        This handler exists to keep the dispatch table uniform and to enforce
+        the known field schema via ProgressNotedPayload's extra='forbid'.
         """
         # No-op — the event row is recorded by the caller in the events table.
         _ = payload

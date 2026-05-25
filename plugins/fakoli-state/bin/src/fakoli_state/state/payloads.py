@@ -269,6 +269,24 @@ class FileChangedPayload(BaseModel):
     source: str | None = None
 
 
+class ProgressNotedPayload(BaseModel):
+    """Payload for 'progress.noted' — audit-trail-only event emitted by the MCP
+    submit_progress tool (Phase 6).
+
+    The handler is a no-op: the JSONL row is the audit record.  No SQLite
+    mutation is performed — task status does not change.  This model exists to
+    keep the dispatch table uniform and to enforce the known field schema via
+    extra='forbid'.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    actor: str
+    notes: str
+    noted_at: str
+
+
 __all__ = [
     "ClaimCreatedPayload",
     "ClaimReleasedPayload",
@@ -280,6 +298,7 @@ __all__ = [
     "PrdApprovedPayload",
     "PrdParsedPayload",
     "PrdReviewedPayload",
+    "ProgressNotedPayload",
     "ProjectCreatedPayload",
     "StateInitializedPayload",
     "TaskAppliedPayload",
