@@ -3,7 +3,7 @@
 Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.8.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.9.0-blue.svg)](.claude-plugin/plugin.json)
 [![Status](https://img.shields.io/badge/plugin--state-alpha%20%2F%20in--development-orange.svg)](.claude-plugin/plugin.json)
 
 ---
@@ -130,18 +130,19 @@ The event log is a hard guarantee: replaying `events.jsonl` from scratch against
 
 ## Build status
 
-fakoli-state is being actively built in 8 phases. Each phase ships as its own PR into the fakoli-plugins monorepo.
+fakoli-state is built in 9 phases. Each phase ships as its own PR into the fakoli-plugins monorepo. Phases 1–8 shipped in PRs #38–#49; Phase 9 (this release, v1.9.0) closes the audit-honesty deferrals from Phase 8 and the Phase 7 LLM-augmentation cleanup.
 
 | Phase | Name | Status |
 |---|---|---|
-| 1 | Plugin skeleton: manifest, README, LICENSE, CHANGELOG, `bin/` wrappers, `pyproject.toml`, `--version` stub | In progress |
-| 2 | State engine: models, SQLite backend, JSONL event log, `init`/`status` CLI, state-ops skill, `detect-state.sh` hook | Planned |
-| 3 | Planning engine: `prd parse`/`prd review`/`plan`/`score`/`expand`/`review tasks`, prd/plan skills, planner agent | Planned |
-| 4 | Claims manager: `claim`/`release`/`renew`/`next` CLI, git ops, claim skill, check-claim + record-file-change hooks | Planned |
-| 5 | Context engine: `packet`/`submit`/`apply` CLI, Review engine apply gate, execute/finish skills, critic + sentinel agents | Planned |
-| 6 | MCP server: 13 agent-facing tools, `.mcp.json`, `bin/fakoli-state-mcp` wrapper | Planned |
-| 7 | LLM augmentation: Anthropic provider, `--use-llm` flags, brainstorm skill bridge to fakoli-flow:brainstorm | Planned |
-| 8 | GitHub sync: bidirectional sync engine, `sync` CLI, state-keeper agent, reconciliation, marketplace release | Planned |
+| 1 | Plugin skeleton: manifest, README, LICENSE, CHANGELOG, `bin/` wrappers, `pyproject.toml`, `--version` stub | Done (v1.0.0) |
+| 2 | State engine: models, SQLite backend, JSONL event log, `init`/`status` CLI, state-ops skill, `detect-state.sh` hook | Done (v1.1.0) |
+| 3 | Planning engine: `prd parse`/`prd review`/`plan`/`score`/`expand`/`review tasks`, prd/plan skills, planner agent | Done (v1.2.0) |
+| 4 | Claims manager: `claim`/`release`/`renew`/`next` CLI, git ops, claim skill, check-claim + record-file-change hooks | Done (v1.3.0) |
+| 5 | Context engine: `packet`/`submit`/`apply` CLI, Review engine apply gate, execute/finish skills, critic + sentinel agents | Done (v1.4.0) |
+| 6 | MCP server: 13 agent-facing tools, `.mcp.json`, `bin/fakoli-state-mcp` wrapper | Done (v1.6.0) |
+| 7 | LLM augmentation: Anthropic provider, `--use-llm` flags, brainstorm skill bridge to fakoli-flow:brainstorm | Done (v1.7.0) |
+| 8 | GitHub sync: bidirectional sync engine, `sync` CLI, state-keeper agent, reconciliation, marketplace release | Done (v1.8.0) |
+| 9 | Audit honesty + multi-provider config + Phase 7 cleanup + 2 new doc agents (marketplace-scribe, docs-scribe) | Done (v1.9.0) |
 
 ---
 
@@ -156,6 +157,30 @@ When both fakoli-state and fakoli-flow are installed, the flow pipeline upgrades
 When both fakoli-state and fakoli-crew are installed, all crew agents gain access to the `fakoli-state-mcp` MCP tool surface. The plugin-owned `agents/critic.md` and `agents/sentinel.md` defer to fakoli-crew specialists when detected.
 
 When fakoli-state is absent, fakoli-flow and fakoli-crew continue to work via their existing markdown-status conventions. Integration is opt-in.
+
+---
+
+## Plugin-owned agents
+
+fakoli-state ships six specialist agents under `agents/`. Each defers outward to the
+corresponding fakoli-crew specialist when crew is installed; standalone users get the
+fallback behaviour.
+
+| Agent | Color | Owns | Defers to |
+|---|---|---|---|
+| `planner` | white | PRD-to-tasks transformation, feature/task drafting, expand routing | `fakoli-crew:guido` |
+| `critic` | magenta | Code-review verdict on submitted-evidence diffs vs task acceptance criteria | `fakoli-crew:critic` |
+| `sentinel` | gray | Verification-command + evidence-completeness scorecard | `fakoli-crew:sentinel` |
+| `state-keeper` | teal | Sync drift detection + reconciliation triage across SQLite / FS / git | `fakoli-crew:keeper` |
+| `marketplace-scribe` | cyan | `.claude-plugin/marketplace.json`, root README plugin table, `registry/*.json` | `fakoli-crew:keeper` |
+| `docs-scribe` | purple | Plugin `docs/` cross-references, `CHANGELOG.md`, `plugin.json.description` | `fakoli-crew:herald` |
+
+The Iron Rule (review agents never `Edit`/`Write`) is enforced at the
+`allowed-tools` frontmatter level for `critic`, `sentinel`, `state-keeper`, and
+`docs-scribe`; `planner` proposes-but-does-not-mutate (deletion-proof against
+hallucinated row writes); `marketplace-scribe` is the only agent that may run
+`Bash` (it executes `scripts/generate-index.sh` and validates regenerated
+JSON).
 
 Install the full ecosystem:
 

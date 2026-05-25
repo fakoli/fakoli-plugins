@@ -1,6 +1,6 @@
 ---
 name: brainstorm
-description: Turn a rough idea into a structured PRD draft through question-by-question dialogue, then write the result to `.fakoli-state/prd.md` so `fakoli-state prd parse` can consume it. Use this skill when the user has a project intent but does not yet have a PRD — it bridges to `/flow:brainstorm` when `fakoli-flow` is installed, and falls back to a self-contained interview loop otherwise.
+description: Turn a rough idea into a structured PRD draft through question-by-question dialogue, then write the result to `.fakoli-state/prd.md` so `fakoli-state prd parse` can consume it. Use this skill when the user has a project intent but does not yet have a PRD — it bridges to `/fakoli-flow:brainstorm` when `claude plugin list` reports the `fakoli-flow` plugin installed, and falls back to a self-contained interview loop otherwise.
 ---
 
 # Brainstorm — Rough Idea to PRD Draft
@@ -42,18 +42,22 @@ This skill writes a file; it does not require any `fakoli-state` CLI subcommand 
 
 ### Step 1 — Detect whether `fakoli-flow:brainstorm` is available
 
-Before running the self-contained interview, check whether the richer `fakoli-flow` brainstorm flow is installed. The simplest detection is to test for the slash command:
+Before running the self-contained interview, run the explicit plugin check so the decision is deterministic and reproducible across sessions — no introspection of in-memory command lists, no fuzzy "if it seems available" prose:
 
-- If `/flow:brainstorm` exists in this Claude Code session, the `fakoli-flow` plugin is installed and active.
-- If it does not exist (the command is unrecognized or absent from the available command list), fall through to Step 2.
+```bash
+claude plugin list 2>/dev/null | grep -q "^fakoli-flow"
+```
 
-When `/flow:brainstorm` is available, prefer it. It runs a more thorough design dialogue (scope check, section-by-section presentation, optional visual companion) and produces a spec document. Hand off the user's rough idea and announce the bridge explicitly:
+- **Exit code 0** (`fakoli-flow` plugin present): bridge by invoking `/fakoli-flow:brainstorm` as a sub-skill — proceed with the bridge block below.
+- **Non-zero exit** (plugin absent, or `claude` CLI itself not on `PATH`): fall through to Step 2 (self-contained interview). The fall-through is intentional graceful degradation: missing tooling never blocks the brainstorm flow.
+
+When `fakoli-flow` is installed, prefer it. It runs a more thorough design dialogue (scope check, section-by-section presentation, optional visual companion) and produces a spec document. Hand off the user's rough idea and announce the bridge explicitly:
 
 > The `fakoli-flow` plugin is installed, so I'll use its richer brainstorm flow to design this. When the spec is finished, I'll convert the result into a `prd.md` draft for `fakoli-state`.
 
-Invoke `/flow:brainstorm` with the user's idea as the seed. Let it run its full course — scope assessment, clarifying questions, design sections, user approval gate.
+Invoke `/fakoli-flow:brainstorm` with the user's idea as the seed. Let it run its full course — scope assessment, clarifying questions, design sections, user approval gate.
 
-When `/flow:brainstorm` completes and the user has approved the resulting spec file, convert the spec into the PRD template format and write it to `.fakoli-state/prd.md` (see Step 3 for the file structure and write rules). The spec produced by `fakoli-flow` will not match the `fakoli-state` PRD template verbatim — translate its sections:
+When `/fakoli-flow:brainstorm` completes and the user has approved the resulting spec file, convert the spec into the PRD template format and write it to `.fakoli-state/prd.md` (see Step 3 for the file structure and write rules). The spec produced by `fakoli-flow` will not match the `fakoli-state` PRD template verbatim — translate its sections:
 
 - Spec goal / context → `## Summary` and `## Goals`
 - Spec architectural decisions → context that feeds `## Requirements`
@@ -201,7 +205,7 @@ If you want to use LLM augmentation explicitly, the user can set `ANTHROPIC_API_
 - **Overwriting an existing `.fakoli-state/prd.md` without confirmation.** A silent overwrite can destroy a hand-authored PRD that took hours to craft. Always check for an existing file and prompt before clobbering.
 - **Auto-running `fakoli-state prd parse` after writing.** The user should read the draft on disk before parsing. Hand off the next-step command; do not invoke it.
 - **Skipping `## Non-Goals` because the user said "none".** Record "none identified" as an explicit bullet instead of omitting the section. Visibility matters for the planner and for reviewers.
-- **Treating the bridge to `/flow:brainstorm` as optional polish.** When `fakoli-flow` is installed, its brainstorm flow produces a substantially better spec than a six-question interview. Prefer it unless the user explicitly opts for the lightweight path.
+- **Treating the bridge to `/fakoli-flow:brainstorm` as optional polish.** When the `claude plugin list` check reports `fakoli-flow` installed, its brainstorm flow produces a substantially better spec than the six-question interview. Prefer it unless the user explicitly opts for the lightweight path.
 
 ---
 
@@ -212,7 +216,7 @@ If you want to use LLM augmentation explicitly, the user can set `ANTHROPIC_API_
 | Before this skill | Usually none — brainstorm is the entry point when no PRD exists |
 | After Step 4 (file written) | `prd` — parse, review, and approve the draft |
 | After `prd review --approve` | `plan` — generate features, tasks, and scores |
-| If `fakoli-flow` is installed | `/flow:brainstorm` runs first (Step 1 bridges to it) |
+| If `fakoli-flow` is installed | `/fakoli-flow:brainstorm` runs first (Step 1 bridges to it) |
 
 ---
 
@@ -221,6 +225,6 @@ If you want to use LLM augmentation explicitly, the user can set `ANTHROPIC_API_
 | Feature | Phase | Status |
 |---|---|---|
 | Self-contained six-question interview | Phase 7 | available — pure markdown choreography |
-| Bridge to `/flow:brainstorm` when `fakoli-flow` is installed | Phase 7 | available — detect via slash-command availability |
+| Bridge to `/fakoli-flow:brainstorm` when `fakoli-flow` is installed | Phase 7 | available — detect via `claude plugin list \| grep fakoli-flow` (explicit shell check, Phase 9 C3) |
 | LLM-augmented follow-up question generation | Phase 7 | optional — requires `ANTHROPIC_API_KEY`; skill is fully usable without it |
 | `fakoli-state brainstorm` CLI command | Phase 7+ | pending — for now, run this skill via `/fakoli-state:brainstorm` |

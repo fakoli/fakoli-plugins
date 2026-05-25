@@ -90,6 +90,47 @@ Acceptance criteria:
 Tasks with `complexity < 4` return no proposals — they are deemed simple enough to ship
 as-is.
 
+#### `--format prd` (v1.9.0)
+
+The default `--format text` mode (above) emits human-readable per-subtask
+blocks. The new `--format prd` mode emits markdown blocks matching
+[`docs/prd-template.md`](prd-template.md) — paste-ready into the
+`## Tasks` section of `.fakoli-state/prd.md`:
+
+```text
+$ fakoli-state expand T012 --use-llm --format prd
+# 3 sub-task block(s) for T012 — paste into the ## Tasks section of .fakoli-state/prd.md:
+
+### T012.1: Extract JWT validation into middleware
+
+**Feature:** F003
+**Priority:** high
+**Likely files:** src/auth/jwt.py, src/auth/middleware.py
+
+Pull JWT validation out of the route handlers and into a reusable middleware
+layer so future routes inherit the guard for free.
+
+**Acceptance criteria:**
+
+- All requests with malformed JWT return 401
+- Validation logic is unit-tested in isolation
+
+**Verification:**
+
+- TODO: add verification command
+```
+
+The `**Feature:**` and `**Priority:**` fields are populated from the
+parent task's metadata (Phase 9 critic CONSIDER fix — eliminates the
+manual-edit step in the paste-into-`prd.md` workflow). The
+`**Verification:**` line is left as `- TODO: add verification command`
+on purpose so `git diff` shows the user where to paste in the real
+verification command before `prd parse`.
+
+The emitted blocks round-trip cleanly through `prd parse` — see
+`tests/test_cli_plan.py::test_prd_format_output_round_trips_to_prd_parser`
+for the canonical proof.
+
 ---
 
 ## Provider interface
@@ -119,18 +160,41 @@ providers MUST report `cached_input_tokens=0` rather than `None`.
 ### Injecting a provider in tests
 
 `RecordedLLMProvider` is a deterministic test double. Build a `{key: LLMResponse}` map
-where the key is `sha256(system + "\n---\n" + user)`, then inject it into any function
-that takes a `provider` keyword. On a key miss the provider raises `LLMProviderError` so
-the test fails loudly rather than silently hitting the real API.
+where the key is the length-prefixed sha256 over `(system, user, max_tokens, temperature)`,
+then inject it into any function that takes a `provider` keyword. On a key miss the
+provider raises `LLMProviderError` so the test fails loudly rather than silently hitting
+the real API.
+
+The canonical signature (Phase 9 C2):
+
+```python
+@classmethod
+def record_key(
+    cls,
+    system: str,
+    user: str,
+    *,
+    max_tokens: int = 4096,
+    temperature: float = 0.0,
+) -> str: ...
+```
 
 ```python
 from fakoli_state.planning.llm import RecordedLLMProvider, LLMResponse
-from fakoli_state.planning.scoring import score_task
+from fakoli_state.planning.scoring import (
+    score_task,
+    _SCORE_EXPLAIN_MAX_TOKENS,
+)
 
 system = "You are a senior planning assistant..."
 user = "Task T012: Implement auth middleware\n..."
 
-key = RecordedLLMProvider.record_key(system, user)
+# IMPORTANT: pass the same max_tokens the engine will use at lookup
+# time, or the key will not match and the test will see
+# LLMProviderError("no recording for prompt hash ...").
+key = RecordedLLMProvider.record_key(
+    system, user, max_tokens=_SCORE_EXPLAIN_MAX_TOKENS,
+)
 provider = RecordedLLMProvider({
     key: LLMResponse(
         text="Trade-off: middleware is reusable but blast radius is wider.",
@@ -145,9 +209,16 @@ provider = RecordedLLMProvider({
 result = score_task(task, provider=provider)
 ```
 
-The recorded provider mirrors the Protocol exactly; `max_tokens` and `temperature` are
-accepted but intentionally ignored — the canned response was produced under whatever
-conditions the test author chose.
+The Phase 7 contract documented `max_tokens` and `temperature` as "accepted
+but intentionally ignored"; **Phase 9 C2 reversed that** — tuning args now
+participate in the canonical key. Two recordings under different
+`max_tokens` or `temperature` no longer collide; tests that pre-compute
+keys MUST pass the matching values the engine will use at lookup time.
+The engine's per-call-site constants are `_SCORE_EXPLAIN_MAX_TOKENS`
+(300), `_DESCRIPTION_ENRICH_MAX_TOKENS` (400), and `_EXPAND_MAX_TOKENS`
+(2000) — import them from `planning.scoring` / `planning.template` /
+`planning.inference` respectively to keep tests in sync if the constants
+ever change.
 
 ### Engine entry points
 

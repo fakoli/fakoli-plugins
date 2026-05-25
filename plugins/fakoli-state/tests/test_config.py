@@ -272,3 +272,122 @@ class TestConfigTemplate:
         config_path.write_text(template, encoding="utf-8")
         cfg = load_config(config_path)
         assert cfg.project_name == "Template Project"
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 T5 — multi-provider sync.providers config schema
+# ---------------------------------------------------------------------------
+
+
+class TestSyncProvidersConfig:
+    """T5 — optional top-level ``sync.providers`` key in config.yaml.
+
+    Contract:
+    * Key absent → ``Config.sync_providers is None`` (callers fall back to
+      ``sorted(PROVIDER_REGISTRY)`` — matches v1.8.0 behaviour).
+    * Key present with a list → ``Config.sync_providers`` is a tuple of
+      provider ids in declaration order (NOT sorted — preserves operator
+      intent for any UI that might render them).
+    * Key present with an empty list → ``Config.sync_providers == ()`` —
+      operator explicitly opts out of every provider; callers MUST NOT
+      silently fall back to the registry.
+    * Non-mapping ``sync`` block, non-list ``sync.providers``, or
+      non-string list entries → ``ValueError`` at load time.
+    """
+
+    def test_sync_providers_absent_defaults_to_none(
+        self, tmp_path: Path,
+    ) -> None:
+        """No ``sync`` block → ``sync_providers is None`` (registry fallback)."""
+        config_path = _write_config(tmp_path / "config.yaml", _minimal_yaml())
+        cfg = load_config(config_path)
+        assert cfg.sync_providers is None, (
+            "T5 contract: absent sync.providers must yield None so callers "
+            "can fall back to sorted(PROVIDER_REGISTRY)."
+        )
+
+    def test_sync_providers_explicit_list_is_preserved(
+        self, tmp_path: Path,
+    ) -> None:
+        """``sync.providers: [a, b]`` → ``sync_providers == ("a", "b")``."""
+        yaml_content = _minimal_yaml() + (
+            "sync:\n"
+            "  providers:\n"
+            "    - github_issues\n"
+            "    - linear\n"
+        )
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        cfg = load_config(config_path)
+        assert cfg.sync_providers == ("github_issues", "linear"), (
+            f"T5 regression: declaration order must be preserved; "
+            f"got {cfg.sync_providers!r}"
+        )
+
+    def test_sync_providers_empty_list_is_distinct_from_none(
+        self, tmp_path: Path,
+    ) -> None:
+        """``sync.providers: []`` → ``sync_providers == ()`` (NOT None).
+
+        The distinction matters: ``None`` means "use the registry" while
+        ``()`` means "opt out of every provider" (e.g. for a frozen
+        project that should no longer surface sync drift).
+        """
+        yaml_content = _minimal_yaml() + (
+            "sync:\n"
+            "  providers: []\n"
+        )
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        cfg = load_config(config_path)
+        assert cfg.sync_providers == (), (
+            f"T5 contract: explicit empty list must be preserved as () "
+            f"(opt-out) not None (registry fallback); "
+            f"got {cfg.sync_providers!r}"
+        )
+        assert cfg.sync_providers is not None
+
+    def test_sync_block_without_providers_key_is_none(
+        self, tmp_path: Path,
+    ) -> None:
+        """``sync:`` present but no ``providers`` key → ``None`` (registry fallback)."""
+        yaml_content = _minimal_yaml() + (
+            "sync:\n"
+            "  some_future_key: ignored\n"
+        )
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        cfg = load_config(config_path)
+        assert cfg.sync_providers is None
+
+    def test_sync_providers_non_list_raises(
+        self, tmp_path: Path,
+    ) -> None:
+        """``sync.providers: github_issues`` (a string, not a list) raises."""
+        yaml_content = _minimal_yaml() + (
+            "sync:\n"
+            "  providers: github_issues\n"
+        )
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="sync.providers"):
+            load_config(config_path)
+
+    def test_sync_providers_blank_entry_raises(
+        self, tmp_path: Path,
+    ) -> None:
+        """List entries must be non-empty strings."""
+        yaml_content = _minimal_yaml() + (
+            "sync:\n"
+            "  providers:\n"
+            "    - github_issues\n"
+            "    - ''\n"
+        )
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="sync.providers"):
+            load_config(config_path)
+
+    def test_sync_block_not_mapping_raises(
+        self, tmp_path: Path,
+    ) -> None:
+        """``sync: somestring`` (not a mapping) raises."""
+        yaml_content = _minimal_yaml() + "sync: just-a-string\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="'sync'"):
+            load_config(config_path)

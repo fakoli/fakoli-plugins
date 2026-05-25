@@ -2,7 +2,102 @@
 
 Items deferred from PR-level critic + Greptile reviews. Each entry links the originating PR + finding so the rationale survives. Ordered by priority within section.
 
-**Status legend**: `OPEN` = unaddressed; `TARGETED-PN` = scheduled for Phase N; `DONE` = closed in commit.
+**Status legend**: `OPEN` = unaddressed; `TARGETED-PN` = scheduled for Phase N; `DONE` = closed in commit; `MOVED-P9-BACKLOG` = forward-carried into [`phase-9-backlog.md`](phase-9-backlog.md) for v2.x tracking.
+
+> **Phase 9 (v1.9.0) status, 2026-05-25.** PR #49 (Phase 8) deferred a
+> handful of items that PR #50 (Phase 9) closed: the audit-honesty
+> `sync.pull.completed`-vs-`deferred` confusion, the `local_moved`-only
+> `in_sync` bug-collapse, and the Phase 7 C2/C3/C4 leftovers. Items
+> below carrying `DONE (Phase 9)` were closed in that release. Items
+> tagged `MOVED-P9-BACKLOG` are not abandoned — they have moved to
+> `phase-9-backlog.md` where they sit alongside the v2.x roadmap
+> (Linear/Monday/Jira providers, webhook sync, immediate-apply
+> `*_applied` variants).
+
+---
+
+## Phase 8 / Phase 9 closures (sync + LLM cleanups)
+
+These items came out of PR #49 (Phase 8) critic + Greptile reviews and the
+PR #45/47 Phase 7 deferrals; PR #50 (Phase 9, v1.9.0) closed them.
+
+### P9-1 · Audit-event honesty — `sync.pull.completed` emitted on deferred branches
+
+**From**: PR #49 critic CONSIDER #1. **Status**: DONE (Phase 9 T5 — `feat/fakoli-state-phase-9`).
+
+v1.8.0 emitted `sync.pull.completed` for six conflict-resolution branches that did NOT actually mutate local state (`local_wins_deferred`, `remote_wins_deferred`, `prompt_defaulted_to_local`, `prompt_chose_local`, `prompt_chose_remote`, `prompt_skipped`). The JSONL was lying about what happened.
+
+**Fix**: those branches now emit `sync.pull.deferred` (truthful) with the same resolution token in the payload. `sync.pull.completed` is reserved for the four honest cases enumerated in `SyncPullCompletedPayload`'s docstring (clean pull, tombstone, in_sync no-divergence, local-moved-only with paired `sync.push.deferred` hint). 5 new tests in `tests/test_cli_sync.py::TestDeferredConflictBranchesEmitPullDeferred`.
+
+---
+
+### P9-2 · `local_moved`-only path collapsed `sync_state` to `in_sync` instead of `local_ahead`
+
+**From**: PR #49 critic CONSIDER #2. **Status**: DONE (Phase 9 T5).
+
+When the local Task had moved ahead of `last_synced_at` and the remote had not changed, the engine used to set `sync_state="in_sync"` (wrong — the local was clearly ahead). The wrong state meant `fakoli-state sync` (reconciliation) could not surface the task as needing a push.
+
+**Fix**: the branch now sets `sync_state="local_ahead"` and emits a `sync.push.deferred` audit event with `resolution="local_moved_no_push"` so operators can grep `events.jsonl` for tasks awaiting a follow-up `--push`. 2 new tests in `tests/test_cli_sync.py::TestLocalMovedOnlyEmitsLocalAhead`.
+
+---
+
+### P9-3 · `SyncAuditPayload` was a single all-optional model — accepted nonsense payloads
+
+**From**: PR #49 critic + Phase 9 T3 plan. **Status**: DONE (Phase 9 T3).
+
+v1.8.0's `SyncAuditPayload` declared every field as `str | None = None`, so a `sync.batch.completed` event with `strategy="foo"` validated fine (the `strategy` field belongs to `sync.conflict_detected` only). Field-vs-action mismatches were silently accepted.
+
+**Fix**: replaced with a Pydantic v2 discriminated union — one concrete subclass per `sync.*` action, `extra="forbid"` on each, dispatched O(1) on the `action` literal. `ACTION_TO_PAYLOAD` exported for the SQLite dispatcher. Backwards-compatible: the `SyncAuditPayload` name still exists as a module-level type-form (`Annotated[Union[...], Field(discriminator="action")]`). Callers that used `SyncAuditPayload.model_validate(d)` directly migrate to `TypeAdapter(SyncAuditPayload).validate_python(d)` or look up the concrete subclass via `ACTION_TO_PAYLOAD[action]`.
+
+---
+
+### P9-4 · `RecordedLLMProvider.record_key` ignored `max_tokens` / `temperature`
+
+**From**: Phase 7 C2 deferral. **Status**: DONE (Phase 9 T6).
+
+v1.7.0's recorded-provider key was `sha256(system + "\n---\n" + user)` — two recordings produced under different tuning args silently collided. Tests that pre-computed keys against the wrong constant would unknowingly mask real engine drift.
+
+**Fix**: extended signature to `record_key(system, user, *, max_tokens=4096, temperature=0.0)`; canonical hash now folds in `str(int(max_tokens))` and `repr(float(temperature))` as length-prefixed chunks 3 and 4. `repr(float(...))` is the spec-conformant round-trip encoding so `0`, `0.0`, `0.00` all collapse to the same key. 4 new tests in `tests/test_llm.py::TestRecordedLLMProviderKey`; collateral updates to 8 call sites in `tests/test_llm_integration.py` + 1 in `tests/test_cli.py` to pass the correct per-call-site constant (`_SCORE_EXPLAIN_MAX_TOKENS=300`, `_DESCRIPTION_ENRICH_MAX_TOKENS=400`, `_EXPAND_MAX_TOKENS=2000`).
+
+---
+
+### P9-5 · Brainstorm-flow bridge used fuzzy detection
+
+**From**: Phase 7 C3 deferral. **Status**: DONE (Phase 9 T6).
+
+`skills/brainstorm/SKILL.md` had fuzzy prose ("if fakoli-flow seems available") for detecting whether to bridge to `/fakoli-flow:brainstorm`. The detection was non-deterministic across sessions.
+
+**Fix**: explicit `claude plugin list 2>/dev/null | grep -q "^fakoli-flow"` shell check with exit-code-driven branching. Slash-command name corrected to the fully-qualified `/fakoli-flow:brainstorm` (the old `/flow:brainstorm` was a typo that would have broken the bridge invocation when fakoli-flow IS installed). Detection is OPTIONAL — exit non-zero (or missing `claude` binary) falls through to the local interview.
+
+---
+
+### P9-6 · `expand --use-llm` had no `--format prd` UX
+
+**From**: Phase 7 C4 deferral. **Status**: DONE (Phase 9 T6).
+
+`fakoli-state expand T012 --use-llm` printed human-readable per-subtask blocks that the user had to manually translate into PRD `### TXxx` markdown before `prd parse`. The translation step was lossy and error-prone.
+
+**Fix**: added `--format {text,prd}` Typer flag. `--format prd` emits ready-to-paste markdown blocks matching `docs/prd-template.md`'s `## Tasks` schema. `**Feature:**` and `**Priority:**` fields are populated from the parent task's metadata (critic CONSIDER fix — eliminates the manual-edit step). 11 new tests in `tests/test_cli_plan.py` covering both formats + validation + help-text.
+
+---
+
+### P9-7 · Multi-provider config — no way to opt out of every sync provider
+
+**From**: Phase 9 T5 plan. **Status**: DONE (Phase 9 T5).
+
+v1.8.0 had no config knob for narrowing or opting out of the sync provider iteration; the engine always iterated `sorted(PROVIDER_REGISTRY)`.
+
+**Fix**: optional top-level `sync.providers` config key with three-way semantics: absent = registry fallback (v1.8.0 default), explicit list = use it, empty list = opt out entirely. `Config.sync_providers: tuple[str, ...] | None` pins both behaviours; 7 new tests in `tests/test_config.py::TestSyncProvidersConfig`. Documented in `docs/sync-providers.md` § "Per-provider configuration (v1.9.0)".
+
+---
+
+### P9-8 · Two new plugin-owned doc agents — marketplace-scribe + docs-scribe
+
+**From**: User directive in Phase 9 plan T4. **Status**: DONE (Phase 9 T4).
+
+The plugin needed agents specifically for its own documentation maintenance so doc drift could be addressed without pulling in the marketplace-wide `fakoli-crew:keeper` for plugin-internal work.
+
+**Fix**: created `agents/marketplace-scribe.md` (cyan, opus — owns `.claude-plugin/marketplace.json`, root README plugins table, `registry/*.json`) and `agents/docs-scribe.md` (purple, opus — owns plugin `docs/`, `CHANGELOG.md`, `plugin.json.description`). Both defer outward to crew when crew is installed. Color collisions checked vs the existing four agents (planner=white, critic=magenta, sentinel=gray, state-keeper=teal).
 
 ---
 

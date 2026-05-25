@@ -11,7 +11,11 @@ Public surface
 - :class:`LLMProvider` — typing.Protocol; one method, ``generate``.
 - :class:`AnthropicProvider` — concrete impl backed by the ``anthropic`` SDK.
 - :class:`RecordedLLMProvider` — deterministic test double; canned responses
-  keyed by ``sha256(system + "\\n---\\n" + user)``.
+  keyed by a length-prefixed sha256 over ``(system, user, max_tokens,
+  temperature)``.  Phase 9 C2: tuning args participate in the key — two
+  recordings under different ``max_tokens`` / ``temperature`` no longer
+  collide.  See :meth:`RecordedLLMProvider.record_key` for the canonical
+  encoding.
 - :class:`LLMProviderError` — wraps SDK / network / lookup failures so CLI
   callers can ``except LLMProviderError`` once and emit a clean error.
 
@@ -292,9 +296,16 @@ class RecordedLLMProvider:
     """Deterministic ``LLMProvider`` for tests.
 
     Tests build a ``{key: LLMResponse}`` map where the key is a sha256
-    of length-prefixed (``system``, ``user``) byte strings, then inject
-    the provider.  On a key miss the provider raises ``LLMProviderError``
-    so tests fail loudly rather than silently calling out to a real API.
+    of length-prefixed (``system``, ``user``, ``max_tokens``, ``temperature``)
+    byte strings, then inject the provider.  On a key miss the provider raises
+    ``LLMProviderError`` so tests fail loudly rather than silently calling out
+    to a real API.
+
+    Tuning args (``max_tokens``, ``temperature``) are part of the canonical
+    key as of Phase 9 (was Phase 7 C2 deferral): two recordings produced
+    under different tuning args MUST yield different keys.  Tests that
+    pre-compute a key with :meth:`record_key` MUST pass the same tuning
+    values the engine will pass at lookup time.
     """
 
     def __init__(self, recordings: dict[str, LLMResponse]) -> None:
@@ -302,22 +313,46 @@ class RecordedLLMProvider:
         self._recordings: dict[str, LLMResponse] = dict(recordings)
 
     @classmethod
-    def record_key(cls, system: str, user: str) -> str:
-        """Stable lookup key for a (system, user) pair.
+    def record_key(
+        cls,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+    ) -> str:
+        """Stable lookup key for a (system, user, max_tokens, temperature) tuple.
 
         Length-prefixed encoding is collision-free across any byte boundary —
         a separator-based scheme could collide if ``system`` ended with the
         separator-suffix and ``user`` began with its prefix.  Two calls with
         the same inputs always return the same hex digest, regardless of
         process / interpreter / hash randomization.
+
+        Defaults for ``max_tokens`` and ``temperature`` mirror the
+        :meth:`LLMProvider.generate` defaults so callers can omit them in the
+        common case where the engine also relies on defaults.  Callers (or
+        tests) MUST pass the same explicit values the engine uses when the
+        engine overrides the defaults — e.g. ``_SCORE_EXPLAIN_MAX_TOKENS``
+        (300), ``_DESCRIPTION_ENRICH_MAX_TOKENS`` (400), or
+        ``_EXPAND_MAX_TOKENS`` (2000) — otherwise the recorded key will not
+        match the engine's lookup key and the test will see a
+        ``LLMProviderError`` for a missing recording.
+
+        ``temperature`` is normalised via ``repr(float(...))`` so ``0``,
+        ``0.0``, and ``0.00`` collapse to the same canonical encoding.
         """
         h = hashlib.sha256()
         sys_bytes = system.encode("utf-8")
         usr_bytes = user.encode("utf-8")
-        h.update(len(sys_bytes).to_bytes(8, "big"))
-        h.update(sys_bytes)
-        h.update(len(usr_bytes).to_bytes(8, "big"))
-        h.update(usr_bytes)
+        # Canonical int repr — str(int) is round-trip stable across platforms.
+        mt_bytes = str(int(max_tokens)).encode("utf-8")
+        # Canonical float repr — repr(float(...)) is the spec-conformant
+        # round-tripping representation in Python 3.
+        temp_bytes = repr(float(temperature)).encode("utf-8")
+        for chunk in (sys_bytes, usr_bytes, mt_bytes, temp_bytes):
+            h.update(len(chunk).to_bytes(8, "big"))
+            h.update(chunk)
         return h.hexdigest()
 
     def generate(
@@ -328,14 +363,17 @@ class RecordedLLMProvider:
         max_tokens: int = 4096,
         temperature: float = 0.0,
     ) -> LLMResponse:
-        """Return the canned response for the (system, user) pair.
+        """Return the canned response for the (system, user, max_tokens,
+        temperature) tuple.
 
-        ``max_tokens`` and ``temperature`` are accepted to satisfy the
-        Protocol but are intentionally ignored — the canned response was
-        already produced under whatever conditions the test author chose.
+        Tuning args are part of the canonical key (Phase 9 contract): two
+        recordings produced under different tuning args do NOT collide.  This
+        replaces the Phase 7 behavior where ``max_tokens`` and ``temperature``
+        were intentionally ignored.
         """
-        _ = max_tokens, temperature  # intentionally unused; see docstring
-        key = self.record_key(system, user)
+        key = self.record_key(
+            system, user, max_tokens=max_tokens, temperature=temperature
+        )
         if key not in self._recordings:
             raise LLMProviderError(
                 f"no recording for prompt hash {key[:8]}... "

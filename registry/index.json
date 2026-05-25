@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-05-25T14:17:55Z",
+  "generatedAt": "2026-05-25T19:12:17Z",
   "pluginCount": 11,
   "plugins": [
     {
@@ -26,7 +26,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-05-25T14:17:54Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     },
     {
       "name": "cli-to-plugin",
@@ -46,7 +46,7 @@
         "automation"
       ],
       "path": "plugins/cli-to-plugin",
-      "indexedAt": "2026-05-25T14:17:55Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     },
     {
       "name": "safe-fetch",
@@ -68,7 +68,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-05-25T14:17:55Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     },
     {
       "name": "fakoli-speak",
@@ -94,7 +94,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-05-25T14:17:55Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     },
     {
       "name": "marketplace-manager",
@@ -113,7 +113,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-05-25T14:17:55Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     },
     {
       "name": "fakoli-crew",
@@ -136,7 +136,7 @@
         "workflow"
       ],
       "path": "plugins/fakoli-crew",
-      "indexedAt": "2026-05-25T14:17:55Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -157,7 +157,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-05-25T14:17:55Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     },
     {
       "name": "gws",
@@ -205,11 +205,11 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-05-25T14:17:55Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     },
     {
       "name": "fakoli-state",
-      "version": "1.8.0",
+      "version": "1.9.0",
       "description": "Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.",
       "author": {
         "name": "Sekou Doumbouya",
@@ -230,7 +230,7 @@
         "work-packets"
       ],
       "path": "plugins/fakoli-state",
-      "indexedAt": "2026-05-25T14:17:55Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     },
     {
       "name": "fakoli-flow",
@@ -253,7 +253,7 @@
         "code-review"
       ],
       "path": "plugins/fakoli-flow",
-      "indexedAt": "2026-05-25T14:17:55Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     },
     {
       "name": "nano-banana-pro",
@@ -274,7 +274,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-05-25T14:17:55Z"
+      "indexedAt": "2026-05-25T19:12:17Z"
     }
   ]
 }

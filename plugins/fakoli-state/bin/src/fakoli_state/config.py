@@ -42,6 +42,25 @@ class Config:
         "local_wins", "remote_wins", "prompt", "manual_merge"
     ] = "prompt"
 
+    # Phase 9 T5 — multi-provider sync.
+    #
+    # ``sync_providers`` is the contents of the optional top-level
+    # ``sync.providers`` YAML key. When ``None`` (key absent), every caller
+    # that asks "which providers are configured?" SHOULD fall back to
+    # ``sorted(fakoli_state.sync.registry.PROVIDER_REGISTRY)`` — i.e. the
+    # full set of registered providers, matching v1.8.0 behaviour. When the
+    # operator pins an explicit list, ``ReconciliationEngine`` and the
+    # generic ``sync provider`` dispatch scope to that allow-list — useful
+    # for projects that have multiple providers registered (github_issues,
+    # linear, monday, …) but only want some of them to count toward
+    # ``missing_sync_mapping`` discrepancies.
+    #
+    # An empty list (``sync.providers: []``) is preserved as-is — that
+    # explicitly opts out of every provider (e.g. for a frozen project
+    # that should no longer surface sync drift). Callers MUST disambiguate
+    # ``None`` (use the registry) from ``[]`` (use nothing).
+    sync_providers: tuple[str, ...] | None = None
+
     # Paths (resolved at load time to absolute strings).
     db_path: str = field(default="")
     events_path: str = field(default="")
@@ -100,6 +119,8 @@ def load_config(path: str | Path) -> Config:
         "sync_github_conflict_strategy",
     )
 
+    sync_providers = _parse_sync_providers(data.get("sync"), resolved)
+
     return Config(
         project_name=str(data["project_name"]),
         project_id=str(data["project_id"]),
@@ -110,6 +131,7 @@ def load_config(path: str | Path) -> Config:
         git_ops_mode=git_ops_mode,  # type: ignore[arg-type]
         sync_github_enabled=bool(data.get("sync_github_enabled", False)),
         sync_github_conflict_strategy=sync_conflict_strategy,  # type: ignore[arg-type]
+        sync_providers=sync_providers,
         db_path=db_path,
         events_path=events_path,
     )
@@ -195,6 +217,56 @@ def _resolve_path(value: object, base: Path) -> str:
     if p.is_absolute():
         return str(p)
     return str((base / p).resolve())
+
+
+def _parse_sync_providers(
+    sync_block: object,
+    config_path: Path,
+) -> tuple[str, ...] | None:
+    """Parse the optional top-level ``sync:`` block.
+
+    Returns
+    -------
+    tuple[str, ...] | None
+        * ``None`` — the ``sync`` key is absent, OR the ``sync`` block has
+          no ``providers`` key. Callers SHOULD fall back to
+          ``sorted(PROVIDER_REGISTRY)`` (v1.8.0 behaviour: every
+          registered provider counts).
+        * ``tuple[str, ...]`` — the operator pinned an explicit list of
+          provider ids. May be empty (``sync.providers: []``) to opt out
+          of every provider; callers MUST treat that as a no-op rather
+          than falling back to the registry.
+
+    Raises
+    ------
+    ValueError
+        If ``sync`` is present but not a mapping, OR ``sync.providers`` is
+        present but not a list of strings.
+    """
+    if sync_block is None:
+        return None
+    if not isinstance(sync_block, dict):
+        raise ValueError(
+            f"Config file {config_path}: top-level 'sync' key must be a "
+            f"mapping, got {type(sync_block).__name__!r}."
+        )
+    providers = sync_block.get("providers")
+    if providers is None:
+        return None
+    if not isinstance(providers, list):
+        raise ValueError(
+            f"Config file {config_path}: 'sync.providers' must be a list, "
+            f"got {type(providers).__name__!r}."
+        )
+    out: list[str] = []
+    for idx, item in enumerate(providers):
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(
+                f"Config file {config_path}: 'sync.providers[{idx}]' must "
+                f"be a non-empty string, got {item!r}."
+            )
+        out.append(item.strip())
+    return tuple(out)
 
 
 def _render_template(*, project_name: str, project_id: str) -> str:

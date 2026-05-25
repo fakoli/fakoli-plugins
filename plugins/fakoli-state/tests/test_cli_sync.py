@@ -2043,3 +2043,255 @@ class TestCleanPullBumpsLastSyncedAt:
             f"SF-15 regression: clean pull did not reset drift counter; "
             f"stale drifts: {[d.payload for d in stale_drifts]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 T5 — audit honesty repointing
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredConflictBranchesEmitPullDeferred:
+    """T5 — the six deferred conflict-resolution branches must emit
+    ``sync.pull.deferred`` (NOT ``sync.pull.completed``) because no local
+    Task mutation happens in those branches this iteration.
+
+    Scout's Phase 9 T1 audit (``agent-scout-honesty-status.md``) identified
+    these branches as DISHONEST: each emitted ``sync.conflict_detected``
+    honestly but then fell through to the unconditional
+    ``sync.pull.completed`` terminal at cli/sync.py:868 — the audit log
+    claimed a pull was applied when only mapping bookkeeping had advanced.
+    """
+
+    @pytest.mark.parametrize(
+        ("strategy", "expected_resolution"),
+        [
+            (ConflictResolutionStrategy.local_wins, "local_wins_deferred"),
+            (ConflictResolutionStrategy.remote_wins, "remote_wins_deferred"),
+        ],
+    )
+    def test_static_strategy_branches_emit_pull_deferred(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+        strategy: ConflictResolutionStrategy,
+        expected_resolution: str,
+    ) -> None:
+        """local_wins / remote_wins branches: ``sync.pull.deferred``, not ``completed``."""
+        TestSyncConflictResolution()._setup_diverged(
+            initialized_project, patched_registry, strategy,
+        )
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+        events = _read_events_jsonl(initialized_project)
+        actions = [e["action"] for e in events]
+
+        # Honest terminal: deferred, NOT completed. The conflict was
+        # detected and a resolution intent recorded; nothing was applied.
+        assert "sync.pull.deferred" in actions, (
+            f"T5 regression: {strategy} should emit sync.pull.deferred "
+            f"(no local mutation happened this iteration); "
+            f"got actions={actions}"
+        )
+        assert "sync.pull.completed" not in actions, (
+            f"T5 regression: {strategy} dishonestly emitted "
+            f"sync.pull.completed; the historical lie is back. "
+            f"actions={actions}"
+        )
+
+        # The deferred payload carries the resolution token forward.
+        deferred = [e for e in events if e["action"] == "sync.pull.deferred"]
+        assert len(deferred) == 1
+        assert deferred[0]["payload_json"]["resolution"] == expected_resolution
+        assert deferred[0]["target_id"] == "T001"
+
+    def test_prompt_defaulted_to_local_emits_pull_deferred(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """The non-interactive prompt branch (yes=True) defers, doesn't complete."""
+        TestSyncConflictResolution()._setup_diverged(
+            initialized_project, patched_registry,
+            ConflictResolutionStrategy.prompt,
+        )
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--yes", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+        events = _read_events_jsonl(initialized_project)
+        actions = [e["action"] for e in events]
+        assert "sync.pull.deferred" in actions
+        assert "sync.pull.completed" not in actions
+        deferred = [e for e in events if e["action"] == "sync.pull.deferred"]
+        assert len(deferred) == 1
+        assert deferred[0]["payload_json"]["resolution"] == "prompt_defaulted_to_local"
+
+
+class TestLocalMovedOnlyEmitsLocalAhead:
+    """T5 — when the local Task has moved but the remote has not, the
+    SyncMapping must end at ``sync_state="local_ahead"`` (NOT ``"in_sync"``)
+    and a ``sync.push.deferred`` audit hint must fire.
+
+    Scout's T1 audit identified the bug at cli/sync.py:848-865: the
+    ``else`` arm collapsed two distinct realities ("neither moved" and
+    "local moved but remote did not") into a single ``in_sync`` bump,
+    erasing the divergence signal that ``drift_sync_state`` needs to
+    surface the missed push.
+    """
+
+    def test_local_moved_only_marks_mapping_local_ahead(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """Bump the local Task's updated_at, pull, then assert mapping is local_ahead."""
+        from fakoli_state.cli._helpers import _open_backend
+        from fakoli_state.state.backend import PENDING_EVENT_ID
+        from fakoli_state.state.models import Event
+
+        # Seed: task at past, mapping at past+1h, remote last_modified at past.
+        seed_time = _NOW - timedelta(hours=4)
+        _seed_task(initialized_project, now=seed_time)
+        _seed_sync_mapping(
+            initialized_project,
+            last_synced_at=seed_time + timedelta(hours=1),
+        )
+
+        # Bump local task's updated_at PAST the mapping's last_synced_at
+        # (so local_moved=True). status_changed updates updated_at to now-ish;
+        # the seed timestamps put us well below current time, so this
+        # creates the local_ahead-vs-remote divergence.
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            b.apply_event(Event(
+                id=PENDING_EVENT_ID,
+                timestamp=_LATER,
+                actor="test",
+                action="task.status_changed",
+                target_kind="task",
+                target_id="T001",
+                payload_json={
+                    "task_id": "T001",
+                    "from": "ready",
+                    "to": "in_progress",
+                },
+            ))
+        finally:
+            b.close()
+
+        # Remote last_modified is BEFORE the mapping's last_synced_at →
+        # remote_moved=False. Combined with local_moved=True, we hit the
+        # local-moved-only branch.
+        remote = ExternalTask(
+            external_id="42",
+            title="Test task",
+            body="desc",
+            status_label=None,
+            url=None,
+            last_modified=seed_time,
+            provider_metadata={},
+        )
+        cls = _make_scripted_provider_cls(fetch_returns=remote)
+        patched_registry[_TEST_PROVIDER_ID] = cls
+
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+
+        # Mapping must be local_ahead, NOT in_sync (the historical bug).
+        b = _open_backend(state_dir)
+        try:
+            mapping = b.get_sync_mapping("T001")
+            assert mapping is not None
+            assert str(mapping.sync_state) == "local_ahead", (
+                f"T5 regression: local-moved-only branch did not set "
+                f"sync_state=local_ahead; got {mapping.sync_state!r}. "
+                f"Scout's T1 audit flagged this collapse at cli/sync.py:848."
+            )
+        finally:
+            b.close()
+
+    def test_local_moved_only_emits_push_deferred_hint(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """The local-moved-only pull emits ``sync.push.deferred`` with
+        ``resolution="local_moved_no_push"`` so operators can grep for
+        tasks awaiting a follow-up push."""
+        from fakoli_state.cli._helpers import _open_backend
+        from fakoli_state.state.backend import PENDING_EVENT_ID
+        from fakoli_state.state.models import Event
+
+        seed_time = _NOW - timedelta(hours=4)
+        _seed_task(initialized_project, now=seed_time)
+        _seed_sync_mapping(
+            initialized_project,
+            last_synced_at=seed_time + timedelta(hours=1),
+        )
+
+        state_dir = initialized_project / ".fakoli-state"
+        b = _open_backend(state_dir)
+        try:
+            b.apply_event(Event(
+                id=PENDING_EVENT_ID,
+                timestamp=_LATER,
+                actor="test",
+                action="task.status_changed",
+                target_kind="task",
+                target_id="T001",
+                payload_json={
+                    "task_id": "T001",
+                    "from": "ready",
+                    "to": "in_progress",
+                },
+            ))
+        finally:
+            b.close()
+
+        remote = ExternalTask(
+            external_id="42",
+            title="Test task",
+            body="desc",
+            status_label=None,
+            url=None,
+            last_modified=seed_time,
+            provider_metadata={},
+        )
+        cls = _make_scripted_provider_cls(fetch_returns=remote)
+        patched_registry[_TEST_PROVIDER_ID] = cls
+
+        r = runner.invoke(
+            app,
+            ["sync", "github", "--pull", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+        assert r.exit_code == 0, r.output
+
+        events = _read_events_jsonl(initialized_project)
+        push_deferred = [
+            e for e in events if e["action"] == "sync.push.deferred"
+        ]
+        assert len(push_deferred) == 1, (
+            f"T5 regression: local-moved-only branch did not emit "
+            f"sync.push.deferred; got actions="
+            f"{[e['action'] for e in events]}"
+        )
+        payload = push_deferred[0]["payload_json"]
+        assert payload["resolution"] == "local_moved_no_push", (
+            f"T5 regression: wrong resolution token on push.deferred; "
+            f"got {payload.get('resolution')!r}"
+        )
+        assert payload["task_id"] == "T001"
+        # provider_id round-trips through the audit row.
+        assert payload["provider_id"] == _TEST_PROVIDER_ID

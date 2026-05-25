@@ -79,28 +79,30 @@ CI runners with `GITHUB_TOKEN`.
 
 `fakoli-state sync` (bare, no subcommand) runs the reconciliation engine,
 which uses the *list of configured providers* to decide which tasks count
-as "done but unmapped" and need a sync. In v1.8.0 the list defaults to
-the registry — every provider registered in
-`PROVIDER_REGISTRY` is treated as configured for reconciliation.
+as "done but unmapped" and need a sync.
 
-A future Phase 9 release will read an explicit list from `config.yaml`:
+**v1.9.0 (Phase 9 T5)** adds the optional `sync.providers` top-level config
+key for explicit selection — see
+[`sync-providers.md` → Per-provider configuration](sync-providers.md#per-provider-configuration-v190)
+for the full schema and three-way semantics (absent / explicit list /
+empty list = opt-out). When the key is absent the engine defaults to
+`sorted(PROVIDER_REGISTRY)` — every registered provider participates,
+preserving v1.8.0 behaviour for projects that have not yet bothered to
+declare a list.
 
 ```yaml
+# .fakoli-state/config.yaml — opt-in subset
 sync:
   providers:
     - github_issues
-    - linear     # contributor-registered providers also accepted
+    - linear_issues   # contributor-registered providers also accepted
 ```
-
-Until then, register only the providers you actually intend to sync
-against (typically just `github_issues` via the side-effect import in
-`sync/providers/__init__.py`) — every registered provider adds rows to
-the reconciliation report for tasks that lack a mapping for it.
 
 When multiple providers are configured, the reconciliation engine emits
 one `missing_sync_mapping` discrepancy *per missing provider per done
-task* (e.g. a task mapped to `github_issues` but not `linear` produces a
-single discrepancy with `payload.missing_provider == "linear"`).
+task* (e.g. a task mapped to `github_issues` but not `linear_issues`
+produces a single discrepancy with `payload.missing_provider ==
+"linear_issues"`).
 
 ---
 
@@ -196,16 +198,79 @@ event records the choice in `resolution`.
 | `prompt`        | Interactive prompt: `[local/remote/skip]`. Defaults to local on `--yes` or non-tty. | `prompt_chose_local`, `prompt_chose_remote`, `prompt_skipped`, `prompt_defaulted_to_local` |
 | `manual_merge`  | Write `.fakoli-state/.sync-conflicts/<task_id>.md`; refuse to sync this task. | `manual_merge_file_written`     |
 
-**`_deferred` is the v1.8.0 contract.** Recording a `local_wins` /
+**`_deferred` is the v1.8.0 + v1.9.0 contract.** Recording a `local_wins` /
 `remote_wins` decision does NOT immediately mutate the other side in this
 iteration — the mutation rides the next push (for `local_wins`) or next
-pull (for `remote_wins`) pass. Phase 9 may wire immediate apply.
+pull (for `remote_wins`) pass. A future release (tracked in
+[`phase-9-backlog.md`](phase-9-backlog.md)) may wire `*_applied` variants
+that mutate immediately; until then the deferred contract is the truthful
+one.
 
 For `manual_merge`: the markdown file at
 `.fakoli-state/.sync-conflicts/<task_id>.md` shows local and remote
 side-by-side. Resolve the file (edit local or accept remote), delete it,
 then rerun `fakoli-state sync github` to continue. The batch exits with
 code `2` if any task is parked pending manual merge.
+
+---
+
+## Audit honesty
+
+The audit-event stream is the canonical record of what the sync engine
+actually did vs what was deferred. v1.9.0 (Phase 9 T5) repaired six
+dishonest emissions in v1.8.0 where conflict branches emitted
+`sync.pull.completed` despite no local mutation having occurred — that
+fix makes the JSONL safe to grep for "did this task actually update?".
+
+### `sync.pull.completed` vs `sync.pull.deferred` semantics
+
+| Event                  | Meaning                                                                           |
+|------------------------|-----------------------------------------------------------------------------------|
+| `sync.pull.completed`  | The pull was honest: fetch succeeded and the mapping was bumped to a truthful state. Includes (1) clean pull mutated the local Task, (2) tombstone (mapping flipped to `external_deleted`, `audit_note="external_deleted"`), (3) no divergence (mapping bumped to `in_sync`), or (4) **local-moved-only** — fetch succeeded, no remote movement observed, mapping bumped to `local_ahead` and a paired `sync.push.deferred` event fires with `resolution="local_moved_no_push"`. |
+| `sync.pull.deferred`   | The pull recorded an intent without mutating local state. Fires on (a) `manual_merge` (the merge file was written, operator must act — `audit_note="manual_merge_pending"`) and (b) the six deferred conflict-resolution branches (`local_wins_deferred`, `remote_wins_deferred`, `prompt_defaulted_to_local`, `prompt_chose_local`, `prompt_chose_remote`, `prompt_skipped`). |
+
+The `local_ahead` mapping state captures a bug-collapse from v1.8.0: when
+the local Task had moved ahead of `last_synced_at` and the remote had not
+changed, the engine used to set `sync_state="in_sync"` (wrong — the local
+was ahead). v1.9.0 sets `sync_state="local_ahead"` and emits a
+`sync.push.deferred` audit event with
+`resolution="local_moved_no_push"` so operators can grep `events.jsonl`
+to find tasks awaiting a follow-up `--push`.
+
+### Resolution token vocabulary (v1.9.0)
+
+Audit-stream-visible `resolution` strings produced by Phase 9:
+
+| Resolution token              | Emitted on                  | Branch                           |
+|-------------------------------|-----------------------------|----------------------------------|
+| `local_wins_deferred`         | `sync.pull.deferred`        | `local_wins` strategy            |
+| `remote_wins_deferred`        | `sync.pull.deferred`        | `remote_wins` strategy           |
+| `prompt_defaulted_to_local`   | `sync.pull.deferred`        | `prompt` strategy on non-tty / `--yes` |
+| `prompt_chose_local`          | `sync.pull.deferred`        | `prompt` strategy, user chose local  |
+| `prompt_chose_remote`         | `sync.pull.deferred`        | `prompt` strategy, user chose remote |
+| `prompt_skipped`              | `sync.pull.deferred`        | `prompt` strategy, user skipped  |
+| `manual_merge_file_written`   | `sync.conflict_detected`    | `manual_merge` strategy          |
+| `local_moved_no_push` (NEW)   | `sync.push.deferred`        | local-moved-only pull path       |
+
+The six `local_wins` / `remote_wins` / `prompt_*` tokens also appear on
+the paired `sync.conflict_detected` event (one per conflict) so a
+forensic query of "show me every deferral and its conflict context" is a
+single `jq` over the JSONL.
+
+### Querying the audit log
+
+```bash
+# Every deferred pull this week
+jq 'select(.action == "sync.pull.deferred")' .fakoli-state/events.jsonl
+
+# Every task with a local_moved_no_push hint awaiting --push
+jq 'select(.payload_json.resolution == "local_moved_no_push") | .target_id' \
+   .fakoli-state/events.jsonl | sort -u
+
+# Conflict resolution histogram
+jq -r 'select(.action == "sync.conflict_detected") | .payload_json.resolution' \
+   .fakoli-state/events.jsonl | sort | uniq -c
+```
 
 ---
 
@@ -249,10 +314,11 @@ from these events).
 | `sync.push.started`          | per task, before `provider.push_task` |
 | `sync.push.completed`        | per task, on success                |
 | `sync.push.failed`           | per task, on `SyncProviderError`    |
+| `sync.push.deferred`         | per task, on the local-moved-only pull path (v1.9.0; `resolution="local_moved_no_push"`) — hints that a follow-up `--push` is needed |
 | `sync.pull.started`          | per task, before `provider.fetch_task`|
-| `sync.pull.completed`        | per task, on success                |
+| `sync.pull.completed`        | per task, when the pull was honest (see [Audit honesty](#audit-honesty)) |
 | `sync.pull.failed`           | per task, on `SyncProviderError`    |
-| `sync.pull.deferred`         | per task, when manual_merge parks the pull pending operator action |
+| `sync.pull.deferred`         | per task, when `manual_merge` or any of the six deferred conflict-resolution branches recorded an intent without mutating local state (v1.9.0) |
 | `sync.conflict_detected`     | per conflict, every strategy        |
 | `sync_mapping.upserted`      | per successful push (after persist) |
 | `sync_mapping.deleted`       | per explicit mapping removal        |
