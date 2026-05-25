@@ -39,6 +39,12 @@
       "source": "./plugins/notebooklm-enhanced"
     },
     {
+      "name": "cli-to-plugin",
+      "version": "1.0.3",
+      "description": "Convert any CLI tool into a self-contained Claude Code plugin by walking its --help tree and generating one skill per command group, plus optional LLM-proposed workflow meta-skills.",
+      "source": "./plugins/cli-to-plugin"
+    },
+    {
       "name": "safe-fetch",
       "version": "1.0.5",
       "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
@@ -76,7 +82,7 @@
     },
     {
       "name": "fakoli-state",
-      "version": "1.4.0",
+      "version": "1.4.1",
       "description": "Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.",
       "source": "./plugins/fakoli-state"
     },

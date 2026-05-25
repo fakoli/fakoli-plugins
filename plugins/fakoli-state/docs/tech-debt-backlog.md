@@ -17,7 +17,7 @@ These three items MUST land in Phase 6 because the MCP server inherits all of th
 Three CLI callers bypass the Backend Protocol via `backend._conn`:
 - `_fetch_recent_events` (cli.py:1388) — used by `show TASK_ID`
 - `packet` feature lookup (cli.py:1773) — reads features by positional `row[4]`, fragile to schema changes
-- `_fetch_latest_evidence` (cli.py:2191) — used by `apply`
+- `_fetch_latest_evidence` (cli.py:2195) — used by `apply`
 
 The MCP server will need all three queries. Without Protocol methods, the MCP impl will inherit the same reach-through pattern and the abstraction is dead by construction.
 
@@ -59,7 +59,7 @@ Single-CLI usage is race-free today. The MCP server in Phase 6 is the trigger fo
 
 ## Phase 6 Should-Close (CLI organization + dispatch consistency)
 
-### P6-4 · `cli.py` is 2,487 lines — split into per-command modules
+### P6-4 · `cli.py` is 2,499 lines — split into per-command modules
 
 **From**: PR #41 Critic-2. **Status**: TARGETED-P6.
 
