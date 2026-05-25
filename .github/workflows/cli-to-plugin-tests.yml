@@ -1,0 +1,57 @@
+name: cli-to-plugin tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/cli-to-plugin/**'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/cli-to-plugin/**'
+
+concurrency:
+  group: cli-to-plugin-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+
+      - name: Install jq
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh plugins/cli-to-plugin/scripts/*.sh
+
+      - name: Run pytest with coverage
+        run: |
+          uv run --with pytest --with pytest-cov --with pyyaml pytest \
+            plugins/cli-to-plugin/tests/ \
+            --cov=plugins/cli-to-plugin/scripts \
+            --cov-fail-under=90
+
+      - name: Run smoke test
+        # The smoke test exits 0 with a SKIP message when `claude` is not on PATH (the case
+        # on standard runners today). It still provides value: bash syntax check, fixture
+        # access, marketplace-root resolution. End-to-end execution will be exercised once
+        # an action installs the Claude CLI with slash-command support.
+        run: bash plugins/cli-to-plugin/tests/smoke/test-gh-generation.sh
+
+      - name: Validate cli-to-plugin manifest
+        run: ./scripts/validate.sh plugins/cli-to-plugin

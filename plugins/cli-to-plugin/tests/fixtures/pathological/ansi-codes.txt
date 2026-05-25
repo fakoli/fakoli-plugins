@@ -1,0 +1,17 @@
+[1m[33mMYCLI[0m — A demonstration CLI with color output.
+
+[1mUSAGE[0m
+  [36mmycli[0m [32m<command>[0m [90m[flags][0m
+
+[1mCOMMANDS[0m
+  [32mserve[0m      [90mStart the server[0m
+  [32mbuild[0m      [90mBuild the project[0m
+  [32mdeploy[0m     [90mDeploy to remote[0m
+
+[1mFLAGS[0m
+  [32m--help[0m     [90mShow help for command[0m
+  [31m--verbose[0m  [90mEnable verbose logging[0m
+
+[1;4mEXAMPLES[0m
+  $ mycli serve --port 8080
+  $ mycli build --target production

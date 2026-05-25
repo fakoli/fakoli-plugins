@@ -64,6 +64,9 @@ temp/
 # Test coverage
 coverage/
 .nyc_output/
+.coverage
+.coverage.*
+htmlcov/
 
 # Lock files (keep if you want consistency)
 # package-lock.json

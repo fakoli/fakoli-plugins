@@ -1,0 +1,11 @@
+Baz subcommand group.
+
+USAGE
+  foo bar baz <command> [flags]
+
+COMMANDS
+  qux:    Qux sub-subcommand group (has subcommands — depth limit approaches)
+  leaf:   A leaf command at depth 3 (no subcommands)
+
+INHERITED FLAGS
+  --help   Show help for command

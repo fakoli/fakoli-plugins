@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fakoli-plugins.github.io/schemas/help-tree.schema.json",
+  "title": "CLI Help Tree",
+  "description": "Canonical output schema for discover.py — the parsed help tree for a CLI binary.",
+  "type": "object",
+  "required": ["cli", "groups", "discovery"],
+  "additionalProperties": false,
+  "properties": {
+    "cli": {
+      "type": "object",
+      "description": "Metadata about the discovered CLI binary.",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "CLI identifier (lowercase, hyphens and digits only)."
+        },
+        "binary": {
+          "type": "string",
+          "description": "Absolute path to the resolved binary (e.g. /usr/local/bin/gh)."
+        },
+        "version": {
+          "type": "string",
+          "description": "Version string reported by the CLI (free-form; not required to be semver)."
+        },
+        "summary": {
+          "type": "string",
+          "description": "One-line description from the CLI's top-level help output."
+        },
+        "homepage": {
+          "type": "string",
+          "format": "uri",
+          "description": "Project homepage URL as reported by the CLI."
+        }
+      }
+    },
+    "global_flags": {
+      "type": "array",
+      "description": "Flags accepted by every subcommand (from the top-level --help).",
+      "items": {
+        "$ref": "#/$defs/flag"
+      }
+    },
+    "groups": {
+      "type": "array",
+      "description": "Command groups discovered by walking the help tree, flattened into this array. Nesting is expressed via path length, not nested objects. A deep group like 'kubectl create deployment' appears here as {name: 'create-deployment', path: ['create', 'deployment']} — a sibling of {name: 'pr', path: ['pr']}, not a child of any 'create' entry. Underscores in CLI-reported names must be normalized to hyphens for the 'name' field; the 'path' array retains the original segments.",
+      "items": {
+        "type": "object",
+        "required": ["name", "path"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Group name as it appears in the CLI (e.g. 'pr')."
+          },
+          "path": {
+            "type": "array",
+            "description": "Invocation path segments for this group (length >= 1).",
+            "items": { "type": "string" },
+            "minItems": 1
+          },
+          "summary": {
+            "type": "string",
+            "description": "One-line description from the group's help output."
+          },
+          "raw_help": {
+            "type": "string",
+            "description": "Full raw help text captured when structured parsing falls back."
+          },
+          "commands": {
+            "type": "array",
+            "description": "Subcommands discovered within this group.",
+            "items": {
+              "$ref": "#/$defs/command"
+            }
+          }
+        }
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "description": "Metadata about the discovery run itself.",
+      "required": ["depth_reached", "commands_walked", "elapsed_ms", "warnings"],
+      "additionalProperties": false,
+      "properties": {
+        "depth_reached": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum nesting depth reached during the walk."
+        },
+        "commands_walked": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of subcommand help pages fetched."
+        },
+        "elapsed_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Wall-clock time for the entire discovery run, in milliseconds."
+        },
+        "warnings": {
+          "type": "array",
+          "description": "Non-fatal issues encountered during discovery.",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "flag": {
+      "type": "object",
+      "description": "A single CLI flag. At least one of 'short' or 'long' must be present.",
+      "anyOf": [
+        { "required": ["short"] },
+        { "required": ["long"] }
+      ],
+      "properties": {
+        "short": {
+          "type": "string",
+          "pattern": "^-[a-zA-Z]$",
+          "description": "Short flag form (e.g. '-s')."
+        },
+        "long": {
+          "type": "string",
+          "pattern": "^--[a-zA-Z][a-zA-Z0-9-]*$",
+          "description": "Long flag form (e.g. '--state')."
+        },
+        "argument": {
+          "type": "string",
+          "description": "Argument placeholder shown in help text (e.g. 'string', 'OWNER/REPO')."
+        },
+        "description": {
+          "type": "string",
+          "description": "Flag description from the help output."
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "description": "A leaf subcommand within a group.",
+      "required": ["name", "path"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Subcommand name as it appears in the CLI (e.g. 'list')."
+        },
+        "path": {
+          "type": "array",
+          "description": "Full invocation path for this command (length >= 2; first element matches the parent group name).",
+          "items": { "type": "string" },
+          "minItems": 2
+        },
+        "summary": {
+          "type": "string",
+          "description": "One-line description from the subcommand's help output."
+        },
+        "usage": {
+          "type": "string",
+          "description": "Usage line from the subcommand's help output (e.g. 'gh pr list [flags]')."
+        },
+        "flags": {
+          "type": "array",
+          "description": "Flags specific to this subcommand.",
+          "items": {
+            "$ref": "#/$defs/flag"
+          }
+        },
+        "raw_help": {
+          "type": "string",
+          "description": "Full raw help text captured when structured parsing falls back."
+        }
+      }
+    }
+  }
+}

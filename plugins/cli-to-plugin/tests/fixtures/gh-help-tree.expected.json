@@ -1,0 +1,173 @@
+{
+  "cli": {
+    "name": "gh",
+    "binary": "/opt/homebrew/bin/gh",
+    "version": "2.92.0",
+    "summary": "Work seamlessly with GitHub from the command line."
+  },
+  "global_flags": [
+    {
+      "long": "--help",
+      "description": "Show help for command"
+    },
+    {
+      "long": "--version",
+      "description": "Show gh version"
+    }
+  ],
+  "groups": [
+    {
+      "name": "pr",
+      "path": ["pr"],
+      "summary": "Work with GitHub pull requests.",
+      "commands": [
+        {
+          "name": "list",
+          "path": ["pr", "list"],
+          "summary": "List pull requests in a repository"
+        },
+        {
+          "name": "create",
+          "path": ["pr", "create"],
+          "summary": "Create a pull request"
+        },
+        {
+          "name": "view",
+          "path": ["pr", "view"],
+          "summary": "View a pull request"
+        },
+        {
+          "name": "checkout",
+          "path": ["pr", "checkout"],
+          "summary": "Check out a pull request in git"
+        },
+        {
+          "name": "merge",
+          "path": ["pr", "merge"],
+          "summary": "Merge a pull request"
+        }
+      ]
+    },
+    {
+      "name": "issue",
+      "path": ["issue"],
+      "summary": "Work with GitHub issues.",
+      "commands": [
+        {
+          "name": "list",
+          "path": ["issue", "list"],
+          "summary": "List issues in a repository"
+        },
+        {
+          "name": "create",
+          "path": ["issue", "create"],
+          "summary": "Create a new issue"
+        },
+        {
+          "name": "view",
+          "path": ["issue", "view"],
+          "summary": "View an issue"
+        }
+      ]
+    },
+    {
+      "name": "repo",
+      "path": ["repo"],
+      "summary": "Work with GitHub repositories.",
+      "commands": [
+        {
+          "name": "create",
+          "path": ["repo", "create"],
+          "summary": "Create a new repository"
+        },
+        {
+          "name": "clone",
+          "path": ["repo", "clone"],
+          "summary": "Clone a repository locally"
+        },
+        {
+          "name": "list",
+          "path": ["repo", "list"],
+          "summary": "List repositories owned by user or organization"
+        },
+        {
+          "name": "view",
+          "path": ["repo", "view"],
+          "summary": "View a repository"
+        }
+      ]
+    },
+    {
+      "name": "workflow",
+      "path": ["workflow"],
+      "summary": "List, view, and run workflows in GitHub Actions.",
+      "commands": [
+        {
+          "name": "list",
+          "path": ["workflow", "list"],
+          "summary": "List workflows"
+        },
+        {
+          "name": "view",
+          "path": ["workflow", "view"],
+          "summary": "View the summary of a workflow"
+        },
+        {
+          "name": "run",
+          "path": ["workflow", "run"],
+          "summary": "Run a workflow by creating a workflow_dispatch event"
+        }
+      ]
+    },
+    {
+      "name": "release",
+      "path": ["release"],
+      "summary": "Manage releases",
+      "commands": [
+        {
+          "name": "create",
+          "path": ["release", "create"],
+          "summary": "Create a new release"
+        },
+        {
+          "name": "list",
+          "path": ["release", "list"],
+          "summary": "List releases in a repository"
+        },
+        {
+          "name": "view",
+          "path": ["release", "view"],
+          "summary": "View information about a release"
+        }
+      ]
+    },
+    {
+      "name": "gist",
+      "path": ["gist"],
+      "summary": "Work with GitHub gists.",
+      "commands": [
+        {
+          "name": "create",
+          "path": ["gist", "create"],
+          "summary": "Create a new gist"
+        },
+        {
+          "name": "list",
+          "path": ["gist", "list"],
+          "summary": "List your gists"
+        },
+        {
+          "name": "view",
+          "path": ["gist", "view"],
+          "summary": "View a gist"
+        }
+      ]
+    }
+  ],
+  "discovery": {
+    "depth_reached": 2,
+    "commands_walked": 28,
+    "elapsed_ms": 0,
+    "warnings": []
+  }
+}
