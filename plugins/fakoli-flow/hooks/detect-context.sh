@@ -10,8 +10,9 @@ DETECTED_LANG="unknown"
 CREW_STATUS="not installed"
 
 if command -v claude >/dev/null 2>&1; then
-  if claude plugin list 2>/dev/null | grep -q "fakoli-crew"; then
-    CREW_VERSION=$(grep '"version"' ~/.claude/plugins/cache/fakoli-plugins/fakoli-crew/*/.claude-plugin/plugin.json 2>/dev/null | head -1 | grep -o '"[0-9][0-9.]*"' | tr -d '"')
+  CREW_LIST=$(claude plugin list 2>/dev/null)
+  if [ -n "$CREW_LIST" ] && grep -q "fakoli-crew" <<<"$CREW_LIST"; then
+    CREW_VERSION=$(grep -h '"version"' ~/.claude/plugins/cache/fakoli-plugins/fakoli-crew/*/.claude-plugin/plugin.json 2>/dev/null | head -1 | grep -o '"[0-9][0-9.]*"' | tr -d '"')
     if [ -n "$CREW_VERSION" ]; then
       CREW_STATUS="$CREW_VERSION"
     else

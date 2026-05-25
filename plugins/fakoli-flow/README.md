@@ -206,6 +206,12 @@ The visual companion is never started without being offered first.
 
 ---
 
+## Background research
+
+The design of fakoli-flow's brainstorm-plan-execute-verify-finish pipeline was informed by a survey of how the SuperPowers plugin community uses an analogous workflow — what works, what doesn't, and which feature requests are most common. Read the full research notes at [docs/research/superpowers-feedback.md](docs/research/superpowers-feedback.md).
+
+---
+
 ## Author
 
 Sekou Doumbouya — [github.com/fakoli](https://github.com/fakoli)

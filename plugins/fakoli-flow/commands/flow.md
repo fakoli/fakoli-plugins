@@ -1,5 +1,6 @@
 ---
-description: Show fakoli-flow skills and current project state
+description: Show fakoli-flow's 6 skills, the workflow pipeline, and the currently detected project state (language, crew availability). Takes no arguments — use `/flow:<skill-name>` to actually trigger a skill.
+argument-hint: ""
 allowed-tools:
   - Bash
 ---
@@ -7,16 +8,20 @@ allowed-tools:
 List all available fakoli-flow skills with their commands and purposes, display the
 workflow pipeline, then run detect-context.sh to show the current project state.
 
+## How invocation works
+
+`/flow` (no suffix) is this menu — it shows what's available and the current project context, but does not run a skill. To run a skill, invoke it directly by name: `/flow:brainstorm`, `/flow:plan`, `/flow:execute`, `/flow:verify`, `/flow:finish`, or `/flow:quick`. The harness routes these to the matching `skills/<name>/SKILL.md` file. Arguments accepted by each skill (spec path, plan path, free-form task) are listed in the table below.
+
 ## Skills
 
 | Skill | Command | Purpose |
 |-------|---------|---------|
-| Brainstorm | `/flow:brainstorm` | Design phase — refine ideas into approved specs, one question at a time |
-| Plan | `/flow:plan` | Plan phase — translate an approved spec into an intent-driven task list |
-| Execute | `/flow:execute` | Build phase — wave-based crew dispatch with critic gates after every code wave |
-| Verify | `/flow:verify` | Check phase — sentinel runs evidence-gated acceptance criteria scorecard |
-| Finish | `/flow:finish` | Ship phase — re-verify tests, then choose: merge / PR / keep / discard |
-| Quick | `/flow:quick <task>` | Fast path — single agent + critic for small bounded changes (under 3 files) |
+| Brainstorm | `/flow:brainstorm` | Design phase — refine ideas into specs through collaborative dialogue |
+| Plan | `/flow:plan` | Plan phase — break approved specs into intent-driven task lists for crew execution |
+| Execute | `/flow:execute` | Execute phase — wave-based crew dispatch with critic gates and evidence-based verification |
+| Verify | `/flow:verify` | Verify phase — evidence-based validation with sentinel dispatch and pass/fail scorecard |
+| Finish | `/flow:finish` | Ship phase — merge, PR, keep, or discard with pre-merge verification |
+| Quick | `/flow:quick <task>` | Fast path — skip the full workflow for small tasks under 3 files |
 
 ## Workflow
 

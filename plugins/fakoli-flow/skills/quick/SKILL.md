@@ -10,6 +10,8 @@ Skip brainstorming, planning, and wave execution for tasks that are too small to
 
 **Core principle:** One agent, one pass, critic gate, done.
 
+**Agent selection:** `welder` by default; `guido` for design/naming questions; `scout` for research. Full routing matrix in Step 3 below.
+
 **Invocation:**
 ```
 /flow:quick "add timeout param to retry"
