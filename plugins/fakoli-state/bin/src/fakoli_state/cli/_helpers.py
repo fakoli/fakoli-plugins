@@ -107,21 +107,6 @@ def _require_state_dir(state_dir: Path) -> None:
         raise typer.Exit(code=1)
 
 
-def _next_event_id(backend: SqliteBackend) -> str:
-    """Thin shim that delegates to backend.next_event_id().
-
-    Deprecated: all live CLI callers now use PENDING_EVENT_ID + apply_event()
-    for race-free ID assignment (Critic-3, PR #41 fix).  This function is
-    kept only for legacy callers and tests that need a preview of the next
-    ID without mutating state.  Do not use for new event construction.
-
-    The backend method is the single source of truth (Greptile + critic
-    PR #39 finding: two parallel generators produced incompatible ID
-    formats once both landed in the same events table).
-    """
-    return backend.next_event_id()
-
-
 def _get_project_id(backend: SqliteBackend) -> str:
     """Return the project ID from the backend, or 'project' as a fallback."""
     project = backend.get_project()

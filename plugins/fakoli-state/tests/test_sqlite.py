@@ -4799,3 +4799,104 @@ class TestPayloadValidation:
             f"Original dump (truncated):\n{original_dump[:500]}\n\n"
             f"Replayed dump (truncated):\n{replayed_dump[:500]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Regression: minimal task.created payloads (no scores/verification) must
+# succeed. The MCP path will send these as the common case; CLI happens to
+# always send full dumps and would have masked the bug. Critic-PR#44 P1.
+# ---------------------------------------------------------------------------
+
+
+class TestMinimalTaskPayloads:
+    """Minimal task.created / task.expanded payloads from MCP-style callers."""
+
+    def _make_feature_event(self, event_id: str = "E000003") -> Event:
+        return _make_event(
+            "feature.created",
+            {
+                "id": "F001",
+                "title": "Feature One",
+                "description": "",
+                "status": "proposed",
+                "requirements": [],
+                "tasks": [],
+            },
+            event_id=event_id,
+            target_kind="feature",
+            target_id="F001",
+        )
+
+    def test_task_created_minimal_payload_succeeds(self, tmp_path: Path) -> None:
+        """task.created with scores=None and verification=None gets normalized."""
+        clock = _make_clock()
+        b = _make_backend(tmp_path, clock)
+        try:
+            _setup_project(b)
+            b.apply_event(self._make_feature_event(event_id="E000003"))
+            # Minimal task payload — what an MCP caller would send.
+            minimal = {
+                "id": "T001",
+                "feature_id": "F001",
+                "title": "Minimal task",
+                "scores": None,
+                "verification": None,
+                "created_at": _T0.isoformat(),
+                "updated_at": _T0.isoformat(),
+            }
+            event = _make_event(
+                "task.created", minimal, event_id="E000004",
+                target_kind="task", target_id="T001",
+            )
+            b.apply_event(event)
+            row = b.get_task("T001")
+            assert row is not None
+            assert row.id == "T001"
+            assert row.title == "Minimal task"
+        finally:
+            b.close()
+
+    def test_task_expanded_minimal_subtasks_succeed(self, tmp_path: Path) -> None:
+        """Subtasks in task.expanded can also omit scores/verification."""
+        clock = _make_clock()
+        b = _make_backend(tmp_path, clock)
+        try:
+            _setup_project(b)
+            b.apply_event(self._make_feature_event(event_id="E000003"))
+            parent = {
+                "id": "T001",
+                "feature_id": "F001",
+                "title": "Parent",
+                "scores": None,
+                "verification": None,
+                "created_at": _T0.isoformat(),
+                "updated_at": _T0.isoformat(),
+            }
+            b.apply_event(_make_event(
+                "task.created", parent, event_id="E000004",
+                target_kind="task", target_id="T001",
+            ))
+            expand = {
+                "parent_task_id": "T001",
+                "subtasks": [
+                    {
+                        "id": "T001.1",
+                        "feature_id": "F001",
+                        "title": "Sub one",
+                        "description": "Subtask description",
+                        "scores": None,
+                        "verification": None,
+                        "created_at": _T0.isoformat(),
+                        "updated_at": _T0.isoformat(),
+                    },
+                ],
+            }
+            b.apply_event(_make_event(
+                "task.expanded", expand, event_id="E000005",
+                target_kind="task", target_id="T001",
+            ))
+            sub = b.get_task("T001.1")
+            assert sub is not None
+            assert sub.parent_task_id == "T001"
+        finally:
+            b.close()

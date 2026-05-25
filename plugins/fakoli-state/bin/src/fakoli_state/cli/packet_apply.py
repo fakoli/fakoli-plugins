@@ -184,7 +184,7 @@ def submit(
         if task_claim is None:
             typer.echo(
                 f"Error: no active claim found for task '{task_id}'. "
-                "Run `fakoli-state claim {task_id}` first.".format(task_id=task_id),
+                f"Run `fakoli-state claim {task_id}` first.",
                 err=True,
             )
             raise typer.Exit(code=1)
@@ -428,7 +428,8 @@ def apply(
         typer.echo(f"Task '{task_id}' approved by '{resolved_reviewer}' → done.")
     else:
         typer.echo(
-            f"Task '{task_id}' rejected by '{resolved_reviewer}' → rejected."
+            f"Task '{task_id}' rejected by '{resolved_reviewer}' → drafted "
+            "(rejection recorded; task returned to 'drafted' for rework)."
         )
         if reason:
             typer.echo(f"  Reason: {reason}")

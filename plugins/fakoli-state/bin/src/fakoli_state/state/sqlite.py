@@ -18,12 +18,11 @@ Phase 5 extends routing with: evidence.submitted, task.applied.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
-
-from pydantic import ValidationError
 
 from fakoli_state.state.backend import (
     PENDING_EVENT_ID,
@@ -67,6 +66,8 @@ from fakoli_state.state.schema import DDL, SCHEMA_VERSION
 if TYPE_CHECKING:
     from fakoli_state.clock import Clock
     from fakoli_state.state.models import Evidence
+
+logger = logging.getLogger(__name__)
 
 
 class SqliteBackend:
@@ -273,23 +274,22 @@ class SqliteBackend:
                 ) from exc
 
             # COMMIT succeeded — now write to JSONL (post-COMMIT ordering for PENDING).
-            # If the process dies here, the SQLite row exists but the JSONL line does
-            # not.  On the next run, replay_from_empty will reconstruct from the live
-            # JSONL (which lacks this event); the SQLite row is authoritative until
-            # a replay is triggered.  Document this trade-off clearly.
+            # If this write fails, the mutation lives only in SQLite. This is a
+            # permanent audit gap: replay_from_empty deletes the SQLite file
+            # before rebuilding from JSONL, so this event will be lost on the
+            # next full replay. We accept the gap here because the alternative
+            # (raising TransactionAborted) would lie to the caller — SQLite has
+            # already committed. The best-effort tombstone below may also fail
+            # on disk-full; in that case _append_abort_event surfaces via the
+            # process logger so the divergence is at least operator-visible.
             event_line = event.model_dump_json() + "\n"
             try:
                 with open(self._events_path, "a", encoding="utf-8") as fh:
                     fh.write(event_line)
             except OSError as exc:
-                # JSONL write failed after successful COMMIT — log but do not raise.
-                # The SQLite state is correct; the JSONL gap will be visible on replay.
-                # We swallow the exception here because raising TransactionAborted after
-                # a successful COMMIT would mislead the caller into thinking the mutation
-                # did not happen. This is a best-effort audit trail, not a hard guarantee.
                 self._append_abort_event(
                     event,
-                    f"JSONL write failed after successful COMMIT: {exc}",
+                    f"JSONL write failed after successful COMMIT (audit gap): {exc}",
                 )
         else:
             # Non-PENDING (replay/legacy) path: write JSONL first, then SQLite.
@@ -606,8 +606,15 @@ class SqliteBackend:
             handler(conn, payload: TypedPayload, event: Event) -> None
 
         The payload is validated against the model before the handler is called.
+
+        The table is built once per instance and cached. Bound-method values
+        capture ``self``, so the cache is invalidated naturally if the instance
+        is replaced.
         """
-        return {
+        cached = getattr(self, "_action_handlers_cache", None)
+        if cached is not None:
+            return cached
+        table: dict[str, tuple[type[Any], Callable[..., None]]] = {
             "project.created": (ProjectCreatedPayload, self._handle_project_created),
             "state.initialized": (StateInitializedPayload, self._handle_state_initialized),
             "prd.parsed": (PrdParsedPayload, self._handle_prd_parsed),
@@ -629,6 +636,8 @@ class SqliteBackend:
             "task.applied": (TaskAppliedPayload, self._handle_task_applied),
             "file_changed": (FileChangedPayload, self._handle_file_changed),
         }
+        self._action_handlers_cache = table
+        return table
 
     def _apply_mutation(self, conn: sqlite3.Connection, event: Event) -> None:
         """Dispatch event.action to the appropriate mutation handler.
@@ -654,11 +663,7 @@ class SqliteBackend:
             )
 
         payload_model_cls, handler = handlers[action]
-        try:
-            typed_payload = payload_model_cls.model_validate(event.payload_json)
-        except ValidationError:
-            raise
-
+        typed_payload = payload_model_cls.model_validate(event.payload_json)
         handler(conn, typed_payload, event)
 
     def _handle_project_created(
@@ -940,8 +945,16 @@ class SqliteBackend:
         Payload fields: all Task model fields.  Scores may be None for all
         dimensions at creation time; they get populated by task.scored later.
         """
+        task_dict = payload.model_dump(mode="json")
+        # Task.scores / Task.verification are required submodels; the payload
+        # allows None so MCP / hand-rolled callers can send a minimal task
+        # without preloading sentinels. Normalize before validation.
+        if task_dict.get("scores") is None:
+            task_dict["scores"] = {}
+        if task_dict.get("verification") is None:
+            task_dict["verification"] = {}
         try:
-            task = Task.model_validate(payload.model_dump(mode="json"))
+            task = Task.model_validate(task_dict)
         except Exception as exc:
             raise TransactionAborted(
                 f"task.created: invalid Task payload: {exc}"
@@ -1024,6 +1037,12 @@ class SqliteBackend:
             # Force parent_task_id from the event, not from the payload sub-dict.
             subtask_data = dict(subtask_data)
             subtask_data["parent_task_id"] = parent_task_id
+            # Same None→{} normalization as task.created — subtasks can also
+            # be minimal payloads from MCP callers.
+            if subtask_data.get("scores") is None:
+                subtask_data["scores"] = {}
+            if subtask_data.get("verification") is None:
+                subtask_data["verification"] = {}
             try:
                 subtask = Task.model_validate(subtask_data)
             except Exception as exc:
@@ -1882,8 +1901,16 @@ class SqliteBackend:
     def _append_abort_event(self, failed_event: Event, reason: str) -> None:
         """Append an error.transaction_aborted tombstone to the JSONL log."""
         now = self._clock.now()
+        # If the failure happened on the PENDING path before ID assignment, the
+        # event still carries the sentinel. Synthesize a unique ABORT-PENDING-*
+        # id so tombstones don't collide and the audit line is correlatable.
+        if failed_event.id == PENDING_EVENT_ID:
+            ts_us = int(now.timestamp() * 1_000_000)
+            tombstone_id = f"ABORT-PENDING-{failed_event.action}-{ts_us}"
+        else:
+            tombstone_id = failed_event.id
         abort_data = {
-            "id": failed_event.id,
+            "id": tombstone_id,
             "timestamp": now.isoformat(),
             "actor": "system",
             "action": "error.transaction_aborted",
@@ -1897,10 +1924,18 @@ class SqliteBackend:
         try:
             with open(self._events_path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(abort_data) + "\n")
-        except OSError:
-            # If we can't write the abort tombstone, swallow the error — the
-            # caller already has the TransactionAborted exception.
-            pass
+        except OSError as fs_exc:
+            # If we can't write the abort tombstone, surface via the process
+            # logger so the SQLite/JSONL divergence is at least visible to
+            # operators. Raising would mask the caller's TransactionAborted.
+            logger.error(
+                "Failed to write abort tombstone for event %r (action=%r, "
+                "original_reason=%r): %s",
+                tombstone_id,
+                failed_event.action,
+                reason,
+                fs_exc,
+            )
 
     def _append_warn_log(
         self,
