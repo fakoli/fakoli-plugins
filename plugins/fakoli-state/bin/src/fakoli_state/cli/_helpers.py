@@ -124,17 +124,41 @@ def _reap_stale_claims(backend: SqliteBackend) -> None:
     """Run the stale-claim detector against *backend*.
 
     Called at the start of claim/release/renew/next so users always see
-    consistent state without having to think about expiry.  Failures are
-    swallowed — reaping is best-effort; a stale claim that slips through will
-    be caught on the next invocation.
-    """
-    try:
-        from fakoli_state.claims.stale import detect_and_release_stale
-        from fakoli_state.clock import SystemClock
+    consistent state without having to think about expiry.  Operational
+    failures (e.g. ``StateLocked`` from a concurrent writer holding the
+    busy_timeout, ``TransactionAborted`` from a transient race) are
+    swallowed — reaping is best-effort and a stale claim that slips through
+    will be caught on the next invocation.
 
+    ``SchemaMismatch`` (CL-3) is **not** swallowed: a DB whose
+    ``user_version`` does not match the code's ``SCHEMA_VERSION`` is a
+    genuine "your install needs migration" signal, not a transient hiccup.
+    Hiding it behind a confusing secondary error from the primary command
+    leaves users debugging the wrong layer.  Let it propagate so the CLI's
+    top-level error handler can surface the clean schema message.
+    """
+    from fakoli_state.claims.stale import detect_and_release_stale
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.state.backend import (
+        SchemaMismatch,
+        StateLocked,
+        TransactionAborted,
+    )
+
+    try:
         detect_and_release_stale(backend, SystemClock())
+    except SchemaMismatch:
+        raise  # CL-3: surface DB-version drift; do not mask
+    except (StateLocked, TransactionAborted):
+        pass  # operational; reaping is best-effort and self-healing
     except Exception:  # noqa: BLE001
-        pass  # best-effort; never block the primary command
+        # Greptile PR #48 P2: raw sqlite3.OperationalError ("unable to open
+        # database file", disk full, etc.) and any other unwrapped exception
+        # must not block the primary command. Reaping is opportunistic — if
+        # it fails for unexpected reasons we still log nothing here (per the
+        # "never noisy" contract) and let the primary op proceed. The next
+        # invocation will retry.
+        pass
 
 
 # ---------------------------------------------------------------------------

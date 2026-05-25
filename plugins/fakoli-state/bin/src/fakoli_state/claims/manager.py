@@ -681,12 +681,26 @@ class ClaimManager:
         Iterates all active claims, checks whether the claimed task shares any
         conflict_group ID with the given task. Returns at most one entry per
         claimed task (deduplication by task_id).
+
+        PS-1: prefetch the full task table once and build a local
+        ``{task_id: Task}`` map instead of calling ``backend.get_task`` per
+        active claim. With N concurrent agents the old code did 1 +
+        ``list_active_claims`` + N ``get_task`` round-trips; the new shape is
+        2 round-trips total (``list_active_claims`` + ``list_tasks``).
         """
         if not task.conflict_groups:
             return []
 
         task_groups = set(task.conflict_groups)
         active_claims = self._backend.list_active_claims()
+        if not active_claims:
+            return []
+
+        # Single bulk fetch of every task, then index in memory.  The previous
+        # per-claim ``get_task`` call was an N+1 query (PS-1).
+        all_tasks = self._backend.list_tasks()
+        tasks_by_id: dict[str, Task] = {t.id: t for t in all_tasks}
+
         conflicts: list[tuple[str, str]] = []
         seen_task_ids: set[str] = set()
 
@@ -696,7 +710,7 @@ class ClaimManager:
             if active_claim.task_id in seen_task_ids:
                 continue
 
-            other_task = self._backend.get_task(active_claim.task_id)
+            other_task = tasks_by_id.get(active_claim.task_id)
             if other_task is None:
                 continue
 

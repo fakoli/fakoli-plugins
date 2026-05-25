@@ -93,9 +93,11 @@ def plan(
     feature and task found.  Then runs dependency and conflict-group inference
     and promotes all tasks from proposed to drafted.
 
-    With ``--use-llm`` short Task descriptions (<50 chars) are enriched by
-    the LLM after the deterministic parse.  LLM failures fall back to the
-    deterministic description with a stderr warning — they never abort plan.
+    With ``--use-llm`` Task descriptions shorter than
+    ``template.DESCRIPTION_SHORT_THRESHOLD`` (currently 50 chars) are
+    enriched by the LLM after the deterministic parse.  LLM failures fall
+    back to the deterministic description with a stderr warning — they never
+    abort plan.
 
     Idempotent: running plan twice will not duplicate tasks (INSERT OR REPLACE
     semantics in the SQLite backend handle deduplication by task ID).

@@ -172,10 +172,16 @@ class SqliteBackend:
         Kept as a hint/preview API for callers that need the upcoming ID
         without mutating state (e.g., tests that check ID format, legacy
         callers that have not yet been migrated to PENDING_EVENT_ID).
+
+        CL-13: callers must hold an open connection. The previous behavior of
+        returning a hardcoded ``"E000001"`` when ``self._conn is None`` was a
+        latent footgun — calling ``next_event_id()`` after ``close()`` would
+        return a plausible-looking but stale ID guaranteed to collide on the
+        next reopen. Route the no-conn branch through ``_require_conn`` like
+        every other Backend method so the error is loud and immediate.
         """
-        if self._conn is None:
-            return "E000001"
-        row = self._conn.execute(
+        conn = self._require_conn()
+        row = conn.execute(
             "SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) FROM events"
         ).fetchone()
         max_num: int = row[0] if row and row[0] is not None else 0
@@ -1504,6 +1510,31 @@ class SqliteBackend:
         commit_sha: str | None = payload.commit_sha
         screenshots: list[Any] = payload.screenshots or []
         known_limitations: str | None = payload.known_limitations
+
+        # CL-8 idempotency guard: if this claim already has an evidence row
+        # under a DIFFERENT evidence_id, a second submit() is a double-submit
+        # — the task already moved to needs_review and the active claim is
+        # already released. Inserting a second row would silently create a
+        # non-deterministic "which evidence wins" race in _fetch_latest_evidence
+        # when both rows share the FrozenClock timestamp. Treat this exactly
+        # like the established idempotency idiom used for already-released
+        # claims (see _handle_claim_renewed / auto-release branch below):
+        # emit a warn.idempotent_no_op tombstone and return without mutating.
+        existing_row = conn.execute(
+            "SELECT id FROM evidence WHERE claim_id = ?",
+            (claim_id,),
+        ).fetchone()
+        if existing_row is not None and existing_row[0] != evidence_id:
+            self._append_warn_log(
+                action="evidence.submitted",
+                target_id=claim_id or "",
+                reason=(
+                    f"evidence.submitted: claim '{claim_id}' already has evidence "
+                    f"'{existing_row[0]}'; rejecting duplicate submission with new "
+                    f"evidence_id '{evidence_id}' as idempotent no-op (CL-8)."
+                ),
+            )
+            return
 
         # INSERT OR IGNORE: idempotent on replay — duplicate evidence.submitted
         # events (after crash mid-transaction) do not produce duplicate rows.

@@ -12,7 +12,7 @@ These three items MUST land in Phase 6 because the MCP server inherits all of th
 
 ### P6-1 · Backend Protocol gaps — three `backend._conn` reach-throughs in cli.py
 
-**From**: PR #41 Critic-2 (architecture). **Status**: TARGETED-P6.
+**From**: PR #41 Critic-2 (architecture). **Status**: DONE (PR #44, feat/fakoli-state-phase-6-prep).
 
 Three CLI callers bypass the Backend Protocol via `backend._conn`:
 - `_fetch_recent_events` (cli.py:1388) — used by `show TASK_ID`
@@ -27,7 +27,7 @@ The MCP server will need all three queries. Without Protocol methods, the MCP im
 
 ### P6-2 · `next_event_id` race — read-before-lock allows event drop
 
-**From**: PR #41 Critic-3. **Status**: TARGETED-P6.
+**From**: PR #41 Critic-3. **Status**: DONE (PR #44, via PENDING_EVENT_ID sentinel pattern).
 
 `next_event_id` is `SELECT MAX(id)` with no lock. Two concurrent processes (CLI + MCP server is the first realistic scenario) can both observe MAX=N, both attempt `INSERT E{N+1}`, and the second's `INSERT OR IGNORE` silently no-ops — event survives in JSONL but missing from SQLite events table. Replay then produces a diverging DB.
 
@@ -59,7 +59,7 @@ Single-CLI usage is race-free today. The MCP server in Phase 6 is the trigger fo
 
 ### P6-4 · `cli.py` is 2,499 lines — split into per-command modules
 
-**From**: PR #41 Critic-2. **Status**: TARGETED-P6.
+**From**: PR #41 Critic-2. **Status**: DONE (PR #44 — split into 8-module cli/ package).
 
 The file is past the tipping point for a single module. By Phase 8 with `sync`, `replay`, and MCP wiring added, this becomes 4,000+ lines.
 
@@ -83,7 +83,7 @@ Zero runtime risk; pure refactor; do it BEFORE Phase 6 adds MCP wiring.
 
 ### P6-5 · Event handler dispatch + payload validation centralization
 
-**From**: PR #41 Critic-2. **Status**: TARGETED-P6.
+**From**: PR #41 Critic-2. **Status**: DONE (PR #44 — 17 per-action Pydantic payload models + dict dispatch).
 
 `_apply_mutation` has a 17-handler `elif` chain. Each handler signature differs (some take `event_id`, some take `timestamp`, some take neither). Each does ad-hoc `payload.get(...)` validation.
 
@@ -151,7 +151,7 @@ Phase 4 added `cli.py:hook_check_claim` with full per-file `expected_files` chec
 
 ### CL-7 · `agents/critic.md` + `agents/sentinel.md` color collisions with fakoli-crew
 
-**From**: PR #41 Critic-1. **Status**: OPEN.
+**From**: PR #41 Critic-1. **Status**: DONE (this PR — state/critic purple → magenta; state/sentinel cyan → gray).
 
 `fakoli-state/agents/critic.md` uses `color: purple` — same as `fakoli-crew:keeper`. `sentinel.md` uses `color: cyan` — same as `fakoli-crew:scout`. When both plugins are installed (the documented expected configuration), the agent picker shows two purple agents and two cyan agents with no visual distinction.
 
@@ -171,7 +171,7 @@ Phase 4 added `cli.py:hook_check_claim` with full per-file `expected_files` chec
 
 ### CL-9 · `gates._contains_test_keyword` matches `pytest --collect-only`
 
-**From**: PR #41 Critic-1. **Status**: OPEN.
+**From**: PR #41 Critic-1. **Status**: DONE (this PR — reject --collect-only and --co flags; 6 regression tests in test_review.py).
 
 `pytest --collect-only` exits 0 but runs zero tests. A task requiring "test pass" evidence is satisfied by an agent who only collected tests.
 
@@ -224,7 +224,7 @@ The other `Backend` methods call `_require_conn()` to raise on uninitialized sta
 
 ### CL-14 · `skills/finish/SKILL.md` references nonexistent `review.created` event
 
-**From**: PR #41 Critic-2. **Status**: OPEN.
+**From**: PR #41 Critic-2. **Status**: DONE (this PR — text now describes the actual `task.applied` event semantics).
 
 SKILL.md line 99 states "Two events are appended to `events.jsonl`: `review.created` and `task.status_changed`." Neither is emitted by `apply`; the actual event is `task.applied`.
 
@@ -234,7 +234,7 @@ SKILL.md line 99 states "Two events are appended to `events.jsonl`: `review.crea
 
 ### CL-15 · `.evidence-buffer/` directory has no documented contract
 
-**From**: PR #41 Critic-2. **Status**: OPEN.
+**From**: PR #41 Critic-2. **Status**: DONE (this PR — docs/evidence-buffer.md covers format, lifecycle, orphan.json policy, sentinel interaction, cleanup).
 
 Written by `capture-evidence.sh` + `hook capture-evidence`; consumed only by `sentinel` agent. No README/spec/skill mentions the format, lifecycle, or cleanup policy. `orphan.json` accumulates indefinitely.
 
@@ -292,7 +292,7 @@ Tests an invalid state sequence (`prd.parsed → prd.approved` without `prd.revi
 
 ### TQ-5 · `test_version_still_works` hardcodes "1.4.0"
 
-**From**: PR #41 Critic-4. **Status**: OPEN.
+**From**: PR #41 Critic-4. **Status**: DONE (PR #42 fixup — test now imports `__version__` from `fakoli_state`).
 
 Fails on every version bump. Should assert `from fakoli_state import __version__` then `assert __version__ in result.output`.
 
@@ -340,7 +340,7 @@ For each active claim, `manager.py:700-720` calls `backend.get_task(active_claim
 
 ### PS-2 · Snapshots/ directory is dead scaffolding
 
-**From**: PR #41 Critic-2. **Status**: OPEN.
+**From**: PR #41 Critic-2. **Status**: DONE (this PR — `init` no longer pre-creates `.fakoli-state/snapshots/`; the `fakoli-state snapshot` command will create it on first use when implemented).
 
 `init` creates `.fakoli-state/snapshots/`, prints it, preserves it on `--force`. Nothing writes to it. Either implement `fakoli-state snapshot` (a `sqlite3 .backup` wrapper) or stop creating the directory.
 

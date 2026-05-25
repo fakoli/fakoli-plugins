@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fakoli_state.review.gates import evidence_complete
+from fakoli_state.review.gates import _contains_test_keyword, evidence_complete
 from fakoli_state.state.models import (
     Evidence,
     Score,
@@ -282,3 +282,47 @@ class TestEvidenceComplete:
         assert isinstance(result_fail, tuple)
         assert isinstance(result_fail[0], bool)
         assert isinstance(result_fail[1], list)
+
+
+# ---------------------------------------------------------------------------
+# CL-9 regression: collection-only invocations must NOT satisfy "test ran" gate
+# ---------------------------------------------------------------------------
+
+
+class TestContainsTestKeywordCollectionOnly:
+    """`pytest --collect-only` exits 0 but runs zero tests; must NOT count."""
+
+    def test_pytest_runs_tests(self) -> None:
+        assert _contains_test_keyword("pytest tests/")
+
+    def test_pytest_collect_only_rejected(self) -> None:
+        assert not _contains_test_keyword("pytest --collect-only tests/")
+
+    def test_pytest_co_short_form_rejected(self) -> None:
+        assert not _contains_test_keyword("pytest --co tests/")
+
+    def test_pytest_collect_only_at_end_rejected(self) -> None:
+        assert not _contains_test_keyword("pytest tests/ --collect-only")
+
+    def test_pytest_co_at_end_rejected(self) -> None:
+        assert not _contains_test_keyword("pytest tests/ --co")
+
+    def test_uv_run_pytest_collect_only_rejected(self) -> None:
+        assert not _contains_test_keyword("uv run pytest --collect-only")
+
+    def test_pytest_color_flag_NOT_rejected(self) -> None:
+        """Greptile + critic PR #48 P1: `--co` substring must not match `--color`."""
+        assert _contains_test_keyword("pytest --color=no tests/")
+
+    def test_pytest_color_yes_NOT_rejected(self) -> None:
+        assert _contains_test_keyword("pytest tests/ --color=yes")
+
+    def test_pytest_cov_NOT_rejected(self) -> None:
+        """`--cov` must not be confused with `--co`."""
+        assert _contains_test_keyword("pytest --cov=src tests/")
+
+    def test_pytest_continue_on_collection_errors_NOT_rejected(self) -> None:
+        assert _contains_test_keyword("pytest --continue-on-collection-errors tests/")
+
+    def test_cargo_test_color_NOT_rejected(self) -> None:
+        assert _contains_test_keyword("cargo test --color=auto")

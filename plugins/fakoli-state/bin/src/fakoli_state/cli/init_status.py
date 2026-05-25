@@ -52,8 +52,8 @@ def init(
     """Scaffold a .fakoli-state/ directory in the current working directory.
 
     Creates the canonical project-state layout including config.yaml,
-    state.db (SQLite), events.jsonl (append-only event log), and
-    empty packets/ and snapshots/ subdirectories.
+    state.db (SQLite), events.jsonl (append-only event log), and an
+    empty packets/ subdirectory.
     """
     from fakoli_state.config import write_default_config
 
@@ -84,8 +84,10 @@ def init(
     # replay/audit guarantee holds. Without this, the new project.created and
     # state.initialized events would be appended to the old events.jsonl,
     # producing duplicate IDs and a log that no longer replays to current DB.
-    # packets/ and snapshots/ are preserved (user data; --force is for the
-    # canonical state, not for nuking work).
+    # packets/ is preserved (user-generated work packets are not canonical
+    # state). snapshots/ may exist if `fakoli-state snapshot` was run; if
+    # present it is also preserved for the same reason (PS-2: init no longer
+    # pre-creates it).
     if state_dir.exists() and force:
         db_file = state_dir / "state.db"
         if db_file.exists():
@@ -106,8 +108,10 @@ def init(
     # Create directory structure.
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "packets").mkdir(exist_ok=True)
-    (state_dir / "snapshots").mkdir(exist_ok=True)
     (state_dir / "events.jsonl").touch()
+    # Note: snapshots/ used to be pre-created here, but nothing in the
+    # codebase ever writes to it (PS-2). When `fakoli-state snapshot` ships
+    # it will create the directory on first use.
 
     # Write config.yaml via the config module.
     # write_default_config generates a UUID for project_id internally; the --id
@@ -131,7 +135,6 @@ def init(
     typer.echo(f"  {state_dir / 'state.db'}")
     typer.echo(f"  {state_dir / 'events.jsonl'}")
     typer.echo(f"  {state_dir / 'packets'}/")
-    typer.echo(f"  {state_dir / 'snapshots'}/")
     typer.echo("")
     typer.echo(
         "Next step: author your PRD at "

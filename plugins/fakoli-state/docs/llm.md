@@ -155,7 +155,7 @@ Three functions take a `provider: LLMProvider | None = None` keyword-only argume
 
 - `planning.scoring.score_task(task, *, provider=None)`
 - `planning.scoring.score_all(tasks, *, provider=None)`
-- `planning.template.parse_prd(markdown, *, prd_id, provider=None)`
+- `planning.template.parse_prd(markdown, *, prd_id, provider=None, clock=None)`
 
 A fourth is LLM-only:
 

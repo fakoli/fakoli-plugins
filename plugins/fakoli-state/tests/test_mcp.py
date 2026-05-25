@@ -86,7 +86,8 @@ def _init_state_dir(tmp_path: Path, project_name: str = "Test Project") -> Path:
     state_dir = tmp_path / ".fakoli-state"
     state_dir.mkdir()
     (state_dir / "packets").mkdir()
-    (state_dir / "snapshots").mkdir()
+    # PS-2: snapshots/ is no longer pre-created; the `fakoli-state snapshot`
+    # command will create it on first use when implemented.
     (state_dir / "events.jsonl").touch()
 
     clock = SystemClock()

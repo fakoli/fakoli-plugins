@@ -8,8 +8,10 @@ All tests follow three rules:
 
 from __future__ import annotations
 
+import datetime
 from pathlib import Path
 
+from fakoli_state.clock import FrozenClock
 from fakoli_state.planning.template import ParseResult, parse_prd
 
 # ---------------------------------------------------------------------------
@@ -724,3 +726,79 @@ Second version.
         # Text is from second parse
         r001_v2 = next(r for r in result_v2.requirements if r.id == "R001")
         assert "Version 2" in r001_v2.text
+
+
+# ---------------------------------------------------------------------------
+# CL-11 regression: parse_prd must honour an injected Clock for task timestamps
+# ---------------------------------------------------------------------------
+
+
+class TestParsePrdClockInjection:
+    """``_parse_tasks`` used to call ``datetime.datetime.now(UTC)`` directly,
+    bypassing the project's Clock abstraction. That made parsed-task timestamps
+    untestable without ``monkeypatch.setattr``. After CL-11 a Clock can be
+    threaded through ``parse_prd(... clock=FrozenClock(...))`` and the
+    resulting ``Task.created_at`` / ``Task.updated_at`` reflect the frozen
+    instant exactly.
+    """
+
+    _PRD_WITH_TASK = """\
+# Project: Clock Test
+
+## Summary
+
+Verify CL-11 Clock plumbing.
+
+## Goals
+
+- Inject a clock.
+
+## Requirements
+
+- R001: The parser respects a Clock.
+
+## Features
+
+### F001: Clocked Feature
+**Requirements:** R001
+
+A feature.
+
+## Tasks
+
+### T001: A Task
+**Feature:** F001
+**Priority:** medium
+
+A task body.
+"""
+
+    def test_parse_prd_stamps_task_timestamps_from_injected_clock(self) -> None:
+        frozen = datetime.datetime(2030, 6, 15, 12, 0, 0, tzinfo=datetime.UTC)
+        clock = FrozenClock(frozen)
+
+        result = parse_prd(self._PRD_WITH_TASK, clock=clock)
+
+        assert not result.errors, f"unexpected parse errors: {result.errors}"
+        assert len(result.tasks) == 1
+        task = result.tasks[0]
+        assert task.created_at == frozen, (
+            f"CL-11: Task.created_at must use the injected clock, "
+            f"got {task.created_at!r} expected {frozen!r}"
+        )
+        assert task.updated_at == frozen, (
+            f"CL-11: Task.updated_at must use the injected clock, "
+            f"got {task.updated_at!r} expected {frozen!r}"
+        )
+
+    def test_parse_prd_defaults_to_system_clock_when_clock_omitted(self) -> None:
+        """Backwards compatibility: callers that omit clock still get a stamp."""
+        before = datetime.datetime.now(datetime.UTC)
+        result = parse_prd(self._PRD_WITH_TASK)
+        after = datetime.datetime.now(datetime.UTC)
+
+        assert not result.errors
+        assert len(result.tasks) == 1
+        task = result.tasks[0]
+        # The default SystemClock stamps within the test's wall-clock window.
+        assert before <= task.created_at <= after

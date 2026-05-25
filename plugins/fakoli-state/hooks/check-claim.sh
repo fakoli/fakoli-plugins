@@ -75,10 +75,11 @@ if [ "${FILE_PATH#/}" != "$FILE_PATH" ]; then
   fi
 fi
 
-# Shell out to the CLI to get current status.
-# Expected output from `fakoli-state status --hook-format`:
-#   active-claims:<N> ready-tasks:<N> blockers:<N> prd-status:<STATUS>
-# We only need the active-claims count for Phase 4.
+# Shell out to the per-file CLI hook (CL-1).  The Phase 5 CLI subcommand
+# `fakoli-state hook check-claim --file <PATH> --actor <ACTOR>` performs the
+# real per-file scope check against `expected_files` on every active claim
+# and only warns when FILE is in another agent's claim — superseding the
+# Phase 4 coarse "any active claim → warn" approach.
 CLI="${CLAUDE_PLUGIN_ROOT}/bin/fakoli-state"
 
 if [ ! -x "$CLI" ]; then
@@ -86,35 +87,11 @@ if [ ! -x "$CLI" ]; then
   exit 0
 fi
 
-STATUS_OUTPUT=$("$CLI" status --hook-format 2>/dev/null)
-STATUS_EXIT=$?
-
-if [ "$STATUS_EXIT" -ne 0 ] || [ -z "$STATUS_OUTPUT" ]; then
-  # CLI failed or returned nothing (DB locked, not yet wired, etc.) — degrade silently.
-  exit 0
-fi
-
-# Extract active-claims count.
-# Example line: active-claims:2 ready-tasks:7 blockers:0 prd-status:approved
-ACTIVE_CLAIMS=""
-# Use parameter expansion to avoid piped grep.
-for TOKEN in $STATUS_OUTPUT; do
-  case "$TOKEN" in
-    active-claims:*)
-      ACTIVE_CLAIMS="${TOKEN#active-claims:}"
-      ;;
-  esac
-done
-
-# Only warn when there ARE active claims.
-if [ -z "$ACTIVE_CLAIMS" ] || [ "$ACTIVE_CLAIMS" = "0" ]; then
-  exit 0
-fi
-
-# Emit a single-line warning to stderr.  Non-blocking — does NOT prevent the edit.
-# Phase 5 will add per-file scope checking via `fakoli-state hook check-claim --file <PATH> --actor <ACTOR>`.
-ACTOR_DISPLAY="${ACTOR:-unknown}"
-printf '[fakoli-state:check-claim] %d active claim(s) exist — verify "%s" is within your claimed scope before editing (actor: %s)\n' \
-  "$ACTIVE_CLAIMS" "$FILE_PATH" "$ACTOR_DISPLAY" >&2
+ACTOR_FOR_CLI="${ACTOR:-unknown}"
+# The CLI hook prints any per-file warnings to stderr and always exits 0; we
+# let stderr flow through to the user's terminal unchanged, discard stdout
+# (the subcommand has none in normal operation), and ignore any non-zero
+# exit so the hook never blocks the tool.
+"$CLI" hook check-claim --file "$FILE_PATH" --actor "$ACTOR_FOR_CLI" >/dev/null || true
 
 exit 0

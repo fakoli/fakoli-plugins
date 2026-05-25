@@ -2852,6 +2852,26 @@ class TestGreptileP4Fixes:
         finally:
             b.close()
 
+    def test_next_event_id_raises_when_conn_is_none(self, tmp_path: Path) -> None:
+        """CL-13 regression: ``next_event_id`` used to silently return the
+        literal ``"E000001"`` when ``self._conn is None`` — so calling it
+        after ``close()`` (or before ``initialize()``) returned a plausible
+        but guaranteed-stale ID. The first real INSERT after a reopen would
+        then collide on the events table PK and silently drop via
+        ``INSERT OR IGNORE``. Fix: route through ``_require_conn`` like the
+        rest of the Backend methods so the error is loud and immediate.
+        """
+        b = _make_backend(tmp_path)
+        try:
+            # Sanity: works while open.
+            assert b.next_event_id() == "E000001"
+        finally:
+            b.close()
+
+        # After close(), the no-conn branch must raise — not return E000001.
+        with pytest.raises(RuntimeError, match="initialize"):
+            b.next_event_id()
+
     def test_claim_id_generator_uses_uuid_not_sequential(
         self, tmp_path: Path
     ) -> None:
@@ -3502,7 +3522,13 @@ class TestPhase5EvidenceAndApplyHandlers:
     def test_evidence_submitted_handles_already_needs_review_task_idempotent(
         self, tmp_path: Path
     ) -> None:
-        """evidence.submitted when task is already 'needs_review' is a no-op success."""
+        """evidence.submitted when task is already 'needs_review' is a no-op success.
+
+        CL-8 regression: a second submission with a DIFFERENT evidence_id must
+        also no-op (not double-insert). Before CL-8 this test passed without
+        the count assertion below — INSERT OR IGNORE on the PK only blocked
+        same-evidence_id duplicates; a new EV002 row landed alongside EV001.
+        """
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task_and_claim(b)
@@ -3513,8 +3539,9 @@ class TestPhase5EvidenceAndApplyHandlers:
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
             # Task is now needs_review. Applying again with a different evidence_id
-            # triggers the INSERT OR IGNORE no-op for the evidence row;
-            # the task status update 0-rows branch is the idempotent path.
+            # used to silently double-insert (CL-8). After the fix the second
+            # apply hits the (claim_id, different evidence_id) idempotency guard
+            # and warn-logs a no-op.
             payload2 = _make_evidence_payload(evidence_id="EV002")
             b.apply_event(_make_event(
                 "evidence.submitted", payload2,
@@ -3524,6 +3551,18 @@ class TestPhase5EvidenceAndApplyHandlers:
             task = b.get_task("T001")
             assert task is not None
             assert task.status.value == "needs_review"
+
+            # CL-8: exactly ONE evidence row exists for claim C001.
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            count = conn.execute(
+                "SELECT COUNT(*) FROM evidence WHERE claim_id = 'C001'"
+            ).fetchone()[0]
+            ev_id = conn.execute(
+                "SELECT id FROM evidence WHERE claim_id = 'C001'"
+            ).fetchone()[0]
+            conn.close()
+            assert count == 1, "CL-8: second submit with different evidence_id must not insert"
+            assert ev_id == "EV001", "CL-8: original evidence row must win"
         finally:
             b.close()
 
@@ -3543,6 +3582,56 @@ class TestPhase5EvidenceAndApplyHandlers:
                     "evidence.submitted", bad,
                     event_id="E000011", target_kind="task", target_id="T001",
                 ))
+        finally:
+            b.close()
+
+    def test_evidence_submitted_double_submit_writes_warn_idempotent_no_op(
+        self, tmp_path: Path
+    ) -> None:
+        """CL-8: a second submit() for the same claim with a different
+        evidence_id must write a warn.idempotent_no_op event to JSONL.
+
+        Before CL-8 the second INSERT silently succeeded, producing two
+        evidence rows for one logical submission and a non-deterministic
+        ``_fetch_latest_evidence`` result. After the fix the duplicate is
+        rejected as an idempotent no-op with an audit-log entry.
+        """
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task_and_claim(b)
+
+            # First submission lands normally.
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(evidence_id="EV001"),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            # Second submission with a different evidence_id — the CL-8 guard.
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(evidence_id="EV002"),
+                event_id="E000012", target_kind="task", target_id="T001",
+            ))
+
+            # Exactly one evidence row survived.
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            count = conn.execute("SELECT COUNT(*) FROM evidence").fetchone()[0]
+            conn.close()
+            assert count == 1
+
+            # The duplicate produced a warn.idempotent_no_op tombstone in JSONL.
+            events = _read_jsonl(events_path)
+            warn_entries = [
+                e for e in events
+                if e.get("action") == "warn.idempotent_no_op"
+                and e.get("payload_json", {}).get("original_action") == "evidence.submitted"
+                and "EV002" in e.get("payload_json", {}).get("reason", "")
+            ]
+            assert len(warn_entries) == 1, (
+                "CL-8: expected exactly one warn.idempotent_no_op tombstone for "
+                f"the duplicate EV002 submission; got {len(warn_entries)}. "
+                f"events: {[e.get('action') for e in events]}"
+            )
         finally:
             b.close()
 

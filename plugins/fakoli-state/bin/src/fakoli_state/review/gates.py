@@ -105,8 +105,22 @@ def _is_test_related(item_lower: str) -> bool:
     return any(kw in item_lower for kw in test_keywords)
 
 
+_COLLECT_ONLY_RE = re.compile(r"(?<![A-Za-z0-9-])--(?:co|collect-only)(?:[\s=]|$)")
+
+
 def _contains_test_keyword(cmd_lower: str) -> bool:
-    """Return True if a command string invokes a test runner."""
+    """Return True if a command string actually runs tests.
+
+    Excludes runner invocations that only enumerate / collect tests without
+    executing them (e.g. ``pytest --collect-only``, ``pytest --co``), which
+    exit 0 with zero tests run and would falsely satisfy a "tests pass"
+    evidence gate. Reported in tech-debt-backlog CL-9 (PR #41 Critic-1).
+
+    The collect-only check uses a word-boundary regex so it matches only the
+    bare ``--co`` / ``--collect-only`` flags — not ``--color``, ``--config``,
+    ``--continue-on-collection-errors``, or any other ``--co*`` flag a real
+    test command might use. Greptile + critic PR #48 P1 caught this.
+    """
     test_runners = (
         "pytest",
         "cargo test",
@@ -120,7 +134,11 @@ def _contains_test_keyword(cmd_lower: str) -> bool:
         "make test",
         "uv run pytest",
     )
-    return any(runner in cmd_lower for runner in test_runners)
+    if not any(runner in cmd_lower for runner in test_runners):
+        return False
+    if _COLLECT_ONLY_RE.search(cmd_lower):
+        return False
+    return True
 
 
 def _is_pr_related(item_lower: str) -> bool:
