@@ -12,7 +12,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from fakoli_state.git_ops.branch import is_git_available, is_git_repo
+from fakoli_state.git_ops.branch import _GIT_TIMEOUT_SECONDS, is_git_available, is_git_repo
 
 
 @dataclass(frozen=True)
@@ -27,14 +27,20 @@ class WorktreeResult:
 def _is_dirty(cwd: Path) -> bool:
     """Return True if the working tree has uncommitted changes.
 
-    Uses ``git status --porcelain`` — any output means dirty.
+    Uses ``git status --porcelain`` — any output means dirty. A timeout
+    is treated as dirty (safer: refuse to add a worktree on top of a
+    possibly-modified tree).
     """
-    result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return True
     return bool(result.stdout.strip())
 
 
@@ -77,12 +83,18 @@ def create_worktree_for_task(
 
     wt_path = parent_dir if parent_dir is not None else cwd.parent / f"wt-{task_id.lower()}"
 
-    result = subprocess.run(
-        ["git", "worktree", "add", str(wt_path), branch],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "worktree", "add", str(wt_path), branch],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return WorktreeResult(
+            None, False, f"git worktree add timed out after {_GIT_TIMEOUT_SECONDS}s"
+        )
     if result.returncode != 0:
         error_msg = (result.stderr or result.stdout or "unknown git error").strip()
         return WorktreeResult(None, False, error_msg)

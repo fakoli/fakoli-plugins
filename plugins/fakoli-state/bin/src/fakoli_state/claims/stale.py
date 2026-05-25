@@ -23,7 +23,6 @@ The claim.stale handler (welder) must:
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import TYPE_CHECKING
 
 from fakoli_state.clock import Clock
@@ -78,7 +77,7 @@ def detect_and_release_stale(
 
         try:
             stale_event = Event(
-                id=_generate_event_id(clock),
+                id=backend.next_event_id(),
                 timestamp=now,
                 actor=actor,
                 action="claim.stale",
@@ -111,13 +110,3 @@ def detect_and_release_stale(
     return reaped
 
 
-def _generate_event_id(clock: Clock) -> str:
-    """Generate a unique Event ID satisfying the E[0-9]* format constraint.
-
-    Mirrors ClaimManager._generate_event_id() — kept as a module-level function
-    so stale.py has no dependency on ClaimManager.
-    """
-    now = clock.now()
-    ts_micros = int(now.timestamp() * 1_000_000)
-    suffix = int(uuid.uuid4().int % 10_000)
-    return f"E{ts_micros:016d}{suffix:04d}"

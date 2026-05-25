@@ -127,6 +127,22 @@ class SqliteBackend:
                 pass
             self._conn = None
 
+    def next_event_id(self) -> str:
+        """Return the next sequential event ID in E%06d format.
+
+        Queries MAX(id) on the events mirror table. Used by both the CLI
+        and ClaimManager so event IDs never drift into incompatible
+        schemes (Greptile + critic flagged the original split — CLI used
+        sequential, ClaimManager used 20-digit microsecond IDs).
+        """
+        if self._conn is None:
+            return "E000001"
+        row = self._conn.execute(
+            "SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) FROM events"
+        ).fetchone()
+        max_num: int = row[0] if row and row[0] is not None else 0
+        return f"E{max_num + 1:06d}"
+
     # ------------------------------------------------------------------
     # Core mutation
     # ------------------------------------------------------------------
@@ -385,6 +401,15 @@ class SqliteBackend:
             self._handle_claim_renewed(conn, payload, event.timestamp.isoformat())
         elif action == "claim.stale":
             self._handle_claim_stale(conn, payload, event.timestamp.isoformat())
+        elif action == "file_changed":
+            # Audit-trail-only event emitted by the PostToolUse hook
+            # (record-file-change.sh → fakoli-state hook record-file-change).
+            # No SQLite mutation: the JSONL line is the audit record. Greptile
+            # + critic flagged that the original code had no handler, so this
+            # action triggered NotImplementedError, the transaction rolled back,
+            # an error.transaction_aborted tombstone followed in JSONL, and the
+            # event was silently dropped from the events table on replay.
+            pass
         else:
             raise NotImplementedError(
                 f"Event action {action!r} is not yet supported. "
@@ -997,6 +1022,11 @@ class SqliteBackend:
         # caller provides no explicit reason.  Only claim_id and released_by are
         # strictly required.
         release_reason: str | None = payload.get("release_reason")
+        # `force` honours the CLI's --force flag: lets non-owners release a
+        # claim and lets release succeed even on already-stale/non-active
+        # claims (Greptile + critic both flagged that the original handler
+        # silently no-op'd force-release of stale claims).
+        force: bool = bool(payload.get("force", False))
 
         for field_name, value in (
             ("claim_id", claim_id),
@@ -1007,16 +1037,26 @@ class SqliteBackend:
                     f"claim.released payload missing required field {field_name!r}."
                 )
 
+        # Force-release writes a distinct terminal status (force_released) so
+        # the audit trail captures the override; normal release uses 'released'.
+        # Force also allows non-active claims to be released so a stranded
+        # stale claim can be cleaned up after the fact.
+        target_status = "force_released" if force else "released"
+        if force:
+            status_guard = "status NOT IN ('released', 'force_released')"
+        else:
+            status_guard = "status = 'active'"
+
         conn.execute(
-            """
+            f"""
             UPDATE claims
-               SET status = 'released',
+               SET status = ?,
                    released_at = ?,
                    release_reason = ?
              WHERE id = ?
-               AND status = 'active'
-            """,
-            (timestamp, release_reason, claim_id),
+               AND {status_guard}
+            """,  # noqa: S608 — status_guard is a literal, not user input
+            (target_status, timestamp, release_reason, claim_id),
         )
 
         if conn.execute("SELECT changes()").fetchone()[0] == 0:
@@ -1028,7 +1068,7 @@ class SqliteBackend:
                 raise TransactionAborted(
                     f"claim.released: claim '{claim_id}' not found."
                 )
-            # Already released — idempotent no-op; log but don't raise.
+            # Already in a terminal state — idempotent no-op; log but don't raise.
             current_status = row[0]
             self._append_warn_log(
                 action="claim.released",
@@ -1040,8 +1080,11 @@ class SqliteBackend:
             )
             return
 
-        # Side-effect: return the task to 'ready'.
-        # Read task_id from claims (not from payload) — caller doesn't need to supply it.
+        # Side-effect: return the task to 'ready'. Widened from the original
+        # WHERE status='claimed' (which would TransactionAborted on tasks that
+        # had advanced to in_progress or blocked) to all post-claim, pre-done
+        # statuses. Critic flagged this: release --force is supposed to work
+        # even when the task has progressed mid-work.
         task_row = conn.execute(
             "SELECT task_id FROM claims WHERE id = ?", (claim_id,)
         ).fetchone()
@@ -1053,20 +1096,13 @@ class SqliteBackend:
                    SET status = 'ready',
                        updated_at = ?
                  WHERE id = ?
-                   AND status = 'claimed'
+                   AND status IN ('claimed', 'in_progress', 'blocked')
                 """,
                 (timestamp, task_id),
             )
-            if conn.execute("SELECT changes()").fetchone()[0] == 0:
-                # The task status drifted — this is a concurrency violation.
-                row = conn.execute(
-                    "SELECT status FROM tasks WHERE id = ?", (task_id,)
-                ).fetchone()
-                actual = row[0] if row else "unknown"
-                raise TransactionAborted(
-                    f"claim.released: task '{task_id}' status concurrency guard failed. "
-                    f"Expected 'claimed', got '{actual}'."
-                )
+            # 0 rows is now acceptable: the task may have legitimately advanced
+            # to needs_review, accepted, or done in parallel (Phase 5 completion).
+            # No error — releasing the claim is the right behaviour regardless.
 
     def _handle_claim_renewed(
         self,

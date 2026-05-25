@@ -2694,6 +2694,165 @@ class TestReplayIncludesPhase4ClaimActions:
 # ---------------------------------------------------------------------------
 
 
+class TestGreptileP4Fixes:
+    """Regression tests for the three MUST-FIX defects Greptile + critic
+    flagged on PR #39: file_changed had no handler (events silently
+    aborted); release --force on a stale claim was a no-op; release
+    UPDATE on the tasks table was hardcoded to status='claimed'.
+    """
+
+    def test_file_changed_event_lands_in_sqlite_with_no_tombstone(
+        self, tmp_path: Path
+    ) -> None:
+        """The record-file-change hook emits action='file_changed'. Before
+        the fix, this action had no handler — apply_event would raise
+        NotImplementedError, write an error.transaction_aborted tombstone
+        to JSONL, and the event was dropped from the events table on
+        replay. Now: file_changed is a recognised audit-only action;
+        the event lands in both JSONL and the events table; no tombstone."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            evt = _make_event(
+                "file_changed",
+                {"file": "src/foo.py", "tool": "Edit", "actor": "agent-alpha"},
+                event_id="E000003",
+                target_kind="file",
+                target_id="src/foo.py",
+            )
+            b.apply_event(evt)
+
+            # JSONL: file_changed present, NO error.transaction_aborted.
+            events = _read_jsonl(events_path)
+            actions = [e.get("action") for e in events]
+            assert "file_changed" in actions
+            assert "error.transaction_aborted" not in actions
+
+            # SQLite events table: the event row is present.
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            row = conn.execute(
+                "SELECT id, action FROM events WHERE id = 'E000003'"
+            ).fetchone()
+            conn.close()
+            assert row is not None
+            assert row[1] == "file_changed"
+        finally:
+            b.close()
+
+    def test_force_release_of_stale_claim_actually_transitions_status(
+        self, tmp_path: Path
+    ) -> None:
+        """Before the fix, _handle_claim_released's UPDATE was guarded by
+        WHERE status='active'. A stale claim (status='stale') matched 0
+        rows; the handler logged 'already terminal — no-op' and returned
+        success. The claim stayed at 'stale' forever; the user thought
+        the force-release worked. Now: with force=True, status is widened
+        to NOT IN ('released', 'force_released') and target is 'force_released'."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+
+            # Drive the claim to 'stale' directly (simulates the stale detector
+            # having run).
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            conn.execute(
+                "UPDATE claims SET status='stale' WHERE id='C001'"
+            )
+            conn.commit()
+            conn.close()
+
+            # Force-release the stale claim.
+            release_payload = {
+                "claim_id": "C001",
+                "released_by": "human",
+                "release_reason": "cleaning up",
+                "force": True,
+            }
+            b.apply_event(_make_event(
+                "claim.released", release_payload,
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+
+            # Claim must now be 'force_released', not 'stale'.
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            status = conn.execute(
+                "SELECT status FROM claims WHERE id='C001'"
+            ).fetchone()[0]
+            release_reason = conn.execute(
+                "SELECT release_reason FROM claims WHERE id='C001'"
+            ).fetchone()[0]
+            conn.close()
+            assert status == "force_released", (
+                f"force-release should transition stale → force_released; "
+                f"got {status!r}"
+            )
+            assert release_reason == "cleaning up"
+        finally:
+            b.close()
+
+    def test_release_handles_in_progress_task_without_aborting(
+        self, tmp_path: Path
+    ) -> None:
+        """Before the fix, the task UPDATE was hardcoded WHERE status='claimed'.
+        Releasing a claim on an in_progress task would TransactionAborted
+        because the WHERE matched 0 rows. release --force is supposed to
+        work on tasks mid-work; widened to status IN ('claimed', 'in_progress', 'blocked')."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created", _make_claim_payload(),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+            # Advance task to 'in_progress'
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            conn.execute(
+                "UPDATE tasks SET status='in_progress' WHERE id='T001'"
+            )
+            conn.commit()
+            conn.close()
+
+            # Release must succeed and return task to 'ready'.
+            b.apply_event(_make_event(
+                "claim.released",
+                {"claim_id": "C001", "released_by": "agent-alpha",
+                 "release_reason": "rolling back", "force": False},
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            task_status = conn.execute(
+                "SELECT status FROM tasks WHERE id='T001'"
+            ).fetchone()[0]
+            conn.close()
+            assert task_status == "ready"
+        finally:
+            b.close()
+
+    def test_event_ids_are_consistent_across_cli_and_claim_manager(
+        self, tmp_path: Path
+    ) -> None:
+        """Backend.next_event_id is the single source of truth. Before the
+        fix, CLI used MAX(id)+1 and ClaimManager used a 20-digit
+        microsecond ID; once both landed in the events table the MAX
+        query returned the giant number and CLI's E%06d formatter
+        silently broke. Now both paths produce E%06d sequential IDs."""
+        b = _make_backend(tmp_path)
+        try:
+            first = b.next_event_id()
+            assert first == "E000001"
+
+            b.apply_event(_make_project_event(event_id=first))
+            second = b.next_event_id()
+            assert second == "E000002"
+        finally:
+            b.close()
+
+
 class TestPhase4CoverageEdgeCases:
     """Additional tests to push claims + state coverage above 95%.
 
@@ -2798,11 +2957,15 @@ class TestPhase4CoverageEdgeCases:
         finally:
             b.close()
 
-    def test_handle_claim_released_task_status_concurrency_guard(
+    def test_handle_claim_released_tolerates_task_already_completed(
         self, tmp_path: Path
     ) -> None:
-        """claim.released raises TransactionAborted when task is not in 'claimed' status
-        at the time of release (concurrency guard)."""
+        """claim.released does NOT raise when the task has legitimately
+        advanced to 'done' (Phase 5 completion) by the time release runs.
+        The release path's task UPDATE is now WHERE status IN
+        ('claimed', 'in_progress', 'blocked') and 0-rows is acceptable.
+        Previous behaviour TransactionAborted'd on this; Greptile + critic
+        flagged it would break release --force in real workflows."""
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
@@ -2811,7 +2974,8 @@ class TestPhase4CoverageEdgeCases:
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
 
-            # Manually set task status to something other than 'claimed'
+            # Manually advance task to 'done' (simulating Phase 5 completion
+            # racing with this release).
             conn = sqlite3.connect(str(tmp_path / "state.db"))
             conn.execute("UPDATE tasks SET status = 'done' WHERE id = 'T001'")
             conn.commit()
@@ -2823,11 +2987,23 @@ class TestPhase4CoverageEdgeCases:
                 "release_reason": "done",
                 "force": False,
             }
-            with pytest.raises(TransactionAborted, match="concurrency|claimed|done"):
-                b.apply_event(_make_event(
-                    "claim.released", release_payload,
-                    event_id="E000011", target_kind="claim", target_id="C001",
-                ))
+            # No raise — release should succeed (idempotent on the task side)
+            b.apply_event(_make_event(
+                "claim.released", release_payload,
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+
+            # Claim is released; task stays 'done'.
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            claim_status = conn.execute(
+                "SELECT status FROM claims WHERE id = 'C001'"
+            ).fetchone()[0]
+            task_status = conn.execute(
+                "SELECT status FROM tasks WHERE id = 'T001'"
+            ).fetchone()[0]
+            conn.close()
+            assert claim_status == "released"
+            assert task_status == "done"
         finally:
             b.close()
 

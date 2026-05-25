@@ -1,0 +1,18 @@
+# Auto-generated registry files — declared merge=ours so feature branches
+# never conflict on them when merging from main. The post-merge workflow
+# (.github/workflows/update-index.yml) regenerates these from the actual
+# plugin manifests after every merge to main, so the canonical truth always
+# wins out without any human conflict resolution.
+#
+# Without this, every feature branch that bumps a plugin version conflicts
+# with main's [skip ci] regen commit from the previous merge — recurring
+# pattern flagged on PRs #34, #38, and #39.
+#
+# Note: merge=ours is a NAMED MERGE DRIVER, not the merge STRATEGY. It needs
+# the corresponding `git config merge.ours.driver true` to take effect for
+# new clones. CI's auto-merge picks this up via the workflow's checkout step.
+
+registry/index.json merge=ours
+registry/categories.json merge=ours
+registry/tags.json merge=ours
+.claude-plugin/marketplace.json merge=ours

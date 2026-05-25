@@ -160,25 +160,14 @@ def _require_state_dir(state_dir: Path) -> None:
 
 
 def _next_event_id(backend: SqliteBackend) -> str:
-    """Return the next monotonic event ID by querying the events table.
+    """Thin shim that delegates to backend.next_event_id().
 
-    Queries ``MAX(id)`` from the events mirror table.  Falls back to E000001
-    if the table is empty.  The format is always E%06d.
-
-    Args:
-        backend: An initialised SqliteBackend.
-
-    Returns:
-        Next event ID string in "E000003" format.
+    Kept as a module-level function so existing callers don't need to
+    change. The backend method is the single source of truth (Greptile +
+    critic PR #39 finding: two parallel generators produced incompatible
+    ID formats once both landed in the same events table).
     """
-    conn = backend._conn  # noqa: SLF001 — direct access is intentional here
-    if conn is None:
-        return "E000001"
-    row = conn.execute(
-        "SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) FROM events"
-    ).fetchone()
-    max_num: int = row[0] if row and row[0] is not None else 0
-    return f"E{max_num + 1:06d}"
+    return backend.next_event_id()
 
 
 def _get_project_id(backend: SqliteBackend) -> str:

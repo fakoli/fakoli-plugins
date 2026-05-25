@@ -16,6 +16,13 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+# Hard ceilings to keep git ops bounded even on misbehaving systems.
+# Critic flagged that the original code had no subprocess timeout (a hung git
+# binary would freeze the claim flow) and no collision-loop ceiling (an
+# unbounded while-exists loop on a corrupted repo).
+_GIT_TIMEOUT_SECONDS = 10
+_MAX_COLLISION_ATTEMPTS = 20
+
 
 @dataclass(frozen=True)
 class BranchResult:
@@ -49,22 +56,33 @@ def is_git_repo(cwd: Path) -> bool:
 
     Uses `git rev-parse --git-dir` which exits 0 inside any repo and non-zero
     outside.  Stderr is suppressed so we never emit git noise to the user.
+    A timeout treats a hung git binary as "not a repo" — same end result.
     """
-    result = subprocess.run(
-        ["git", "rev-parse", "--git-dir"],
-        cwd=str(cwd),
-        capture_output=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=str(cwd),
+            capture_output=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return False
     return result.returncode == 0
 
 
 def _branch_exists(branch: str, cwd: Path) -> bool:
     """Return True if *branch* already exists locally."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", branch],
-        cwd=str(cwd),
-        capture_output=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", branch],
+            cwd=str(cwd),
+            capture_output=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        # Treat timeout as "exists" — safer than "doesn't exist" which would
+        # try to create a duplicate and likely fail again.
+        return True
     return result.returncode == 0
 
 
@@ -108,10 +126,21 @@ def create_branch_for_task(
     base_name = base_name[:80]
 
     # Resolve a unique branch name (handle collisions with -2, -3, …).
+    # Capped at _MAX_COLLISION_ATTEMPTS to prevent an unbounded loop on a
+    # corrupted repo (critic flagged this).
     branch = base_name
     collision_suffix = 2
     renamed = False
     while _branch_exists(branch, cwd):
+        if collision_suffix > _MAX_COLLISION_ATTEMPTS + 1:
+            return BranchResult(
+                None,
+                False,
+                (
+                    f"too many branch collisions for {base_name!r} "
+                    f"(tried up to suffix -{_MAX_COLLISION_ATTEMPTS})"
+                ),
+            )
         branch = f"{base_name}-{collision_suffix}"[:80]
         collision_suffix += 1
         renamed = True
@@ -121,12 +150,16 @@ def create_branch_for_task(
     if base is not None:
         cmd.append(base)
 
-    result = subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return BranchResult(None, False, f"git checkout -b timed out after {_GIT_TIMEOUT_SECONDS}s")
     if result.returncode != 0:
         error_msg = (result.stderr or result.stdout or "unknown git error").strip()
         return BranchResult(None, False, error_msg)

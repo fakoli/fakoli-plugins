@@ -656,19 +656,16 @@ class ClaimManager:
         return "C" + uuid.uuid4().hex[:6].upper()
 
     def _generate_event_id(self) -> str:
-        """Generate a unique Event ID satisfying the E[0-9]* format constraint.
+        """Delegate to the backend so CLI and ClaimManager produce identical
+        E%06d sequential IDs.
 
-        Uses a timestamp-derived integer (microseconds since Unix epoch) so
-        IDs sort chronologically and are unique within a process.  A 4-digit
-        random suffix prevents collisions when two events are emitted within
-        the same microsecond.
+        The original implementation generated 20-digit microsecond IDs which
+        collided with the CLI's MAX-based sequential generator — once a 20-digit
+        ID landed in the events table, the CLI's `MAX(CAST(SUBSTR(id, 2) AS
+        INTEGER)) + 1` returned a giant number and the E%06d format silently
+        broke. (Greptile + critic both flagged this on PR #39.)
         """
-        now = self._clock.now()
-        # Microseconds since epoch — guaranteed positive, fits in 16 digits.
-        ts_micros = int(now.timestamp() * 1_000_000)
-        # 4-digit random suffix (0000–9999) for intra-microsecond uniqueness.
-        suffix = int(uuid.uuid4().int % 10_000)
-        return f"E{ts_micros:016d}{suffix:04d}"
+        return self._backend.next_event_id()
 
     def _build_claim_model(
         self,

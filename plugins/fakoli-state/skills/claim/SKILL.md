@@ -164,7 +164,7 @@ Actual code changes happen here, outside the skill. Commit incrementally to `age
 
 Two hooks are active during this phase:
 
-**`check-claim.sh`** (PreToolUse on Edit, Write, NotebookEdit) — warns when the file being modified is not in `expected_files` for any active claim. Non-blocking: the edit proceeds regardless.
+**`check-claim.sh`** (PreToolUse on Edit, Write, NotebookEdit) — warns whenever any active claim exists, prompting the agent to verify the file being modified is within its claim's scope. Per-file scope checking against `expected_files` arrives in Phase 5; until then this is a coarse-grained heads-up. Non-blocking: the edit proceeds regardless.
 
 **`record-file-change.sh`** (PostToolUse on Edit, Write, NotebookEdit) — appends a `file_changed` event to `events.jsonl` for every file touched. This populates the audit trail that Phase 5's `submit` command reads.
 
