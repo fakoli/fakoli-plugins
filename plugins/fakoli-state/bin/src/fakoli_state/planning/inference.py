@@ -1,8 +1,10 @@
-"""Dependency and conflict-group inference for Task lists — no I/O, no LLM.
+"""Dependency, conflict-group, and (optional) sub-task inference.
 
-Derives structural edges from ``likely_files`` overlap heuristics so that the
-planning engine can seed ``Task.dependencies`` and ``Task.conflict_groups``
-without requiring LLM augmentation.
+Pure rule-based inference is the canonical baseline — no I/O, no LLM.  Phase 7
+Wave 2 adds an optional ``expand_task`` entry point that uses an LLM provider
+to propose 2-5 sub-tasks for *complex* tasks (complexity >= 4) when a provider
+is supplied.  The deterministic engine on its own does not split tasks; that
+responsibility lies with the author of prd.md (T001.1, T001.2 etc.).
 
 Heuristics
 ----------
@@ -15,20 +17,64 @@ Heuristics
     For each pair of tasks with *any* ``likely_files`` overlap that are NOT in a
     strict subset/superset relationship, they are grouped into a named
     ConflictGroup.  Group IDs follow the pattern ``CG-<sorted-task-ids>``.
+
+``expand_task`` (LLM-only):
+    With ``provider=`` and a task whose ``complexity >= 4``, asks the LLM for
+    a JSON array of 2-5 sub-task proposals.  Returns ``[]`` for
+    low-complexity tasks, when no provider is supplied, or when the LLM call
+    or JSON parse fails (a warning is printed to stderr in the latter case).
 """
 
 from __future__ import annotations
 
-from typing import NamedTuple
+import json
+import sys
+from typing import TYPE_CHECKING, NamedTuple
 
 from fakoli_state.state.models import ConflictGroup, Task
 
+if TYPE_CHECKING:
+    from fakoli_state.planning.llm import LLMProvider
+
 __all__ = [
     "InferenceResult",
+    "SubtaskProposal",
+    "expand_task",
     "infer_all",
     "infer_conflict_groups",
     "infer_dependencies",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Sub-task expansion (LLM-augmented; deterministic engine returns [])
+# ---------------------------------------------------------------------------
+
+
+class SubtaskProposal(NamedTuple):
+    """A single LLM-proposed sub-task.
+
+    Returned by :func:`expand_task` — *proposals only*, never written to the
+    backend by this module.  The caller (CLI) decides what to do with them
+    (typically: print for the human to paste into prd.md).
+    """
+
+    title: str
+    description: str
+    acceptance_criteria: list[str]
+    likely_files: list[str]
+
+
+_EXPAND_SYSTEM_PROMPT = (
+    "You are decomposing a complex software task into 2-5 sub-tasks. "
+    "Each sub-task should be independently claimable (no overlapping scope). "
+    'Return JSON list of {"title", "description", "acceptance_criteria", '
+    '"likely_files"} objects ONLY — no prose before or after the JSON.'
+)
+_EXPAND_MAX_TOKENS = 2000
+_EXPAND_COMPLEXITY_THRESHOLD = 4
+_EXPAND_MIN_SUBTASKS = 2
+_EXPAND_MAX_SUBTASKS = 5
 
 
 # ---------------------------------------------------------------------------
@@ -228,3 +274,159 @@ def infer_all(tasks: list[Task]) -> InferenceResult:
     tasks_with_deps = infer_dependencies(tasks)
     tasks_with_all, conflict_groups = infer_conflict_groups(tasks_with_deps)
     return InferenceResult(tasks=tasks_with_all, conflict_groups=conflict_groups)
+
+
+# ---------------------------------------------------------------------------
+# expand_task — LLM-augmented sub-task proposal (additive)
+# ---------------------------------------------------------------------------
+
+
+def expand_task(
+    task: Task,
+    *,
+    provider: LLMProvider | None = None,
+) -> list[SubtaskProposal]:
+    """Propose 2-5 sub-tasks for a complex Task using an LLM.
+
+    Deterministic baseline (provider=None or complexity < 4): returns ``[]``.
+    The deterministic engine never proposes sub-tasks — that responsibility
+    lies with the PRD author (manual subtask entries in prd.md).
+
+    With ``provider=`` and ``task.scores.complexity >= 4`` the provider is
+    asked to return a JSON array of {title, description, acceptance_criteria,
+    likely_files}.  On any failure (provider error, JSON parse error, schema
+    mismatch) a warning is printed to stderr and ``[]`` is returned — failures
+    NEVER raise.
+
+    Args:
+        task: The Task to expand.  Must already be scored.
+        provider: Optional LLM provider.
+
+    Returns:
+        A list of :class:`SubtaskProposal` (possibly empty).  Never raises.
+    """
+    if provider is None:
+        return []
+
+    complexity = task.scores.complexity
+    if complexity is None or complexity < _EXPAND_COMPLEXITY_THRESHOLD:
+        return []
+
+    # Local import — keeps the optional LLM dep out of the main import graph.
+    from fakoli_state.planning.llm import LLMProviderError
+
+    user_payload = json.dumps(
+        {
+            "task_id": task.id,
+            "title": task.title,
+            "description": task.description,
+            "likely_files": task.likely_files,
+            "acceptance_criteria": task.acceptance_criteria,
+            "scores": {
+                "complexity": task.scores.complexity,
+                "parallelizability": task.scores.parallelizability,
+                "context_load": task.scores.context_load,
+                "blast_radius": task.scores.blast_radius,
+                "review_risk": task.scores.review_risk,
+                "agent_suitability": task.scores.agent_suitability,
+            },
+        },
+        sort_keys=True,
+    )
+
+    try:
+        response = provider.generate(
+            system=_EXPAND_SYSTEM_PROMPT,
+            user=user_payload,
+            max_tokens=_EXPAND_MAX_TOKENS,
+        )
+    except LLMProviderError as exc:
+        print(
+            f"warning: LLM expansion of {task.id} failed ({exc}); "
+            "no sub-task proposals produced.",
+            file=sys.stderr,
+        )
+        return []
+
+    proposals = _parse_subtask_response(task.id, response.text)
+    return proposals
+
+
+def _parse_subtask_response(task_id: str, raw: str) -> list[SubtaskProposal]:
+    """Parse the LLM's JSON-list response into ``SubtaskProposal``s.
+
+    Tolerant of leading/trailing whitespace; strict on schema (warns and
+    returns ``[]`` on any structural mismatch).
+    """
+    text = raw.strip()
+    if not text:
+        return []
+
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError as exc:
+        print(
+            f"warning: LLM expansion of {task_id} returned non-JSON "
+            f"({exc}); ignoring.",
+            file=sys.stderr,
+        )
+        return []
+
+    if not isinstance(decoded, list):
+        print(
+            f"warning: LLM expansion of {task_id} returned non-list JSON; ignoring.",
+            file=sys.stderr,
+        )
+        return []
+
+    proposals: list[SubtaskProposal] = []
+    for idx, item in enumerate(decoded):
+        if not isinstance(item, dict):
+            print(
+                f"warning: LLM expansion of {task_id}: item {idx} is not an "
+                "object; skipping.",
+                file=sys.stderr,
+            )
+            continue
+        title = item.get("title")
+        description = item.get("description", "")
+        acceptance_criteria = item.get("acceptance_criteria", []) or []
+        likely_files = item.get("likely_files", []) or []
+        if not isinstance(title, str) or not title.strip():
+            print(
+                f"warning: LLM expansion of {task_id}: item {idx} missing "
+                "title; skipping.",
+                file=sys.stderr,
+            )
+            continue
+        if not isinstance(acceptance_criteria, list) or not isinstance(likely_files, list):
+            print(
+                f"warning: LLM expansion of {task_id}: item {idx} has invalid "
+                "list fields; skipping.",
+                file=sys.stderr,
+            )
+            continue
+        proposals.append(
+            SubtaskProposal(
+                title=title.strip(),
+                description=str(description).strip(),
+                acceptance_criteria=[str(c).strip() for c in acceptance_criteria if str(c).strip()],
+                likely_files=[str(f).strip() for f in likely_files if str(f).strip()],
+            )
+        )
+
+    # The prompt requests 2-5; tolerate edge cases but cap upper bound so a
+    # runaway LLM cannot flood the output.
+    if len(proposals) > _EXPAND_MAX_SUBTASKS:
+        proposals = proposals[:_EXPAND_MAX_SUBTASKS]
+    if len(proposals) < _EXPAND_MIN_SUBTASKS:
+        # Spec says 2-5; fewer than 2 is not a useful split — warn but still
+        # return what we got so the caller can decide.
+        print(
+            f"warning: LLM expansion of {task_id} returned only "
+            f"{len(proposals)} sub-task(s); spec asks for "
+            f"{_EXPAND_MIN_SUBTASKS}-{_EXPAND_MAX_SUBTASKS}.",
+            file=sys.stderr,
+        )
+
+    return proposals

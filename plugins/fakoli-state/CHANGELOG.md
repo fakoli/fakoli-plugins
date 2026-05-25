@@ -6,10 +6,37 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-Phases 7 and 8 remain scheduled. Each phase ships as its own PR into the fakoli-plugins monorepo.
+Phase 8 remains scheduled. It ships as its own PR into the fakoli-plugins monorepo.
 
-- **Phase 7** — LLM augmentation: Anthropic provider implementation, `--use-llm` flags on `plan`, `score`, `expand`, RecordedLLMProvider for tests, and brainstorm skill bridge to `fakoli-flow:brainstorm`.
 - **Phase 8** — GitHub sync: bidirectional Issues sync engine, `sync github` CLI command, state-keeper agent, reconciliation (`sync --fix`), nightly live-GitHub CI, `docs/github-sync.md`, marketplace.json regen, and feature-complete release.
+
+---
+
+## [1.7.0] — 2026-05-25
+
+Phase 7: LLM augmentation. Adds an `LLMProvider` Protocol with an Anthropic-backed implementation (ephemeral prompt caching on the system block) and a `RecordedLLMProvider` test double, wires opt-in `--use-llm` flags into `plan`, `score`, and `expand`, and ships a brainstorm skill that bridges to `fakoli-flow:brainstorm`. The deterministic planning engine is unchanged — LLM enrichment is strictly additive and falls back cleanly on missing key, missing recording, or mid-operation failure.
+
+### Added
+
+- `bin/src/fakoli_state/planning/llm.py` — `LLMProvider` Protocol + `AnthropicProvider` (with ephemeral prompt-caching on the system block per the claude-api skill guidance) + `RecordedLLMProvider` for deterministic tests + `LLMResponse` Pydantic model + `LLMProviderError`. Default model: `claude-sonnet-4-6`; API key sourced from `ANTHROPIC_API_KEY` env var.
+- `--use-llm` flag on `fakoli-state plan`, `score`, and `expand`. Off by default — opt-in augmentation that enriches deterministic output (score explanations, short task descriptions, sub-task proposals for complex tasks).
+- `bin/src/fakoli_state/planning/inference.py::expand_task` — new function returning `list[SubtaskProposal]`. Deterministic path returns `[]`; with provider + `complexity >= 4`, calls LLM to propose 2-5 sub-tasks. JSON-parse-tolerant; malformed responses fall back to `[]` with a warning.
+- `plugins/fakoli-state/skills/brainstorm/SKILL.md` — interview-style PRD authoring skill. Bridges to `fakoli-flow:brainstorm` when installed; standalone otherwise.
+- `docs/llm.md` — provider config, prompt-caching usage, `RecordedLLMProvider` test pattern, failure modes.
+- 46 new tests: 29 in `tests/test_llm.py` (provider unit tests), 17 in `tests/test_llm_integration.py` (engine integration via `RecordedLLMProvider`), plus 10 new CLI flag tests in `tests/test_cli.py`.
+
+### Changed
+
+- `planning.scoring.score_task` / `score_all` — new kw-only `provider: LLMProvider | None = None`. Default behavior unchanged.
+- `planning.template.parse_prd` — new kw-only `provider: LLMProvider | None = None`. Default behavior unchanged.
+- LLM failures during augmentation print a warning to stderr; the engine returns the deterministic-only result. LLM augmentation never aborts a planning operation.
+
+### Technical notes
+
+- One ephemeral cache breakpoint on the system block per Anthropic call. Repeated `score --use-llm` runs against the same task batch hit the cache and pay only for new user tokens.
+- `RecordedLLMProvider` keys are `sha256(system + "\n---\n" + user)` — tests pre-compute via `RecordedLLMProvider.record_key(...)`.
+
+Tests: 613 → 640 + Wave 3a additions (Wave 3a may add a few more — total to be confirmed at sentinel time).
 
 ---
 

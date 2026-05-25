@@ -1,7 +1,10 @@
 """Rule-based six-dimension scoring engine — no LLM, no I/O.
 
 Each dimension is scored 1-5 using pure heuristics derived from Task fields.
-LLM augmentation is deferred to Phase 7 (planning.llm).
+Optional LLM augmentation (Phase 7 Wave 2) is additive: if a provider is
+supplied, an LLM-written one-paragraph trade-off summary is appended to the
+``Score.explanation`` field.  The rule-based scores themselves are NEVER
+modified by the LLM — augmentation is enrichment only.
 
 Dimensions:
     complexity          — how hard is this task to implement?
@@ -17,16 +20,32 @@ model_copy(update=...) so the caller's objects are never mutated.
 
 from __future__ import annotations
 
+import json
 import os
 import re
-from typing import NamedTuple
+import sys
+from typing import TYPE_CHECKING, NamedTuple
 
 from fakoli_state.state.models import Score, Task
+
+if TYPE_CHECKING:
+    from fakoli_state.planning.llm import LLMProvider
 
 __all__ = [
     "score_task",
     "score_all",
 ]
+
+# ---------------------------------------------------------------------------
+# LLM augmentation constants
+# ---------------------------------------------------------------------------
+
+_SCORE_EXPLAIN_SYSTEM_PROMPT = (
+    "You are a senior engineer scoring a task on six dimensions. "
+    "Given the rule-based scores and the task body, write 1-3 sentences "
+    "explaining the trade-offs. Be concrete and terse — no marketing language."
+)
+_SCORE_EXPLAIN_MAX_TOKENS = 300
 
 # ---------------------------------------------------------------------------
 # Regex constants
@@ -217,13 +236,24 @@ def _score_agent_suitability(complexity: int, blast_radius: int) -> _Dim:
 # ---------------------------------------------------------------------------
 
 
-def score_task(task: Task) -> Score:
+def score_task(
+    task: Task,
+    *,
+    provider: LLMProvider | None = None,
+) -> Score:
     """Compute a Score for task using rule-based heuristics.
 
     Pure function — does not mutate task.  Returns a fully-populated Score.
 
+    When ``provider`` is supplied, the rule-based ``explanation`` is *augmented*
+    with a 1-3 sentence trade-off summary written by the LLM.  The numeric
+    scores themselves are never touched by the LLM (additive enrichment only).
+    If the LLM call fails (``LLMProviderError``), a warning is written to
+    stderr and the deterministic-only explanation is returned unchanged.
+
     Args:
         task: A Task (typically with scores=Score() / all None).
+        provider: Optional LLM provider for explanation enrichment.
 
     Returns:
         A Score with all six dimensions populated and an explanation string.
@@ -237,7 +267,7 @@ def score_task(task: Task) -> Score:
         complexity_dim.value, blast_radius_dim.value
     )
 
-    explanation = "\n".join([
+    rule_explanation = "\n".join([
         complexity_dim.explanation,
         parallelizability_dim.explanation,
         context_load_dim.explanation,
@@ -246,27 +276,99 @@ def score_task(task: Task) -> Score:
         agent_suitability_dim.explanation,
     ])
 
-    return Score(
+    score = Score(
         complexity=complexity_dim.value,
         parallelizability=parallelizability_dim.value,
         context_load=context_load_dim.value,
         blast_radius=blast_radius_dim.value,
         review_risk=review_risk_dim.value,
         agent_suitability=agent_suitability_dim.value,
-        explanation=explanation,
+        explanation=rule_explanation,
     )
 
+    if provider is not None:
+        augmented = _augment_explanation(task, score, provider)
+        if augmented is not None:
+            score = score.model_copy(
+                update={"explanation": rule_explanation + "\n\n" + augmented}
+            )
 
-def score_all(tasks: list[Task]) -> list[Task]:
+    return score
+
+
+def score_all(
+    tasks: list[Task],
+    *,
+    provider: LLMProvider | None = None,
+) -> list[Task]:
     """Score every task in the list, returning new Task instances.
 
     Args:
         tasks: A list of Task models (not mutated).
+        provider: Optional LLM provider passed through to ``score_task``.
 
     Returns:
         A new list of Task instances with scores populated via model_copy.
     """
     return [
-        task.model_copy(update={"scores": score_task(task)})
+        task.model_copy(update={"scores": score_task(task, provider=provider)})
         for task in tasks
     ]
+
+
+# ---------------------------------------------------------------------------
+# LLM augmentation helper — local to keep dependency direction one-way.
+# ---------------------------------------------------------------------------
+
+
+def _augment_explanation(
+    task: Task,
+    score: Score,
+    provider: LLMProvider,
+) -> str | None:
+    """Call the provider to produce a 1-3 sentence trade-off summary.
+
+    Returns the LLM-written paragraph on success, or ``None`` if the call
+    failed (a warning is printed to stderr in that case).  Never raises.
+    """
+    # Local import: keeps the optional LLM dep from leaking into the import
+    # graph of callers that never set provider=.
+    from fakoli_state.planning.llm import LLMProviderError
+
+    user_payload = json.dumps(
+        {
+            "task_id": task.id,
+            "title": task.title,
+            "description": task.description,
+            "likely_files": task.likely_files,
+            "dependencies": task.dependencies,
+            "scores": {
+                "complexity": score.complexity,
+                "parallelizability": score.parallelizability,
+                "context_load": score.context_load,
+                "blast_radius": score.blast_radius,
+                "review_risk": score.review_risk,
+                "agent_suitability": score.agent_suitability,
+            },
+        },
+        sort_keys=True,
+    )
+
+    try:
+        response = provider.generate(
+            system=_SCORE_EXPLAIN_SYSTEM_PROMPT,
+            user=user_payload,
+            max_tokens=_SCORE_EXPLAIN_MAX_TOKENS,
+        )
+    except LLMProviderError as exc:
+        print(
+            f"warning: LLM augmentation of {task.id} score explanation failed "
+            f"({exc}); falling back to rule-based explanation only.",
+            file=sys.stderr,
+        )
+        return None
+
+    text = response.text.strip()
+    if not text:
+        return None
+    return text

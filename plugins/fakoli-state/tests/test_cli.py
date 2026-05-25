@@ -1737,3 +1737,377 @@ class TestE2EPhase5:
         assert final_status == "done", (
             f"Expected task '{task_id}' to be 'done' after full lifecycle, got '{final_status}'"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 Wave 2: --use-llm CLI flag wiring
+# ---------------------------------------------------------------------------
+
+
+class TestUseLlmFlagHelp:
+    """The --use-llm flag must appear in --help for plan / score / expand."""
+
+    def test_plan_help_documents_use_llm(self, tmp_path: Path) -> None:
+        result = _invoke_cmd(tmp_path, ["plan", "--help"])
+        assert result.exit_code == 0
+        assert "--use-llm" in result.output
+
+    def test_score_help_documents_use_llm(self, tmp_path: Path) -> None:
+        result = _invoke_cmd(tmp_path, ["score", "--help"])
+        assert result.exit_code == 0
+        assert "--use-llm" in result.output
+
+    def test_expand_help_documents_use_llm(self, tmp_path: Path) -> None:
+        result = _invoke_cmd(tmp_path, ["expand", "--help"])
+        assert result.exit_code == 0
+        assert "--use-llm" in result.output
+
+
+class TestUseLlmRequiresApiKey:
+    """Without ANTHROPIC_API_KEY, --use-llm must exit 1 with a clean message."""
+
+    def test_plan_use_llm_without_env_exits_1(
+        self, tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+    ) -> None:
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _FULL_PRD_CONTENT)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+
+        result = _invoke_cmd(tmp_path, ["plan", "--use-llm"])
+        assert result.exit_code == 1
+        combined = result.output + (
+            result.stderr if hasattr(result, "stderr") and result.stderr else ""
+        )
+        assert "ANTHROPIC_API_KEY" in combined
+
+    def test_score_use_llm_without_env_exits_1(
+        self, tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+    ) -> None:
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _FULL_PRD_CONTENT)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+        _invoke_cmd(tmp_path, ["plan"])
+
+        result = _invoke_cmd(tmp_path, ["score", "--use-llm"])
+        assert result.exit_code == 1
+        combined = result.output + (
+            result.stderr if hasattr(result, "stderr") and result.stderr else ""
+        )
+        assert "ANTHROPIC_API_KEY" in combined
+
+    def test_expand_use_llm_without_env_exits_1(
+        self, tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+    ) -> None:
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        _do_init(tmp_path)
+
+        result = _invoke_cmd(tmp_path, ["expand", "T001", "--use-llm"])
+        assert result.exit_code == 1
+        combined = result.output + (
+            result.stderr if hasattr(result, "stderr") and result.stderr else ""
+        )
+        assert "ANTHROPIC_API_KEY" in combined
+
+
+class TestUseLlmRecordedProvider:
+    """End-to-end CLI invocations with a RecordedLLMProvider injected.
+
+    We monkeypatch ``fakoli_state.cli.plan._resolve_llm_provider`` to return
+    a pre-populated ``RecordedLLMProvider`` so the CLI executes the full
+    --use-llm code path without touching the network or the env var check.
+    """
+
+    def _install_provider(
+        self,
+        monkeypatch,  # type: ignore[no-untyped-def]
+        provider_factory,  # type: ignore[no-untyped-def]
+    ) -> None:
+        """Replace _resolve_llm_provider with one that returns ``provider``."""
+        import importlib
+
+        plan_module = importlib.import_module("fakoli_state.cli.plan")
+
+        def fake_resolve(use_llm: bool):  # type: ignore[no-untyped-def]
+            return provider_factory() if use_llm else None
+
+        monkeypatch.setattr(plan_module, "_resolve_llm_provider", fake_resolve)
+
+    def test_plan_use_llm_enriches_short_descriptions(
+        self, tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+    ) -> None:
+        """plan --use-llm with a recorded provider enriches short descriptions."""
+        from fakoli_state.planning.llm import LLMResponse, RecordedLLMProvider
+        from fakoli_state.planning.template import (
+            _DESCRIPTION_ENRICH_SYSTEM_PROMPT,
+        )
+
+        # A PRD whose task body is <50 chars so enrichment triggers.
+        prd = """\
+# Project: Wave 2 CLI Plan Test
+
+## Summary
+
+Project for CLI plan --use-llm.
+
+## Goals
+
+- Goal.
+
+## Requirements
+
+- R001: Req.
+
+## Features
+
+### F001: Core
+Feature.
+**Requirements:** R001
+
+## Tasks
+
+### T001: ShortTitle
+
+**Feature:** F001
+**Priority:** medium
+
+Tiny body.
+"""
+
+        enriched_text = (
+            "Implement the ShortTitle module. Define the public surface "
+            "in src/short.py and cover edge cases in tests/test_short.py. "
+            "Honor existing logging and error-handling patterns."
+        )
+        user_payload = (
+            "Requirement: ShortTitle\nExisting short description: 'Tiny body.'"
+        )
+        key = RecordedLLMProvider.record_key(
+            _DESCRIPTION_ENRICH_SYSTEM_PROMPT, user_payload
+        )
+        canned = LLMResponse(
+            text=enriched_text,
+            input_tokens=10,
+            cached_input_tokens=0,
+            output_tokens=20,
+            model="claude-sonnet-4-6",
+            finish_reason="end_turn",
+        )
+
+        self._install_provider(
+            monkeypatch, lambda: RecordedLLMProvider({key: canned})
+        )
+
+        _do_init(tmp_path)
+        _write_prd(tmp_path, prd)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+
+        result = _invoke_cmd(tmp_path, ["plan", "--use-llm"])
+        assert result.exit_code == 0, f"plan --use-llm failed: {result.output}"
+
+        # The enriched description landed in the backend. `show` doesn't print
+        # description, so query the backend directly to verify augmentation.
+        from fakoli_state.clock import SystemClock
+        from fakoli_state.state.sqlite import SqliteBackend
+
+        state_dir = tmp_path / ".fakoli-state"
+        backend = SqliteBackend(
+            db_path=str(state_dir / "state.db"),
+            events_path=str(state_dir / "events.jsonl"),
+            clock=SystemClock(),
+        )
+        backend.initialize()
+        try:
+            task = backend.get_task("T001")
+            assert task is not None, "T001 must exist in backend after plan"
+            assert "ShortTitle module" in task.description, (
+                f"expected enriched description, got: {task.description!r}"
+            )
+        finally:
+            backend.close()
+
+    def test_score_use_llm_appends_explanation_paragraph(
+        self, tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+    ) -> None:
+        """score --use-llm produces a Score whose explanation contains the LLM text."""
+        from fakoli_state.planning.llm import LLMResponse
+
+        # We don't know the task body in advance; build a provider that
+        # returns the same canned response for ANY key.  Subclass to override
+        # generate() and bypass the key-miss check.
+        canned_text = (
+            "Trade-off summary: this task is small in surface area, so the "
+            "deterministic blast_radius is appropriate. Review risk could "
+            "be relaxed if the converter is fully covered by tests."
+        )
+
+        class _AlwaysReturnProvider:
+            def generate(
+                self,
+                *,
+                system: str,
+                user: str,
+                max_tokens: int = 4096,
+                temperature: float = 0.0,
+            ) -> LLMResponse:
+                _ = system, user, max_tokens, temperature
+                return LLMResponse(
+                    text=canned_text,
+                    input_tokens=10,
+                    cached_input_tokens=0,
+                    output_tokens=20,
+                    model="claude-sonnet-4-6",
+                    finish_reason="end_turn",
+                )
+
+        self._install_provider(monkeypatch, lambda: _AlwaysReturnProvider())
+
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _FULL_PRD_CONTENT)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+        _invoke_cmd(tmp_path, ["plan"])
+
+        result = _invoke_cmd(tmp_path, ["score", "--use-llm"])
+        assert result.exit_code == 0, f"score --use-llm failed: {result.output}"
+
+        # Verify the LLM augmentation reached the backend explanation field.
+        show_result = _invoke_cmd(tmp_path, ["show", "T001"])
+        assert show_result.exit_code == 0
+        assert "Trade-off summary" in show_result.output
+
+    def test_expand_use_llm_prints_proposals(
+        self, tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+    ) -> None:
+        """expand --use-llm prints proposal blocks for a high-complexity task."""
+        from fakoli_state.planning.llm import LLMResponse
+
+        canned_proposals = [
+            {
+                "title": "Sub-task A",
+                "description": "Do A.",
+                "acceptance_criteria": ["A done"],
+                "likely_files": ["src/a.py"],
+            },
+            {
+                "title": "Sub-task B",
+                "description": "Do B.",
+                "acceptance_criteria": ["B done"],
+                "likely_files": ["src/b.py"],
+            },
+        ]
+        canned_text = json.dumps(canned_proposals)
+
+        class _AlwaysReturnProvider:
+            def generate(
+                self,
+                *,
+                system: str,
+                user: str,
+                max_tokens: int = 4096,
+                temperature: float = 0.0,
+            ) -> LLMResponse:
+                _ = system, user, max_tokens, temperature
+                return LLMResponse(
+                    text=canned_text,
+                    input_tokens=10,
+                    cached_input_tokens=0,
+                    output_tokens=80,
+                    model="claude-sonnet-4-6",
+                    finish_reason="end_turn",
+                )
+
+        # We need a task with complexity >= 4. The fixture PRD's T001 has many
+        # likely_files but the scoring engine yields complexity 4 only for
+        # tasks with >=5 files. T001 in _FULL_PRD_CONTENT only has 2 files,
+        # so its complexity will be ~2. Write a custom PRD with a complex task.
+        complex_prd = """\
+# Project: Expand Test
+
+## Summary
+
+Test expand --use-llm.
+
+## Goals
+
+- Decompose.
+
+## Requirements
+
+- R001: Refactor.
+
+## Features
+
+### F001: Big Refactor
+
+Feature.
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: Big architectural refactor of the planning engine
+
+**Feature:** F001
+**Priority:** high
+**Likely files:** src/a.py, src/b.py, src/c.py, src/d.py, src/e.py, src/f.py
+
+**Acceptance criteria:**
+
+- Refactor compiles.
+- Migration story documented.
+
+**Verification:**
+
+- `pytest -q`
+
+This is a refactor that touches architecture across many modules.
+"""
+
+        self._install_provider(monkeypatch, lambda: _AlwaysReturnProvider())
+
+        _do_init(tmp_path)
+        _write_prd(tmp_path, complex_prd)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+        _invoke_cmd(tmp_path, ["plan"])
+        _invoke_cmd(tmp_path, ["score"])
+
+        result = _invoke_cmd(tmp_path, ["expand", "T001", "--use-llm"])
+        assert result.exit_code == 0, f"expand --use-llm failed: {result.output}"
+        assert "Sub-task A" in result.output
+        assert "Sub-task B" in result.output
+        assert "Proposed 2 sub-task" in result.output
+
+    def test_use_llm_flag_default_false_unchanged_behavior(
+        self, tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+    ) -> None:
+        """Without --use-llm, no provider is constructed (env var not consulted)."""
+        # If the deterministic path accidentally consulted the env or built a
+        # provider, install_provider's fake would raise (it asserts use_llm).
+        sentinel_raised = []
+
+        def fake_resolve(use_llm: bool):  # type: ignore[no-untyped-def]
+            if use_llm:
+                sentinel_raised.append("called")
+            return None
+
+        import importlib
+
+        plan_module = importlib.import_module("fakoli_state.cli.plan")
+
+        monkeypatch.setattr(plan_module, "_resolve_llm_provider", fake_resolve)
+
+        # Even without ANTHROPIC_API_KEY, deterministic plan/score must work.
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _FULL_PRD_CONTENT)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+
+        plan_result = _invoke_cmd(tmp_path, ["plan"])
+        assert plan_result.exit_code == 0
+        score_result = _invoke_cmd(tmp_path, ["score"])
+        assert score_result.exit_code == 0
+
+        # Provider factory was never invoked with use_llm=True.
+        assert sentinel_raised == []
