@@ -43,17 +43,15 @@ Single-CLI usage is race-free today. The MCP server in Phase 6 is the trigger fo
 
 ### P6-3 · `TaskStatus.stale` is structurally unreachable
 
-**From**: PR #41 Critic-2. **Status**: TARGETED-P6.
+**From**: PR #41 Critic-2. **Status**: DONE (Option A — feat/fakoli-state-phase-6-prep).
 
-`_handle_claim_stale` transitions the task directly from `claimed/in_progress/blocked` → `ready`, bypassing `TaskStatus.stale` entirely. Therefore:
-- `TaskStatus.stale` in `models.py:108` is dead enum value
-- `task_to_stale()` and `task_stale_to_ready()` in `transitions.py` are dead functions
-- `status` command counts stale tasks (`cli.py:424`) — always returns 0
-- `skills/finish/SKILL.md` documents the lifecycle as having `stale` as a real state
-
-**Two resolution options** (pick one):
-- **A (recommended)**: delete `TaskStatus.stale`, `task_to_stale`, `task_stale_to_ready`, the status-command count, and update docs/skills. Honest about the actual lifecycle.
-- **B**: implement the two-step path in `_handle_claim_stale` (claim.stale event → task.status_changed claimed→stale → task.status_changed stale→ready). Matches the documented spec contract.
+`_handle_claim_stale` transitions the task directly from `claimed/in_progress/blocked` → `ready`, bypassing `TaskStatus.stale` entirely. Option A (delete the dead code) was executed:
+- `TaskStatus.stale` removed from `models.py` enum
+- `task_to_stale()`, `task_stale_to_ready()`, and `_claim_expired()` removed from `transitions.py` and `__all__`
+- `stale_count` removed from the `status` command output (`cli/init_status.py`)
+- Task lifecycle diagram updated in `docs/specs/2026-05-24-fakoli-state-v0.md`
+- Related tests in `test_models.py` and `test_transitions.py` updated
+- `ClaimStatus.stale` is intentionally preserved — claims CAN be stale; tasks cannot.
 
 ---
 
@@ -246,7 +244,7 @@ Written by `capture-evidence.sh` + `hook capture-evidence`; consumed only by `se
 
 ### CL-16 · `_handle_claim_stale` task transition skips the `stale` intermediate
 
-**From**: PR #41 Critic-2. **Status**: OPEN; resolves via P6-3 above.
+**From**: PR #41 Critic-2. **Status**: DONE; resolved via P6-3 (Option A — dead code deleted).
 
 ---
 

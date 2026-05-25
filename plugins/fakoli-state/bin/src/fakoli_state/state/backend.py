@@ -12,7 +12,24 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from fakoli_state.state.models import PRD, Claim, Event, Project, Task
+    from fakoli_state.state.models import PRD, Claim, Event, Evidence, Feature, Project, Task
+
+# ---------------------------------------------------------------------------
+# Sentinel for race-free event ID assignment
+# ---------------------------------------------------------------------------
+
+#: Pass as event.id to have the Backend assign a sequential ID inside the
+#: BEGIN IMMEDIATE lock, eliminating the read-before-lock race flagged by
+#: Critic-3 on PR #41.  The returned Event from apply_event() carries the
+#: assigned ID.  Use a real E%06d ID only on the replay path (where the
+#: original ID from JSONL must be preserved).
+#:
+#: Trade-off: for PENDING events the JSONL write moves AFTER the SQLite
+#: COMMIT (the ID is not known until inside the lock).  This weakens the
+#: "log-before-mutation" crash-recovery property for the live path, but
+#: eliminates the silent-drop race that is strictly worse.  The replay path
+#: uses non-PENDING IDs (event.id is a real ID from JSONL) and is unchanged.
+PENDING_EVENT_ID = "PENDING"
 
 
 class Backend(Protocol):
@@ -37,8 +54,21 @@ class Backend(Protocol):
         """
         ...
 
-    def apply_event(self, event: Event) -> None:
+    def apply_event(self, event: Event) -> Event:
         """Atomically: append event to JSONL, mutate SQLite state. Single transaction.
+
+        If event.id == PENDING_EVENT_ID the Backend assigns a fresh sequential
+        ID inside the BEGIN IMMEDIATE lock, eliminating the read-before-lock race
+        flagged by Critic-3 on PR #41.  The materialized event (with assigned ID)
+        is returned so callers can record it.
+
+        If event.id is a real ID (e.g. from replay), it is honored as-is.
+
+        Trade-off: for PENDING events the JSONL write moves AFTER the SQLite
+        COMMIT (the ID is not known until inside the lock).  This weakens the
+        "log-before-mutation" crash-recovery property for the live path, but
+        eliminates the silent-drop race that is strictly worse.  The replay path
+        uses non-PENDING IDs (event.id is a real ID from JSONL) and is unchanged.
 
         Raises:
             TransactionAborted: If the mutation could not complete. The event is
@@ -65,8 +95,28 @@ class Backend(Protocol):
         """Return the Claim with the given ID, or None if not found."""
         ...
 
+    def get_feature(self, feature_id: str) -> Feature | None:
+        """Return the Feature with the given ID, or None if not found."""
+        ...
+
+    def get_latest_evidence(self, task_id: str) -> Evidence | None:
+        """Return the most recently submitted Evidence for task_id, or None.
+        Used by `apply` to display the evidence summary."""
+        ...
+
     def list_active_claims(self) -> list[Claim]:
         """Return all claims with a non-expired lease and non-terminal status."""
+        ...
+
+    def list_events(
+        self,
+        *,
+        target_id: str,
+        target_kind: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, str]]:
+        """Return recent events for the given target as (action, timestamp_iso) tuples,
+        most-recent first. Used by `show` to surface task history."""
         ...
 
     def get_prd(self) -> PRD | None:
@@ -94,7 +144,12 @@ class Backend(Protocol):
         ...
 
     def next_event_id(self) -> str:
-        """Return the next sequential event ID in canonical E%06d format.
+        """Return a hint of the next sequential event ID in canonical E%06d format.
+
+        Subject to races — do not use this to pre-assign IDs for new events.
+        Use PENDING_EVENT_ID + apply_event() for race-free ID assignment instead.
+        Kept for callers that need to preview the upcoming ID (e.g. tests that
+        check format) or for legacy compatibility.
 
         Single source of truth for event IDs so the CLI and ClaimManager
         cannot drift into incompatible schemes (the original Phase 4 bug:
