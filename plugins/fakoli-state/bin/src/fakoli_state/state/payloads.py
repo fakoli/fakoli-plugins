@@ -18,7 +18,7 @@ Constraining them here would duplicate that validation.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -371,68 +371,373 @@ class TaskSyncedFromRemotePayload(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Phase 8 Wave 3 — sync.* audit events (Task 6 / cli/sync.py)
+# Phase 9 T3 — discriminated union (one concrete subclass per `sync.*` action)
 # ---------------------------------------------------------------------------
 #
 # Every push / pull / conflict / batch operation emits a `sync.*` action
-# whose handler is an audit-only no-op (like `file_changed` and
-# `progress.noted`).  The JSONL row IS the audit record; no SQLite mutation
+# whose handler is an audit-only no-op (like ``file_changed`` and
+# ``progress.noted``).  The JSONL row IS the audit record; no SQLite mutation
 # is performed by these events themselves.  The actual mapping persistence
-# happens via the existing `sync_mapping.upserted` event, kept separate so
-# replay-from-empty can reconstruct mappings without depending on `sync.*`.
+# happens via the existing ``sync_mapping.upserted`` event, kept separate so
+# replay-from-empty can reconstruct mappings without depending on ``sync.*``.
 #
-# A single generic payload model is used for every `sync.*` action because
-# the fields they audit overlap completely (provider id, optional task /
-# external id, success / failure detail).  `extra="forbid"` still rejects
-# unknown keys; the open shape is on the typed string fields, not the
-# field set.
+# Phase 8 used a SINGLE all-optional ``SyncAuditPayload`` model — every field
+# was ``str | None = None``.  That accepted ``strategy="foo"`` on a
+# ``sync.batch.completed`` event without complaint, and missed the chance to
+# enforce that ``sync.push.failed`` actually carries an
+# ``exception_message``.  Phase 9 T3 replaces it with a Pydantic v2
+# discriminated union: each action has its own subclass with only the fields
+# that action actually carries, ``extra="forbid"`` rejects unknown keys, and
+# the discriminator dispatches O(1) on the ``action`` literal.
+#
+# Backwards compatibility:
+# * ``SyncAuditPayload`` is preserved as a module-level type-form —
+#   ``Annotated[Union[...], Field(discriminator="action")]`` — so existing
+#   imports still resolve.  This is NOT a ``typing.TypeAlias`` (no
+#   ``: TypeAlias =`` annotation) and NOT a ``BaseModel`` subclass; it is a
+#   Pydantic discriminated-union *type form*.  Callers that used to write
+#   ``SyncAuditPayload.model_validate(d)`` directly MUST migrate to
+#   ``TypeAdapter(SyncAuditPayload).validate_python(d)`` OR look up the
+#   concrete subclass from ``ACTION_TO_PAYLOAD``.
+# * ``ACTION_TO_PAYLOAD`` maps each ``sync.*`` action string to its concrete
+#   subclass for direct dispatcher lookup
+#   (``state/sqlite.py:_apply_mutation`` is the obvious consumer).
+#
+# Action coverage — the T3 plan enumerates 10 action strings (push.{started,
+# completed, deferred, failed}, pull.{started, completed, deferred, failed},
+# reconciliation.{started, completed}).  ``cli/sync.py`` ALSO emits
+# ``sync.batch.{started, completed}`` and ``sync.conflict_detected`` today,
+# and ``state/sqlite.py``'s dispatch table registers all of them against
+# ``SyncAuditPayload``.  Omitting them from the union would break the
+# dispatcher the moment T3 lands.  We therefore include subclasses for the
+# emitted-today set as well; the T3-listed reconciliation events are
+# included for forward-compat (no emitter today; T5+ may add them).
 
 
-class SyncAuditPayload(BaseModel):
-    """Generic payload for every `sync.*` audit-only event.
+class _SyncAuditBase(BaseModel):
+    """Private base for every ``sync.*`` audit payload.
 
-    Fields
-    ------
-    provider_id:
-        Registry key of the provider involved (e.g. ``"github_issues"``).
-        ``None`` for the bare-reconciliation events that span all providers.
-    task_id:
-        Local task id (e.g. ``"T001"``) when the event scopes to a single
-        task; ``None`` for batch / reconciliation level events.
-    external_id:
-        Provider-native id (e.g. GitHub issue number) when known; absent
-        on first-push events that haven't yet learned the remote id.
-    strategy:
-        :class:`fakoli_state.state.models.ConflictResolutionStrategy`
-        value as a string when this is a conflict event; ``None`` otherwise.
-    resolution:
-        Free-form short description of how the conflict was resolved
-        (``"local_wins_deferred"``, ``"remote_wins_deferred"``,
-        ``"prompt_defaulted_to_local"``, ``"prompt_chose_local"``,
-        ``"prompt_chose_remote"``, ``"prompt_skipped"``,
-        ``"manual_merge_file_written"``).
-    exception_type, exception_message:
-        Populated on `sync.*.failed` events. Both ``None`` on success.
-    direction:
-        ``"push"`` or ``"pull"``; redundant with the action prefix but
-        cheap to include and trivially queryable from JSONL.
-    audit_note:
-        Optional free-form short note (e.g. ``"watch loop iteration 3"``).
+    Carries the fields that EVERY ``sync.*`` event populates: the registry
+    ``provider_id`` of the provider in play.  ``extra="forbid"`` is set here
+    so every subclass inherits strict-mode validation without restating it.
+
+    The ``action`` discriminator field is declared on each concrete subclass
+    as a ``Literal[...]`` with a default value, so the union dispatches O(1)
+    on ``action`` AND construction without the kwarg still works
+    (``SyncPushStartedPayload(provider_id="github_issues")``).
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    # provider_id is the closest thing to a universally-present field.
+    # ``sync.batch.*`` and ``sync.push.*`` / ``sync.pull.*`` all carry it.
+    # The forward-compat reconciliation events leave it optional because a
+    # bare reconciliation scan spans every provider.
     provider_id: str | None = None
-    task_id: str | None = None
-    external_id: str | None = None
-    strategy: str | None = None
-    resolution: str | None = None
-    exception_type: str | None = None
-    exception_message: str | None = None
-    direction: str | None = None
+
+
+class SyncBatchStartedPayload(_SyncAuditBase):
+    """Payload for ``sync.batch.started`` — entry to ``_run_sync_once``.
+
+    Emitted before any per-task work happens; pairs with a terminal
+    ``sync.batch.completed``.
+    """
+
+    action: Literal["sync.batch.started"] = "sync.batch.started"
+    direction: str | None = None  # "push" / "pull" / "both"
+    audit_note: str | None = None  # e.g. "task=T001" when --task is scoped
+
+
+class SyncBatchCompletedPayload(_SyncAuditBase):
+    """Payload for ``sync.batch.completed`` — terminal of ``_run_sync_once``.
+
+    The ``audit_note`` carries the per-iteration totals string
+    (``"pushed=N pulled=M failed_push=… failed_pull=… manual_merge_pending=…"``)
+    OR the literal ``"no tasks"`` when ``_select_tasks_for_sync`` returned
+    empty.  Treat it as descriptive, not as a structured field.
+    """
+
+    action: Literal["sync.batch.completed"] = "sync.batch.completed"
     audit_note: str | None = None
 
 
+class SyncPushStartedPayload(_SyncAuditBase):
+    """Payload for ``sync.push.started`` — entry to ``_push_one_task``."""
+
+    action: Literal["sync.push.started"] = "sync.push.started"
+    task_id: str
+    external_id: str | None = None  # None on first-push (no remote id yet)
+    direction: Literal["push"] = "push"
+
+
+class SyncPushCompletedPayload(_SyncAuditBase):
+    """Payload for ``sync.push.completed`` — successful provider push + mapping upsert.
+
+    ``external_id`` is required here (unlike on ``*.started``) because by
+    definition the provider has returned an ``ExternalRef`` whose id we
+    persisted into the SyncMapping.
+    """
+
+    action: Literal["sync.push.completed"] = "sync.push.completed"
+    task_id: str
+    external_id: str
+    direction: Literal["push"] = "push"
+
+
+class SyncPushDeferredPayload(_SyncAuditBase):
+    """Payload for ``sync.push.deferred`` — push intent recorded but not executed.
+
+    Reserved for the T5 ``local_moved``-only path (see Phase 9 T1/T5 plan).
+    The local Task has moved ahead of the mapping's ``last_synced_at`` but
+    no remote push has yet caught it up; the mapping is bumped to
+    ``SyncState.local_ahead`` and this event records the deferral so
+    operators monitoring the audit stream can tell ``deferred`` apart from
+    ``completed`` or ``failed``.
+
+    ``resolution`` carries a short machine-readable token describing WHY
+    the push was deferred (e.g. ``"local_moved_no_push"``).  Free-form
+    string at this layer — T5 will define the controlled vocabulary.
+    """
+
+    action: Literal["sync.push.deferred"] = "sync.push.deferred"
+    task_id: str
+    external_id: str | None = None
+    direction: Literal["push"] = "push"
+    resolution: str | None = None
+    audit_note: str | None = None
+
+
+class SyncPushFailedPayload(_SyncAuditBase):
+    """Payload for ``sync.push.failed`` — ``provider.push_task(...)`` raised.
+
+    ``exception_type`` and ``exception_message`` are required: the whole
+    point of the ``failed`` event is to capture WHY the push failed.  A
+    failed event without an exception message is a contract violation we
+    want Pydantic to catch at validate time.
+    """
+
+    action: Literal["sync.push.failed"] = "sync.push.failed"
+    task_id: str
+    exception_type: str
+    exception_message: str
+    direction: Literal["push"] = "push"
+
+
+class SyncPullStartedPayload(_SyncAuditBase):
+    """Payload for ``sync.pull.started`` — entry to ``_pull_one_task`` after
+    ``existing`` SyncMapping is resolved.
+
+    ``external_id`` is required here because the pull is fetched by the
+    remote id (``provider.fetch_task(external_id=existing.external_id)``);
+    a pull with no remote id to fetch by would have early-returned as
+    ``skipped`` before this event fires.
+    """
+
+    action: Literal["sync.pull.started"] = "sync.pull.started"
+    task_id: str
+    external_id: str
+    direction: Literal["pull"] = "pull"
+
+
+class SyncPullCompletedPayload(_SyncAuditBase):
+    """Payload for ``sync.pull.completed`` — pull terminal when the pull
+    itself was honest (fetch succeeded, mapping bumped to a truthful
+    state), even if no local Task row was mutated this iteration.
+
+    Phase 9 T5 splits the old over-broad terminal into two events:
+    * ``sync.pull.completed`` — fires when:
+
+      1. A clean pull mutated the local Task (``_apply_remote_to_local``
+         ran), OR
+      2. The mapping was flipped to ``SyncState.external_deleted``
+         (tombstone branch — ``audit_note="external_deleted"``), OR
+      3. No divergence existed and the mapping was bumped to
+         ``SyncState.in_sync``, OR
+      4. The ``local_moved``-only branch — fetch succeeded, no remote
+         movement observed, mapping bumped to ``SyncState.local_ahead``.
+         The push hint is what's deferred (a paired
+         ``sync.push.deferred`` event with
+         ``resolution="local_moved_no_push"`` fires), NOT the pull
+         terminal itself.  T5 chose this over emitting
+         ``sync.pull.deferred`` because the pull WAS honest — only the
+         follow-up push needs operator attention.
+
+    * ``sync.pull.deferred`` — fires when the conflict-resolution
+      recorded an intent without mutating local state (see
+      :class:`SyncPullDeferredPayload`).
+
+    ``audit_note`` carries optional context — today the tombstone branch
+    sets it to ``"external_deleted"``.  ``resolution`` is OPTIONAL here:
+    a clean pull has no resolution; an immediate-apply conflict branch
+    will set ``resolution="remote_wins_applied"`` (T5 deferred to a
+    future phase per ``docs/plans/agent-welder-honesty-status.md``).
+    """
+
+    action: Literal["sync.pull.completed"] = "sync.pull.completed"
+    task_id: str
+    external_id: str
+    direction: Literal["pull"] = "pull"
+    audit_note: str | None = None
+    resolution: str | None = None
+
+
+class SyncPullDeferredPayload(_SyncAuditBase):
+    """Payload for ``sync.pull.deferred`` — pull terminal when no local Task
+    mutation happened this iteration.
+
+    Two emission paths today (Phase 9 T1 audit):
+    * ``manual_merge`` strategy — the merge file was written; the operator
+      must act before the pull can complete.  ``audit_note`` is set to
+      ``"manual_merge_pending"``.
+    * (T5) the five deferred conflict-resolution branches (``local_wins``,
+      ``remote_wins``, ``prompt_defaulted_to_local``, ``prompt_chose_local``,
+      ``prompt_chose_remote``, plus the catch-all ``prompt_skipped``).
+      ``resolution`` carries the branch identifier so the JSONL is
+      self-describing.
+
+    ``resolution`` is intentionally a free-form ``str`` and NOT a
+    ``Literal[...]`` of known tokens at this layer.  The T5 work in
+    ``cli/sync.py`` is what defines the controlled vocabulary
+    (``local_wins`` vs ``local_wins_deferred`` is still being debated —
+    see status file).  Pinning the literal set here would force a
+    payloads.py edit every time T5 adds a new resolution branch.
+    """
+
+    action: Literal["sync.pull.deferred"] = "sync.pull.deferred"
+    task_id: str
+    external_id: str
+    direction: Literal["pull"] = "pull"
+    resolution: str | None = None
+    audit_note: str | None = None
+
+
+class SyncPullFailedPayload(_SyncAuditBase):
+    """Payload for ``sync.pull.failed`` — ``provider.fetch_task(...)`` raised.
+
+    Symmetric with :class:`SyncPushFailedPayload`: ``exception_type`` and
+    ``exception_message`` are required.
+    """
+
+    action: Literal["sync.pull.failed"] = "sync.pull.failed"
+    task_id: str
+    external_id: str
+    exception_type: str
+    exception_message: str
+    direction: Literal["pull"] = "pull"
+
+
+class SyncConflictDetectedPayload(_SyncAuditBase):
+    """Payload for ``sync.conflict_detected`` — emitted by ``_resolve_conflict``.
+
+    Every conflict-resolution branch fires this event (manual_merge,
+    local_wins, remote_wins, prompt_*).  ``strategy`` is the
+    :class:`fakoli_state.state.models.ConflictResolutionStrategy` value as
+    a string; ``resolution`` is the short token describing which branch
+    handled it (today: ``"local_wins_deferred"``, ``"remote_wins_deferred"``,
+    ``"prompt_defaulted_to_local"``, ``"prompt_chose_local"``,
+    ``"prompt_chose_remote"``, ``"prompt_skipped"``,
+    ``"manual_merge_file_written"``, or
+    ``"unknown_strategy:<value>"`` for the defensive ``else``).
+
+    ``audit_note`` carries the merge file path on the ``manual_merge``
+    branch; absent otherwise.
+
+    NOT listed in the T3 plan's 10-action enumeration, but emitted today
+    by ``cli/sync.py`` and registered in ``state/sqlite.py``'s dispatch
+    table against ``SyncAuditPayload`` — omitting it would break dispatch
+    the moment T3 lands.
+    """
+
+    action: Literal["sync.conflict_detected"] = "sync.conflict_detected"
+    task_id: str
+    external_id: str
+    strategy: str
+    resolution: str
+    audit_note: str | None = None
+
+
+class SyncReconciliationStartedPayload(_SyncAuditBase):
+    """Payload for ``sync.reconciliation.started``.
+
+    NO emitter today — included per the Phase 9 T3 plan for forward
+    compatibility.  When ``ReconciliationEngine.scan()`` is wired to emit
+    audit events (planned for a later phase) this is the start marker.
+
+    ``provider_id`` is optional because a bare-reconciliation pass spans
+    EVERY configured provider, not a single one.  When the
+    reconciliation is scoped to a single provider, set it.
+    """
+
+    action: Literal["sync.reconciliation.started"] = "sync.reconciliation.started"
+    audit_note: str | None = None
+
+
+class SyncReconciliationCompletedPayload(_SyncAuditBase):
+    """Payload for ``sync.reconciliation.completed``.
+
+    NO emitter today — included per the Phase 9 T3 plan for forward
+    compatibility.  Symmetric with
+    :class:`SyncReconciliationStartedPayload`.  ``audit_note`` should
+    carry the discrepancy summary in a single descriptive string
+    (e.g. ``"orphaned_mappings=2 drift_sync_state=0"``).
+    """
+
+    action: Literal["sync.reconciliation.completed"] = "sync.reconciliation.completed"
+    audit_note: str | None = None
+
+
+# Discriminated union — Pydantic v2 dispatches O(1) on ``action``.
+# Order is informational only; the discriminator field is what selects
+# the concrete subclass at ``model_validate`` time.
+SyncAuditPayload = Annotated[
+    SyncBatchStartedPayload
+    | SyncBatchCompletedPayload
+    | SyncPushStartedPayload
+    | SyncPushCompletedPayload
+    | SyncPushDeferredPayload
+    | SyncPushFailedPayload
+    | SyncPullStartedPayload
+    | SyncPullCompletedPayload
+    | SyncPullDeferredPayload
+    | SyncPullFailedPayload
+    | SyncConflictDetectedPayload
+    | SyncReconciliationStartedPayload
+    | SyncReconciliationCompletedPayload,
+    Field(discriminator="action"),
+]
+"""Backwards-compatible alias.
+
+After Phase 9 T3 this is an ``Annotated[Union[...], Field(discriminator="action")]``
+type form, NOT a ``BaseModel`` subclass.  Callers that need a callable
+should use ``pydantic.TypeAdapter(SyncAuditPayload).validate_python(d)``
+or look up the concrete subclass via :data:`ACTION_TO_PAYLOAD`.
+"""
+
+
+# Direct dispatcher lookup: ``action`` string → concrete subclass.
+# ``state/sqlite.py:_apply_mutation`` should use this to map each
+# ``sync.*`` event to its specific payload class; calling
+# ``SubclassPayload.model_validate(payload_dict)`` works correctly even
+# when the dict has no ``action`` key (the Literal default supplies it).
+ACTION_TO_PAYLOAD: dict[str, type[BaseModel]] = {
+    "sync.batch.started": SyncBatchStartedPayload,
+    "sync.batch.completed": SyncBatchCompletedPayload,
+    "sync.push.started": SyncPushStartedPayload,
+    "sync.push.completed": SyncPushCompletedPayload,
+    "sync.push.deferred": SyncPushDeferredPayload,
+    "sync.push.failed": SyncPushFailedPayload,
+    "sync.pull.started": SyncPullStartedPayload,
+    "sync.pull.completed": SyncPullCompletedPayload,
+    "sync.pull.deferred": SyncPullDeferredPayload,
+    "sync.pull.failed": SyncPullFailedPayload,
+    "sync.conflict_detected": SyncConflictDetectedPayload,
+    "sync.reconciliation.started": SyncReconciliationStartedPayload,
+    "sync.reconciliation.completed": SyncReconciliationCompletedPayload,
+}
+
+
 __all__ = [
+    "ACTION_TO_PAYLOAD",
     "ClaimCreatedPayload",
     "ClaimReleasedPayload",
     "ClaimRenewedPayload",
@@ -447,8 +752,21 @@ __all__ = [
     "ProjectCreatedPayload",
     "StateInitializedPayload",
     "SyncAuditPayload",
+    "SyncBatchCompletedPayload",
+    "SyncBatchStartedPayload",
+    "SyncConflictDetectedPayload",
     "SyncMappingDeletedPayload",
     "SyncMappingUpsertedPayload",
+    "SyncPullCompletedPayload",
+    "SyncPullDeferredPayload",
+    "SyncPullFailedPayload",
+    "SyncPullStartedPayload",
+    "SyncPushCompletedPayload",
+    "SyncPushDeferredPayload",
+    "SyncPushFailedPayload",
+    "SyncPushStartedPayload",
+    "SyncReconciliationCompletedPayload",
+    "SyncReconciliationStartedPayload",
     "TaskAppliedPayload",
     "TaskCreatedPayload",
     "TaskExpandedPayload",

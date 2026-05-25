@@ -162,18 +162,35 @@ class TestRecordedLLMProviderHits:
         got = prov.generate(system=system, user=user)
         assert got == canned
 
-    def test_ignores_max_tokens_and_temperature(self) -> None:
-        """Recorded provider deliberately ignores tuning args."""
+    def test_distinguishes_max_tokens_and_temperature(self) -> None:
+        """Tuning args are part of the canonical key (Phase 9 C2 fix).
+
+        Inverted from the Phase 7 ``test_ignores_max_tokens_and_temperature``:
+        under the new contract, a recording made under one (max_tokens,
+        temperature) pair must NOT satisfy a lookup made under a different
+        pair.  The recorded provider raises ``LLMProviderError`` on the
+        mismatched lookup so silent collisions become loud test failures.
+        """
         system = "S"
         user = "U"
-        key = RecordedLLMProvider.record_key(system, user)
+        # Record under (max_tokens=1, temperature=0.0).
+        key = RecordedLLMProvider.record_key(
+            system, user, max_tokens=1, temperature=0.0
+        )
         canned = _make_response()
-
         prov = RecordedLLMProvider({key: canned})
-        # Should not raise; should return the same canned response.
-        a = prov.generate(system=system, user=user, max_tokens=1, temperature=0.0)
-        b = prov.generate(system=system, user=user, max_tokens=9999, temperature=0.9)
-        assert a == b == canned
+
+        # Matching tuning args → hit.
+        hit = prov.generate(system=system, user=user, max_tokens=1, temperature=0.0)
+        assert hit == canned
+
+        # Mismatched max_tokens → miss.
+        with pytest.raises(LLMProviderError, match="no recording for prompt hash"):
+            prov.generate(system=system, user=user, max_tokens=9999, temperature=0.0)
+
+        # Mismatched temperature → miss.
+        with pytest.raises(LLMProviderError, match="no recording for prompt hash"):
+            prov.generate(system=system, user=user, max_tokens=1, temperature=0.9)
 
     def test_constructor_copies_recordings(self) -> None:
         """Mutating the source dict after construction must not leak in."""
@@ -222,9 +239,16 @@ class TestRecordedLLMProviderKey:
         assert k1 != k2
 
     def test_separator_prevents_collision(self) -> None:
-        """The "\\n---\\n" separator means concat-collisions are impossible.
+        """Length-prefixed encoding prevents concat-collisions across any byte boundary.
 
-        Without a separator, ("ab", "c") and ("a", "bc") would hash the same.
+        The Phase 7 implementation used a ``"\\n---\\n"`` literal separator;
+        Phase 7 follow-up replaced that with length-prefixed encoding (each
+        chunk preceded by its 8-byte big-endian length).  Either scheme
+        defeats the naive concat collision — ``("ab", "c")`` and
+        ``("a", "bc")`` would hash the same under raw concatenation but the
+        length-prefix makes them distinguishable.  The test name is kept for
+        ``git blame`` continuity; the assertion is the canonical no-collision
+        proof regardless of which encoding shipped.
         """
         k1 = RecordedLLMProvider.record_key("ab", "c")
         k2 = RecordedLLMProvider.record_key("a", "bc")
@@ -235,6 +259,46 @@ class TestRecordedLLMProviderKey:
         # sha256 hex = 64 chars
         assert len(k) == 64
         assert all(c in "0123456789abcdef" for c in k)
+
+    def test_different_max_tokens_different_key(self) -> None:
+        """Phase 9 C2 regression: tuning args participate in the key.
+
+        Two recordings made with the same (system, user) but different
+        ``max_tokens`` MUST yield different hashes so they do not silently
+        collide in the recordings map.
+        """
+        k1 = RecordedLLMProvider.record_key("S", "U", max_tokens=100)
+        k2 = RecordedLLMProvider.record_key("S", "U", max_tokens=200)
+        assert k1 != k2
+
+    def test_different_temperature_different_key(self) -> None:
+        """Phase 9 C2 regression: temperature participates in the key."""
+        k1 = RecordedLLMProvider.record_key("S", "U", temperature=0.0)
+        k2 = RecordedLLMProvider.record_key("S", "U", temperature=0.7)
+        assert k1 != k2
+
+    def test_default_tuning_args_match_explicit_defaults(self) -> None:
+        """Omitting tuning args yields the same key as passing the defaults.
+
+        Guarantees back-compat for the no-kwargs call style: tests that
+        pre-compute keys via ``record_key(system, user)`` continue to match a
+        ``generate(system=..., user=...)`` call that also uses the defaults.
+        """
+        k_implicit = RecordedLLMProvider.record_key("S", "U")
+        k_explicit = RecordedLLMProvider.record_key(
+            "S", "U", max_tokens=4096, temperature=0.0
+        )
+        assert k_implicit == k_explicit
+
+    def test_temperature_int_and_float_zero_collapse(self) -> None:
+        """``temperature=0`` and ``temperature=0.0`` produce the same key.
+
+        ``record_key`` normalises temperature via ``repr(float(...))`` so
+        callers can pass an int without changing the hash output.
+        """
+        k_int = RecordedLLMProvider.record_key("S", "U", temperature=0)
+        k_float = RecordedLLMProvider.record_key("S", "U", temperature=0.0)
+        assert k_int == k_float
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ from fakoli_state.cli._helpers import (
 from fakoli_state.state.backend import PENDING_EVENT_ID
 
 if TYPE_CHECKING:
+    from fakoli_state.planning.inference import SubtaskProposal
     from fakoli_state.planning.llm import LLMProvider
 
 
@@ -360,6 +361,85 @@ def score(
 # ---------------------------------------------------------------------------
 
 
+_EXPAND_VALID_FORMATS = ("text", "prd")
+
+
+def _render_subtask_proposals_as_prd(
+    parent_task_id: str,
+    proposals: list[SubtaskProposal],
+    *,
+    parent_feature_id: str | None = None,
+    parent_priority: str | None = None,
+) -> str:
+    """Render proposals as markdown blocks matching ``docs/prd-template.md``.
+
+    Each proposal becomes a ``### {parent_task_id}.N: {title}`` block carrying
+    the same field set the PRD parser recognises:
+
+    - ``**Feature:**`` — populated from ``parent_feature_id`` when supplied
+      (Phase 9 critic CONSIDER fix); left blank when not, so the user can
+      fill it in before ``prd parse``.  Threading the parent's
+      ``feature_id`` from the caller eliminates the manual-edit step in the
+      ``expand --format prd`` → paste-into-prd.md workflow.
+    - ``**Priority:**`` — populated from ``parent_priority`` when supplied;
+      defaults to ``medium`` so the block is valid PRD input without further
+      editing.  Inheriting the parent's priority is the right default
+      because sub-tasks share their parent's shipping urgency.
+    - ``**Likely files:**`` — comma-separated relative paths, omitted when
+      the proposal has none.
+    - Free-form description paragraph (the LLM's description text).
+    - ``**Acceptance criteria:**`` — bulleted list, omitted when empty.
+    - ``**Verification:**`` — bulleted list, populated with a single
+      placeholder ``- TODO: add verification command`` so the block is not
+      missing the field; the user replaces it before approving.
+
+    Subtask IDs are emitted as ``{parent_task_id}.N`` (1-based index), per
+    ``docs/prd-template.md`` section "ID Conventions" — ``T001.1, T001.2, …``.
+
+    The output is paste-ready into the ``## Tasks`` section of
+    ``.fakoli-state/prd.md``: no leading or trailing whitespace beyond a
+    single blank line between blocks.
+    """
+    # Sub-tasks inherit the parent's priority by default (sub-tasks ship
+    # under the parent's urgency); ``medium`` is the schema default when the
+    # caller does not know the parent's priority (test paths, future callers
+    # that only have a list of proposals).
+    priority = parent_priority if parent_priority else "medium"
+    blocks: list[str] = []
+    for idx, sub in enumerate(proposals, start=1):
+        sub_id = f"{parent_task_id}.{idx}"
+        lines: list[str] = [f"### {sub_id}: {sub.title}", ""]
+        # Feature is inherited from the parent in the PRD model.  When the
+        # caller threads it through, emit ``**Feature:** <id>`` directly so
+        # the paste-into-prd.md workflow has zero manual edits.  When
+        # absent, emit the bare label as a placeholder.
+        if parent_feature_id:
+            lines.append(f"**Feature:** {parent_feature_id}")
+        else:
+            lines.append("**Feature:**")
+        lines.append(f"**Priority:** {priority}")
+        if sub.likely_files:
+            lines.append("**Likely files:** " + ", ".join(sub.likely_files))
+        # Free-form description paragraph (after fields, before acceptance).
+        if sub.description:
+            lines.append("")
+            lines.append(sub.description)
+        if sub.acceptance_criteria:
+            lines.append("")
+            lines.append("**Acceptance criteria:**")
+            lines.append("")
+            for crit in sub.acceptance_criteria:
+                lines.append(f"- {crit}")
+        # Verification placeholder — keeps the block schema-complete; the
+        # human is expected to replace the TODO before `prd parse`.
+        lines.append("")
+        lines.append("**Verification:**")
+        lines.append("")
+        lines.append("- TODO: add verification command")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 def expand(
     task_id: str = typer.Argument(..., help="Task ID to expand into subtasks."),  # noqa: B008
     cwd: Path | None = typer.Option(  # noqa: B008
@@ -377,6 +457,16 @@ def expand(
             "are decomposed; lower-complexity tasks return no proposals."
         ),
     ),
+    format: str = typer.Option(  # noqa: B008, A002 — Typer convention; A002 ok for CLI flag
+        "text",
+        "--format",
+        help=(
+            "Output format: 'text' (default, human-readable per-subtask "
+            "block) or 'prd' (markdown blocks matching docs/prd-template.md "
+            "— paste directly into the ## Tasks section of "
+            ".fakoli-state/prd.md)."
+        ),
+    ),
 ) -> None:
     """Expand a task into sub-task proposals via the LLM.
 
@@ -388,7 +478,21 @@ def expand(
     sub-task proposals.  Proposals are printed for the human to paste into
     prd.md; this command does NOT mutate state.  Tasks with complexity < 4
     are deemed simple enough to ship as-is.
+
+    With ``--format prd`` the output is rendered as ready-to-paste markdown
+    blocks matching ``docs/prd-template.md``.  ``--format text`` (default)
+    keeps the legacy per-subtask human-readable block.
     """
+    # Validate --format early so the user sees a clean error before the
+    # backend / provider initialisation cost.
+    if format not in _EXPAND_VALID_FORMATS:
+        typer.echo(
+            f"Error: --format must be one of {{{', '.join(_EXPAND_VALID_FORMATS)}}}; "
+            f"got {format!r}.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     if not use_llm:
         typer.echo(
             "Error: expand requires --use-llm (Phase 7) OR manual subtask authoring "
@@ -432,6 +536,23 @@ def expand(
                 f"No sub-task proposals produced for {task_id} "
                 "(see warnings on stderr).",
             )
+        return
+
+    if format == "prd":
+        # PRD mode: emit ready-to-paste markdown blocks. Hint line points the
+        # user at the destination file so the paste step is obvious.
+        typer.echo(
+            f"# {len(proposals)} sub-task block(s) for {task_id} — "
+            "paste into the ## Tasks section of .fakoli-state/prd.md:\n"
+        )
+        typer.echo(
+            _render_subtask_proposals_as_prd(
+                task_id,
+                proposals,
+                parent_feature_id=task.feature_id,
+                parent_priority=str(task.priority),
+            )
+        )
         return
 
     typer.echo(

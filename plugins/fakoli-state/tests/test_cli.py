@@ -1884,8 +1884,13 @@ Tiny body.
         user_payload = (
             "Requirement: ShortTitle\nExisting short description: 'Tiny body.'"
         )
+        # Phase 9 C2: record_key includes tuning args; pass the engine's
+        # _DESCRIPTION_ENRICH_MAX_TOKENS so the recorded key matches.
+        from fakoli_state.planning.template import _DESCRIPTION_ENRICH_MAX_TOKENS
         key = RecordedLLMProvider.record_key(
-            _DESCRIPTION_ENRICH_SYSTEM_PROMPT, user_payload
+            _DESCRIPTION_ENRICH_SYSTEM_PROMPT,
+            user_payload,
+            max_tokens=_DESCRIPTION_ENRICH_MAX_TOKENS,
         )
         canned = LLMResponse(
             text=enriched_text,

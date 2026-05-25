@@ -273,6 +273,65 @@ them with secrets.
 
 ---
 
+## Per-provider configuration (v1.9.0)
+
+The `sync` CLI iterates *configured providers* — by default every provider
+in `PROVIDER_REGISTRY`, optionally narrowed to an explicit subset via
+`config.yaml`. v1.9.0 added the `sync.providers` top-level config key so
+projects can opt into a deliberate subset (or out of every provider) without
+deregistering modules.
+
+### Schema
+
+```yaml
+# .fakoli-state/config.yaml — fragment
+sync:
+  providers:
+    - github_issues
+    # - linear_issues      # contributor-registered providers also accepted
+    # - monday_boards
+```
+
+### Three-way semantics
+
+The presence-vs-absence-vs-empty-list distinction is load-bearing:
+
+| YAML form                | `Config.sync_providers`  | Caller behaviour                                            |
+|--------------------------|--------------------------|-------------------------------------------------------------|
+| key absent               | `None`                   | Fall back to `sorted(PROVIDER_REGISTRY)` (v1.8.0 default).  |
+| `sync.providers: [a, b]` | `("a", "b")`             | Use the explicit list, in order.                            |
+| `sync.providers: []`     | `()` (NOT `None`)        | Opt out of every provider — sync is a no-op.                |
+
+The `()` vs `None` distinction matters: a frozen project that wants to
+suppress sync drift entirely needs `[]` (an explicit empty list); a
+project that simply has not bothered to configure providers should still
+scan everything registered. The `Config.sync_providers: tuple[str, ...]
+| None` field pins both behaviours; tests cover both.
+
+### Fallback safety
+
+Lookup happens in `_resolve_configured_providers` in `cli/sync.py` —
+the single seam. A malformed config (unparseable YAML, type errors)
+falls back to `sorted(PROVIDER_REGISTRY)` rather than breaking
+`fakoli-state sync` entirely. Loud config errors are the job of
+`fakoli-state init` / `doctor`, not the sync surface.
+
+### Init template
+
+The `fakoli-state init` config template does NOT include `sync.providers`
+— it is opt-in. Add it manually when you want to narrow or opt out.
+
+### Reconciliation interaction
+
+The bare `fakoli-state sync` (reconciliation only) consumes the same
+configured-providers list. When the list is the registry fallback,
+reconciliation emits one `missing_sync_mapping` discrepancy per missing
+provider per done task. When the list is explicit, only the listed
+providers contribute discrepancy rows — the "frozen project" mode above
+silences `missing_sync_mapping` entirely.
+
+---
+
 ## `provider_id` naming
 
 **Snake_case.** Always. Examples:

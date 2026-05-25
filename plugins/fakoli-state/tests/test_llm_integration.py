@@ -165,8 +165,13 @@ class TestScoreTaskWithProvider:
             },
             sort_keys=True,
         )
+        # Phase 9 C2: record_key includes tuning args, so the test must pass
+        # the exact max_tokens the score engine uses (_SCORE_EXPLAIN_MAX_TOKENS).
+        from fakoli_state.planning.scoring import _SCORE_EXPLAIN_MAX_TOKENS
         key = RecordedLLMProvider.record_key(
-            _SCORE_EXPLAIN_SYSTEM_PROMPT, user_payload
+            _SCORE_EXPLAIN_SYSTEM_PROMPT,
+            user_payload,
+            max_tokens=_SCORE_EXPLAIN_MAX_TOKENS,
         )
 
         canned = _make_response(
@@ -235,8 +240,13 @@ class TestScoreTaskWithProvider:
             },
             sort_keys=True,
         )
+        # Phase 9 C2: record_key includes tuning args; pass the engine's
+        # _SCORE_EXPLAIN_MAX_TOKENS so the recorded key matches the lookup.
+        from fakoli_state.planning.scoring import _SCORE_EXPLAIN_MAX_TOKENS
         key = RecordedLLMProvider.record_key(
-            _SCORE_EXPLAIN_SYSTEM_PROMPT, user_payload
+            _SCORE_EXPLAIN_SYSTEM_PROMPT,
+            user_payload,
+            max_tokens=_SCORE_EXPLAIN_MAX_TOKENS,
         )
         # Empty text — the engine should keep the deterministic explanation.
         canned = _make_response("   ")
@@ -341,8 +351,13 @@ class TestParsePrdWithProvider:
             f"Requirement: {det_task.title}\n"
             f"Existing short description: {det_task.description!r}"
         )
+        # Phase 9 C2: record_key includes tuning args; pass the engine's
+        # _DESCRIPTION_ENRICH_MAX_TOKENS so the recorded key matches.
+        from fakoli_state.planning.template import _DESCRIPTION_ENRICH_MAX_TOKENS
         key = RecordedLLMProvider.record_key(
-            _DESCRIPTION_ENRICH_SYSTEM_PROMPT, user_payload
+            _DESCRIPTION_ENRICH_SYSTEM_PROMPT,
+            user_payload,
+            max_tokens=_DESCRIPTION_ENRICH_MAX_TOKENS,
         )
         canned_text = (
             "Implement the Short module: define the public surface in "
@@ -466,7 +481,12 @@ class TestExpandTaskWithProvider:
         canned = _make_response(json.dumps(canned_payload))
 
         user_payload = _expand_user_payload(task)
-        key = RecordedLLMProvider.record_key(_EXPAND_SYSTEM_PROMPT, user_payload)
+        # Phase 9 C2: record_key includes tuning args; expand_task uses
+        # _EXPAND_MAX_TOKENS, so the test must pass the same value to match.
+        from fakoli_state.planning.inference import _EXPAND_MAX_TOKENS
+        key = RecordedLLMProvider.record_key(
+            _EXPAND_SYSTEM_PROMPT, user_payload, max_tokens=_EXPAND_MAX_TOKENS
+        )
         provider = RecordedLLMProvider({key: canned})
 
         proposals = expand_task(task, provider=provider)
@@ -496,12 +516,18 @@ class TestExpandTaskWithProvider:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Garbled (non-JSON) LLM output → empty + stderr warning."""
-        from fakoli_state.planning.inference import _EXPAND_SYSTEM_PROMPT
+        from fakoli_state.planning.inference import (
+            _EXPAND_MAX_TOKENS,
+            _EXPAND_SYSTEM_PROMPT,
+        )
 
         task = _make_task(complexity=4)
         canned = _make_response("Sorry, I cannot help with that today.")
+        # Phase 9 C2: record_key includes tuning args.
         key = RecordedLLMProvider.record_key(
-            _EXPAND_SYSTEM_PROMPT, _expand_user_payload(task)
+            _EXPAND_SYSTEM_PROMPT,
+            _expand_user_payload(task),
+            max_tokens=_EXPAND_MAX_TOKENS,
         )
         provider = RecordedLLMProvider({key: canned})
 
@@ -514,12 +540,18 @@ class TestExpandTaskWithProvider:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """LLM returns a JSON object (not list) → empty + warning."""
-        from fakoli_state.planning.inference import _EXPAND_SYSTEM_PROMPT
+        from fakoli_state.planning.inference import (
+            _EXPAND_MAX_TOKENS,
+            _EXPAND_SYSTEM_PROMPT,
+        )
 
         task = _make_task(complexity=4)
         canned = _make_response('{"wrong": "shape"}')
+        # Phase 9 C2: record_key includes tuning args.
         key = RecordedLLMProvider.record_key(
-            _EXPAND_SYSTEM_PROMPT, _expand_user_payload(task)
+            _EXPAND_SYSTEM_PROMPT,
+            _expand_user_payload(task),
+            max_tokens=_EXPAND_MAX_TOKENS,
         )
         provider = RecordedLLMProvider({key: canned})
 
@@ -529,7 +561,10 @@ class TestExpandTaskWithProvider:
 
     def test_skips_malformed_items_but_keeps_good_ones(self) -> None:
         """Items missing title are skipped; well-formed siblings still returned."""
-        from fakoli_state.planning.inference import _EXPAND_SYSTEM_PROMPT
+        from fakoli_state.planning.inference import (
+            _EXPAND_MAX_TOKENS,
+            _EXPAND_SYSTEM_PROMPT,
+        )
 
         task = _make_task(complexity=4)
         canned_payload = [
@@ -548,8 +583,11 @@ class TestExpandTaskWithProvider:
             },
         ]
         canned = _make_response(json.dumps(canned_payload))
+        # Phase 9 C2: record_key includes tuning args.
         key = RecordedLLMProvider.record_key(
-            _EXPAND_SYSTEM_PROMPT, _expand_user_payload(task)
+            _EXPAND_SYSTEM_PROMPT,
+            _expand_user_payload(task),
+            max_tokens=_EXPAND_MAX_TOKENS,
         )
         provider = RecordedLLMProvider({key: canned})
 
@@ -560,7 +598,10 @@ class TestExpandTaskWithProvider:
 
     def test_caps_proposals_at_five(self) -> None:
         """If the LLM returns >5 proposals, the engine truncates to 5."""
-        from fakoli_state.planning.inference import _EXPAND_SYSTEM_PROMPT
+        from fakoli_state.planning.inference import (
+            _EXPAND_MAX_TOKENS,
+            _EXPAND_SYSTEM_PROMPT,
+        )
 
         task = _make_task(complexity=4)
         canned_payload = [
@@ -573,8 +614,11 @@ class TestExpandTaskWithProvider:
             for i in range(8)
         ]
         canned = _make_response(json.dumps(canned_payload))
+        # Phase 9 C2: record_key includes tuning args.
         key = RecordedLLMProvider.record_key(
-            _EXPAND_SYSTEM_PROMPT, _expand_user_payload(task)
+            _EXPAND_SYSTEM_PROMPT,
+            _expand_user_payload(task),
+            max_tokens=_EXPAND_MAX_TOKENS,
         )
         provider = RecordedLLMProvider({key: canned})
 

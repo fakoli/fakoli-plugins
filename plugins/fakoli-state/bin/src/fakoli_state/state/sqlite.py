@@ -24,6 +24,8 @@ import sqlite3
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
+
 from fakoli_state.state.backend import (
     PENDING_EVENT_ID,
     BackendError,  # noqa: F401
@@ -44,6 +46,7 @@ from fakoli_state.state.models import (
     Task,
 )
 from fakoli_state.state.payloads import (
+    ACTION_TO_PAYLOAD,
     ClaimCreatedPayload,
     ClaimReleasedPayload,
     ClaimRenewedPayload,
@@ -57,7 +60,6 @@ from fakoli_state.state.payloads import (
     ProgressNotedPayload,
     ProjectCreatedPayload,
     StateInitializedPayload,
-    SyncAuditPayload,
     SyncMappingDeletedPayload,
     SyncMappingUpsertedPayload,
     TaskAppliedPayload,
@@ -858,23 +860,22 @@ class SqliteBackend:
             # entire audit record. State mutation flows through the
             # `sync_mapping.upserted` event above, kept separate so replay
             # can rebuild the mappings table without `sync.*` semantics.
-            "sync.push.started": (SyncAuditPayload, self._handle_sync_audit),
-            "sync.push.completed": (SyncAuditPayload, self._handle_sync_audit),
-            "sync.push.failed": (SyncAuditPayload, self._handle_sync_audit),
-            "sync.pull.started": (SyncAuditPayload, self._handle_sync_audit),
-            "sync.pull.completed": (SyncAuditPayload, self._handle_sync_audit),
-            "sync.pull.failed": (SyncAuditPayload, self._handle_sync_audit),
-            # PR#49 MF — terminal audit event for the manual_merge branch.
-            # ``sync.pull.started`` is emitted unconditionally, so without a
-            # ``deferred`` counterpart the audit log contains a dangling
-            # start with no terminal event when the operator must
-            # intervene. Operators monitoring ``events.jsonl`` could not
-            # otherwise disambiguate a parked manual-merge from a
-            # process crash mid-iteration.
-            "sync.pull.deferred": (SyncAuditPayload, self._handle_sync_audit),
-            "sync.conflict_detected": (SyncAuditPayload, self._handle_sync_audit),
-            "sync.batch.started": (SyncAuditPayload, self._handle_sync_audit),
-            "sync.batch.completed": (SyncAuditPayload, self._handle_sync_audit),
+            #
+            # Phase 9 T3/T5: ``SyncAuditPayload`` is now a discriminated
+            # union (TypeAlias), NOT a BaseModel subclass — calling
+            # ``SyncAuditPayload.model_validate(...)`` from the dispatcher
+            # raises ``AttributeError`` because ``types.UnionType`` has no
+            # such classmethod. We now dispatch each ``sync.*`` action
+            # against its concrete subclass via ``ACTION_TO_PAYLOAD`` from
+            # ``payloads.py`` so every entry resolves to a real
+            # ``BaseModel`` class with a working ``.model_validate``. This
+            # also tightens validation: each subclass declares only the
+            # fields its action actually carries (``extra='forbid'``), so
+            # malformed payloads fail fast at dispatch time.
+            **{
+                action: (model_cls, self._handle_sync_audit)
+                for action, model_cls in ACTION_TO_PAYLOAD.items()
+            },
         }
         self._action_handlers_cache = table
         return table
@@ -2104,22 +2105,25 @@ class SqliteBackend:
     def _handle_sync_audit(
         self,
         conn: sqlite3.Connection,
-        payload: SyncAuditPayload,
+        payload: BaseModel,
         event: Event,
     ) -> None:
         """Audit-trail-only handler for every `sync.*` action (Phase 8 Wave 3).
 
-        Covers `sync.push.started|completed|failed`,
-        `sync.pull.started|completed|failed`, `sync.conflict_detected`,
-        `sync.batch.started|completed`. The actual mapping persistence is
-        emitted by the CLI as a separate `sync_mapping.upserted` event so
-        replay-from-empty can rebuild the mappings table without depending
-        on the audit stream.
+        Covers `sync.push.started|completed|deferred|failed`,
+        `sync.pull.started|completed|deferred|failed`, `sync.conflict_detected`,
+        `sync.batch.started|completed`, and the forward-compat
+        `sync.reconciliation.{started,completed}`. The actual mapping
+        persistence is emitted by the CLI as a separate
+        `sync_mapping.upserted` event so replay-from-empty can rebuild
+        the mappings table without depending on the audit stream.
 
-        No SQLite mutation: the JSONL row and the events-table INSERT
-        (recorded by the caller) are the entire audit record. The validated
-        payload ensures every sync audit row carries the known field
-        schema via SyncAuditPayload's extra='forbid'.
+        ``payload`` is a concrete subclass of the ``SyncAuditPayload``
+        discriminated union (Phase 9 T3): one per action, each with
+        ``extra='forbid'`` so malformed payloads fail at dispatch time.
+        The handler does not introspect the payload — the JSONL row and
+        the events-table INSERT (recorded by the caller) are the entire
+        audit record.
         """
         # No-op — the event row is recorded by the caller in the events table.
         _ = payload

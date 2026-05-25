@@ -82,7 +82,7 @@
     },
     {
       "name": "fakoli-state",
-      "version": "1.8.0",
+      "version": "1.9.0",
       "description": "Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.",
       "source": "./plugins/fakoli-state"
     },

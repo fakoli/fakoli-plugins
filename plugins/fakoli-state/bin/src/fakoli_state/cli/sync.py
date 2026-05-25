@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import typer
+import yaml
 
 from fakoli_state.cli._helpers import (
     _open_backend,
@@ -787,6 +788,21 @@ def _pull_one_task(
     remote_moved = remote.last_modified > existing.last_synced_at
     local_moved = task.updated_at > existing.last_synced_at
 
+    # Track whether this iteration produced a real local mutation. Used
+    # downstream to pick the honest terminal event:
+    #   * sync.pull.completed → ``mutated_local`` is True (clean pull bumps
+    #     the mapping; tombstone flips to external_deleted; remote-moved-only
+    #     rewrites the Task; immediate-apply conflict branches do likewise).
+    #   * sync.pull.deferred  → the branch recorded an intent only
+    #     (manual_merge file written; 6 deferred conflict-resolution
+    #     branches that have not yet been wired to mutate inline).
+    # Also tracks the resolution token for the deferred branches so the
+    # audit row is self-describing (e.g. "local_wins_deferred",
+    # "prompt_chose_remote", "manual_merge_pending"). The resolution
+    # token is the value returned by ``_resolve_conflict`` and is passed
+    # straight into the audit payload below (Wave 3 critic CONSIDER #1 /
+    # Greptile P2, PR #50: no need for an intermediate variable).
+
     if remote_moved and local_moved:
         # --fix forces remote_wins for this run.
         strategy = (
@@ -794,7 +810,7 @@ def _pull_one_task(
             if fix
             else existing.conflict_resolution_strategy
         )
-        resolved = _resolve_conflict(
+        resolved, applied, resolution = _resolve_conflict(
             backend=backend,
             state_dir=state_dir,
             provider=provider,
@@ -827,7 +843,36 @@ def _pull_one_task(
                     "task_id": task.id,
                     "external_id": existing.external_id,
                     "direction": "pull",
+                    "resolution": resolution,
                     "audit_note": "manual_merge_pending",
+                },
+                target_kind="task",
+                target_id=task.id,
+            )
+            return
+        if not applied:
+            # T5 audit-honesty repointing: the resolution recorded an
+            # intent (local_wins / remote_wins / prompt_*) but no local
+            # Task mutation happened in this iteration. The historical
+            # `sync.pull.completed` terminal lied — see scout's T1
+            # status file (six "DISHONEST" branches at cli/sync.py:1044,
+            # 1059, 1075, 1088, 1091, 1094). Switch to the honest
+            # `sync.pull.deferred` terminal so operators monitoring the
+            # audit stream can tell deferred-intent apart from a true
+            # local-state mutation. The mapping bookkeeping
+            # (`_bump_mapping_state` inside `_resolve_conflict`) still
+            # ran, so subsequent polls do not re-detect the same
+            # conflict — only the terminal name changes.
+            results["pulled"] += 1
+            _emit_audit(
+                backend,
+                action="sync.pull.deferred",
+                payload={
+                    "provider_id": provider.provider_id,
+                    "task_id": task.id,
+                    "external_id": existing.external_id,
+                    "direction": "pull",
+                    "resolution": resolution,
                 },
                 target_kind="task",
                 target_id=task.id,
@@ -845,14 +890,55 @@ def _pull_one_task(
             remote=remote,
             existing=existing,
         )
+    elif local_moved and not remote_moved:
+        # T5 local_moved-only path: the local Task carries unsynced edits
+        # but the remote has not moved. Pre-fix (scout T1 audit, line
+        # 848-865) this branch collapsed into the `else` arm and bumped
+        # the mapping to ``SyncState.in_sync`` — actively erasing the
+        # divergence signal that reconciliation's `drift_sync_state` scan
+        # needs to surface the missed push. Correct semantics: mark the
+        # mapping ``local_ahead`` (we know the local copy is ahead), and
+        # emit ``sync.push.deferred`` with ``resolution="local_moved_no_push"``
+        # so operators can grep for tasks awaiting a follow-up push.
+        # Reuses the existing ``sync.push.deferred`` action per guido T3's
+        # escalation — do NOT widen the discriminated union with a new
+        # action string.
+        from fakoli_state.clock import SystemClock
+        from fakoli_state.state.models import SyncState
+
+        _bump_mapping_state(
+            backend=backend,
+            existing=existing,
+            new_state=SyncState.local_ahead,
+            clock_now=SystemClock().now(),
+            actor=f"sync.{provider.provider_id}",
+        )
+        _emit_audit(
+            backend,
+            action="sync.push.deferred",
+            payload={
+                "provider_id": provider.provider_id,
+                "task_id": task.id,
+                "external_id": existing.external_id,
+                "direction": "push",
+                "resolution": "local_moved_no_push",
+                "audit_note": "local task ahead of remote; run --push to advance",
+            },
+            target_kind="task",
+            target_id=task.id,
+        )
+        # The pull itself is honest — we did fetch the remote, we did
+        # observe no remote movement, and we bumped the mapping to a
+        # truthful state. Emit the pull terminal too so the start/end
+        # pair is closed; the separate push.deferred event records the
+        # push hint.
     else:
-        # SF-15: clean pull (neither side moved, OR local moved but
-        # remote did not). The pull succeeded — bump last_synced_at so
-        # the 7-day drift_sync_state scan does not flag this mapping
-        # as "stale" just because no remote write happened. Without
-        # this, any task that's been pull-only-synced for a week
-        # surfaces as drift even if pulls have been happening every
-        # minute.
+        # SF-15: clean pull — neither side moved. The pull succeeded —
+        # bump last_synced_at so the 7-day drift_sync_state scan does
+        # not flag this mapping as "stale" just because no remote write
+        # happened. Without this, any task that's been pull-only-synced
+        # for a week surfaces as drift even if pulls have been happening
+        # every minute.
         from fakoli_state.clock import SystemClock
         from fakoli_state.state.models import SyncState
 
@@ -1015,13 +1101,23 @@ def _resolve_conflict(
     strategy: Any,
     yes: bool,
     existing: Any,
-) -> bool:
+) -> tuple[bool, bool, str]:
     """Apply the configured conflict-resolution strategy.
 
-    Returns True if the conflict was resolved (or chosen to be ignored),
-    False if the strategy is ``manual_merge`` and the caller must wait
-    for operator action (we have written the merge file and refuse the
-    sync until the operator deletes it).
+    Returns a 3-tuple ``(resolved, applied, resolution)``:
+    * ``resolved`` — True if the conflict was handled (any branch except
+      ``manual_merge`` which returns False because operator action is
+      required before the pull can continue).
+    * ``applied`` — True if this iteration actually mutated the local
+      Task (immediate-apply variants of ``local_wins`` / ``remote_wins``).
+      False for the six deferred branches (``local_wins_deferred``,
+      ``remote_wins_deferred``, ``prompt_defaulted_to_local``,
+      ``prompt_chose_local``, ``prompt_chose_remote``, ``prompt_skipped``)
+      where only the mapping bookkeeping advanced; the caller uses this
+      to pick ``sync.pull.completed`` vs the honest ``sync.pull.deferred``.
+    * ``resolution`` — the short token (e.g. ``"local_wins_deferred"``,
+      ``"manual_merge_file_written"``) carried into the conflict /
+      pull-deferred audit row so the JSONL is self-describing.
 
     Emits ``sync.conflict_detected`` regardless of resolution.
 
@@ -1135,11 +1231,12 @@ def _resolve_conflict(
             clock_now=SystemClock().now(),
             actor=f"sync.{provider.provider_id}",
         )
-        # Return False (don't raise) so the caller can continue the batch
-        # — important for --watch mode where one task in manual_merge
-        # must not halt the whole daemon. The batch loop tracks the
-        # manual_merge count and exits 2 at the end if any were pending.
-        return False
+        # Return resolved=False (don't raise) so the caller can continue
+        # the batch — important for --watch mode where one task in
+        # manual_merge must not halt the whole daemon. The batch loop
+        # tracks the manual_merge count and exits 2 at the end if any
+        # were pending. ``applied`` is False (no local Task mutation).
+        return (False, False, "manual_merge_file_written")
     else:  # pragma: no cover — defensive; StrEnum is exhaustive above
         resolution = f"unknown_strategy:{strategy_str}"
         new_state = SyncState.conflict
@@ -1167,7 +1264,19 @@ def _resolve_conflict(
         clock_now=SystemClock().now(),
         actor=f"sync.{provider.provider_id}",
     )
-    return True
+    # T5 audit-honesty: every branch that falls through to here is
+    # DEFERRED — no local Task mutation happened in this iteration. The
+    # caller uses ``applied=False`` to emit ``sync.pull.deferred`` instead
+    # of the historically-dishonest ``sync.pull.completed``. The future
+    # immediate-apply variants (``local_wins_applied`` /
+    # ``remote_wins_applied``) would set ``applied=True`` here and
+    # perform the corresponding ``provider.push_task(...)`` /
+    # ``_apply_remote_to_local(...)`` call BEFORE the bookkeeping bump.
+    # See ``TODO(phase-9)`` markers on the local_wins / remote_wins
+    # branches above; not wired in T5 because each variant needs its
+    # own conflict-safety design (a re-push on local_wins can itself
+    # race with a parallel remote edit, and the spec is not finalised).
+    return (True, False, resolution)
 
 
 def _write_manual_merge_file(
@@ -1278,6 +1387,48 @@ def _run_watch_loop(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_configured_providers(state_dir: Path) -> list[str]:
+    """Return the list of provider ids the reconciliation engine should scan.
+
+    Phase 9 T5: honours the optional top-level ``sync.providers`` key in
+    ``.fakoli-state/config.yaml`` if present, otherwise falls back to
+    ``sorted(PROVIDER_REGISTRY)`` (v1.8.0 behaviour: every registered
+    provider counts).
+
+    The config file is opened best-effort — if it cannot be read for any
+    reason (missing, malformed, raises) the registry fallback is used so
+    that ``fakoli-state sync`` continues to work from a partially-broken
+    project state. Validation errors at startup are the job of
+    ``fakoli-state init`` / ``fakoli-state doctor``, not the sync
+    reconciliation surface.
+
+    An empty pinned list (``sync.providers: []``) is respected as-is:
+    the operator explicitly opted out of every provider, so we return an
+    empty list rather than silently falling back to the registry.
+    """
+    from fakoli_state.sync import registry as sync_registry
+
+    config_path = state_dir / "config.yaml"
+    if config_path.exists():
+        try:
+            from fakoli_state.config import load_config
+
+            cfg = load_config(config_path)
+            if cfg.sync_providers is not None:
+                return list(cfg.sync_providers)
+        except (ValueError, OSError, yaml.YAMLError):
+            # Best-effort: defer the loud error to the next config-touching
+            # command (init / doctor). Sync defaults to the registry so the
+            # operator can still inspect/repair drift.
+            # ``yaml.YAMLError`` covers malformed YAML — it is a subclass
+            # of ``Exception`` (not of ``ValueError`` or ``OSError``), so
+            # without it a syntactically broken config.yaml would escape
+            # the best-effort catch and crash ``fakoli-state sync`` with
+            # an unhandled traceback. (Greptile P1, PR #50.)
+            pass
+    return sorted(sync_registry.PROVIDER_REGISTRY)
+
+
 def _run_reconciliation(
     backend: SqliteBackend,
     state_dir: Path,
@@ -1285,12 +1436,13 @@ def _run_reconciliation(
     """Build a ReconciliationEngine and run scan()."""
     from fakoli_state.clock import SystemClock
 
-    # Configured providers list flows in from the project's config; for now
-    # we ask the registry. Tests can monkeypatch PROVIDER_REGISTRY directly.
-    from fakoli_state.sync import registry as sync_registry
+    # Configured providers list flows from the project's config (Phase 9
+    # T5 ``sync.providers``) and falls back to the registry when absent.
+    # Tests that monkeypatch ``PROVIDER_REGISTRY`` continue to work
+    # because the fallback path queries the registry directly.
     from fakoli_state.sync.reconciliation import ReconciliationEngine
 
-    configured = sorted(sync_registry.PROVIDER_REGISTRY)
+    configured = _resolve_configured_providers(state_dir)
     engine = ReconciliationEngine(
         backend,
         state_dir=state_dir,
@@ -1307,10 +1459,9 @@ def _apply_reconciliation_fixes(
 ) -> list[Any]:
     """Build the engine again and call .fix() on the report."""
     from fakoli_state.clock import SystemClock
-    from fakoli_state.sync import registry as sync_registry
     from fakoli_state.sync.reconciliation import ReconciliationEngine
 
-    configured = sorted(sync_registry.PROVIDER_REGISTRY)
+    configured = _resolve_configured_providers(state_dir)
     engine = ReconciliationEngine(
         backend,
         state_dir=state_dir,
@@ -1371,9 +1522,23 @@ def _emit_audit(
 ) -> None:
     """Append a sync.* audit event via apply_event().
 
-    Strips None fields so the JSONL is compact. The
-    :class:`fakoli_state.state.payloads.SyncAuditPayload` model accepts
-    None on every field so the strip is for ergonomics, not correctness.
+    Strips None fields before dispatch.  After the Phase 9 T3 discriminated
+    union, ``SyncAuditPayload`` is no longer a single all-optional model:
+    each action has its own concrete subclass with action-specific REQUIRED
+    fields (e.g. :class:`SyncPushFailedPayload` requires ``task_id``,
+    ``exception_type``, ``exception_message``).  Callers MUST supply those
+    required fields in ``payload`` — the None strip below does NOT excuse a
+    missing required field.
+
+    The strip remains load-bearing for OPTIONAL fields with ``None`` defaults
+    (``external_id`` on first-push, ``audit_note`` on most events,
+    ``resolution`` on clean pulls, etc.).  Without it the JSONL would carry
+    ``"audit_note": null`` rows that clutter forensic queries and break
+    ``jq 'has("audit_note")'`` filters.  The dispatcher in
+    ``state/sqlite.py:_apply_mutation`` validates the cleaned dict against
+    ``ACTION_TO_PAYLOAD[action]`` so any genuinely-missing REQUIRED field
+    surfaces as ``ValidationError`` from ``apply_event`` and propagates —
+    silently dropping it would be the wrong fix.
 
     Audit emission failures are non-fatal: a sync that succeeded but
     whose audit row failed to write is strictly better than aborting

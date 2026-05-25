@@ -6,11 +6,108 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-v1.8.0 ships feature-complete v0 per the spec at
-docs/specs/2026-05-24-fakoli-state-v0.md. Future minor bumps will
-land additional sync providers (Monday, Linear, Jira), webhook-based
-sync (vs polling), and the Phase 9 immediate-apply conflict resolution
-wired to `*_applied` audit events.
+v1.9.0 closes the Phase 8 audit-honesty deferrals, the Phase 7
+LLM-augmentation cleanup, and ships two new plugin-owned doc agents.
+v2.0 will add LinearIssuesProvider and MondayBoardsProvider; v2.x will
+spec webhook-based sync (vs polling) and wire the immediate-apply
+`*_applied` conflict-resolution variants — see `docs/phase-9-backlog.md`
+for the full roadmap.
+
+---
+
+## [1.9.0] — 2026-05-25
+
+Phase 9: audit honesty + multi-provider config + Phase 7 cleanup + two
+new plugin-owned doc agents. The sync engine's audit stream is now
+truthful — six dishonest `sync.pull.completed` emissions on
+conflict-resolution branches that did not actually mutate local state
+now correctly emit `sync.pull.deferred`. The `local_moved`-only pull
+path bug-collapse (mapping was set to `in_sync` despite local being
+ahead) is fixed to set `sync_state="local_ahead"` and emit a
+`sync.push.deferred` hint. The `SyncAuditPayload` model is now a Pydantic
+v2 discriminated union with `extra="forbid"` per action — field-vs-action
+mismatches surface as `ValidationError` instead of being silently
+accepted. A new opt-in `sync.providers` config key lets projects narrow
+or fully opt out of provider iteration.
+
+Phase 7 leftovers closed: `RecordedLLMProvider.record_key` now folds
+`max_tokens` and `temperature` into the canonical hash (two recordings
+under different tuning args no longer collide); brainstorm-skill
+fakoli-flow detection uses an explicit `claude plugin list` check rather
+than fuzzy prose; `fakoli-state expand --use-llm --format prd` emits
+paste-ready markdown blocks matching `docs/prd-template.md` (with
+`**Feature:**` and `**Priority:**` populated from the parent task).
+
+Ships v1.9.0.
+
+### Added — Audit honesty (T5)
+
+- `bin/src/fakoli_state/cli/sync.py`:
+  - Six deferred conflict-resolution branches (`local_wins_deferred`, `remote_wins_deferred`, `prompt_defaulted_to_local`, `prompt_chose_local`, `prompt_chose_remote`, `prompt_skipped`) now emit `sync.pull.deferred` instead of the prior `sync.pull.completed`. The JSONL is safe to grep for "did this task actually update?".
+  - `local_moved`-only pull path (local Task ahead of `last_synced_at`, no remote movement) now sets `sync_state="local_ahead"` (was `in_sync` — wrong) and emits `sync.push.deferred` with `resolution="local_moved_no_push"`. Operators grep `events.jsonl` for the token to find tasks awaiting a follow-up `--push`.
+  - `_resolve_conflict` signature: `-> bool` → `-> tuple[bool, bool, str]` = `(resolved, applied, resolution)`. Internal private function; no external caller impact.
+- `bin/src/fakoli_state/state/payloads.py`:
+  - 13 new per-action Pydantic v2 subclasses replacing the v1.8.0 single all-optional `SyncAuditPayload` model: `SyncBatchStartedPayload`, `SyncBatchCompletedPayload`, `SyncPushStartedPayload`, `SyncPushCompletedPayload`, `SyncPushDeferredPayload`, `SyncPushFailedPayload`, `SyncPullStartedPayload`, `SyncPullCompletedPayload`, `SyncPullDeferredPayload`, `SyncPullFailedPayload`, `SyncConflictDetectedPayload`, `SyncReconciliationStartedPayload`, `SyncReconciliationCompletedPayload`. Each has `extra="forbid"`; field-vs-action mismatches now fail at validate time.
+  - `SyncAuditPayload` preserved as a backwards-compat module-level type-form (`Annotated[Union[...], Field(discriminator="action")]`) — existing imports resolve; callers that used `SyncAuditPayload.model_validate(d)` directly migrate to `TypeAdapter(SyncAuditPayload).validate_python(d)` or look up the concrete subclass via `ACTION_TO_PAYLOAD[action]`.
+  - `ACTION_TO_PAYLOAD: dict[str, type[BaseModel]]` exported for direct dispatcher lookup.
+- `bin/src/fakoli_state/state/sqlite.py`: dispatcher uses the new `ACTION_TO_PAYLOAD` registry; the prior 13 explicit `(SyncAuditPayload, handler)` entries collapse into a single dict comprehension. When a new sync action is added the dispatcher auto-picks it up.
+
+### Added — Multi-provider config (T5)
+
+- `bin/src/fakoli_state/config.py`: new optional top-level `sync.providers` config key parsed into `Config.sync_providers: tuple[str, ...] | None`. Three-way semantics:
+  - Key absent → `None` → fall back to `sorted(PROVIDER_REGISTRY)` (v1.8.0 default).
+  - `sync.providers: [a, b]` → `("a", "b")` → use the explicit list.
+  - `sync.providers: []` → `()` (NOT `None`) → opt out of every provider; sync is a no-op.
+- `bin/src/fakoli_state/cli/sync.py::_resolve_configured_providers` is the single lookup seam; wrapped in `try/except (ValueError, OSError)` so a malformed config falls back to the registry rather than breaking `fakoli-state sync`. Loud config errors are the job of `init`/`doctor`.
+- Documented in `docs/sync-providers.md` § "Per-provider configuration (v1.9.0)" — full schema, three-way table, fallback semantics, reconciliation interaction.
+
+### Added — Phase 7 cleanup (T6)
+
+- **C2 — `RecordedLLMProvider.record_key`:** signature extended to `record_key(system, user, *, max_tokens=4096, temperature=0.0)`; canonical hash folds `str(int(max_tokens))` and `repr(float(temperature))` as length-prefixed chunks 3 and 4. `repr(float(...))` normalises `0`, `0.0`, and `0.00` to the same key. Default values mirror `LLMProvider.generate` defaults so back-compat calls with no kwargs still work. The v1.7.0 footgun where two recordings under different tuning args silently collided is closed; tests that pre-compute keys MUST pass the matching values the engine uses at lookup time (`_SCORE_EXPLAIN_MAX_TOKENS=300`, `_DESCRIPTION_ENRICH_MAX_TOKENS=400`, `_EXPAND_MAX_TOKENS=2000`). Collateral updates to 8 call sites in `tests/test_llm_integration.py` + 1 in `tests/test_cli.py`.
+- **C3 — Brainstorm-flow detection:** `skills/brainstorm/SKILL.md` replaces the fuzzy "if fakoli-flow seems available" prose with an explicit `claude plugin list 2>/dev/null | grep -q "^fakoli-flow"` shell check plus exit-code-driven branching. Slash-command name corrected from `/flow:brainstorm` (typo) to the fully-qualified `/fakoli-flow:brainstorm` — the typo would have broken the bridge invocation when fakoli-flow IS installed. Detection is OPTIONAL: exit non-zero (or missing `claude` binary) falls through to the local interview.
+- **C4 — `expand --format prd`:** new `--format {text,prd}` Typer option on `fakoli-state expand`. `--format prd` emits ready-to-paste markdown blocks matching `docs/prd-template.md`'s `## Tasks` schema (H3 heading, `**Feature:**`, `**Priority:**`, `**Likely files:**`, description paragraph, `**Acceptance criteria:**` bullets, `**Verification:**` with `TODO` placeholder). `**Feature:**` and `**Priority:**` are populated from the parent task's metadata (Phase 9 critic CONSIDER fix — eliminates the manual-edit step in the paste-into-`prd.md` workflow). Default `--format text` keeps the v1.7.0 human-readable per-subtask block output unchanged. The new mode round-trips cleanly through `parse_prd` — see `tests/test_cli_plan.py::test_prd_format_output_round_trips_to_prd_parser` for the canonical proof.
+
+### Added — Two new plugin-owned doc agents (T4)
+
+- `plugins/fakoli-state/agents/marketplace-scribe.md` — cyan, opus. Owns `.claude-plugin/marketplace.json`, the root `README.md` plugins table, and `registry/*.json` index files. Fires after any version bump, agent add/remove, or skill add/remove inside fakoli-state. Defers to `fakoli-crew:keeper` when not in a fakoli-state context. Includes `Bash` in `allowed-tools` so it can run `scripts/generate-index.sh` and validate regenerated JSON via `python -m json.tool` / `jq .`.
+- `plugins/fakoli-state/agents/docs-scribe.md` — purple, opus. Owns the plugin's `docs/` folder, `CHANGELOG.md`, and the `description` field of `.claude-plugin/plugin.json`. Audits cross-references between docs — broken `[[wikilinks]]`, mismatched section anchors, dangling `see also` pointers, references to moved/archived files. Fires after any schema change, new CLI command, new agent, or completed phase. Defers to `fakoli-crew:herald` for general README work. No `Bash` (pure docs work).
+- Color collisions checked vs the existing four agents (planner=white, critic=magenta, sentinel=gray, state-keeper=teal). Cyan and purple are unused by every existing fakoli-state agent and by every fakoli-crew agent.
+
+### Added — Documentation
+
+- `docs/phase-9-backlog.md` (NEW) — forward-looking v2.x roadmap. Carries the items consciously deferred from Phase 9 (LinearIssuesProvider, MondayBoardsProvider, JiraIssuesProvider, GitHubProjectsProvider, webhook-based sync spec, immediate-apply `*_applied` resolution variants, `fakoli-state snapshot` CLI, MCP sync tools surface, per-provider config nesting), plus the carry-forward `CL-N` / `TQ-N` / `PS-N` items still open in `docs/tech-debt-backlog.md`.
+- `docs/github-sync.md` — new "Audit honesty" section explaining `sync.pull.completed` vs `sync.pull.deferred` semantics, the `local_ahead` mapping state, and the full controlled vocabulary of `resolution` tokens (including the new `local_moved_no_push`). Audit events table grows by one (`sync.push.deferred`).
+- `docs/sync-providers.md` — new "Per-provider configuration (v1.9.0)" section documenting the optional `sync.providers` config key with the three-way absent/explicit/empty semantics.
+- `docs/llm.md` — corrected `RecordedLLMProvider.record_key` signature and example (tuning args participate in the key per Phase 9 C2); new `expand --format prd` worked example with paste-ready output and round-trip note.
+- `docs/tech-debt-backlog.md` — new "Phase 8 / Phase 9 closures" section at the top covering P9-1..P9-8 (audit honesty fixes, discriminated payloads, multi-provider config, record_key fix, brainstorm detection, --format prd, two new doc agents). Status legend grows `MOVED-P9-BACKLOG` for items forward-carried to `phase-9-backlog.md`.
+- `README.md` — version badge bumped to 1.9.0; phase table marks phases 1–9 Done with per-release version pointers; new "Plugin-owned agents" section listing all six agents (planner, critic, sentinel, state-keeper, marketplace-scribe, docs-scribe) with color + ownership + crew defer-to target.
+
+### Changed
+
+- `bin/src/fakoli_state/state/payloads.py::SyncPullCompletedPayload` docstring — enumerates the four honest emission conditions (clean pull, tombstone, in_sync no-divergence, local-moved-only with paired `sync.push.deferred` hint). The local-moved-only branch is the one most likely to surprise readers who expect "completed" to imply "mutated"; the docstring is explicit that the pull terminal is honest because the pull itself succeeded — only the follow-up push is deferred.
+- `bin/src/fakoli_state/cli/sync.py::_emit_audit` docstring — updated to reflect that the discriminated union has REQUIRED fields per action now; the None-strip is still load-bearing for OPTIONAL fields with `None` defaults (JSONL would otherwise carry `"audit_note": null` rows that clutter forensic queries and break `jq 'has("audit_note")'` filters).
+- `bin/src/fakoli_state/planning/llm.py` module docstring — `RecordedLLMProvider` key shape description corrected from the stale `sha256(system + "---" + user)` to the length-prefixed `sha256` over `(system, user, max_tokens, temperature)`.
+- `bin/src/fakoli_state/state/payloads.py:393-399` — `TypeAlias` terminology corrected to "module-level type-form (`Annotated[Union[...], Field(discriminator="action")]`)". `SyncAuditPayload` is NOT a `typing.TypeAlias` (no `: TypeAlias =` annotation); it is a Pydantic discriminated-union type form.
+- `bin/src/fakoli_state/cli/plan.py::_render_subtask_proposals_as_prd` — added optional kw-only `parent_feature_id` and `parent_priority` parameters. The CLI caller (`expand --format prd`) now threads `task.feature_id` and `str(task.priority)` through — eliminates the prior empty `**Feature:**` line and `**Priority:** medium` default that the user had to manually edit before `prd parse`. Default behaviour (when the helper is called without parent context) preserved for backwards compat.
+- `tests/test_llm.py::test_separator_prevents_collision` docstring — updated from the stale `"\n---\n"` separator description to "Length-prefixed encoding prevents concat-collisions across any byte boundary." Assertion unchanged.
+
+### Tests
+
+- 935 → 964 passing, 3 skipped (Δ +29 net):
+  - +14 new tests authored across T5 / T6: 5 in `test_cli_sync.py` (deferred-branch emission, local_moved_no_push), 7 in `test_config.py` (sync_providers three-way semantics), 2 in `test_sqlite.py` (dispatcher uses concrete subclasses).
+  - +4 new tests in `test_llm.py::TestRecordedLLMProviderKey` for the C2 tuning-args participation.
+  - +11 new tests in `test_cli_plan.py` (greenfield) covering `--format text` baseline, `--format prd` blocks + round-trip + bullets + headings + suppression of legacy delimiter, validation precedence, and `--help` documentation.
+  - 1 inverted-name test: `test_ignores_max_tokens_and_temperature` → `test_distinguishes_max_tokens_and_temperature` (assertions inverted to lock the new contract).
+  - 15 pre-existing tests that were failing on T3's payload changes are now passing again (dispatcher fix in `state/sqlite.py`).
+- One existing test (`test_prd_format_includes_template_fields`) updated to assert the new `**Feature:** F001` and `**Priority:** high` shape (inherited from the parent T001) rather than the prior empty-Feature / default-medium values.
+
+### Migration notes
+
+- Schema version unchanged (still v3 from v1.8.0). No DB migration required.
+- The audit-event action change is forward-compat for log readers: a tool that filtered `sync.pull.completed` on v1.8.0 will now see fewer rows under v1.9.0, but the rows it does see are honest. To recover the union, filter `(.action == "sync.pull.completed" or .action == "sync.pull.deferred")`.
+- The `SyncAuditPayload` rename is backwards-compatible at the import path; callers that used `SyncAuditPayload.model_validate(d)` directly must migrate to `TypeAdapter(SyncAuditPayload).validate_python(d)` or look up the concrete subclass via `ACTION_TO_PAYLOAD[action]`.
+- `RecordedLLMProvider.record_key` now requires matching `max_tokens` / `temperature` at lookup time when the engine overrides the defaults — tests that pre-computed keys with the no-kwargs form will see `LLMProviderError("no recording for prompt hash ...")` if the engine passes non-default tuning args. The collateral updates in `tests/test_llm_integration.py` (this release) are the template.
+- The new `agents/marketplace-scribe.md` and `agents/docs-scribe.md` are created in v1.9.0 but only become invocable as subagent types in NEW sessions (Claude Code discovers agents at session start). Existing sessions need to restart to pick them up.
 
 ---
 
@@ -156,7 +253,7 @@ Phase 7: LLM augmentation. Adds an `LLMProvider` Protocol with an Anthropic-back
 ### Technical notes
 
 - One ephemeral cache breakpoint on the system block per Anthropic call. Repeated `score --use-llm` runs against the same task batch hit the cache and pay only for new user tokens.
-- `RecordedLLMProvider` keys are `sha256(system + "\n---\n" + user)` — tests pre-compute via `RecordedLLMProvider.record_key(...)`.
+- `RecordedLLMProvider` keys are a length-prefixed `sha256` over `(system, user)` — tests pre-compute via `RecordedLLMProvider.record_key(...)`. (v1.9.0 extended the key to include `max_tokens` and `temperature` — see the v1.9.0 entry above.)
 
 Tests: 613 → 640 + Wave 3a additions (Wave 3a may add a few more — total to be confirmed at sentinel time).
 

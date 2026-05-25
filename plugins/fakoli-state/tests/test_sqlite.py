@@ -6301,3 +6301,119 @@ class TestMissingSyncMappingPerProvider:
             assert "T001" in d.suggested_fix
         finally:
             b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 T5 — dispatcher regression (T3 broke the SyncAuditPayload alias)
+# ---------------------------------------------------------------------------
+
+
+class TestSyncDispatcherUsesConcreteSubclasses:
+    """T5 regression — every ``sync.*`` action must dispatch to its concrete
+    subclass from ``ACTION_TO_PAYLOAD`` (not the union TypeAlias).
+
+    Phase 9 T3 turned ``SyncAuditPayload`` into an
+    ``Annotated[Union[...], Field(discriminator="action")]`` form which is
+    NOT a ``BaseModel`` subclass — it has no ``.model_validate`` method.
+    The pre-T5 dispatcher's table did
+    ``{"sync.push.started": (SyncAuditPayload, ...), ...}`` and crashed
+    every ``sync.*`` event with ``AttributeError: 'types.UnionType' object
+    has no attribute 'model_validate'`` (wrapped by the backend as
+    ``error.transaction_aborted``). T5 switched to a dict-spread over
+    ``ACTION_TO_PAYLOAD`` so each entry resolves to a real concrete
+    subclass; this test pins the dispatcher to that contract.
+    """
+
+    def test_every_sync_action_dispatch_uses_a_real_basemodel_subclass(
+        self, tmp_path: Path,
+    ) -> None:
+        """Every sync.* dispatch entry must be a callable ``model_validate``.
+
+        Walk the dispatch table and assert each ``sync.*`` action's
+        payload class has a callable ``model_validate`` method. The
+        ``types.UnionType`` regression would fail this with an
+        ``AttributeError`` at hasattr-resolution.
+        """
+        from fakoli_state.state.payloads import ACTION_TO_PAYLOAD
+
+        b = _make_backend(tmp_path)
+        try:
+            table = b._get_action_handlers()
+            for action in ACTION_TO_PAYLOAD:
+                assert action in table, (
+                    f"T5 regression: dispatcher missing sync action {action!r}; "
+                    f"ACTION_TO_PAYLOAD declares it but the dispatch table "
+                    "does not route it. Did the dict-spread merge drop?"
+                )
+                payload_cls, handler = table[action]
+                # The contract is: a class with .model_validate (the
+                # Pydantic v2 BaseModel API). The TypeAlias would fail
+                # this — UnionType has no such attribute.
+                assert hasattr(payload_cls, "model_validate"), (
+                    f"T5 regression: dispatch entry for {action!r} resolved "
+                    f"to {payload_cls!r} which has no .model_validate. "
+                    "T3's discriminated-union TypeAlias slipped back in."
+                )
+                # Sanity: the concrete subclass should be the one
+                # ACTION_TO_PAYLOAD picked. Otherwise the dispatcher and
+                # the discriminator have drifted.
+                assert payload_cls is ACTION_TO_PAYLOAD[action], (
+                    f"T5 regression: dispatch for {action!r} routed to "
+                    f"{payload_cls!r}, but ACTION_TO_PAYLOAD says it should "
+                    f"be {ACTION_TO_PAYLOAD[action]!r}."
+                )
+                assert callable(handler)
+        finally:
+            b.close()
+
+    def test_sync_pull_deferred_event_dispatches_without_attribute_error(
+        self, tmp_path: Path,
+    ) -> None:
+        """End-to-end: apply a real ``sync.pull.deferred`` event and verify
+        it lands as itself (NOT as ``error.transaction_aborted``).
+
+        Pre-T5: ``_apply_mutation`` called ``SyncAuditPayload.model_validate``,
+        hit ``AttributeError``, the backend wrapped it as
+        ``TransactionAborted``, and the JSONL log contained
+        ``error.transaction_aborted`` instead of the intended event.
+        """
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            # Apply a sync.pull.deferred event end-to-end. If the
+            # dispatcher is still broken this raises TransactionAborted
+            # and the JSONL row is the aborted-error sentinel.
+            evt = Event(
+                id=PENDING_EVENT_ID,
+                timestamp=_T0,
+                actor="test",
+                action="sync.pull.deferred",
+                target_kind="task",
+                target_id="T001",
+                payload_json={
+                    "provider_id": "github_issues",
+                    "task_id": "T001",
+                    "external_id": "42",
+                    "direction": "pull",
+                    "resolution": "local_wins_deferred",
+                },
+            )
+            b.apply_event(evt)
+
+            # Verify the JSONL row is the deferred event, not the abort
+            # sentinel.
+            events = _read_jsonl(events_path)
+            actions = [e["action"] for e in events]
+            assert "sync.pull.deferred" in actions, (
+                f"T5 regression: sync.pull.deferred did not land in the "
+                f"audit log; got actions={actions}. The dispatcher likely "
+                f"raised AttributeError on the TypeAlias and the backend "
+                f"wrapped it as error.transaction_aborted."
+            )
+            assert "error.transaction_aborted" not in actions, (
+                f"T5 regression: dispatcher crashed on sync.pull.deferred; "
+                f"got actions={actions}. Check ACTION_TO_PAYLOAD wiring "
+                f"in state/sqlite.py:_get_action_handlers."
+            )
+        finally:
+            b.close()
