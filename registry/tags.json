@@ -1,7 +1,11 @@
 {
-  "generatedAt": "2026-05-25T02:51:01Z",
-  "totalTags": 90,
+  "generatedAt": "2026-05-25T06:26:29Z",
+  "totalTags": 94,
   "tags": [
+    {
+      "tag": "automation",
+      "count": 3
+    },
     {
       "tag": "workflow",
       "count": 3
@@ -12,10 +16,6 @@
     },
     {
       "tag": "architecture",
-      "count": 2
-    },
-    {
-      "tag": "automation",
       "count": 2
     },
     {
@@ -84,6 +84,14 @@
     },
     {
       "tag": "classroom",
+      "count": 1
+    },
+    {
+      "tag": "cli",
+      "count": 1
+    },
+    {
+      "tag": "cli-to-plugin",
       "count": 1
     },
     {
@@ -156,6 +164,10 @@
     },
     {
       "tag": "gemini",
+      "count": 1
+    },
+    {
+      "tag": "generator",
       "count": 1
     },
     {
@@ -292,6 +304,10 @@
     },
     {
       "tag": "sanitization",
+      "count": 1
+    },
+    {
+      "tag": "scaffold",
       "count": 1
     },
     {

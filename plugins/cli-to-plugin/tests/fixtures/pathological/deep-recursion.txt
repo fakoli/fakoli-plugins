@@ -1,0 +1,78 @@
+# Synthetic help output representing a 5-level deep command tree.
+#
+# Purpose: verify that discover.py halts recursion at depth 3 (configurable
+# via --max-depth, default 3). The CLI structure below implies paths up to
+# depth 5 (e.g., "foo bar baz qux quux"), but discover.py must stop walking
+# at depth 3 and emit a warning like:
+#   "depth limit reached at ['bar', 'baz', 'qux'] — children not walked"
+#
+# Tree structure (depth-annotated):
+#   foo                   (depth 0 — root)
+#   foo bar               (depth 1 — group)
+#   foo bar baz           (depth 2 — subgroup)
+#   foo bar baz qux       (depth 3 — at limit, STOP here)
+#   foo bar baz qux quux  (depth 4 — NEVER walked)
+
+# ---- foo --help (depth 0) ----
+FOO — A deeply nested synthetic CLI.
+
+USAGE
+  foo <command> [flags]
+
+COMMANDS
+  bar:    Bar command group (has subcommands)
+  top:    A flat top-level command (no subcommands)
+
+FLAGS
+  --help      Show help for command
+  --version   Show version
+
+# ---- foo bar --help (depth 1) ----
+Bar command group.
+
+USAGE
+  foo bar <command> [flags]
+
+COMMANDS
+  baz:    Baz subcommand group (has subcommands)
+  flat:   A flat bar subcommand (no subcommands)
+
+INHERITED FLAGS
+  --help   Show help for command
+
+# ---- foo bar baz --help (depth 2) ----
+Baz subcommand group.
+
+USAGE
+  foo bar baz <command> [flags]
+
+COMMANDS
+  qux:    Qux sub-subcommand group (has subcommands — depth limit approaches)
+  leaf:   A leaf command at depth 3 (no subcommands)
+
+INHERITED FLAGS
+  --help   Show help for command
+
+# ---- foo bar baz qux --help (depth 3 — discover.py stops here) ----
+Qux sub-subcommand group.
+
+USAGE
+  foo bar baz qux <command> [flags]
+
+COMMANDS
+  quux:   Quux (depth 4 — must NOT be walked by discover.py)
+  also:   Also depth 4 — must NOT be walked
+
+INHERITED FLAGS
+  --help   Show help for command
+
+# ---- foo bar baz qux quux --help (depth 4 — NEVER fetched) ----
+# This page would only be reached if discover.py ignores the depth limit.
+# Its presence here documents what WOULD be returned if fetched.
+Quux — deepest level command.
+
+USAGE
+  foo bar baz qux quux [flags]
+
+FLAGS
+  --help   Show help for command

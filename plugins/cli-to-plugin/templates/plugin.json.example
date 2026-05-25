@@ -1,0 +1,10 @@
+{
+  "name": "gh",
+  "version": "1.0.0",
+  "description": "Use the `gh` CLI through Claude — pull requests, issues, repos, workflows, and releases.",
+  "author": {
+    "name": "<from git config>"
+  },
+  "license": "MIT",
+  "keywords": ["gh", "github", "cli", "generated", "cli-to-plugin"]
+}

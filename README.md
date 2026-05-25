@@ -94,6 +94,7 @@ Install any combination — each works standalone. All three together give you a
 
 | Plugin | Description |
 |--------|-------------|
+| [**cli-to-plugin**](plugins/cli-to-plugin) | Convert any CLI with `--help` support into a Claude Code plugin: one skill per command group plus optional LLM-proposed workflow meta-skills. |
 | [**fakoli-crew**](plugins/fakoli-crew) | Summon expert agent archetypes — a Guido-style Python architect, code reviewer, API researcher, plugin engineer, integration specialist, and more — that work independently or as coordinated crews using wave-based orchestration for complex multi-step projects. |
 | [**fakoli-flow**](plugins/fakoli-flow) | Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with a five-stage pipeline (brainstorm → plan → execute → verify → finish), critic gates, and evidence-based verification. Works best alongside fakoli-crew. |
 | [**fakoli-state**](plugins/fakoli-state) | Local-first project state engine — turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents coordinate on without conflicts. SQLite-backed canonical state, six-dimension task scoring, MCP server, and bidirectional GitHub Issues sync. Scaffolded; phases 2-8 in progress. |

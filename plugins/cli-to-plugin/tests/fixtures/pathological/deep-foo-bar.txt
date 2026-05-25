@@ -1,0 +1,11 @@
+Bar command group.
+
+USAGE
+  foo bar <command> [flags]
+
+COMMANDS
+  baz:    Baz subcommand group (has subcommands)
+  flat:   A flat bar subcommand (no subcommands)
+
+INHERITED FLAGS
+  --help   Show help for command

@@ -263,13 +263,19 @@ update_marketplace() {
     local marketplace_file="$ROOT_DIR/.claude-plugin/marketplace.json"
 
     if [[ -f "$marketplace_file" ]]; then
+        local existing_marketplace
+        existing_marketplace=$(jq '.plugins // []' "$marketplace_file")
         local marketplace_plugins
-        marketplace_plugins=$(echo "$plugins" | jq '[.[] | {
-            name: .name,
-            version: .version,
-            description: .description,
-            source: ("./\(.path)")
-        }]')
+        marketplace_plugins=$(echo "$plugins" | jq --argjson existing "$existing_marketplace" '[.[] | . as $p |
+            (($existing[] | select(.name == $p.name)) // null) as $ex |
+            {
+                name: $p.name,
+                version: $p.version,
+                description: $p.description
+            }
+            | if ($ex != null and ($ex | has("category"))) then . + {category: $ex.category} else . end
+            | . + {source: ("./\($p.path)")}
+        ]')
 
         local new_content
         new_content=$(jq --argjson plugins "$marketplace_plugins" '.plugins = $plugins' "$marketplace_file")
