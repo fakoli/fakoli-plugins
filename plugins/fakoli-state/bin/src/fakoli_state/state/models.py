@@ -1,0 +1,483 @@
+"""Pydantic v2 models for fakoli-state — the single source of truth for all entity types.
+
+All other modules (sqlite backend, MCP tools, work-packet renderer, review gates)
+import from here. If the types change, everything downstream changes with them.
+
+Design decisions:
+- StrEnum for every status / kind / decision field: grep-able, serialisable to str.
+- All datetimes are timezone-aware UTC; a model_validator enforces tzinfo presence.
+- Score dimensions are nullable until explicitly scored; Field(ge=1, le=5) when set.
+- Type aliases (TaskID, FeatureID, …) are plain str — no over-engineering, but they
+  give search-grep ability and document intent at every call site.
+- ConfigDict(frozen=False, validate_assignment=True, extra='forbid') on every model:
+  mutable for state transitions, but assignment-validated so transitions cannot
+  smuggle bad values.
+"""
+
+from __future__ import annotations
+
+import datetime
+import enum
+from typing import Any, TypeAlias  # noqa: UP035 — TypeAlias required for 3.11 compat
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+__all__ = [
+    # Type aliases
+    "TaskID",
+    "FeatureID",
+    "RequirementID",
+    "ClaimID",
+    "EvidenceID",
+    "DecisionID",
+    "ReviewID",
+    "EventID",
+    # Enums
+    "PRDStatus",
+    "FeatureStatus",
+    "TaskStatus",
+    "TaskPriority",
+    "ClaimType",
+    "ClaimStatus",
+    "ReviewTargetKind",
+    "ReviewDecision",
+    "ExternalSystem",
+    "SyncState",
+    "ConflictResolutionStrategy",
+    # Models
+    "Score",
+    "Verification",
+    "Project",
+    "PRD",
+    "Requirement",
+    "Feature",
+    "Task",
+    "Claim",
+    "Evidence",
+    "Decision",
+    "Review",
+    "Event",
+    "SyncMapping",
+    "ConflictGroup",
+]
+
+# ---------------------------------------------------------------------------
+# Type aliases — plain str newtypes for search-grep ability.
+# ---------------------------------------------------------------------------
+
+TaskID: TypeAlias = str
+FeatureID: TypeAlias = str
+RequirementID: TypeAlias = str
+ClaimID: TypeAlias = str
+EvidenceID: TypeAlias = str
+DecisionID: TypeAlias = str
+ReviewID: TypeAlias = str
+EventID: TypeAlias = str  # monotonic E000001 format
+
+# ---------------------------------------------------------------------------
+# Enumerations
+# ---------------------------------------------------------------------------
+
+
+class PRDStatus(enum.StrEnum):
+    draft = "draft"
+    reviewed = "reviewed"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class FeatureStatus(enum.StrEnum):
+    proposed = "proposed"
+    ready = "ready"
+    in_progress = "in_progress"
+    done = "done"
+
+
+class TaskStatus(enum.StrEnum):
+    proposed = "proposed"
+    drafted = "drafted"
+    reviewed = "reviewed"
+    ready = "ready"
+    claimed = "claimed"
+    in_progress = "in_progress"
+    blocked = "blocked"
+    needs_review = "needs_review"
+    accepted = "accepted"
+    done = "done"
+    rejected = "rejected"
+    stale = "stale"
+
+
+class TaskPriority(enum.StrEnum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    critical = "critical"
+
+
+class ClaimType(enum.StrEnum):
+    task = "task"
+    feature = "feature"
+    file_scope = "file_scope"
+    exploratory = "exploratory"
+
+
+class ClaimStatus(enum.StrEnum):
+    active = "active"
+    released = "released"
+    stale = "stale"
+    force_released = "force_released"
+
+
+class ReviewTargetKind(enum.StrEnum):
+    prd = "prd"
+    task = "task"
+    feature = "feature"
+
+
+class ReviewDecision(enum.StrEnum):
+    approve = "approve"
+    reject = "reject"
+    needs_changes = "needs_changes"
+
+
+class ExternalSystem(enum.StrEnum):
+    github_issues = "github_issues"
+
+
+class SyncState(enum.StrEnum):
+    in_sync = "in_sync"
+    local_ahead = "local_ahead"
+    remote_ahead = "remote_ahead"
+    conflict = "conflict"
+    external_deleted = "external_deleted"
+    remote_unknown = "remote_unknown"
+
+
+class ConflictResolutionStrategy(enum.StrEnum):
+    local_wins = "local_wins"
+    remote_wins = "remote_wins"
+    prompt = "prompt"
+    manual_merge = "manual_merge"
+
+
+# ---------------------------------------------------------------------------
+# Shared config for all models
+# ---------------------------------------------------------------------------
+
+_MODEL_CONFIG = ConfigDict(
+    frozen=False,
+    validate_assignment=True,
+    extra="forbid",
+)
+
+
+def _require_utc(dt: datetime.datetime, field_name: str) -> datetime.datetime:
+    """Raise ValueError if dt is naive (no tzinfo)."""
+    if dt.tzinfo is None:
+        raise ValueError(
+            f"{field_name} must be timezone-aware (UTC); "
+            f"got naive datetime {dt!r}. "
+            "Use datetime.datetime.now(datetime.timezone.utc) or "
+            "datetime.datetime(..., tzinfo=datetime.timezone.utc)."
+        )
+    return dt
+
+
+# ---------------------------------------------------------------------------
+# Embedded value objects
+# ---------------------------------------------------------------------------
+
+
+class Score(BaseModel):
+    """Six-dimension scoring for a Task. All dimensions are 1-5 or None until scored."""
+
+    model_config = _MODEL_CONFIG
+
+    complexity: int | None = Field(default=None, ge=1, le=5)
+    parallelizability: int | None = Field(default=None, ge=1, le=5)
+    context_load: int | None = Field(default=None, ge=1, le=5)
+    blast_radius: int | None = Field(default=None, ge=1, le=5)
+    review_risk: int | None = Field(default=None, ge=1, le=5)
+    agent_suitability: int | None = Field(default=None, ge=1, le=5)
+    explanation: str | None = None
+
+
+class Verification(BaseModel):
+    """Verification instructions embedded on a Task."""
+
+    model_config = _MODEL_CONFIG
+
+    commands: list[str] = Field(default_factory=list)
+    manual_steps: list[str] = Field(default_factory=list)
+    required_evidence: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Top-level entities
+# ---------------------------------------------------------------------------
+
+
+class Project(BaseModel):
+    """Root entity that owns all other entities in the database."""
+
+    model_config = _MODEL_CONFIG
+
+    id: str
+    name: str
+    description: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    @field_validator("created_at", "updated_at", mode="after")
+    @classmethod
+    def _validate_utc(cls, v: datetime.datetime) -> datetime.datetime:
+        return _require_utc(v, "created_at / updated_at")
+
+
+class PRD(BaseModel):
+    """Product Requirements Document — the gate that controls task claimability."""
+
+    model_config = _MODEL_CONFIG
+
+    status: PRDStatus = PRDStatus.draft
+    summary: str = ""
+    goals: list[str] = Field(default_factory=list)
+    non_goals: list[str] = Field(default_factory=list)
+    requirements: list[RequirementID] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+    last_reviewed_at: datetime.datetime | None = None
+    last_reviewed_by: str | None = None
+
+    @field_validator("last_reviewed_at", mode="after")
+    @classmethod
+    def _validate_last_reviewed_utc(
+        cls, v: datetime.datetime | None
+    ) -> datetime.datetime | None:
+        if v is not None:
+            return _require_utc(v, "last_reviewed_at")
+        return v
+
+
+class Requirement(BaseModel):
+    """A single atomic requirement derived from a section of the PRD."""
+
+    model_config = _MODEL_CONFIG
+
+    id: RequirementID
+    prd_section: str
+    text: str
+    source_paragraph: str | None = None
+    derived: bool = False
+
+
+class Feature(BaseModel):
+    """A logical grouping of tasks that delivers a user-observable capability."""
+
+    model_config = _MODEL_CONFIG
+
+    id: FeatureID
+    title: str
+    description: str
+    status: FeatureStatus = FeatureStatus.proposed
+    requirements: list[RequirementID] = Field(default_factory=list)
+    tasks: list[TaskID] = Field(default_factory=list)
+
+
+class Task(BaseModel):
+    """The primary unit of work — claimable, scoreable, evidence-backed."""
+
+    model_config = _MODEL_CONFIG
+
+    id: TaskID
+    feature_id: FeatureID
+    title: str
+    description: str
+    status: TaskStatus = TaskStatus.proposed
+    priority: TaskPriority = TaskPriority.medium
+    dependencies: list[TaskID] = Field(default_factory=list)
+    conflict_groups: list[str] = Field(default_factory=list)
+    scores: Score = Field(default_factory=Score)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    implementation_notes: list[str] = Field(default_factory=list)
+    verification: Verification = Field(default_factory=Verification)
+    likely_files: list[str] = Field(default_factory=list)
+    parent_task_id: TaskID | None = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    @field_validator("created_at", "updated_at", mode="after")
+    @classmethod
+    def _validate_utc(cls, v: datetime.datetime) -> datetime.datetime:
+        return _require_utc(v, "created_at / updated_at")
+
+
+class Claim(BaseModel):
+    """An exclusive lease that an agent holds on a Task while working on it."""
+
+    model_config = _MODEL_CONFIG
+
+    id: ClaimID
+    task_id: TaskID
+    claimed_by: str
+    claim_type: ClaimType = ClaimType.task
+    status: ClaimStatus = ClaimStatus.active
+    branch: str | None = None
+    worktree_path: str | None = None
+    expected_files: list[str] = Field(default_factory=list)
+    created_at: datetime.datetime
+    lease_expires_at: datetime.datetime
+    last_heartbeat_at: datetime.datetime
+    released_at: datetime.datetime | None = None
+    release_reason: str | None = None
+
+    @field_validator(
+        "created_at",
+        "lease_expires_at",
+        "last_heartbeat_at",
+        mode="after",
+    )
+    @classmethod
+    def _validate_utc_required(
+        cls, v: datetime.datetime
+    ) -> datetime.datetime:
+        return _require_utc(v, "created_at / lease_expires_at / last_heartbeat_at")
+
+    @field_validator("released_at", mode="after")
+    @classmethod
+    def _validate_released_utc(
+        cls, v: datetime.datetime | None
+    ) -> datetime.datetime | None:
+        if v is not None:
+            return _require_utc(v, "released_at")
+        return v
+
+
+class Evidence(BaseModel):
+    """Completion evidence submitted by an agent after finishing a Task."""
+
+    model_config = _MODEL_CONFIG
+
+    id: EvidenceID
+    task_id: TaskID
+    claim_id: ClaimID
+    commands_run: list[str] = Field(default_factory=list)
+    output_excerpt: str | None = None
+    files_changed: list[str] = Field(default_factory=list)
+    pr_url: str | None = None
+    commit_sha: str | None = None
+    screenshots: list[str] = Field(default_factory=list)
+    known_limitations: str | None = None
+    submitted_at: datetime.datetime
+    submitted_by: str
+
+    @field_validator("submitted_at", mode="after")
+    @classmethod
+    def _validate_utc(cls, v: datetime.datetime) -> datetime.datetime:
+        return _require_utc(v, "submitted_at")
+
+
+class Decision(BaseModel):
+    """An architectural or design decision recorded for audit and context."""
+
+    model_config = _MODEL_CONFIG
+
+    id: DecisionID
+    title: str
+    context: str
+    decision: str
+    consequences: str
+    created_at: datetime.datetime
+    related_tasks: list[TaskID] = Field(default_factory=list)
+    related_features: list[FeatureID] = Field(default_factory=list)
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def _validate_utc(cls, v: datetime.datetime) -> datetime.datetime:
+        return _require_utc(v, "created_at")
+
+
+class Review(BaseModel):
+    """A human or agent review verdict on a PRD, Task, or Feature."""
+
+    model_config = _MODEL_CONFIG
+
+    id: ReviewID
+    target_kind: ReviewTargetKind
+    target_id: str
+    reviewed_by: str
+    decision: ReviewDecision
+    notes: str | None = None
+    created_at: datetime.datetime
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def _validate_utc(cls, v: datetime.datetime) -> datetime.datetime:
+        return _require_utc(v, "created_at")
+
+
+class Event(BaseModel):
+    """An immutable append-only log entry.
+
+    The event log is the audit trail; replaying it from scratch must reconstruct
+    canonical SQLite state exactly. Events are never updated or deleted.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    id: EventID  # monotonic: E000001, E000002, …
+    timestamp: datetime.datetime
+    actor: str
+    action: str
+    target_kind: str
+    target_id: str
+    payload_json: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("timestamp", mode="after")
+    @classmethod
+    def _validate_utc(cls, v: datetime.datetime) -> datetime.datetime:
+        return _require_utc(v, "timestamp")
+
+    @model_validator(mode="after")
+    def _validate_event_id_format(self) -> Event:
+        if not self.id.startswith("E") or not self.id[1:].isdigit():
+            raise ValueError(
+                f"Event.id must be in monotonic format 'E000001'; got {self.id!r}"
+            )
+        return self
+
+
+class SyncMapping(BaseModel):
+    """Tracks a Task's relationship to an issue in an external system."""
+
+    model_config = _MODEL_CONFIG
+
+    task_id: TaskID
+    external_system: ExternalSystem
+    external_id: str
+    last_synced_at: datetime.datetime
+    sync_state: SyncState = SyncState.in_sync
+    conflict_resolution_strategy: ConflictResolutionStrategy = (
+        ConflictResolutionStrategy.prompt
+    )
+
+    @field_validator("last_synced_at", mode="after")
+    @classmethod
+    def _validate_utc(cls, v: datetime.datetime) -> datetime.datetime:
+        return _require_utc(v, "last_synced_at")
+
+
+class ConflictGroup(BaseModel):
+    """A named set of tasks whose expected_files overlap.
+
+    Claiming one task in the group while another is active is allowed but warned.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    id: str
+    name: str
+    task_ids: list[TaskID] = Field(default_factory=list)
+    reason: str
