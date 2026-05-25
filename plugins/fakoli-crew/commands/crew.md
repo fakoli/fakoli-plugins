@@ -11,16 +11,7 @@ For deeper orchestration — wave patterns, file ownership, status-file protocol
 
 ## All Agents
 
-| Agent | Color | Role | Invoke When |
-|-------|-------|------|-------------|
-| guido | blue | TypeScript architect | Designing interfaces, writing new modules, type-safe refactors |
-| critic | red | Code reviewer | Quality audits, finding bugs, import analysis, severity ratings |
-| scout | cyan | Researcher | API docs, codebase exploration, dependency investigation |
-| smith | green | Plugin engineer | plugin.json, commands, hooks, manifest structure |
-| welder | yellow | Integration engineer | Wiring new code into existing systems, backward-compat refactors |
-| herald | magenta | Documentation writer | READMEs, marketplace descriptions, branding, user-facing copy |
-| keeper | purple | Infrastructure engineer | CLAUDE.md, CI workflows, contributor docs, registry sync |
-| sentinel | orange | QA engineer | Test runs, validation scorecards, pre-release checks |
+See [`skills/crew-ops/references/agent-roster.md`](../skills/crew-ops/references/agent-roster.md) for the canonical 8-agent roster (names, colors, roles, and file paths).
 
 ## Pre-Built Crews
 

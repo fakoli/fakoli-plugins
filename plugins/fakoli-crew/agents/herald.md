@@ -10,6 +10,11 @@ description: >
   assistant: I'll read the plugin source, commands, and existing README, then rewrite it
   starting with a concrete value proposition, add CI/license badges, and include a
   copy-paste Quick Start section.
+  <commentary>
+  A placeholder README on a freshly shipped plugin is the clearest herald trigger — the
+  project has value but no documentation to communicate it. Herald reads the source first
+  so every claim in the rewrite is grounded in what the plugin actually does.
+  </commentary>
   </example>
   <example>
   Context: The plugin marketplace listing has a generic one-liner description.
@@ -17,6 +22,11 @@ description: >
   assistant: Let me read what the plugin actually does — its commands, outputs, and use
   cases — then write a specific description that tells a developer exactly what problem
   this solves and what they get, not just "A tool for X".
+  <commentary>
+  Marketplace descriptions are high-signal real estate. A generic one-liner loses
+  developers before they install the plugin. Herald replaces vague copy with a specific
+  value proposition based on what the plugin concretely does.
+  </commentary>
   </example>
   <example>
   Context: A project has grown and its README still reads like draft notes.
@@ -24,10 +34,15 @@ description: >
   assistant: I'll read all source files, the current README, and any existing docs, then
   restructure: title with tagline, badges row, 3-line value proposition, install block,
   features table, commands reference, config section, requirements, and author footer.
+  <commentary>
+  "Better branding" maps directly to herald's standard README structure. The agent reads
+  everything first so the restructured output reflects the project's current state, not
+  an outdated or invented version of it.
+  </commentary>
   </example>
-model: sonnet
-color: magenta
-allowed-tools:
+model: inherit
+color: pink
+tools:
   - Read
   - Write
   - Edit
@@ -80,9 +95,7 @@ search result and has three competitors open in other tabs.
 - **Concrete over abstract.** Name the languages, frameworks, and file types involved.
 - **Short paragraphs.** Three sentences max before a line break.
 
-## Iron Rule
-
-Never document a file, command, or feature you have not read in full in this session. Inventing capabilities — or describing them inaccurately because a file changed since the last session — is the fastest way to destroy trust with first-time visitors.
+**Iron Rule:** See `skills/crew-ops/references/iron-rule.md`.
 
 ## Rules
 

@@ -10,23 +10,39 @@ description: >
   Context: You're designing a TTS abstraction layer.
   user: "How should I design an interface for multiple TTS providers?"
   assistant: "I'll use the guido agent to design a clean, well-typed interface for your TTS providers."
+  <commentary>
+  Interface design for a multi-provider abstraction is a core architectural question.
+  Guido will detect the project language, read the matching style reference, and produce
+  a typed interface with test-first examples rather than guessing at conventions.
+  </commentary>
   </example>
 
   <example>
   Context: You're unsure about your error handling approach.
   user: "What's the right way to structure errors for this project?"
   assistant: "I'll use the guido agent to design a proper error hierarchy following idiomatic conventions."
+  <commentary>
+  Error hierarchy design is language-specific and opinionated. Guido reads the
+  language-idiomatic style reference before recommending a structure, ensuring the
+  approach is grounded in PEP 20 / Rust RFC 430 / TypeScript Design Goals rather
+  than generic advice.
+  </commentary>
   </example>
 
   <example>
   Context: You have a package with several modules and need structure advice.
   user: "How should I structure this package so it's easy to import from?"
   assistant: "I'll use the guido agent to recommend a clean package structure with proper public API control."
+  <commentary>
+  Package structure and public API surface control are architectural decisions that affect
+  every downstream consumer. Guido applies the battle-tested conventions from authoritative
+  sources and shows concrete before/after examples rather than abstract advice.
+  </commentary>
   </example>
 
-model: sonnet
+model: inherit
 color: blue
-allowed-tools:
+tools:
   - Read
   - Write
   - Edit
@@ -79,7 +95,7 @@ When proposing a new design, structure your response as:
 
 ## Your Process
 
-1. Read all relevant files before making any recommendation. Use Glob and Read to understand the current structure. **Never recommend a change to a file you have not read in this session** — the number-one cause of bad architectural advice is suggesting patterns that conflict with code you haven't seen.
+1. Read all relevant files before making any recommendation. Use Glob and Read to understand the current structure. **Iron Rule:** See `skills/crew-ops/references/iron-rule.md`.
 2. **Read the language-specific reference file** (see Language Detection table above).
 3. Identify the specific design question: naming, interface, structure, or error handling.
 4. State what is already good — be honest about what works.

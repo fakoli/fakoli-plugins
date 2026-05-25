@@ -1,6 +1,6 @@
 ---
 name: debugging
-description: This skill should be used when a test is failing inexplicably, when a runtime error appears in production, when a bug reproduces unpredictably, or when two or more prior fix attempts have failed. Provides a 4-phase systematic debugging workflow — investigate, analyze patterns, form hypothesis, fix with test — to prevent random-fix loops.
+description: This skill should be used when a test is failing inexplicably, when a runtime error appears in production, when a bug reproduces unpredictably, or when two or more prior fix attempts have failed. Provides a 4-phase systematic debugging workflow — investigate, analyze patterns, form hypothesis, fix with test — to prevent random-fix loops. Trigger phrases: "why is this failing", "this test keeps failing", "I've tried three fixes", "root cause", "systematic debugging".
 ---
 # Systematic Debugging
 
@@ -66,3 +66,7 @@ If 3+ fix attempts have failed:
 - **critic** uses this during code review when failures are present
 - **welder** uses this when integration breaks existing tests
 - **sentinel** uses Phase 1 to diagnose failing checks before reporting
+
+## Additional Resources
+
+[`references/case-studies.md`](references/case-studies.md) — three worked examples (Python import errors, TypeScript async race conditions, Bash quoting bugs) that show what each phase produces on a real bug. Read these before applying the method for the first time to calibrate what "evidence" and "hypothesis" mean in practice.
