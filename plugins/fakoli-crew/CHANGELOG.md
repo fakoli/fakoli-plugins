@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.0.1 (2026-05-24)
+
+Evaluation-audit patch release. No agent semantics, tool allowlists, or workflow logic changed — all fixes are documentation, frontmatter, and structural.
+
+### Fixed
+- Dangling reference pointers in `guido` and `welder` agents that cited
+  `references/*.md` paths which did not exist in those agents' directories; updated
+  to point at the actual reference files under `skills/crew-ops/references/`
+- Added `crew-ops` skill to the README Skills table — it shipped in 2.0.0 but was
+  missing from the table
+
+### Changed
+- Resolved agent color collisions: `keeper` green→purple, `sentinel` red→orange. All
+  8 agents now have unique colors (blue, cyan, green, magenta, orange, purple, red,
+  yellow)
+- `debugging` and `crew-ops` skills: added `name:` frontmatter, rewrote descriptions
+  in third-person trigger form, converted debugging's second-person "When to Use"
+  block to imperative form
+- `crew-ops` SKILL.md cites reference files inline by name (`wave-patterns.md`,
+  `file-ownership.md`, `communication.md`, plus the four language-style references)
+- `/crew` command metadata: added `argument-hint`, expanded description to mention
+  task-aware crew suggestion, cross-referenced the `crew-ops` skill, and refreshed
+  the agent color column to match the new collision-free palette
+- Standardized "read-before-modify" Iron Rule wording in `smith`, `guido`, `keeper`,
+  and `herald` to match the existing `welder`/`critic` phrasing
+- Documented `smith` ↔ `keeper` routing boundary explicitly in each agent
+- Tightened `guido`'s polyglot guidance to require asking which subsystem the
+  request targets rather than silently defaulting
+- Replaced fragile `../../fakoli-flow/...` relative links in `docs/*` with absolute
+  GitHub URLs that resolve in both GitHub-rendered and installed-plugin contexts
+
+---
+
 ## 2.0.0 (2026-04-02)
 
 ### Added
