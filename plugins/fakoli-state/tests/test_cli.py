@@ -336,11 +336,11 @@ class TestStatusInitialized:
 
 class TestVersion:
     def test_version_still_works(self) -> None:
-        """--version prints 'fakoli-state 1.3.0' and exits 0."""
+        """--version prints 'fakoli-state 1.4.0' and exits 0."""
         result = runner.invoke(app, ["--version"], catch_exceptions=False)
         assert result.exit_code == 0
         assert "fakoli-state" in result.output
-        assert "1.3.0" in result.output
+        assert "1.4.0" in result.output
 
     def test_version_short_flag(self) -> None:
         """-V is an alias for --version."""
@@ -1318,3 +1318,410 @@ class TestE2E:
         output = result.output
         # Should show the PRD status as reviewed
         assert "reviewed" in output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — helpers
+# ---------------------------------------------------------------------------
+
+
+def _do_claim(tmp_path: Path, task_id: str, actor: str = "agent-test") -> str:
+    """Claim task_id and return the claim ID from the DB."""
+    import sqlite3 as _sqlite3
+
+    _invoke_cmd(tmp_path, ["claim", task_id, "--actor", actor])
+    db_path = tmp_path / ".fakoli-state" / "state.db"
+    conn = _sqlite3.connect(str(db_path))
+    row = conn.execute(
+        "SELECT id FROM claims WHERE task_id=? AND status='active'", (task_id,)
+    ).fetchone()
+    conn.close()
+    return row[0] if row else "CLAIM-UNKNOWN"
+
+
+def _get_task_status(tmp_path: Path, task_id: str) -> str | None:
+    """Return the current status of task_id from the DB."""
+    import sqlite3 as _sqlite3
+
+    db_path = tmp_path / ".fakoli-state" / "state.db"
+    conn = _sqlite3.connect(str(db_path))
+    row = conn.execute(
+        "SELECT status FROM tasks WHERE id=?", (task_id,)
+    ).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — packet command
+# ---------------------------------------------------------------------------
+
+
+class TestPacketCommand:
+    def test_packet_renders_markdown_to_packets_dir(self, tmp_path: Path) -> None:
+        """packet T001 exits 0 and writes .fakoli-state/packets/T001.md."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None, "No ready task after setup"
+
+        result = _invoke_cmd(tmp_path, ["packet", task_id])
+        assert result.exit_code == 0, f"packet failed: {result.output}"
+
+        packet_file = tmp_path / ".fakoli-state" / "packets" / f"{task_id}.md"
+        assert packet_file.exists(), "Packet .md file not written"
+        content = packet_file.read_text(encoding="utf-8")
+        assert task_id in content
+
+    def test_packet_json_format_writes_json_file(self, tmp_path: Path) -> None:
+        """packet T001 --format json writes .fakoli-state/packets/T001.json."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        result = _invoke_cmd(tmp_path, ["packet", task_id, "--format", "json"])
+        assert result.exit_code == 0, f"packet --format json failed: {result.output}"
+
+        packet_file = tmp_path / ".fakoli-state" / "packets" / f"{task_id}.json"
+        assert packet_file.exists(), "Packet .json file not written"
+        data = json.loads(packet_file.read_text(encoding="utf-8"))
+        assert "task_id" in data
+
+    def test_packet_unknown_task_exits_nonzero(self, tmp_path: Path) -> None:
+        """packet T999 (unknown task) exits non-zero with error message."""
+        _do_init(tmp_path, name="Packet Test Project")
+
+        result = _invoke_cmd(tmp_path, ["packet", "T999"])
+        assert result.exit_code != 0
+        combined = result.output + (result.stderr if hasattr(result, "stderr") and result.stderr else "")
+        assert "T999" in combined or "not found" in combined.lower()
+
+    def test_packet_active_claim_section_appears_when_claimed(
+        self, tmp_path: Path
+    ) -> None:
+        """packet after claim shows 'Active Claim' section in output."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        _do_claim(tmp_path, task_id, actor="agent-test")
+
+        result = _invoke_cmd(tmp_path, ["packet", task_id])
+        assert result.exit_code == 0, f"packet after claim failed: {result.output}"
+        assert "Active Claim" in result.output or "claim" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — submit command
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitCommand:
+    def test_submit_happy_path_exits_zero(self, tmp_path: Path) -> None:
+        """submit with required args exits 0 and prints evidence ID."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        _do_claim(tmp_path, task_id, actor="agent-test")
+
+        result = _invoke_cmd(
+            tmp_path,
+            [
+                "submit", task_id,
+                "--commands", "pytest tests/ -v",
+                "--files-changed", "src/auth.py",
+                "--actor", "agent-test",
+            ],
+        )
+        assert result.exit_code == 0, f"submit failed: {result.output}"
+        assert "Evidence" in result.output or "submitted" in result.output.lower()
+
+    def test_submit_transitions_task_to_needs_review(self, tmp_path: Path) -> None:
+        """submit transitions task to needs_review status."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        _do_claim(tmp_path, task_id, actor="agent-test")
+
+        _invoke_cmd(
+            tmp_path,
+            [
+                "submit", task_id,
+                "--commands", "pytest tests/ -v",
+                "--files-changed", "src/main.py",
+                "--actor", "agent-test",
+            ],
+        )
+
+        status = _get_task_status(tmp_path, task_id)
+        assert status == "needs_review", f"Expected needs_review, got {status!r}"
+
+    def test_submit_without_active_claim_exits_nonzero(self, tmp_path: Path) -> None:
+        """submit without an active claim exits non-zero with error."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+        # Do NOT claim the task
+
+        result = _invoke_cmd(
+            tmp_path,
+            [
+                "submit", task_id,
+                "--commands", "pytest -v",
+                "--files-changed", "src/foo.py",
+                "--actor", "agent-test",
+            ],
+        )
+        assert result.exit_code != 0
+        combined = result.output + (result.stderr if hasattr(result, "stderr") and result.stderr else "")
+        assert "claim" in combined.lower() or "no active" in combined.lower()
+
+    def test_submit_with_pr_url_echoes_it(self, tmp_path: Path) -> None:
+        """submit --pr-url records the URL and prints it."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        _do_claim(tmp_path, task_id, actor="agent-test")
+
+        result = _invoke_cmd(
+            tmp_path,
+            [
+                "submit", task_id,
+                "--commands", "pytest tests/ -v",
+                "--files-changed", "src/auth.py",
+                "--pr-url", "https://github.com/repo/pull/42",
+                "--actor", "agent-test",
+            ],
+        )
+        assert result.exit_code == 0, f"submit with --pr-url failed: {result.output}"
+        assert "https://github.com/repo/pull/42" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — apply command
+# ---------------------------------------------------------------------------
+
+
+class TestApplyCommand:
+    def _reach_needs_review(
+        self, tmp_path: Path, task_id: str, actor: str = "agent-test"
+    ) -> None:
+        """Helper: claim + submit to reach needs_review state."""
+        _do_claim(tmp_path, task_id, actor=actor)
+        _invoke_cmd(
+            tmp_path,
+            [
+                "submit", task_id,
+                "--commands", "pytest tests/ -v",
+                "--files-changed", "src/main.py",
+                "--actor", actor,
+            ],
+        )
+
+    def test_apply_approve_transitions_to_done(self, tmp_path: Path) -> None:
+        """apply --approve transitions needs_review → done."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        self._reach_needs_review(tmp_path, task_id)
+
+        result = _invoke_cmd(
+            tmp_path,
+            ["apply", task_id, "--approve", "--reviewer", "alice"],
+        )
+        assert result.exit_code == 0, f"apply --approve failed: {result.output}"
+        assert "done" in result.output.lower() or "approved" in result.output.lower()
+
+        status = _get_task_status(tmp_path, task_id)
+        assert status == "done", f"Expected done, got {status!r}"
+
+    def test_apply_reject_requires_reason(self, tmp_path: Path) -> None:
+        """apply --reject without --reason exits non-zero."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        self._reach_needs_review(tmp_path, task_id)
+
+        result = _invoke_cmd(
+            tmp_path,
+            ["apply", task_id, "--reject", "--reviewer", "bob"],
+        )
+        assert result.exit_code != 0
+        combined = result.output + (result.stderr if hasattr(result, "stderr") and result.stderr else "")
+        assert "reason" in combined.lower() or "reject" in combined.lower()
+
+    def test_apply_reject_with_reason_transitions_to_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """apply --reject --reason transitions needs_review → rejected."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        self._reach_needs_review(tmp_path, task_id)
+
+        result = _invoke_cmd(
+            tmp_path,
+            [
+                "apply", task_id,
+                "--reject",
+                "--reason", "Needs more tests.",
+                "--reviewer", "bob",
+            ],
+        )
+        assert result.exit_code == 0, f"apply --reject failed: {result.output}"
+        assert "rejected" in result.output.lower()
+
+        status = _get_task_status(tmp_path, task_id)
+        assert status == "rejected", f"Expected rejected, got {status!r}"
+
+    def test_apply_without_flag_prints_review_summary(
+        self, tmp_path: Path
+    ) -> None:
+        """apply without --approve or --reject prints review summary and exits 0."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        self._reach_needs_review(tmp_path, task_id)
+
+        result = _invoke_cmd(tmp_path, ["apply", task_id])
+        assert result.exit_code == 0, f"apply (no flag) failed: {result.output}"
+        # Should show that task is awaiting review
+        assert (
+            "needs_review" in result.output
+            or "awaiting" in result.output.lower()
+            or "approve" in result.output.lower()
+        )
+
+    def test_apply_wrong_status_exits_nonzero(self, tmp_path: Path) -> None:
+        """apply on a task not in needs_review status exits non-zero."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+        # Task is 'ready' (not needs_review)
+
+        result = _invoke_cmd(
+            tmp_path,
+            ["apply", task_id, "--approve", "--reviewer", "alice"],
+        )
+        assert result.exit_code != 0
+        combined = result.output + (result.stderr if hasattr(result, "stderr") and result.stderr else "")
+        assert "needs_review" in combined or "status" in combined.lower()
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — hook capture-evidence subcommand
+# ---------------------------------------------------------------------------
+
+
+class TestHookCaptureEvidence:
+    def test_hook_capture_evidence_no_state_dir_exits_zero(
+        self, tmp_path: Path
+    ) -> None:
+        """hook capture-evidence exits 0 when no .fakoli-state/ exists."""
+        result = _invoke_cmd(
+            tmp_path,
+            [
+                "hook", "capture-evidence",
+                "--command", "pytest tests/ -v",
+                "--exit-code", "0",
+                "--actor", "agent-test",
+            ],
+        )
+        assert result.exit_code == 0
+
+    def test_hook_capture_evidence_writes_to_orphan_when_no_claim(
+        self, tmp_path: Path
+    ) -> None:
+        """hook capture-evidence writes to orphan.json when no active claim."""
+        _do_init(tmp_path, name="Hook CE Test Project")
+
+        result = _invoke_cmd(
+            tmp_path,
+            [
+                "hook", "capture-evidence",
+                "--command", "pytest tests/ -v",
+                "--exit-code", "0",
+                "--actor", "agent-test",
+            ],
+        )
+        assert result.exit_code == 0
+
+        orphan_file = tmp_path / ".fakoli-state" / ".evidence-buffer" / "orphan.json"
+        assert orphan_file.exists(), "orphan.json not written"
+        content = orphan_file.read_text(encoding="utf-8")
+        assert "pytest" in content
+
+    def test_hook_capture_evidence_exits_zero_on_failure_command(
+        self, tmp_path: Path
+    ) -> None:
+        """hook capture-evidence always exits 0 even when the command's exit-code is non-zero."""
+        _do_init(tmp_path, name="Hook CE Failure Test")
+
+        result = _invoke_cmd(
+            tmp_path,
+            [
+                "hook", "capture-evidence",
+                "--command", "pytest tests/ -v",
+                "--exit-code", "1",
+                "--actor", "agent-test",
+            ],
+        )
+        assert result.exit_code == 0  # hook MUST always exit 0
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — end-to-end: full lifecycle init → done
+# ---------------------------------------------------------------------------
+
+
+class TestE2EPhase5:
+    def test_full_lifecycle_init_to_done(self, tmp_path: Path) -> None:
+        """Full lifecycle: init → PRD → plan → review_tasks → claim → submit → apply --approve.
+
+        Asserts task reaches 'done' status at the end.
+        """
+        # 1. Full setup (git + init + PRD + plan + score + review tasks)
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None, "No ready tasks after full setup"
+
+        # 2. claim
+        claim_result = _invoke_cmd(
+            tmp_path, ["claim", task_id, "--actor", "agent-test"]
+        )
+        assert claim_result.exit_code == 0, f"claim failed: {claim_result.output}"
+
+        # 3. submit evidence
+        submit_result = _invoke_cmd(
+            tmp_path,
+            [
+                "submit", task_id,
+                "--commands", "pytest tests/ -v",
+                "--files-changed", "src/auth.py",
+                "--actor", "agent-test",
+            ],
+        )
+        assert submit_result.exit_code == 0, f"submit failed: {submit_result.output}"
+
+        # Verify task is now in needs_review
+        status = _get_task_status(tmp_path, task_id)
+        assert status == "needs_review", f"Expected needs_review, got {status!r}"
+
+        # 4. apply --approve
+        apply_result = _invoke_cmd(
+            tmp_path,
+            ["apply", task_id, "--approve", "--reviewer", "human-reviewer"],
+        )
+        assert apply_result.exit_code == 0, f"apply --approve failed: {apply_result.output}"
+
+        # Verify task is now done
+        final_status = _get_task_status(tmp_path, task_id)
+        assert final_status == "done", (
+            f"Expected task '{task_id}' to be 'done' after full lifecycle, got '{final_status}'"
+        )

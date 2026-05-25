@@ -3297,3 +3297,628 @@ class TestPhase4CoverageEdgeCases:
                 ))
         finally:
             b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — helper factories
+# ---------------------------------------------------------------------------
+
+
+def _make_evidence_payload(
+    *,
+    task_id: str = "T001",
+    claim_id: str = "C001",
+    evidence_id: str = "EV001",
+    submitted_by: str = "agent-alpha",
+    commands_run: list[str] | None = None,
+    files_changed: list[str] | None = None,
+    output_excerpt: str | None = "5 passed",
+    pr_url: str | None = None,
+    commit_sha: str | None = None,
+    screenshots: list[str] | None = None,
+    known_limitations: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "claim_id": claim_id,
+        "evidence_id": evidence_id,
+        "submitted_by": submitted_by,
+        "commands_run": commands_run if commands_run is not None else ["pytest tests/ -v"],
+        "files_changed": files_changed if files_changed is not None else ["src/auth.py"],
+        "output_excerpt": output_excerpt,
+        "pr_url": pr_url,
+        "commit_sha": commit_sha,
+        "screenshots": screenshots or [],
+        "known_limitations": known_limitations,
+    }
+
+
+def _make_applied_payload(
+    *,
+    task_id: str = "T001",
+    reviewer: str = "alice",
+    decision: str = "accepted",
+    notes: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "reviewer": reviewer,
+        "decision": decision,
+        "notes": notes,
+    }
+
+
+def _setup_claimable_task_and_claim(
+    b: SqliteBackend,
+    *,
+    task_id: str = "T001",
+    claim_id: str = "C001",
+) -> None:
+    """Set up project → feature → task in 'ready' → claim.created → task='claimed'."""
+    _setup_claimable_task(b, task_id=task_id)
+    b.apply_event(_make_event(
+        "claim.created",
+        _make_claim_payload(claim_id=claim_id, task_id=task_id),
+        event_id="E000010", target_kind="claim", target_id=claim_id,
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — TestPhase5EvidenceAndApplyHandlers
+# ---------------------------------------------------------------------------
+
+
+class TestPhase5EvidenceAndApplyHandlers:
+    """Unit tests for evidence.submitted and task.applied event handlers."""
+
+    # ------------------------------------------------------------------
+    # evidence.submitted — happy path
+    # ------------------------------------------------------------------
+
+    def test_evidence_submitted_inserts_row_and_updates_task(
+        self, tmp_path: Path
+    ) -> None:
+        """evidence.submitted inserts evidence row, sets task.status='needs_review',
+        and auto-releases the claim.
+        """
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task_and_claim(b)
+
+            payload = _make_evidence_payload()
+            b.apply_event(_make_event(
+                "evidence.submitted", payload,
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            # JSONL
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "evidence.submitted" for e in events)
+
+            # Evidence row present
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            ev_row = conn.execute(
+                "SELECT id, task_id, submitted_by FROM evidence WHERE id = 'EV001'"
+            ).fetchone()
+            conn.close()
+            assert ev_row is not None
+            assert ev_row[1] == "T001"
+            assert ev_row[2] == "agent-alpha"
+
+            # Task status → needs_review
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "needs_review"
+
+            # Claim auto-released
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.status.value == "released"
+        finally:
+            b.close()
+
+    def test_evidence_submitted_idempotent_on_replay(self, tmp_path: Path) -> None:
+        """Applying evidence.submitted twice is a no-op for the second application."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+
+            payload = _make_evidence_payload()
+            event = _make_event(
+                "evidence.submitted", payload,
+                event_id="E000011", target_kind="task", target_id="T001",
+            )
+            b.apply_event(event)  # first: commits
+            b.apply_event(event)  # second: INSERT OR IGNORE — no-op
+
+            # Still only one evidence row
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            count = conn.execute(
+                "SELECT COUNT(*) FROM evidence WHERE id = 'EV001'"
+            ).fetchone()[0]
+            conn.close()
+            assert count == 1
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "needs_review"
+        finally:
+            b.close()
+
+    def test_evidence_submitted_validates_required_fields(
+        self, tmp_path: Path
+    ) -> None:
+        """evidence.submitted without task_id raises TransactionAborted with field name."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+
+            bad_payload = _make_evidence_payload()
+            del bad_payload["task_id"]  # missing required field
+
+            with pytest.raises(TransactionAborted, match="task_id"):
+                b.apply_event(_make_event(
+                    "evidence.submitted", bad_payload,
+                    event_id="E000011", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    def test_evidence_submitted_rejects_empty_commands_run(
+        self, tmp_path: Path
+    ) -> None:
+        """evidence.submitted with commands_run=[] raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+
+            payload = _make_evidence_payload(commands_run=[])
+            with pytest.raises(TransactionAborted, match="commands_run"):
+                b.apply_event(_make_event(
+                    "evidence.submitted", payload,
+                    event_id="E000011", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    def test_evidence_submitted_rejects_empty_files_changed(
+        self, tmp_path: Path
+    ) -> None:
+        """evidence.submitted with files_changed=[] raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+
+            payload = _make_evidence_payload(files_changed=[])
+            with pytest.raises(TransactionAborted, match="files_changed"):
+                b.apply_event(_make_event(
+                    "evidence.submitted", payload,
+                    event_id="E000011", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    def test_evidence_submitted_handles_already_needs_review_task_idempotent(
+        self, tmp_path: Path
+    ) -> None:
+        """evidence.submitted when task is already 'needs_review' is a no-op success."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+
+            payload = _make_evidence_payload()
+            b.apply_event(_make_event(
+                "evidence.submitted", payload,
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+            # Task is now needs_review. Applying again with a different evidence_id
+            # triggers the INSERT OR IGNORE no-op for the evidence row;
+            # the task status update 0-rows branch is the idempotent path.
+            payload2 = _make_evidence_payload(evidence_id="EV002")
+            b.apply_event(_make_event(
+                "evidence.submitted", payload2,
+                event_id="E000012", target_kind="task", target_id="T001",
+            ))
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "needs_review"
+        finally:
+            b.close()
+
+    def test_evidence_submitted_missing_claim_id_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """evidence.submitted without claim_id raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+
+            bad = _make_evidence_payload()
+            del bad["claim_id"]
+
+            with pytest.raises(TransactionAborted, match="claim_id"):
+                b.apply_event(_make_event(
+                    "evidence.submitted", bad,
+                    event_id="E000011", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.applied — happy path
+    # ------------------------------------------------------------------
+
+    def test_task_applied_accepted_transitions_to_done(
+        self, tmp_path: Path
+    ) -> None:
+        """needs_review → accepted → done (combined atomic transition)."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task_and_claim(b)
+            # Submit evidence to reach needs_review
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            # Apply: accepted → done
+            b.apply_event(_make_event(
+                "task.applied",
+                _make_applied_payload(decision="accepted", reviewer="alice"),
+                event_id="E000012", target_kind="task", target_id="T001",
+            ))
+
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "task.applied" for e in events)
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "done"
+        finally:
+            b.close()
+
+    def test_task_applied_rejected_transitions_to_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """needs_review + decision=rejected → task.status='rejected'."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            b.apply_event(_make_event(
+                "task.applied",
+                _make_applied_payload(decision="rejected", reviewer="bob", notes="Needs more tests."),
+                event_id="E000012", target_kind="task", target_id="T001",
+            ))
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "rejected"
+        finally:
+            b.close()
+
+    def test_task_applied_inserts_review_row(self, tmp_path: Path) -> None:
+        """task.applied inserts a reviews row with id=RV-{event_id}."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            b.apply_event(_make_event(
+                "task.applied",
+                _make_applied_payload(decision="accepted"),
+                event_id="E000012", target_kind="task", target_id="T001",
+            ))
+
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            review = conn.execute(
+                "SELECT id, target_kind, target_id, decision FROM reviews WHERE target_kind='task'"
+            ).fetchone()
+            conn.close()
+            assert review is not None
+            assert review[0] == "RV-E000012"
+            assert review[1] == "task"
+            assert review[2] == "T001"
+            assert review[3] == "accepted"
+        finally:
+            b.close()
+
+    def test_task_applied_concurrency_guard_on_wrong_status(
+        self, tmp_path: Path
+    ) -> None:
+        """task.applied when task is NOT 'needs_review' → TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            # Task is 'claimed', not 'needs_review'
+            with pytest.raises(TransactionAborted, match="needs_review|status|T001"):
+                b.apply_event(_make_event(
+                    "task.applied",
+                    _make_applied_payload(decision="accepted"),
+                    event_id="E000011", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    def test_task_applied_replay_idempotent(self, tmp_path: Path) -> None:
+        """Replaying task.applied twice with same event_id is a no-op (INSERT OR REPLACE)."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            apply_event = _make_event(
+                "task.applied",
+                _make_applied_payload(decision="accepted"),
+                event_id="E000012", target_kind="task", target_id="T001",
+            )
+            b.apply_event(apply_event)  # first: commits, task → done
+
+            # Second: idempotent — accepted/done path is no-op (INSERT OR REPLACE for review)
+            b.apply_event(apply_event)  # no raise expected
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "done"
+        finally:
+            b.close()
+
+    def test_task_applied_invalid_decision_aborts(self, tmp_path: Path) -> None:
+        """task.applied with decision='approved' (not 'accepted'/'rejected') → TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            with pytest.raises(TransactionAborted, match="decision|accepted|rejected"):
+                b.apply_event(_make_event(
+                    "task.applied",
+                    _make_applied_payload(decision="approved"),  # invalid
+                    event_id="E000012", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    def test_task_applied_missing_reviewer_aborts(self, tmp_path: Path) -> None:
+        """task.applied without reviewer raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            bad = {"task_id": "T001", "decision": "accepted"}  # no reviewer
+            with pytest.raises(TransactionAborted, match="reviewer"):
+                b.apply_event(_make_event(
+                    "task.applied", bad,
+                    event_id="E000012", target_kind="task", target_id="T001",
+                ))
+        finally:
+            b.close()
+
+    def test_task_applied_rejected_replay_idempotent(self, tmp_path: Path) -> None:
+        """Replaying task.applied (rejected) twice is a no-op for the second application.
+
+        Exercises the idempotent replay branch in the rejected path of
+        _handle_task_applied: when the task is already 'rejected', a second
+        apply of the same event should not raise.
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            reject_event = _make_event(
+                "task.applied",
+                _make_applied_payload(decision="rejected", reviewer="bob", notes="Needs more."),
+                event_id="E000012", target_kind="task", target_id="T001",
+            )
+            b.apply_event(reject_event)  # first: task → rejected
+            b.apply_event(reject_event)  # second: idempotent replay, no raise expected
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "rejected"
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — THE CRITICAL TEST: replay includes Phase 5 events
+# ---------------------------------------------------------------------------
+
+
+class TestReplayIncludesPhase5Events:
+    def test_replay_includes_evidence_and_apply_events(self, tmp_path: Path) -> None:
+        """Full lifecycle replay: project.created → state.initialized → prd.parsed
+        → prd.approved → feature.created → task.created → task.status_changed (→ ready)
+        → claim.created → evidence.submitted → task.applied.
+
+        Assert byte-equal sqlite3 .dump after replay.
+        """
+        clock = _make_clock()
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
+
+        try:
+            # E000001: project.created
+            b.apply_event(_make_project_event(event_id="E000001"))
+            # E000002: state.initialized
+            b.apply_event(_make_init_event(event_id="E000002"))
+
+            # E000003: prd.parsed
+            b.apply_event(_make_event(
+                "prd.parsed",
+                {
+                    "project_id": "proj-1",
+                    "status": "draft",
+                    "summary": "Phase 5 replay test PRD.",
+                    "goals": ["Goal."],
+                    "non_goals": [],
+                    "requirements": [
+                        {"id": "R001", "prd_section": "requirements", "text": "Req.",
+                         "source_paragraph": None, "derived": False}
+                    ],
+                    "acceptance_criteria": ["AC."],
+                    "risks": [],
+                    "open_questions": [],
+                },
+                event_id="E000003", target_kind="prd", target_id="proj-1",
+            ))
+
+            # E000004: prd.approved (skipping prd.reviewed for brevity — approved is valid)
+            b.apply_event(_make_event(
+                "prd.approved",
+                {"project_id": "proj-1", "approver": "alice"},
+                event_id="E000004", target_kind="prd", target_id="proj-1",
+            ))
+
+            # E000005: feature.created
+            b.apply_event(_make_event(
+                "feature.created",
+                _make_feature_payload(feat_id="F001"),
+                event_id="E000005", target_kind="feature", target_id="F001",
+            ))
+
+            # E000006: task.created
+            b.apply_event(_make_event(
+                "task.created",
+                _make_task_payload(task_id="T001"),
+                event_id="E000006", target_kind="task", target_id="T001",
+            ))
+
+            # E000007–E000009: task.status_changed proposed → ready
+            for from_s, to_s, eid in [
+                ("proposed", "drafted", "E000007"),
+                ("drafted", "reviewed", "E000008"),
+                ("reviewed", "ready", "E000009"),
+            ]:
+                b.apply_event(_make_event(
+                    "task.status_changed",
+                    {"task_id": "T001", "from": from_s, "to": to_s},
+                    event_id=eid, target_kind="task", target_id="T001",
+                ))
+
+            # E000010: claim.created
+            b.apply_event(_make_event(
+                "claim.created",
+                _make_claim_payload(claim_id="C001", task_id="T001"),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+
+            # E000011: evidence.submitted
+            b.apply_event(_make_event(
+                "evidence.submitted",
+                _make_evidence_payload(
+                    task_id="T001",
+                    claim_id="C001",
+                    evidence_id="EV001",
+                    submitted_by="agent-alpha",
+                    commands_run=["pytest tests/ -v"],
+                    files_changed=["src/auth.py"],
+                    output_excerpt="5 passed",
+                ),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            # E000012: task.applied (accepted → done)
+            b.apply_event(_make_event(
+                "task.applied",
+                _make_applied_payload(task_id="T001", reviewer="alice", decision="accepted"),
+                event_id="E000012", target_kind="task", target_id="T001",
+            ))
+
+        finally:
+            b.close()
+
+        # Capture original dump
+        original_dump = _sqlite_dump(db_path)
+
+        # Replay from empty
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            b2.replay_from_empty(events_path)
+        finally:
+            b2.close()
+
+        replayed_dump = _sqlite_dump(db_path)
+        assert original_dump == replayed_dump, (
+            "Replayed state.db does not match original after Phase 5 events.\n"
+            f"Original dump (first 800 chars):\n{original_dump[:800]}\n\n"
+            f"Replayed dump (first 800 chars):\n{replayed_dump[:800]}"
+        )
+
+    def test_replay_includes_rejected_apply(self, tmp_path: Path) -> None:
+        """Audit guarantee for the rejected branch: evidence.submitted → task.applied
+        (rejected) replays byte-identically.
+        """
+        clock = _make_clock()
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
+
+        try:
+            _setup_claimable_task(b)
+            b.apply_event(_make_event(
+                "claim.created",
+                _make_claim_payload(claim_id="C001", task_id="T001"),
+                event_id="E000010", target_kind="claim", target_id="C001",
+            ))
+            b.apply_event(_make_event(
+                "evidence.submitted",
+                _make_evidence_payload(task_id="T001", claim_id="C001", evidence_id="EV001"),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+            b.apply_event(_make_event(
+                "task.applied",
+                _make_applied_payload(task_id="T001", reviewer="bob", decision="rejected",
+                                      notes="Incomplete."),
+                event_id="E000012", target_kind="task", target_id="T001",
+            ))
+        finally:
+            b.close()
+
+        original_dump = _sqlite_dump(db_path)
+
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            b2.replay_from_empty(events_path)
+        finally:
+            b2.close()
+
+        replayed_dump = _sqlite_dump(db_path)
+        assert original_dump == replayed_dump, (
+            "Replayed state.db does not match original after rejected task.applied."
+        )
