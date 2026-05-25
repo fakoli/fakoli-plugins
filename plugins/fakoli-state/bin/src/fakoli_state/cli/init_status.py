@@ -84,8 +84,10 @@ def init(
     # replay/audit guarantee holds. Without this, the new project.created and
     # state.initialized events would be appended to the old events.jsonl,
     # producing duplicate IDs and a log that no longer replays to current DB.
-    # packets/ and snapshots/ are preserved (user data; --force is for the
-    # canonical state, not for nuking work).
+    # packets/ is preserved (user-generated work packets are not canonical
+    # state). snapshots/ may exist if `fakoli-state snapshot` was run; if
+    # present it is also preserved for the same reason (PS-2: init no longer
+    # pre-creates it).
     if state_dir.exists() and force:
         db_file = state_dir / "state.db"
         if db_file.exists():

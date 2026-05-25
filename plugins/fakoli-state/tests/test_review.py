@@ -309,3 +309,20 @@ class TestContainsTestKeywordCollectionOnly:
 
     def test_uv_run_pytest_collect_only_rejected(self) -> None:
         assert not _contains_test_keyword("uv run pytest --collect-only")
+
+    def test_pytest_color_flag_NOT_rejected(self) -> None:
+        """Greptile + critic PR #48 P1: `--co` substring must not match `--color`."""
+        assert _contains_test_keyword("pytest --color=no tests/")
+
+    def test_pytest_color_yes_NOT_rejected(self) -> None:
+        assert _contains_test_keyword("pytest tests/ --color=yes")
+
+    def test_pytest_cov_NOT_rejected(self) -> None:
+        """`--cov` must not be confused with `--co`."""
+        assert _contains_test_keyword("pytest --cov=src tests/")
+
+    def test_pytest_continue_on_collection_errors_NOT_rejected(self) -> None:
+        assert _contains_test_keyword("pytest --continue-on-collection-errors tests/")
+
+    def test_cargo_test_color_NOT_rejected(self) -> None:
+        assert _contains_test_keyword("cargo test --color=auto")

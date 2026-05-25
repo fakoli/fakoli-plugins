@@ -548,7 +548,9 @@ def parse_prd(
 
     Args:
         markdown: The full PRD markdown source.
-        prd_id:   An optional identifier for the PRD (used in error messages).
+        prd_id:   Reserved for future multi-PRD support. Currently accepted
+                  for API stability but not surfaced anywhere downstream
+                  (not threaded into ParseError messages or any other path).
         provider: Optional LLM provider used to enrich short Task descriptions
                   (Phase 7 Wave 2).  Pure-deterministic when ``None``.
         clock:    Optional Clock used to stamp ``Task.created_at`` /

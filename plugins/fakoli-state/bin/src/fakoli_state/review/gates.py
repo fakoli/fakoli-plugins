@@ -105,6 +105,9 @@ def _is_test_related(item_lower: str) -> bool:
     return any(kw in item_lower for kw in test_keywords)
 
 
+_COLLECT_ONLY_RE = re.compile(r"(?<![A-Za-z0-9-])--(?:co|collect-only)(?:[\s=]|$)")
+
+
 def _contains_test_keyword(cmd_lower: str) -> bool:
     """Return True if a command string actually runs tests.
 
@@ -112,6 +115,11 @@ def _contains_test_keyword(cmd_lower: str) -> bool:
     executing them (e.g. ``pytest --collect-only``, ``pytest --co``), which
     exit 0 with zero tests run and would falsely satisfy a "tests pass"
     evidence gate. Reported in tech-debt-backlog CL-9 (PR #41 Critic-1).
+
+    The collect-only check uses a word-boundary regex so it matches only the
+    bare ``--co`` / ``--collect-only`` flags — not ``--color``, ``--config``,
+    ``--continue-on-collection-errors``, or any other ``--co*`` flag a real
+    test command might use. Greptile + critic PR #48 P1 caught this.
     """
     test_runners = (
         "pytest",
@@ -128,9 +136,7 @@ def _contains_test_keyword(cmd_lower: str) -> bool:
     )
     if not any(runner in cmd_lower for runner in test_runners):
         return False
-    # Reject collection-only invocations — they exit 0 but run zero tests.
-    collect_only_flags = ("--collect-only", "--co ", "--co\t", " --co")
-    if any(flag in cmd_lower for flag in collect_only_flags) or cmd_lower.rstrip().endswith("--co"):
+    if _COLLECT_ONLY_RE.search(cmd_lower):
         return False
     return True
 

@@ -151,6 +151,14 @@ def _reap_stale_claims(backend: SqliteBackend) -> None:
         raise  # CL-3: surface DB-version drift; do not mask
     except (StateLocked, TransactionAborted):
         pass  # operational; reaping is best-effort and self-healing
+    except Exception:  # noqa: BLE001
+        # Greptile PR #48 P2: raw sqlite3.OperationalError ("unable to open
+        # database file", disk full, etc.) and any other unwrapped exception
+        # must not block the primary command. Reaping is opportunistic — if
+        # it fails for unexpected reasons we still log nothing here (per the
+        # "never noisy" contract) and let the primary op proceed. The next
+        # invocation will retry.
+        pass
 
 
 # ---------------------------------------------------------------------------
