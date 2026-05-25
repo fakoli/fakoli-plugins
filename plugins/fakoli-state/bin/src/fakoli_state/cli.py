@@ -210,6 +210,25 @@ def init(
         )
         raise typer.Exit(code=1)
 
+    # --force reinit: wipe the canonical state files before scaffolding so the
+    # replay/audit guarantee holds. Without this, the new project.created and
+    # state.initialized events would be appended to the old events.jsonl,
+    # producing duplicate IDs and a log that no longer replays to current DB.
+    # packets/ and snapshots/ are preserved (user data; --force is for the
+    # canonical state, not for nuking work).
+    if state_dir.exists() and force:
+        db_file = state_dir / "state.db"
+        if db_file.exists():
+            db_file.unlink()
+        # WAL/SHM sidecar files left by SQLite must go too.
+        for sidecar in ("state.db-wal", "state.db-shm"):
+            sidecar_path = state_dir / sidecar
+            if sidecar_path.exists():
+                sidecar_path.unlink()
+        events_file = state_dir / "events.jsonl"
+        if events_file.exists():
+            events_file.unlink()
+
     # Resolve project name and id.
     project_name = name if name else cwd.name
     project_id = id if id else _slug(project_name)

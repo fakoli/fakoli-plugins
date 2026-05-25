@@ -539,8 +539,3 @@ class SqliteBackend:
     def _row_to_project(self, row: Any) -> Project:
         """Deserialise a projects row into a Project model instance."""
         return Project.model_validate(dict(row))
-
-    def _setup_row_factory(self) -> None:
-        """Configure Row factory on the connection for dict-style access."""
-        if self._conn is not None:
-            self._conn.row_factory = sqlite3.Row

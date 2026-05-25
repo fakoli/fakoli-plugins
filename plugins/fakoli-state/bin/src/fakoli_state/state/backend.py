@@ -23,12 +23,17 @@ class Backend(Protocol):
     Replay from the event log must reproduce the exact same SQLite state.
     """
 
-    def initialize(self, *, db_path: str, events_path: str) -> None:
-        """Create schema if not present. Idempotent.
+    def initialize(self) -> None:
+        """Open the backend, create schema if not present, validate version.
 
-        Args:
-            db_path: Absolute path to the SQLite database file.
-            events_path: Absolute path to the JSONL event log.
+        Idempotent — safe to call repeatedly. Paths (db_path, events_path) are
+        supplied to the concrete backend via its constructor; this method takes
+        no arguments so impls with different connection models (in-memory,
+        connection pool, etc.) can satisfy the Protocol without a path API.
+
+        Raises:
+            SchemaMismatch: If an existing DB has a user_version that does not
+                match the version this code expects.
         """
         ...
 

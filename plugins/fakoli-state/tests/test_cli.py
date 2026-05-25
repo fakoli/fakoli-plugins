@@ -125,6 +125,40 @@ class TestInit:
 
         assert result.exit_code == 0, f"--force init failed: {result.output}"
 
+    def test_init_force_truncates_events_log(self, tmp_path: Path) -> None:
+        """--force reinit wipes events.jsonl and state.db so the replay/audit
+        guarantee holds — without this, a second init appends duplicate event
+        IDs to the old log and the log no longer replays to the current DB.
+        (Regression test for Greptile PR #37 finding.)
+        """
+        original_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            # First init — produces E000001 (project.created) and E000002 (state.initialized).
+            runner.invoke(app, ["init", "--name", "First"], catch_exceptions=False)
+            events_path = tmp_path / ".fakoli-state" / "events.jsonl"
+            first_lines = events_path.read_text(encoding="utf-8").splitlines()
+            assert len(first_lines) == 2, f"expected 2 events after first init, got {len(first_lines)}"
+
+            # Second init with --force — must replace the log, not append to it.
+            result = runner.invoke(
+                app,
+                ["init", "--name", "Second", "--force"],
+                catch_exceptions=False,
+            )
+            assert result.exit_code == 0, f"--force init failed: {result.output}"
+
+            second_lines = events_path.read_text(encoding="utf-8").splitlines()
+            # Must still be exactly 2 events (not 4) — the old log was wiped.
+            assert len(second_lines) == 2, (
+                f"--force did not truncate events.jsonl; expected 2 events, "
+                f"got {len(second_lines)}. Replay guarantee is broken."
+            )
+            # And the new events should be for the new project name.
+            assert "Second" in second_lines[0], "first event after --force should reference new project"
+        finally:
+            os.chdir(original_cwd)
+
     def test_init_refuses_in_plugin_root(self, tmp_path: Path) -> None:
         """init refuses when .claude-plugin/plugin.json declares name == fakoli-state."""
         # Create fake plugin manifest
