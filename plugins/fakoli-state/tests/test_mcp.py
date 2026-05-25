@@ -626,6 +626,26 @@ class TestReleaseTask:
         with pytest.raises(ToolError, match="No active claim|released|never claimed"):
             _run(run())
 
+    def test_error_when_actor_does_not_own_claim(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Critic-PR#45 regression: foreign actor must not be able to release."""
+        state_dir = _init_state_dir(tmp_path)
+        _add_feature(state_dir)
+        _add_task(state_dir, task_id="T001", status="claimed")
+        _add_active_claim(state_dir, claim_id="C001", task_id="T001", claimed_by="agent-x")
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("release_task", {
+                    "task_id": "T001",
+                    "actor": "agent-y",
+                })
+
+        with pytest.raises(ToolError):
+            _run(run())
+
 
 # ===========================================================================
 # Tool 7: renew_claim
@@ -667,6 +687,27 @@ class TestRenewClaim:
                 })
 
         with pytest.raises(ToolError, match="No active claim|released|expired"):
+            _run(run())
+
+    def test_error_when_actor_does_not_own_claim(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Critic-PR#45 regression: foreign actor must not be able to renew."""
+        state_dir = _init_state_dir(tmp_path)
+        _add_feature(state_dir)
+        _add_task(state_dir, task_id="T001", status="claimed")
+        _add_active_claim(state_dir, claim_id="C001", task_id="T001", claimed_by="agent-x",
+                          minutes_until_expiry=5)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("renew_claim", {
+                    "task_id": "T001",
+                    "actor": "agent-y",
+                })
+
+        with pytest.raises(ToolError):
             _run(run())
 
 
@@ -839,6 +880,50 @@ class TestSubmitCompletionEvidence:
                 })
 
         with pytest.raises(ToolError, match="not found|NOPE"):
+            _run(run())
+
+    def test_error_when_actor_does_not_own_claim(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Critic-PR#45 P1 regression: foreign actor cannot force-complete a claim."""
+        state_dir = _init_state_dir(tmp_path)
+        _add_feature(state_dir)
+        _add_task(state_dir, task_id="T001", status="in_progress")
+        _add_active_claim(state_dir, claim_id="C001", task_id="T001", claimed_by="agent-x")
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("submit_completion_evidence", {
+                    "task_id": "T001",
+                    "actor": "agent-y",  # owner is agent-x
+                    "commands_run": ["pytest"],
+                    "files_changed": ["src/foo.py"],
+                })
+
+        with pytest.raises(ToolError, match="claim owner|claimed by"):
+            _run(run())
+
+    def test_error_when_commands_run_is_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Critic-PR#45 regression: backend rejects empty commands_run on active claim."""
+        state_dir = _init_state_dir(tmp_path)
+        _add_feature(state_dir)
+        _add_task(state_dir, task_id="T001", status="in_progress")
+        _add_active_claim(state_dir, claim_id="C001", task_id="T001", claimed_by="agent-x")
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("submit_completion_evidence", {
+                    "task_id": "T001",
+                    "actor": "agent-x",
+                    "commands_run": [],  # backend should reject
+                    "files_changed": ["src/foo.py"],
+                })
+
+        with pytest.raises(ToolError):
             _run(run())
 
 

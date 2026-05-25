@@ -1,20 +1,24 @@
 """FastMCP (stdio) server — 13 agent-facing tools for fakoli-state.
 
-Each tool opens a fresh SqliteBackend against the current project's
-.fakoli-state/state.db (resolved via cli._helpers._resolve_state_dir(Path.cwd())),
-runs the operation, then closes. Agents may invoke from any cwd; the server
-resolves state relative to the cwd at call time.
+Each tool opens a fresh SqliteBackend against the project's
+.fakoli-state/state.db. The server process cwd is fixed at startup — the
+bash wrapper cd-s to ORIGINAL_PWD before `exec uv run python -m
+fakoli_state.mcp_server`, so all tool calls within a single server session
+address the same project's state. To switch projects, restart the MCP
+server in the new project directory.
 
 Stale-claim reaping runs at the top of every mutating tool (claim_task,
 release_task, renew_claim, submit_progress, submit_completion_evidence,
-update_task_status) per the Phase 6 spec. get_project_summary also reaps
-per spec ("every MCP op").
+update_task_status) and on get_project_summary. Read-only listers
+(list_tasks, get_task, get_next_task, check_conflicts, get_dependency_graph)
+skip reaping for latency.
 
 Tool names match the spec exactly (2026-05-24-fakoli-state-v0.md §MCP Server).
 """
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -158,12 +162,10 @@ class DependencyNode(BaseModel):
 class DependencyEdge(BaseModel):
     """A directed edge in the dependency graph (from → to)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     from_task: str = Field(alias="from")
     to_task: str = Field(alias="to")
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class DependencyGraphResponse(BaseModel):
@@ -345,8 +347,6 @@ def list_tasks(
             }
             tasks = [t for t in tasks if t.id in claimed_task_ids]
 
-        import json
-
         return [json.loads(t.model_dump_json()) for t in tasks]
     finally:
         backend.close()
@@ -363,8 +363,6 @@ def get_task(task_id: str) -> dict[str, Any]:
 
     Raises a structured ToolError if the task is not found.
     """
-    import json
-
     state_dir = _resolve_state_dir()
     backend = _open_backend(state_dir)
     try:
@@ -392,22 +390,24 @@ def get_next_task(actor: str | None = None) -> dict[str, Any] | None:
 
     Returns null if no claimable task is available.
     """
-    import json
-
     state_dir = _resolve_state_dir()
     backend = _open_backend(state_dir)
     try:
-        _reap_stale(backend)
+        # Read-only listers don't reap (per module docstring); MCP clients
+        # call get_project_summary or a mutating tool to trigger reaping.
 
-        ready_tasks = backend.list_tasks(status="ready")
+        # Single full-table fetch + in-memory partition; halves the SQLite
+        # round-trips on this hot path versus calling list_tasks(status=...)
+        # then list_tasks() again for the done/conflict sets.
+        all_tasks = backend.list_tasks()
+        if not all_tasks:
+            return None
+        ready_tasks = [t for t in all_tasks if t.status.value == "ready"]
         if not ready_tasks:
             return None
 
         active_claims = backend.list_active_claims()
         claimed_task_ids: set[str] = {c.task_id for c in active_claims}
-
-        # Build done set for dependency checking.
-        all_tasks = backend.list_tasks()
         done_task_ids: set[str] = {
             t.id for t in all_tasks if t.status.value == "done"
         }
@@ -766,6 +766,15 @@ def submit_completion_evidence(
             raise ToolError(
                 f"No active claim found for task '{task_id}'. "
                 "Claim the task first before submitting evidence.",
+            )
+
+        # Enforce actor ownership — only the claim owner may submit evidence.
+        # Without this guard any MCP caller can force-complete another agent's
+        # claim by passing a different actor name (caught by critic-PR#45-P1).
+        if active_claim.claimed_by != actor:
+            raise ToolError(
+                f"Task '{task_id}' is claimed by '{active_claim.claimed_by}', "
+                f"not '{actor}'. Only the claim owner may submit completion evidence.",
             )
 
         evidence_id = "EV" + uuid.uuid4().hex[:8].upper()
