@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fakoli-plugins.github.io/schemas/skill.schema.json",
+  "title": "Claude Code Skill Frontmatter",
+  "description": "Schema for SKILL.md YAML frontmatter fields — based on https://code.claude.com/docs/en/skills",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Display name (kebab-case recommended)"
+    },
+    "description": {
+      "type": "string",
+      "description": "What the skill does and when to use it — drives model-invocation triggering"
+    },
+    "argument-hint": {
+      "type": "string",
+      "description": "Hint shown in autocomplete, e.g. '[issue-number]'"
+    },
+    "disable-model-invocation": {
+      "type": "boolean",
+      "default": false,
+      "description": "Prevent Claude from auto-loading this skill"
+    },
+    "user-invocable": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show in / menu for manual invocation"
+    },
+    "allowed-tools": {
+      "type": "string",
+      "description": "Comma-separated tool names for permission-free use when skill is active"
+    },
+    "model": {
+      "type": "string",
+      "description": "Model override when skill is active"
+    },
+    "context": {
+      "type": "string",
+      "enum": ["fork"],
+      "description": "Set to 'fork' for subagent execution"
+    },
+    "agent": {
+      "type": "string",
+      "description": "Subagent type when context: fork (e.g. 'Explore', 'Plan')"
+    },
+    "hooks": {
+      "type": "object",
+      "description": "Hooks scoped to skill lifecycle"
+    }
+  }
+}
