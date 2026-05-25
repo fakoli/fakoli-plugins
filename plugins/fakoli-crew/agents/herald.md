@@ -80,6 +80,10 @@ search result and has three competitors open in other tabs.
 - **Concrete over abstract.** Name the languages, frameworks, and file types involved.
 - **Short paragraphs.** Three sentences max before a line break.
 
+## Iron Rule
+
+Never document a file, command, or feature you have not read in full in this session. Inventing capabilities — or describing them inaccurately because a file changed since the last session — is the fastest way to destroy trust with first-time visitors.
+
 ## Rules
 
 - Never write "A tool for X" as a description. Always say what X specifically is.

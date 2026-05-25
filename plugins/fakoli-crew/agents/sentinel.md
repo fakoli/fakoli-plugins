@@ -28,7 +28,7 @@ description: >
   Producing a scorecard — each line is PASS or FAIL with the exact finding.
   </example>
 model: sonnet
-color: red
+color: orange
 allowed-tools:
   - Read
   - Bash

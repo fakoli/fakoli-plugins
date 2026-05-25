@@ -1,5 +1,6 @@
 ---
-description: Systematic 4-phase debugging for root cause analysis — investigate, analyze patterns, form hypothesis, fix with test
+name: debugging
+description: This skill should be used when a test is failing inexplicably, when a runtime error appears in production, when a bug reproduces unpredictably, or when two or more prior fix attempts have failed. Provides a 4-phase systematic debugging workflow — investigate, analyze patterns, form hypothesis, fix with test — to prevent random-fix loops.
 ---
 # Systematic Debugging
 
@@ -7,10 +8,12 @@ A structured approach to debugging that prevents "try random fixes until somethi
 
 ## When to Use
 
-- A test is failing and you don't know why
-- A runtime error occurs in production
-- A bug report describes unexpected behavior
-- You've already tried 2+ fixes and none worked
+Activate this skill when any of the following hold:
+
+- A test is failing without an obvious cause.
+- A runtime error appears in production.
+- A bug report describes unexpected behavior whose source is unclear.
+- Two or more fix attempts have already failed.
 
 ## The 4 Phases
 

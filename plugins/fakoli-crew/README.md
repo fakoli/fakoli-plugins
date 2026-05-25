@@ -129,6 +129,7 @@ coordinate without a shared conversation.
 | Skill | Description | File |
 |-------|-------------|------|
 | Debugging | Systematic 4-phase root cause analysis — used automatically by critic, welder, and sentinel when diagnosing failures | `skills/debugging/SKILL.md` |
+| Crew-ops | Multi-agent orchestration — wave patterns, file ownership, status protocol, and shared language style references for coordinated work across the crew | `skills/crew-ops/SKILL.md` |
 
 ## Agent Design Principles
 

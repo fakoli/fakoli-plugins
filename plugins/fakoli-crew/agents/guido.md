@@ -45,11 +45,11 @@ Before making any recommendation, detect the project language:
 
 | File Present | Language | Style Reference |
 |---|---|---|
-| `tsconfig.json` or `package.json` | TypeScript | `references/guido-style.md` |
-| `pyproject.toml` or `setup.py` | Python | `references/python-style.md` |
-| `Cargo.toml` | Rust | `references/rust-style.md` |
+| `tsconfig.json` or `package.json` | TypeScript | `skills/crew-ops/references/guido-style.md` |
+| `pyproject.toml` or `setup.py` | Python | `skills/crew-ops/references/python-style.md` |
+| `Cargo.toml` | Rust | `skills/crew-ops/references/rust-style.md` |
 
-Use Glob to check for these files at the project root. If multiple are present (polyglot repo), ask the user which language they need guidance for — or default to the language of the file they're asking about.
+Use Glob to check for these files at the project root. If multiple are present (polyglot repo with comparable file counts across languages), **ask the user which subsystem the request targets** before applying language-specific guidance — do not silently default. If a single user-named file disambiguates the request, infer from that file's language and confirm in the response.
 
 **Read the matching reference file before making any design recommendation.** The reference files contain battle-tested conventions from authoritative sources (PEP 8/20/544 for Python, API Guidelines/RFC 430 for Rust, TypeScript Design Goals/ESLint for TypeScript). Apply them, don't reinvent them.
 
@@ -79,7 +79,7 @@ When proposing a new design, structure your response as:
 
 ## Your Process
 
-1. Read all relevant files before making any recommendation. Use Glob and Read to understand the current structure.
+1. Read all relevant files before making any recommendation. Use Glob and Read to understand the current structure. **Never recommend a change to a file you have not read in this session** — the number-one cause of bad architectural advice is suggesting patterns that conflict with code you haven't seen.
 2. **Read the language-specific reference file** (see Language Detection table above).
 3. Identify the specific design question: naming, interface, structure, or error handling.
 4. State what is already good — be honest about what works.

@@ -1,7 +1,10 @@
 ---
-description: Orchestrate fakoli-crew agents as coordinated teams for complex multi-step projects
+name: crew-ops
+description: This skill should be used when coordinating multiple fakoli-crew agents on a single project — assembling crews, planning waves, assigning file ownership, or routing work across guido, critic, scout, smith, welder, herald, keeper, and sentinel. Provides wave patterns, file-ownership rules, status-file protocol, and language-style references shared across the crew.
 ---
 # Crew Operations
+
+Use this skill to orchestrate multi-agent work. Assign one owner per file, route work through the wave pattern below, and have each agent write status to `docs/plans/agent-<name>-status.md` so others can pick up coordinated work without conflict.
 
 ## Available Agents
 
@@ -32,6 +35,8 @@ description: Orchestrate fakoli-crew agents as coordinated teams for complex mul
 
 ## Wave Pattern
 
+See `skills/crew-ops/references/wave-patterns.md` for the full multi-wave protocol, including timing, hand-off rules, and gate criteria.
+
 1. **Research**: scout gathers information
 2. **Build** (parallel): guido + smith + herald create new artifacts
    - **── CRITIC GATE ──** critic reviews all modified files (non-negotiable)
@@ -53,8 +58,7 @@ Use the full 5-wave pattern when >5 files change or multiple concerns overlap.
 
 ## File Ownership
 
-Each agent owns specific files. No two agents modify the same file. If overlap is needed,
-one agent is primary and the other coordinates via status files.
+Each agent owns specific files. No two agents modify the same file. If overlap is needed, one agent is primary and the other coordinates via status files. See `skills/crew-ops/references/file-ownership.md` for the full per-agent ownership matrix.
 
 ## Communication
 
@@ -63,4 +67,12 @@ Agents write status to `docs/plans/agent-<name>-status.md`:
 - Decisions: key choices other agents need to know
 - Files Modified: list of changed files
 
-See references/ for detailed patterns.
+See `skills/crew-ops/references/communication.md` for the full status-file protocol and inter-agent hand-off format.
+
+## Language Style References
+
+Shared across guido and welder when working in TypeScript, Python, or Rust:
+- `skills/crew-ops/references/guido-style.md` — TypeScript design conventions
+- `skills/crew-ops/references/python-style.md` — Python design conventions (PEP 8/20/544)
+- `skills/crew-ops/references/rust-style.md` — Rust design conventions (API Guidelines)
+- `skills/crew-ops/references/welder-patterns.md` — integration patterns (re-exports, facades, adapters, shims) across all three languages

@@ -1,11 +1,13 @@
 ---
-description: Show available fakoli-crew agents and team compositions
+description: List all 8 fakoli-crew agents with roles, and (if a task is supplied) suggest a crew composition tailored to that task. Pairs with the `crew-ops` skill, which handles multi-agent orchestration once a crew is chosen.
+argument-hint: "[optional task description]"
 allowed-tools:
   - Bash
 ---
 
-List all 8 fakoli-crew agents with their roles, then suggest crew compositions for the
-user's current task.
+List all 8 fakoli-crew agents with their roles, then suggest crew compositions for the user's current task (passed as the command argument, if any).
+
+For deeper orchestration — wave patterns, file ownership, status-file protocol — invoke the `crew-ops` skill (triggers: "assemble a crew for…", "coordinate agents to…").
 
 ## All Agents
 
@@ -17,8 +19,8 @@ user's current task.
 | smith | green | Plugin engineer | plugin.json, commands, hooks, manifest structure |
 | welder | yellow | Integration engineer | Wiring new code into existing systems, backward-compat refactors |
 | herald | magenta | Documentation writer | READMEs, marketplace descriptions, branding, user-facing copy |
-| keeper | green | Infrastructure engineer | CLAUDE.md, CI workflows, contributor docs, registry sync |
-| sentinel | red | QA engineer | Test runs, validation scorecards, pre-release checks |
+| keeper | purple | Infrastructure engineer | CLAUDE.md, CI workflows, contributor docs, registry sync |
+| sentinel | orange | QA engineer | Test runs, validation scorecards, pre-release checks |
 
 ## Pre-Built Crews
 
