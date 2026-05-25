@@ -20,9 +20,13 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from fakoli_state.state.backend import (
+    PENDING_EVENT_ID,
     BackendError,  # noqa: F401
     SchemaMismatch,
     StateLocked,
@@ -39,10 +43,30 @@ from fakoli_state.state.models import (
     Score,
     Task,
 )
+from fakoli_state.state.payloads import (
+    ClaimCreatedPayload,
+    ClaimReleasedPayload,
+    ClaimRenewedPayload,
+    ClaimStalePayload,
+    EvidenceSubmittedPayload,
+    FeatureCreatedPayload,
+    FileChangedPayload,
+    PrdApprovedPayload,
+    PrdParsedPayload,
+    PrdReviewedPayload,
+    ProjectCreatedPayload,
+    StateInitializedPayload,
+    TaskAppliedPayload,
+    TaskCreatedPayload,
+    TaskExpandedPayload,
+    TaskScoredPayload,
+    TaskStatusChangedPayload,
+)
 from fakoli_state.state.schema import DDL, SCHEMA_VERSION
 
 if TYPE_CHECKING:
     from fakoli_state.clock import Clock
+    from fakoli_state.state.models import Evidence
 
 
 class SqliteBackend:
@@ -129,25 +153,23 @@ class SqliteBackend:
             self._conn = None
 
     def next_event_id(self) -> str:
-        """Return the next sequential event ID in E%06d format.
+        """Return a hint of the next sequential event ID in E%06d format.
 
-        Queries MAX(id) on the events mirror table. Used by both the CLI
-        and ClaimManager so event IDs never drift into incompatible
-        schemes (Greptile + critic flagged the original split — CLI used
-        sequential, ClaimManager used 20-digit microsecond IDs).
+        Queries MAX(id) on the events mirror table without holding a lock.
+        Subject to races — do NOT use this to pre-assign IDs for new events
+        (Critic-3 flagged the read-before-lock race on PR #41: two concurrent
+        processes calling next_event_id() + apply_event() can both observe
+        MAX=N, both attempt INSERT E{N+1}, and the second INSERT OR IGNORE
+        silently no-ops — event survives in JSONL but is missing from the
+        events table; replay produces diverging state.db).
 
-        Known race: this is a SELECT MAX(id) outside any lock. Two
-        concurrent processes calling next_event_id() then apply_event()
-        can both observe MAX=N, both attempt to INSERT E{N+1}, and the
-        second's INSERT OR IGNORE silently no-ops (the event survives
-        in JSONL but is missing from the events table). Critic-3 flagged
-        this on PR #41 as a real concern for the Phase 6 MCP server (the
-        first real multi-process scenario). The fix requires generating
-        the ID INSIDE apply_event's BEGIN IMMEDIATE transaction, which is
-        an apply_event API change deferred to Phase 6 ('next_event_id
-        race' on the Phase 6 backlog). Until Phase 6 ships, single-CLI
-        usage is race-free; multi-process usage should use file-based
-        coordination at the caller level.
+        For race-free ID assignment use PENDING_EVENT_ID + apply_event():
+            event = Event(id=PENDING_EVENT_ID, ...)
+            event = backend.apply_event(event)  # returns event with real ID
+
+        Kept as a hint/preview API for callers that need the upcoming ID
+        without mutating state (e.g., tests that check ID format, legacy
+        callers that have not yet been migrated to PENDING_EVENT_ID).
         """
         if self._conn is None:
             return "E000001"
@@ -161,56 +183,150 @@ class SqliteBackend:
     # Core mutation
     # ------------------------------------------------------------------
 
-    def apply_event(self, event: Event) -> None:
+    def apply_event(self, event: Event) -> Event:
         """Atomically append event to JSONL and mutate SQLite state.
 
-        Order of operations
-        -------------------
+        ID assignment
+        -------------
+        If event.id == PENDING_EVENT_ID the Backend assigns a fresh sequential
+        ID inside the BEGIN IMMEDIATE lock — eliminating the read-before-lock race
+        flagged by Critic-3 on PR #41 (two concurrent processes calling
+        next_event_id() + apply_event() can both observe MAX=N and both attempt
+        INSERT E{N+1}; the second INSERT OR IGNORE silently no-ops, leaving the
+        event in JSONL but missing from the events table).
+
+        If event.id is a real ID it is honored as-is — required for the replay
+        path where the original ID must be preserved.
+
+        Order of operations for non-PENDING (replay/legacy) events
+        -----------------------------------------------------------
         1. Serialise event to JSON.
-        2. Append to events.jsonl (fsync is not forced — OS buffer is enough for
-           Phase 2; production hardening would add fdatasync).
-        3. BEGIN IMMEDIATE on SQLite.
+        2. Append to events.jsonl.
+        3. BEGIN IMMEDIATE.
         4. Dispatch to _apply_mutation().
-        5. INSERT the event row into the events table.
+        5. INSERT the event row into events table.
         6. COMMIT.
+
+        Order of operations for PENDING events (live path)
+        ---------------------------------------------------
+        Trade-off: JSONL write moves AFTER COMMIT because the ID is unknown until
+        inside the lock.  This weakens the "log-before-mutation" crash-recovery
+        property for PENDING events specifically — if the process dies after COMMIT
+        but before the JSONL write, the SQLite row exists but the JSONL line does
+        not.  This is strictly better than the alternative (silent event loss from
+        the race), and the replay path is not affected (it only uses non-PENDING IDs
+        from the existing JSONL log).
+
+        1. BEGIN IMMEDIATE.
+        2. Read MAX(id) inside the lock; compute assigned_id = E{max+1:06d}.
+        3. Rebuild event with the assigned ID.
+        4. Dispatch to _apply_mutation().
+        5. INSERT the event row into events table.
+        6. COMMIT.
+        7. Append the materialized event to events.jsonl.
+
+        Returns
+        -------
+        The materialized event (with assigned ID if PENDING was passed).  Callers
+        must use the returned value — do not rely on the input event having a
+        real ID after the call if PENDING_EVENT_ID was passed.
 
         On any failure: ROLLBACK, append an error.transaction_aborted event to
         JSONL, and re-raise as TransactionAborted.
         """
         conn = self._require_conn()
-        event_line = event.model_dump_json() + "\n"
+        needs_id = event.id == PENDING_EVENT_ID
 
-        # --- Phase 1: write to JSONL BEFORE SQLite mutation ---
-        try:
-            with open(self._events_path, "a", encoding="utf-8") as fh:
-                fh.write(event_line)
-        except OSError as exc:
-            raise TransactionAborted(
-                f"Failed to write event {event.id!r} to JSONL log: {exc}"
-            ) from exc
-
-        # --- Phase 2: SQLite transaction ---
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            self._apply_mutation(conn, event)
-            self._insert_event_row(conn, event)
-            conn.execute("COMMIT")
-        except sqlite3.OperationalError as exc:
-            self._safe_rollback(conn)
-            if "database is locked" in str(exc).lower():
-                raise StateLocked(
-                    f"SQLite busy_timeout exceeded for event {event.id!r}: {exc}"
+        if needs_id:
+            # PENDING path: generate ID inside the lock.
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    "SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) FROM events"
+                ).fetchone()
+                max_num: int = row[0] if row and row[0] is not None else 0
+                assigned_id = f"E{max_num + 1:06d}"
+                # Rebuild event with the assigned ID (model_copy is pydantic v2).
+                event = event.model_copy(update={"id": assigned_id})
+                self._apply_mutation(conn, event)
+                self._insert_event_row(conn, event)
+                conn.execute("COMMIT")
+            except sqlite3.OperationalError as exc:
+                self._safe_rollback(conn)
+                if "database is locked" in str(exc).lower():
+                    raise StateLocked(
+                        f"SQLite busy_timeout exceeded assigning PENDING event "
+                        f"(action={event.action!r}): {exc}"
+                    ) from exc
+                # For PENDING events that failed before COMMIT, no JSONL line
+                # was written — append an abort tombstone using whatever partial
+                # event state we have so the audit log records the attempt.
+                self._append_abort_event(event, str(exc))
+                raise TransactionAborted(
+                    f"Transaction aborted for PENDING event (action={event.action!r}): {exc}"
                 ) from exc
-            self._append_abort_event(event, str(exc))
-            raise TransactionAborted(
-                f"Transaction aborted for event {event.id!r}: {exc}"
-            ) from exc
-        except Exception as exc:
-            self._safe_rollback(conn)
-            self._append_abort_event(event, str(exc))
-            raise TransactionAborted(
-                f"Transaction aborted for event {event.id!r}: {exc}"
-            ) from exc
+            except Exception as exc:
+                self._safe_rollback(conn)
+                self._append_abort_event(event, str(exc))
+                raise TransactionAborted(
+                    f"Transaction aborted for PENDING event (action={event.action!r}): {exc}"
+                ) from exc
+
+            # COMMIT succeeded — now write to JSONL (post-COMMIT ordering for PENDING).
+            # If the process dies here, the SQLite row exists but the JSONL line does
+            # not.  On the next run, replay_from_empty will reconstruct from the live
+            # JSONL (which lacks this event); the SQLite row is authoritative until
+            # a replay is triggered.  Document this trade-off clearly.
+            event_line = event.model_dump_json() + "\n"
+            try:
+                with open(self._events_path, "a", encoding="utf-8") as fh:
+                    fh.write(event_line)
+            except OSError as exc:
+                # JSONL write failed after successful COMMIT — log but do not raise.
+                # The SQLite state is correct; the JSONL gap will be visible on replay.
+                # We swallow the exception here because raising TransactionAborted after
+                # a successful COMMIT would mislead the caller into thinking the mutation
+                # did not happen. This is a best-effort audit trail, not a hard guarantee.
+                self._append_abort_event(
+                    event,
+                    f"JSONL write failed after successful COMMIT: {exc}",
+                )
+        else:
+            # Non-PENDING (replay/legacy) path: write JSONL first, then SQLite.
+            # This is the original "log-before-mutation" ordering — if SQLite fails,
+            # the JSONL line is the recovery record.
+            event_line = event.model_dump_json() + "\n"
+            try:
+                with open(self._events_path, "a", encoding="utf-8") as fh:
+                    fh.write(event_line)
+            except OSError as exc:
+                raise TransactionAborted(
+                    f"Failed to write event {event.id!r} to JSONL log: {exc}"
+                ) from exc
+
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                self._apply_mutation(conn, event)
+                self._insert_event_row(conn, event)
+                conn.execute("COMMIT")
+            except sqlite3.OperationalError as exc:
+                self._safe_rollback(conn)
+                if "database is locked" in str(exc).lower():
+                    raise StateLocked(
+                        f"SQLite busy_timeout exceeded for event {event.id!r}: {exc}"
+                    ) from exc
+                self._append_abort_event(event, str(exc))
+                raise TransactionAborted(
+                    f"Transaction aborted for event {event.id!r}: {exc}"
+                ) from exc
+            except Exception as exc:
+                self._safe_rollback(conn)
+                self._append_abort_event(event, str(exc))
+                raise TransactionAborted(
+                    f"Transaction aborted for event {event.id!r}: {exc}"
+                ) from exc
+
+        return event
 
     # ------------------------------------------------------------------
     # Replay
@@ -346,6 +462,92 @@ class SqliteBackend:
             return None
         return self._row_to_project(row)
 
+    def get_feature(self, feature_id: str) -> Feature | None:
+        """Return the Feature with the given ID, or None if not found."""
+        conn = self._require_conn()
+        row = conn.execute(
+            "SELECT id, title, description, status, requirements, tasks "
+            "FROM features WHERE id = ?",
+            (feature_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Feature(
+            id=row[0],
+            title=row[1],
+            description=row[2],
+            status=row[3],
+            requirements=json.loads(row[4] or "[]"),
+            tasks=json.loads(row[5] or "[]"),
+        )
+
+    def list_events(
+        self,
+        *,
+        target_id: str,
+        target_kind: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, str]]:
+        """Return recent events for target as (action, timestamp_iso) tuples, most-recent first."""
+        conn = self._require_conn()
+        if target_kind is not None:
+            rows = conn.execute(
+                "SELECT action, timestamp FROM events "
+                "WHERE target_id = ? AND target_kind = ? "
+                "ORDER BY timestamp DESC LIMIT ?",
+                (target_id, target_kind, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT action, timestamp FROM events "
+                "WHERE target_id = ? "
+                "ORDER BY timestamp DESC LIMIT ?",
+                (target_id, limit),
+            ).fetchall()
+        return [(r[0], r[1]) for r in rows]
+
+    def get_latest_evidence(self, task_id: str) -> Evidence | None:
+        """Return the most recently submitted Evidence for task_id, or None."""
+        import datetime
+
+        conn = self._require_conn()
+        try:
+            row = conn.execute(
+                "SELECT id, task_id, claim_id, commands_run, output_excerpt, "
+                "files_changed, pr_url, commit_sha, screenshots, "
+                "known_limitations, submitted_at, submitted_by "
+                "FROM evidence "
+                "WHERE task_id = ? "
+                "ORDER BY submitted_at DESC "
+                "LIMIT 1",
+                (task_id,),
+            ).fetchone()
+        except Exception:  # noqa: BLE001
+            return None
+        if row is None:
+            return None
+
+        from fakoli_state.state.models import Evidence
+
+        submitted_at = datetime.datetime.fromisoformat(row[10])
+        if submitted_at.tzinfo is None:
+            submitted_at = submitted_at.replace(tzinfo=datetime.UTC)
+
+        return Evidence(
+            id=row[0],
+            task_id=row[1],
+            claim_id=row[2],
+            commands_run=json.loads(row[3] or "[]"),
+            output_excerpt=row[4],
+            files_changed=json.loads(row[5] or "[]"),
+            pr_url=row[6],
+            commit_sha=row[7],
+            screenshots=json.loads(row[8] or "[]"),
+            known_limitations=row[9],
+            submitted_at=submitted_at,
+            submitted_by=row[11],
+        )
+
     # ------------------------------------------------------------------
     # Internal helpers — DDL & version
     # ------------------------------------------------------------------
@@ -390,6 +592,44 @@ class SqliteBackend:
     # Internal helpers — event routing
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Dispatch table — maps action name to (PayloadModel, bound handler).
+    # Built lazily on first access to allow self-referential bound methods.
+    # ------------------------------------------------------------------
+
+    def _get_action_handlers(
+        self,
+    ) -> dict[str, tuple[type[Any], Callable[..., None]]]:
+        """Return the dispatch table mapping action → (PayloadModel, handler).
+
+        All handlers share the normalised signature:
+            handler(conn, payload: TypedPayload, event: Event) -> None
+
+        The payload is validated against the model before the handler is called.
+        """
+        return {
+            "project.created": (ProjectCreatedPayload, self._handle_project_created),
+            "state.initialized": (StateInitializedPayload, self._handle_state_initialized),
+            "prd.parsed": (PrdParsedPayload, self._handle_prd_parsed),
+            "prd.reviewed": (PrdReviewedPayload, self._handle_prd_reviewed),
+            "prd.approved": (PrdApprovedPayload, self._handle_prd_approved),
+            "feature.created": (FeatureCreatedPayload, self._handle_feature_created),
+            "task.created": (TaskCreatedPayload, self._handle_task_created),
+            "task.scored": (TaskScoredPayload, self._handle_task_scored),
+            "task.expanded": (TaskExpandedPayload, self._handle_task_expanded),
+            "task.status_changed": (
+                TaskStatusChangedPayload,
+                self._handle_task_status_changed,
+            ),
+            "claim.created": (ClaimCreatedPayload, self._handle_claim_created),
+            "claim.released": (ClaimReleasedPayload, self._handle_claim_released),
+            "claim.renewed": (ClaimRenewedPayload, self._handle_claim_renewed),
+            "claim.stale": (ClaimStalePayload, self._handle_claim_stale),
+            "evidence.submitted": (EvidenceSubmittedPayload, self._handle_evidence_submitted),
+            "task.applied": (TaskAppliedPayload, self._handle_task_applied),
+            "file_changed": (FileChangedPayload, self._handle_file_changed),
+        }
+
     def _apply_mutation(self, conn: sqlite3.Connection, event: Event) -> None:
         """Dispatch event.action to the appropriate mutation handler.
 
@@ -398,62 +638,37 @@ class SqliteBackend:
         task.created, task.scored, task.expanded, task.status_changed.
         Phase 4 adds: claim.created, claim.released, claim.renewed, claim.stale.
         Phase 5 adds: evidence.submitted, task.applied.
+
+        Payload validation is centralised here: each action's payload model is
+        looked up in the dispatch table, validated once, and the typed model is
+        passed to the handler.  Unknown keys in the payload raise ValidationError
+        immediately (extra='forbid' on every payload model).
         """
         action = event.action
-        payload = event.payload_json
+        handlers = self._get_action_handlers()
 
-        if action == "project.created":
-            self._handle_project_created(conn, payload)
-        elif action == "state.initialized":
-            self._handle_state_initialized(conn, payload)
-        elif action == "prd.parsed":
-            self._handle_prd_parsed(conn, payload)
-        elif action == "prd.reviewed":
-            self._handle_prd_reviewed(conn, payload, event.id, event.timestamp.isoformat())
-        elif action == "prd.approved":
-            self._handle_prd_approved(conn, payload, event.id, event.timestamp.isoformat())
-        elif action == "feature.created":
-            self._handle_feature_created(conn, payload)
-        elif action == "task.created":
-            self._handle_task_created(conn, payload)
-        elif action == "task.scored":
-            self._handle_task_scored(conn, payload, event.timestamp.isoformat())
-        elif action == "task.expanded":
-            self._handle_task_expanded(conn, payload)
-        elif action == "task.status_changed":
-            self._handle_task_status_changed(conn, payload, event.timestamp.isoformat())
-        elif action == "claim.created":
-            self._handle_claim_created(conn, payload, event.timestamp.isoformat())
-        elif action == "claim.released":
-            self._handle_claim_released(conn, payload, event.timestamp.isoformat())
-        elif action == "claim.renewed":
-            self._handle_claim_renewed(conn, payload, event.timestamp.isoformat())
-        elif action == "claim.stale":
-            self._handle_claim_stale(conn, payload, event.timestamp.isoformat())
-        elif action == "evidence.submitted":
-            self._handle_evidence_submitted(conn, payload, event.timestamp.isoformat())
-        elif action == "task.applied":
-            self._handle_task_applied(conn, payload, event.id, event.timestamp.isoformat())
-        elif action == "file_changed":
-            # Audit-trail-only event emitted by the PostToolUse hook
-            # (record-file-change.sh → fakoli-state hook record-file-change).
-            # No SQLite mutation: the JSONL line is the audit record. Greptile
-            # + critic flagged that the original code had no handler, so this
-            # action triggered NotImplementedError, the transaction rolled back,
-            # an error.transaction_aborted tombstone followed in JSONL, and the
-            # event was silently dropped from the events table on replay.
-            pass
-        else:
+        if action not in handlers:
             raise NotImplementedError(
                 f"Event action {action!r} is not yet supported. "
                 "This action will be implemented in a later phase."
             )
 
+        payload_model_cls, handler = handlers[action]
+        try:
+            typed_payload = payload_model_cls.model_validate(event.payload_json)
+        except ValidationError:
+            raise
+
+        handler(conn, typed_payload, event)
+
     def _handle_project_created(
-        self, conn: sqlite3.Connection, payload: dict[str, Any]
+        self,
+        conn: sqlite3.Connection,
+        payload: ProjectCreatedPayload,
+        event: Event,
     ) -> None:
         """Insert or replace the project row from the event payload."""
-        project = Project.model_validate(payload)
+        project = Project.model_validate(payload.model_dump(mode="json"))
         data = project.model_dump(mode="json")
         conn.execute(
             """
@@ -466,7 +681,10 @@ class SqliteBackend:
         )
 
     def _handle_state_initialized(
-        self, conn: sqlite3.Connection, payload: dict[str, Any]
+        self,
+        conn: sqlite3.Connection,
+        payload: StateInitializedPayload,
+        event: Event,
     ) -> None:
         """Handle the state.initialized event.
 
@@ -483,7 +701,10 @@ class SqliteBackend:
     # ------------------------------------------------------------------
 
     def _handle_prd_parsed(
-        self, conn: sqlite3.Connection, payload: dict[str, Any]
+        self,
+        conn: sqlite3.Connection,
+        payload: PrdParsedPayload,
+        event: Event,
     ) -> None:
         """Upsert PRD and destructively replace all requirements.
 
@@ -506,19 +727,15 @@ class SqliteBackend:
         Parsing is destructive: old Requirement rows are deleted and replaced
         with the new set inside a SAVEPOINT so failure leaves no partial state.
         """
-        project_id: str | None = payload.get("project_id")
-        if not project_id:
-            raise TransactionAborted(
-                "prd.parsed payload missing required field 'project_id'."
-            )
-        summary: str = payload.get("summary", "")
-        status: str = payload.get("status", "draft")
-        goals = payload.get("goals", [])
-        non_goals = payload.get("non_goals", [])
-        requirements_raw: list[dict[str, Any]] = payload.get("requirements", [])
-        acceptance_criteria = payload.get("acceptance_criteria", [])
-        risks = payload.get("risks", [])
-        open_questions = payload.get("open_questions", [])
+        project_id: str = payload.project_id
+        summary: str = payload.summary
+        status: str = payload.status
+        goals = payload.goals
+        non_goals = payload.non_goals
+        requirements_raw: list[Any] = payload.requirements
+        acceptance_criteria = payload.acceptance_criteria
+        risks = payload.risks
+        open_questions = payload.open_questions
 
         # Validate requirement payloads and collect IDs.
         requirement_objects: list[Requirement] = []
@@ -586,9 +803,8 @@ class SqliteBackend:
     def _handle_prd_reviewed(
         self,
         conn: sqlite3.Connection,
-        payload: dict[str, Any],
-        event_id: str,
-        timestamp: str,
+        payload: PrdReviewedPayload,
+        event: Event,
     ) -> None:
         """Mark PRD as reviewed.
 
@@ -606,21 +822,10 @@ class SqliteBackend:
         approval and cause false positives for any downstream code (e.g.,
         the Phase 4 claims manager) that queries
         `reviews WHERE decision='approve'` to determine approval state.
-
-        event_id is kept in the signature for symmetry with
-        _handle_prd_approved (which uses it for the stable review ID).
         """
-        del event_id  # see docstring
-        project_id: str | None = payload.get("project_id")
-        if not project_id:
-            raise TransactionAborted(
-                "prd.reviewed payload missing required field 'project_id'."
-            )
-        reviewer: str | None = payload.get("reviewer")
-        if not reviewer:
-            raise TransactionAborted(
-                "prd.reviewed payload missing required field 'reviewer'."
-            )
+        project_id: str = payload.project_id
+        reviewer: str = payload.reviewer
+        timestamp: str = event.timestamp.isoformat()
 
         conn.execute(
             """
@@ -636,9 +841,8 @@ class SqliteBackend:
     def _handle_prd_approved(
         self,
         conn: sqlite3.Connection,
-        payload: dict[str, Any],
-        event_id: str,
-        timestamp: str,
+        payload: PrdApprovedPayload,
+        event: Event,
     ) -> None:
         """Mark PRD as approved and insert an approval Review row.
 
@@ -652,16 +856,10 @@ class SqliteBackend:
         column OR look for reviews WHERE target_id=<project_id> AND
         decision='approve' AND target_kind='prd'.
         """
-        project_id: str | None = payload.get("project_id")
-        if not project_id:
-            raise TransactionAborted(
-                "prd.approved payload missing required field 'project_id'."
-            )
-        approver: str | None = payload.get("approver")
-        if not approver:
-            raise TransactionAborted(
-                "prd.approved payload missing required field 'approver'."
-            )
+        project_id: str = payload.project_id
+        approver: str = payload.approver
+        event_id: str = event.id
+        timestamp: str = event.timestamp.isoformat()
 
         conn.execute(
             """
@@ -686,7 +884,10 @@ class SqliteBackend:
         )
 
     def _handle_feature_created(
-        self, conn: sqlite3.Connection, payload: dict[str, Any]
+        self,
+        conn: sqlite3.Connection,
+        payload: FeatureCreatedPayload,
+        event: Event,
     ) -> None:
         """Insert a Feature row from the event payload.
 
@@ -694,7 +895,7 @@ class SqliteBackend:
         status, requirements, tasks).
         """
         try:
-            feature = Feature.model_validate(payload)
+            feature = Feature.model_validate(payload.model_dump(mode="json"))
         except Exception as exc:
             raise TransactionAborted(
                 f"feature.created: invalid Feature payload: {exc}"
@@ -729,7 +930,10 @@ class SqliteBackend:
         )
 
     def _handle_task_created(
-        self, conn: sqlite3.Connection, payload: dict[str, Any]
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskCreatedPayload,
+        event: Event,
     ) -> None:
         """Insert a Task row from the event payload.
 
@@ -737,7 +941,7 @@ class SqliteBackend:
         dimensions at creation time; they get populated by task.scored later.
         """
         try:
-            task = Task.model_validate(payload)
+            task = Task.model_validate(payload.model_dump(mode="json"))
         except Exception as exc:
             raise TransactionAborted(
                 f"task.created: invalid Task payload: {exc}"
@@ -748,8 +952,8 @@ class SqliteBackend:
     def _handle_task_scored(
         self,
         conn: sqlite3.Connection,
-        payload: dict[str, Any],
-        timestamp: str,
+        payload: TaskScoredPayload,
+        event: Event,
     ) -> None:
         """Update a task's scores and explanation.
 
@@ -762,17 +966,10 @@ class SqliteBackend:
         dimensions remain null (not coerced to 0).  The explanation is stored
         inside the Score model's ``explanation`` field.
         """
-        task_id: str | None = payload.get("task_id")
-        if not task_id:
-            raise TransactionAborted(
-                "task.scored payload missing required field 'task_id'."
-            )
-        scores_dict: dict[str, Any] | None = payload.get("scores")
-        if scores_dict is None:
-            raise TransactionAborted(
-                "task.scored payload missing required field 'scores'."
-            )
-        explanation: str | None = payload.get("explanation")
+        task_id: str = payload.task_id
+        scores_dict: dict[str, Any] = payload.scores
+        explanation: str | None = payload.explanation
+        timestamp: str = event.timestamp.isoformat()
 
         # Build the Score model from the payload dimensions + explanation.
         score_data = dict(scores_dict)
@@ -801,7 +998,10 @@ class SqliteBackend:
             )
 
     def _handle_task_expanded(
-        self, conn: sqlite3.Connection, payload: dict[str, Any]
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskExpandedPayload,
+        event: Event,
     ) -> None:
         """Insert subtask rows derived from expanding a parent task.
 
@@ -813,12 +1013,8 @@ class SqliteBackend:
         The parent task's status is NOT changed here; the subtask rows
         themselves signal expansion (parent_task_id IS NOT NULL).
         """
-        parent_task_id: str | None = payload.get("parent_task_id")
-        if not parent_task_id:
-            raise TransactionAborted(
-                "task.expanded payload missing required field 'parent_task_id'."
-            )
-        subtasks_raw: list[dict[str, Any]] = payload.get("subtasks", [])
+        parent_task_id: str = payload.parent_task_id
+        subtasks_raw: list[Any] = payload.subtasks
         if not subtasks_raw:
             raise TransactionAborted(
                 "task.expanded payload has empty 'subtasks' list; nothing to expand."
@@ -839,8 +1035,8 @@ class SqliteBackend:
     def _handle_task_status_changed(
         self,
         conn: sqlite3.Connection,
-        payload: dict[str, Any],
-        timestamp: str,
+        payload: TaskStatusChangedPayload,
+        event: Event,
     ) -> None:
         """Atomically transition a task from one status to another.
 
@@ -854,22 +1050,10 @@ class SqliteBackend:
         If zero rows are updated (the task does not exist or its status has
         drifted), TransactionAborted is raised.
         """
-        task_id: str | None = payload.get("task_id")
-        from_status: str | None = payload.get("from")
-        to_status: str | None = payload.get("to")
-
-        if not task_id:
-            raise TransactionAborted(
-                "task.status_changed payload missing required field 'task_id'."
-            )
-        if not from_status:
-            raise TransactionAborted(
-                "task.status_changed payload missing required field 'from'."
-            )
-        if not to_status:
-            raise TransactionAborted(
-                "task.status_changed payload missing required field 'to'."
-            )
+        task_id: str = payload.task_id
+        from_status: str = payload.from_status
+        to_status: str = payload.to_status
+        timestamp: str = event.timestamp.isoformat()
 
         conn.execute(
             """
@@ -912,8 +1096,8 @@ class SqliteBackend:
     def _handle_claim_created(
         self,
         conn: sqlite3.Connection,
-        payload: dict[str, Any],
-        timestamp: str,
+        payload: ClaimCreatedPayload,
+        event: Event,
     ) -> None:
         """Atomically INSERT the claim and transition the task to 'claimed'.
 
@@ -938,33 +1122,18 @@ class SqliteBackend:
         transition is a side effect of claim.created; it does NOT need a
         separate task.status_changed event.
         """
-        claim_id: str | None = payload.get("id")
-        task_id: str | None = payload.get("task_id")
-        claimed_by: str | None = payload.get("claimed_by")
-        claim_type: str | None = payload.get("claim_type")
-        status: str | None = payload.get("status")
-        created_at: str | None = payload.get("created_at")
-        lease_expires_at: str | None = payload.get("lease_expires_at")
-        last_heartbeat_at: str | None = payload.get("last_heartbeat_at")
-
-        for field_name, value in (
-            ("id", claim_id),
-            ("task_id", task_id),
-            ("claimed_by", claimed_by),
-            ("claim_type", claim_type),
-            ("status", status),
-            ("created_at", created_at),
-            ("lease_expires_at", lease_expires_at),
-            ("last_heartbeat_at", last_heartbeat_at),
-        ):
-            if not value:
-                raise TransactionAborted(
-                    f"claim.created payload missing required field {field_name!r}."
-                )
-
-        branch: str | None = payload.get("branch")
-        worktree_path: str | None = payload.get("worktree_path")
-        expected_files = payload.get("expected_files", [])
+        claim_id: str = payload.id
+        task_id: str = payload.task_id
+        claimed_by: str = payload.claimed_by
+        claim_type: str = payload.claim_type
+        status: str = payload.status
+        created_at: str = payload.created_at
+        lease_expires_at: str = payload.lease_expires_at
+        last_heartbeat_at: str = payload.last_heartbeat_at
+        branch: str | None = payload.branch
+        worktree_path: str | None = payload.worktree_path
+        expected_files = payload.expected_files
+        timestamp: str = event.timestamp.isoformat()
 
         # INSERT OR IGNORE: idempotent on replay — duplicate claim.created events
         # (after crash mid-transaction) do not produce duplicate rows.
@@ -1032,8 +1201,8 @@ class SqliteBackend:
     def _handle_claim_released(
         self,
         conn: sqlite3.Connection,
-        payload: dict[str, Any],
-        timestamp: str,
+        payload: ClaimReleasedPayload,
+        event: Event,
     ) -> None:
         """Release an active claim and return the task to 'ready'.
 
@@ -1049,26 +1218,16 @@ class SqliteBackend:
         Side-effect: UPDATE tasks SET status='ready' WHERE id=task_id AND
         status='claimed' — uses the WHERE guard for concurrency safety.
         """
-        claim_id: str | None = payload.get("claim_id")
-        released_by: str | None = payload.get("released_by")
+        claim_id: str = payload.claim_id
         # release_reason is optional — the ClaimManager passes None when the
-        # caller provides no explicit reason.  Only claim_id and released_by are
-        # strictly required.
-        release_reason: str | None = payload.get("release_reason")
+        # caller provides no explicit reason.
+        release_reason: str | None = payload.release_reason
         # `force` honours the CLI's --force flag: lets non-owners release a
         # claim and lets release succeed even on already-stale/non-active
         # claims (Greptile + critic both flagged that the original handler
         # silently no-op'd force-release of stale claims).
-        force: bool = bool(payload.get("force", False))
-
-        for field_name, value in (
-            ("claim_id", claim_id),
-            ("released_by", released_by),
-        ):
-            if not value:
-                raise TransactionAborted(
-                    f"claim.released payload missing required field {field_name!r}."
-                )
+        force: bool = payload.force
+        timestamp: str = event.timestamp.isoformat()
 
         # Force-release writes a distinct terminal status (force_released) so
         # the audit trail captures the override; normal release uses 'released'.
@@ -1140,8 +1299,8 @@ class SqliteBackend:
     def _handle_claim_renewed(
         self,
         conn: sqlite3.Connection,
-        payload: dict[str, Any],
-        timestamp: str,
+        payload: ClaimRenewedPayload,
+        event: Event,
     ) -> None:
         """Extend the lease on an active claim.
 
@@ -1154,24 +1313,12 @@ class SqliteBackend:
 
         Raises TransactionAborted if the claim does not exist or is not active.
 
-        The event-level `timestamp` parameter is taken for signature symmetry
-        with the other claim handlers (the router dispatches uniformly); the
-        renewed lease timestamps come from the payload itself.
+        The event-level timestamp is not used here — the renewed lease timestamps
+        come from the payload itself.
         """
-        del timestamp  # see docstring
-        claim_id: str | None = payload.get("claim_id")
-        lease_expires_at: str | None = payload.get("lease_expires_at")
-        last_heartbeat_at: str | None = payload.get("last_heartbeat_at")
-
-        for field_name, value in (
-            ("claim_id", claim_id),
-            ("lease_expires_at", lease_expires_at),
-            ("last_heartbeat_at", last_heartbeat_at),
-        ):
-            if not value:
-                raise TransactionAborted(
-                    f"claim.renewed payload missing required field {field_name!r}."
-                )
+        claim_id: str = payload.claim_id
+        lease_expires_at: str = payload.lease_expires_at
+        last_heartbeat_at: str = payload.last_heartbeat_at
 
         conn.execute(
             """
@@ -1201,8 +1348,8 @@ class SqliteBackend:
     def _handle_claim_stale(
         self,
         conn: sqlite3.Connection,
-        payload: dict[str, Any],
-        timestamp: str,
+        payload: ClaimStalePayload,
+        event: Event,
     ) -> None:
         """Mark an active claim as stale and return the task to 'ready'.
 
@@ -1220,19 +1367,8 @@ class SqliteBackend:
         has already moved beyond those states (e.g., accepted, done), the
         UPDATE is a no-op — that is intentional and not an error.
         """
-        claim_id: str | None = payload.get("claim_id")
-        detected_at: str | None = payload.get("detected_at")
-        reason: str | None = payload.get("reason")
-
-        for field_name, value in (
-            ("claim_id", claim_id),
-            ("detected_at", detected_at),
-            ("reason", reason),
-        ):
-            if not value:
-                raise TransactionAborted(
-                    f"claim.stale payload missing required field {field_name!r}."
-                )
+        claim_id: str = payload.claim_id
+        timestamp: str = event.timestamp.isoformat()
 
         conn.execute(
             """
@@ -1294,8 +1430,8 @@ class SqliteBackend:
     def _handle_evidence_submitted(
         self,
         conn: sqlite3.Connection,
-        payload: dict[str, Any],
-        timestamp: str,
+        payload: EvidenceSubmittedPayload,
+        event: Event,
     ) -> None:
         """Insert evidence and atomically transition task to needs_review.
 
@@ -1321,26 +1457,15 @@ class SqliteBackend:
             - UPDATE claims SET status='released' WHERE id=claim_id AND
               status='active'. 0 rows = claim already stale/released; log only.
         """
-        task_id: str | None = payload.get("task_id")
-        claim_id: str | None = payload.get("claim_id")
-        submitted_by: str | None = payload.get("submitted_by")
-        evidence_id: str | None = payload.get("evidence_id")
-        commands_run: list[Any] = payload.get("commands_run", [])
-        files_changed: list[Any] = payload.get("files_changed", [])
+        task_id: str = payload.task_id
+        claim_id: str = payload.claim_id
+        submitted_by: str = payload.submitted_by
+        evidence_id: str = payload.evidence_id
+        commands_run: list[Any] = payload.commands_run
+        files_changed: list[Any] = payload.files_changed
+        timestamp: str = event.timestamp.isoformat()
 
-        for field_name, value in (
-            ("task_id", task_id),
-            ("claim_id", claim_id),
-            ("submitted_by", submitted_by),
-            ("evidence_id", evidence_id),
-        ):
-            if not value:
-                raise TransactionAborted(
-                    f"evidence.submitted payload missing required field {field_name!r}."
-                )
-
-        # `commands_run` and `files_changed` default to [] above, so an `is None`
-        # check would be unreachable; instead require them to be non-empty —
+        # Require commands_run and files_changed to be non-empty —
         # submitting evidence with neither a verification command nor any
         # changed files is meaningless.
         if not commands_run:
@@ -1352,11 +1477,11 @@ class SqliteBackend:
                 "evidence.submitted payload requires non-empty 'files_changed'."
             )
 
-        output_excerpt: str | None = payload.get("output_excerpt")
-        pr_url: str | None = payload.get("pr_url")
-        commit_sha: str | None = payload.get("commit_sha")
-        screenshots: list[Any] = payload.get("screenshots") or []
-        known_limitations: str | None = payload.get("known_limitations")
+        output_excerpt: str | None = payload.output_excerpt
+        pr_url: str | None = payload.pr_url
+        commit_sha: str | None = payload.commit_sha
+        screenshots: list[Any] = payload.screenshots or []
+        known_limitations: str | None = payload.known_limitations
 
         # INSERT OR IGNORE: idempotent on replay — duplicate evidence.submitted
         # events (after crash mid-transaction) do not produce duplicate rows.
@@ -1450,9 +1575,8 @@ class SqliteBackend:
     def _handle_task_applied(
         self,
         conn: sqlite3.Connection,
-        payload: dict[str, Any],
-        event_id: str,
-        timestamp: str,
+        payload: TaskAppliedPayload,
+        event: Event,
     ) -> None:
         """Gate needs_review → accepted → done (or rejected) and record a Review.
 
@@ -1477,27 +1601,18 @@ class SqliteBackend:
         0 rows on the main UPDATE: existence check then raise with clear
         status-drift message.
         """
-        task_id: str | None = payload.get("task_id")
-        reviewer: str | None = payload.get("reviewer")
-        decision: str | None = payload.get("decision")
-
-        for field_name, value in (
-            ("task_id", task_id),
-            ("reviewer", reviewer),
-            ("decision", decision),
-        ):
-            if not value:
-                raise TransactionAborted(
-                    f"task.applied payload missing required field {field_name!r}."
-                )
+        task_id: str = payload.task_id
+        reviewer: str = payload.reviewer
+        decision: str = payload.decision
+        notes: str | None = payload.notes
+        event_id: str = event.id
+        timestamp: str = event.timestamp.isoformat()
 
         if decision not in ("accepted", "rejected"):
             raise TransactionAborted(
                 f"task.applied: 'decision' must be 'accepted' or 'rejected', "
                 f"got {decision!r}."
             )
-
-        notes: str | None = payload.get("notes")
 
         if decision == "accepted":
             # Transition needs_review → accepted.
@@ -1609,6 +1724,24 @@ class SqliteBackend:
             """,
             (review_id, task_id, reviewer, decision, notes, timestamp),
         )
+
+    def _handle_file_changed(
+        self,
+        conn: sqlite3.Connection,
+        payload: FileChangedPayload,
+        event: Event,
+    ) -> None:
+        """Audit-trail-only event emitted by the PostToolUse hook.
+
+        (record-file-change.sh → fakoli-state hook record-file-change).
+        No SQLite mutation: the JSONL line is the audit record.  The validated
+        payload model is accepted here to keep the dispatch table uniform and to
+        enforce the known field schema via extra='forbid'.
+        """
+        # No-op — the event row is recorded by the caller in the events table.
+        _ = payload
+        _ = conn
+        _ = event
 
     # ------------------------------------------------------------------
     # Internal helpers — task row insertion (shared by task.created and

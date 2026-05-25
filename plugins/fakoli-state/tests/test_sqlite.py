@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 
 from fakoli_state.clock import FrozenClock
-from fakoli_state.state.backend import SchemaMismatch, TransactionAborted
+from fakoli_state.state.backend import PENDING_EVENT_ID, SchemaMismatch, TransactionAborted
 from fakoli_state.state.models import Event
 from fakoli_state.state.schema import SCHEMA_VERSION
 from fakoli_state.state.sqlite import SqliteBackend
@@ -3945,4 +3945,857 @@ class TestReplayIncludesPhase5Events:
         replayed_dump = _sqlite_dump(db_path)
         assert original_dump == replayed_dump, (
             "Replayed state.db does not match original after rejected task.applied."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Backend Protocol extensions — get_feature, list_events, get_latest_evidence
+# ---------------------------------------------------------------------------
+
+
+def _setup_feature_and_task(
+    b: SqliteBackend,
+    *,
+    feat_id: str = "F001",
+    task_id: str = "T001",
+) -> None:
+    """Bootstrap a project → feature → task pipeline into 'ready' status."""
+    _setup_project(b)
+    b.apply_event(_make_event(
+        "feature.created",
+        _make_feature_payload(feat_id=feat_id),
+        event_id="E000003", target_kind="feature", target_id=feat_id,
+    ))
+    b.apply_event(_make_event(
+        "task.created",
+        _make_task_payload(task_id=task_id, feature_id=feat_id),
+        event_id="E000004", target_kind="task", target_id=task_id,
+    ))
+    # Promote proposed → drafted → reviewed → ready so the task can be claimed.
+    for ev_id, from_s, to_s in (
+        ("E000005", "proposed", "drafted"),
+        ("E000006", "drafted", "reviewed"),
+        ("E000007", "reviewed", "ready"),
+    ):
+        b.apply_event(_make_event(
+            "task.status_changed",
+            {"task_id": task_id, "from": from_s, "to": to_s, "reason": "test"},
+            event_id=ev_id, target_kind="task", target_id=task_id,
+        ))
+
+
+class TestBackendProtocolExtensions:
+    """Tests for get_feature, list_events, and get_latest_evidence on SqliteBackend."""
+
+    # ------------------------------------------------------------------
+    # get_feature
+    # ------------------------------------------------------------------
+
+    def test_get_feature_returns_feature_when_exists(self, tmp_path: Path) -> None:
+        """get_feature() returns the Feature model for a known feature ID."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "feature.created",
+                _make_feature_payload(feat_id="F001", title="Auth System"),
+                event_id="E000003", target_kind="feature", target_id="F001",
+            ))
+            feature = b.get_feature("F001")
+            assert feature is not None
+            assert feature.id == "F001"
+            assert feature.title == "Auth System"
+        finally:
+            b.close()
+
+    def test_get_feature_returns_none_when_not_found(self, tmp_path: Path) -> None:
+        """get_feature() returns None when the feature ID does not exist."""
+        b = _make_backend(tmp_path)
+        try:
+            result = b.get_feature("F999")
+            assert result is None
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # list_events
+    # ------------------------------------------------------------------
+
+    def test_list_events_returns_recent_events_for_target(self, tmp_path: Path) -> None:
+        """list_events() returns (action, timestamp) tuples for the given target_id."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_feature_and_task(b, feat_id="F001", task_id="T001")
+            rows = b.list_events(target_id="T001")
+            # At least the status_changed events for T001 should be present.
+            assert len(rows) > 0
+            # Each row is a 2-tuple.
+            for action, ts in rows:
+                assert isinstance(action, str)
+                assert isinstance(ts, str)
+        finally:
+            b.close()
+
+    def test_list_events_filters_by_target_kind(self, tmp_path: Path) -> None:
+        """list_events(target_kind=...) restricts to events with that target_kind."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_feature_and_task(b, feat_id="F001", task_id="T001")
+            task_events = b.list_events(target_id="T001", target_kind="task")
+            # All returned events must have been recorded against the 'task' kind.
+            # We can confirm by checking that every action is a task action.
+            assert len(task_events) > 0
+            for action, _ in task_events:
+                assert "task" in action or "status" in action
+        finally:
+            b.close()
+
+    def test_list_events_honours_limit(self, tmp_path: Path) -> None:
+        """list_events(limit=N) returns at most N rows."""
+        b = _make_backend(tmp_path)
+        try:
+            # _setup_feature_and_task emits 3 status_changed events for T001.
+            _setup_feature_and_task(b, feat_id="F001", task_id="T001")
+            limited = b.list_events(target_id="T001", target_kind="task", limit=2)
+            assert len(limited) <= 2
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # get_latest_evidence
+    # ------------------------------------------------------------------
+
+    def test_get_latest_evidence_returns_most_recent(self, tmp_path: Path) -> None:
+        """get_latest_evidence() returns the Evidence model after evidence.submitted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_feature_and_task(b, feat_id="F001", task_id="T001")
+            # Create a claim so evidence.submitted has a valid FK.
+            b.apply_event(_make_event(
+                "claim.created",
+                _make_claim_payload(claim_id="C001", task_id="T001"),
+                event_id="E000011", target_kind="claim", target_id="C001",
+            ))
+            b.apply_event(_make_event(
+                "evidence.submitted",
+                _make_evidence_payload(
+                    task_id="T001",
+                    claim_id="C001",
+                    evidence_id="EV001",
+                    commands_run=["pytest tests/ -v"],
+                    files_changed=["src/auth.py"],
+                ),
+                event_id="E000012", target_kind="task", target_id="T001",
+            ))
+            evidence = b.get_latest_evidence("T001")
+            assert evidence is not None
+            assert evidence.id == "EV001"
+            assert evidence.task_id == "T001"
+            assert evidence.claim_id == "C001"
+            assert "pytest" in evidence.commands_run[0]
+        finally:
+            b.close()
+
+    def test_get_latest_evidence_returns_none_when_no_evidence(self, tmp_path: Path) -> None:
+        """get_latest_evidence() returns None when no evidence exists for the task."""
+        b = _make_backend(tmp_path)
+        try:
+            result = b.get_latest_evidence("T001")
+            assert result is None
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# PENDING_EVENT_ID — race-free ID assignment (Critic-3 / PR #41 fix)
+# ---------------------------------------------------------------------------
+
+
+class TestPendingEventId:
+    """Tests for the PENDING_EVENT_ID sentinel and the dual-path apply_event()."""
+
+    def test_pending_event_id_assigned_inside_transaction(self, tmp_path: Path) -> None:
+        """Emitting 3 PENDING events produces sequential IDs assigned inside the lock.
+
+        Two events from _make_project_event() + _make_init_event() are applied
+        first with real IDs (E000001, E000002), then 3 PENDING events are emitted.
+        The backend must assign E000003, E000004, E000005 in order.
+        """
+        b = _make_backend(tmp_path)
+        try:
+            # Seed with two real-ID events so the MAX sequence starts at 2.
+            b.apply_event(_make_project_event(event_id="E000001"))
+            b.apply_event(_make_init_event(event_id="E000002"))
+
+            # Emit 3 PENDING events.
+            pending_events = []
+            for i in range(3):
+                e = Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=_T0,
+                    actor="test",
+                    action="project.created",
+                    target_kind="project",
+                    target_id="proj-1",
+                    payload_json={
+                        "id": "proj-1",
+                        "name": f"Project {i}",
+                        "description": "",
+                        "created_at": _T0.isoformat(),
+                        "updated_at": _T0.isoformat(),
+                    },
+                )
+                materialized = b.apply_event(e)
+                pending_events.append(materialized)
+        finally:
+            b.close()
+
+        ids = [e.id for e in pending_events]
+        assert ids == ["E000003", "E000004", "E000005"], (
+            f"Expected sequential IDs E000003–E000005; got {ids}"
+        )
+
+    def test_apply_event_returns_materialized_event(self, tmp_path: Path) -> None:
+        """apply_event() returns the event with the assigned ID, not PENDING."""
+        b = _make_backend(tmp_path)
+        try:
+            pending = Event(
+                id=PENDING_EVENT_ID,
+                timestamp=_T0,
+                actor="test",
+                action="project.created",
+                target_kind="project",
+                target_id="proj-1",
+                payload_json={
+                    "id": "proj-1",
+                    "name": "Test",
+                    "description": "",
+                    "created_at": _T0.isoformat(),
+                    "updated_at": _T0.isoformat(),
+                },
+            )
+            result = b.apply_event(pending)
+        finally:
+            b.close()
+
+        assert result.id != PENDING_EVENT_ID, "apply_event must assign a real ID"
+        assert result.id.startswith("E"), f"Assigned ID must be in E%06d format; got {result.id!r}"
+        assert result.id[1:].isdigit(), f"Assigned ID suffix must be numeric; got {result.id!r}"
+
+    def test_pending_event_jsonl_only_written_on_successful_commit(
+        self, tmp_path: Path
+    ) -> None:
+        """A PENDING event that causes a mutation failure leaves NO line in events.jsonl.
+
+        This verifies that the post-COMMIT JSONL ordering for PENDING events
+        means a failed transaction does not produce a dangling JSONL line.
+        An unsupported action triggers NotImplementedError which rolls back the
+        SQLite transaction; because the JSONL write is post-COMMIT for PENDING
+        events, no JSONL line is written for the failed event.
+        """
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            # Apply one good event first so the JSONL has 1 line.
+            b.apply_event(_make_project_event(event_id="E000001"))
+
+            initial_events = _read_jsonl(events_path)
+            assert len(initial_events) == 1
+
+            # Apply a PENDING event with an unsupported action — should fail.
+            bad_event = Event(
+                id=PENDING_EVENT_ID,
+                timestamp=_T0,
+                actor="test",
+                action="unsupported.action",
+                target_kind="project",
+                target_id="proj-1",
+            )
+            with pytest.raises(TransactionAborted):
+                b.apply_event(bad_event)
+
+            # JSONL should contain exactly 1 successful event + 1 abort tombstone
+            # (the abort tombstone uses whatever partial event state was available).
+            events_after = _read_jsonl(events_path)
+        finally:
+            b.close()
+
+        # The original project.created event must still be there.
+        successful = [e for e in events_after if e.get("action") == "project.created"]
+        assert len(successful) == 1
+
+        # No line with action="unsupported.action" should appear (the PENDING
+        # event is NOT written to JSONL before the failed COMMIT).
+        unsupported_lines = [e for e in events_after if e.get("action") == "unsupported.action"]
+        assert len(unsupported_lines) == 0, (
+            "A failed PENDING event must not leave a line with its action in JSONL"
+        )
+
+    def test_replay_path_preserves_provided_event_ids(self, tmp_path: Path) -> None:
+        """replay_from_empty() preserves the original IDs from JSONL.
+
+        The replay path uses non-PENDING IDs from the existing JSONL log;
+        it must never generate new IDs for replayed events (that would break
+        the replay guarantee).
+        """
+        clock = _make_clock()
+        b = _make_backend(tmp_path, clock)
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        original_ids: list[str] = []
+        try:
+            # Use PENDING for original writes — get back assigned IDs.
+            e1 = b.apply_event(
+                Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=_T0,
+                    actor="test",
+                    action="project.created",
+                    target_kind="project",
+                    target_id="proj-1",
+                    payload_json={
+                        "id": "proj-1",
+                        "name": "Project",
+                        "description": "",
+                        "created_at": _T0.isoformat(),
+                        "updated_at": _T0.isoformat(),
+                    },
+                )
+            )
+            e2 = b.apply_event(
+                Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=_T0,
+                    actor="test",
+                    action="state.initialized",
+                    target_kind="project",
+                    target_id="proj-1",
+                    payload_json={},
+                )
+            )
+            original_ids = [e1.id, e2.id]
+        finally:
+            b.close()
+
+        assert original_ids == ["E000001", "E000002"], (
+            f"Expected first two PENDING events to get E000001, E000002; got {original_ids}"
+        )
+
+        # Replay from empty.
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            b2.replay_from_empty(events_path)
+            # After replay, query the events table to verify IDs were preserved.
+            conn = sqlite3.connect(db_path)
+            rows = conn.execute(
+                "SELECT id FROM events ORDER BY id"
+            ).fetchall()
+            conn.close()
+            replayed_ids = [row[0] for row in rows]
+        finally:
+            b2.close()
+
+        assert replayed_ids == original_ids, (
+            f"Replay must preserve original event IDs {original_ids}; "
+            f"got {replayed_ids}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# P6-5 — Payload validation centralization
+# ---------------------------------------------------------------------------
+
+
+class TestPayloadValidation:
+    """Tests for the per-action Pydantic payload models introduced in P6-5.
+
+    Coverage:
+    - Each payload model validates a known-good payload.
+    - Each payload model rejects an unknown extra field (extra='forbid').
+    - _apply_mutation raises ValidationError (wrapped as TransactionAborted)
+      for a malformed payload on a known action.
+    - Existing replay-from-empty test still passes (regression check).
+    """
+
+    # ------------------------------------------------------------------
+    # Import helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _import_payload_models() -> Any:
+        """Return the payloads module (deferred import to keep test isolation)."""
+        from fakoli_state.state import payloads as p
+        return p
+
+    # ------------------------------------------------------------------
+    # Happy-path: each model validates a known-good payload
+    # ------------------------------------------------------------------
+
+    def test_project_created_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.ProjectCreatedPayload.model_validate({
+            "id": "proj-1",
+            "name": "Test Project",
+            "description": "desc",
+            "created_at": _T0.isoformat(),
+            "updated_at": _T0.isoformat(),
+        })
+        assert obj.id == "proj-1"
+        assert obj.name == "Test Project"
+
+    def test_state_initialized_payload_validates_empty(self) -> None:
+        p = self._import_payload_models()
+        obj = p.StateInitializedPayload.model_validate({})
+        assert obj is not None
+
+    def test_prd_parsed_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.PrdParsedPayload.model_validate({
+            "project_id": "proj-1",
+            "summary": "short summary",
+            "goals": ["goal1"],
+            "non_goals": [],
+            "requirements": [],
+            "acceptance_criteria": [],
+            "risks": [],
+            "open_questions": [],
+        })
+        assert obj.project_id == "proj-1"
+        assert obj.summary == "short summary"
+
+    def test_prd_reviewed_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.PrdReviewedPayload.model_validate({
+            "project_id": "proj-1",
+            "reviewer": "alice",
+        })
+        assert obj.reviewer == "alice"
+
+    def test_prd_approved_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.PrdApprovedPayload.model_validate({
+            "project_id": "proj-1",
+            "approver": "bob",
+        })
+        assert obj.approver == "bob"
+
+    def test_feature_created_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.FeatureCreatedPayload.model_validate({
+            "id": "F001",
+            "title": "My Feature",
+        })
+        assert obj.id == "F001"
+
+    def test_task_created_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.TaskCreatedPayload.model_validate({
+            "id": "T001",
+            "feature_id": "F001",
+            "title": "My Task",
+        })
+        assert obj.id == "T001"
+
+    def test_task_scored_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.TaskScoredPayload.model_validate({
+            "task_id": "T001",
+            "scores": {"complexity": 3, "risk": 2},
+            "explanation": "seems manageable",
+        })
+        assert obj.task_id == "T001"
+        assert obj.explanation == "seems manageable"
+
+    def test_task_expanded_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.TaskExpandedPayload.model_validate({
+            "parent_task_id": "T001",
+            "subtasks": [],
+        })
+        assert obj.parent_task_id == "T001"
+
+    def test_task_status_changed_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        # JSON keys are 'from' and 'to' (Python keywords mapped by alias)
+        obj = p.TaskStatusChangedPayload.model_validate({
+            "task_id": "T001",
+            "from": "proposed",
+            "to": "drafted",
+        })
+        assert obj.task_id == "T001"
+        assert obj.from_status == "proposed"
+        assert obj.to_status == "drafted"
+
+    def test_claim_created_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        expires = (_T0 + timedelta(hours=1)).isoformat()
+        obj = p.ClaimCreatedPayload.model_validate({
+            "id": "C001",
+            "task_id": "T001",
+            "claimed_by": "agent-alpha",
+            "claim_type": "task",
+            "status": "active",
+            "created_at": _T0.isoformat(),
+            "lease_expires_at": expires,
+            "last_heartbeat_at": _T0.isoformat(),
+        })
+        assert obj.id == "C001"
+
+    def test_claim_released_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.ClaimReleasedPayload.model_validate({
+            "claim_id": "C001",
+            "released_by": "agent-alpha",
+            "release_reason": "work done",
+        })
+        assert obj.claim_id == "C001"
+
+    def test_claim_renewed_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        expires = (_T0 + timedelta(hours=2)).isoformat()
+        obj = p.ClaimRenewedPayload.model_validate({
+            "claim_id": "C001",
+            "lease_expires_at": expires,
+            "last_heartbeat_at": _T0.isoformat(),
+        })
+        assert obj.claim_id == "C001"
+
+    def test_claim_stale_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.ClaimStalePayload.model_validate({
+            "claim_id": "C001",
+            "detected_at": _T0.isoformat(),
+            "reason": "lease_expired",
+        })
+        assert obj.claim_id == "C001"
+
+    def test_evidence_submitted_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.EvidenceSubmittedPayload.model_validate({
+            "task_id": "T001",
+            "claim_id": "C001",
+            "submitted_by": "agent-alpha",
+            "evidence_id": "EV001",
+            "commands_run": ["pytest -q"],
+            "files_changed": ["src/foo.py"],
+        })
+        assert obj.evidence_id == "EV001"
+
+    def test_task_applied_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.TaskAppliedPayload.model_validate({
+            "task_id": "T001",
+            "reviewer": "bob",
+            "decision": "accepted",
+        })
+        assert obj.decision == "accepted"
+
+    def test_file_changed_payload_validates_good(self) -> None:
+        p = self._import_payload_models()
+        obj = p.FileChangedPayload.model_validate({
+            "file": "src/foo.py",
+            "tool": "Edit",
+            "actor": "agent-alpha",
+        })
+        assert obj.file == "src/foo.py"
+
+    # ------------------------------------------------------------------
+    # extra='forbid': unknown key raises ValidationError
+    # ------------------------------------------------------------------
+
+    def test_project_created_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.ProjectCreatedPayload.model_validate({
+                "id": "proj-1",
+                "name": "n",
+                "description": "d",
+                "created_at": _T0.isoformat(),
+                "updated_at": _T0.isoformat(),
+                "unknown_field": "should_fail",
+            })
+
+    def test_state_initialized_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.StateInitializedPayload.model_validate({"unknown": True})
+
+    def test_prd_parsed_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.PrdParsedPayload.model_validate({
+                "project_id": "proj-1",
+                "unknown_key": "oops",
+            })
+
+    def test_prd_reviewed_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.PrdReviewedPayload.model_validate({
+                "project_id": "proj-1",
+                "reviewer": "alice",
+                "bad": "field",
+            })
+
+    def test_prd_approved_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.PrdApprovedPayload.model_validate({
+                "project_id": "proj-1",
+                "approver": "bob",
+                "extra": "nope",
+            })
+
+    def test_feature_created_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.FeatureCreatedPayload.model_validate({
+                "id": "F001",
+                "title": "t",
+                "mystery": "field",
+            })
+
+    def test_task_created_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.TaskCreatedPayload.model_validate({
+                "id": "T001",
+                "feature_id": "F001",
+                "title": "t",
+                "alien_field": "no",
+            })
+
+    def test_task_scored_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.TaskScoredPayload.model_validate({
+                "task_id": "T001",
+                "scores": {},
+                "phantom": "field",
+            })
+
+    def test_task_expanded_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.TaskExpandedPayload.model_validate({
+                "parent_task_id": "T001",
+                "subtasks": [],
+                "bad": "key",
+            })
+
+    def test_task_status_changed_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.TaskStatusChangedPayload.model_validate({
+                "task_id": "T001",
+                "from": "proposed",
+                "to": "drafted",
+                "extra_field": "bad",
+            })
+
+    def test_claim_created_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        expires = (_T0 + timedelta(hours=1)).isoformat()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.ClaimCreatedPayload.model_validate({
+                "id": "C001",
+                "task_id": "T001",
+                "claimed_by": "agent",
+                "claim_type": "task",
+                "status": "active",
+                "created_at": _T0.isoformat(),
+                "lease_expires_at": expires,
+                "last_heartbeat_at": _T0.isoformat(),
+                "injected": "field",
+            })
+
+    def test_claim_released_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.ClaimReleasedPayload.model_validate({
+                "claim_id": "C001",
+                "released_by": "agent",
+                "bogus": "key",
+            })
+
+    def test_claim_renewed_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        expires = (_T0 + timedelta(hours=2)).isoformat()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.ClaimRenewedPayload.model_validate({
+                "claim_id": "C001",
+                "lease_expires_at": expires,
+                "last_heartbeat_at": _T0.isoformat(),
+                "mystery": "value",
+            })
+
+    def test_claim_stale_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.ClaimStalePayload.model_validate({
+                "claim_id": "C001",
+                "detected_at": _T0.isoformat(),
+                "reason": "lease_expired",
+                "not_a_field": True,
+            })
+
+    def test_evidence_submitted_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.EvidenceSubmittedPayload.model_validate({
+                "task_id": "T001",
+                "claim_id": "C001",
+                "submitted_by": "agent",
+                "evidence_id": "EV001",
+                "commands_run": ["pytest"],
+                "files_changed": ["foo.py"],
+                "undocumented_field": "oops",
+            })
+
+    def test_task_applied_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.TaskAppliedPayload.model_validate({
+                "task_id": "T001",
+                "reviewer": "alice",
+                "decision": "accepted",
+                "unexpected_key": "value",
+            })
+
+    def test_file_changed_rejects_unknown_key(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+        p = self._import_payload_models()
+        with pytest.raises(PydanticValidationError, match="extra"):
+            p.FileChangedPayload.model_validate({
+                "file": "foo.py",
+                "tool": "Edit",
+                "actor": "agent",
+                "injected_payload": "malicious",
+            })
+
+    # ------------------------------------------------------------------
+    # _apply_mutation raises ValidationError (wrapped as TransactionAborted)
+    # for a malformed payload on a known action
+    # ------------------------------------------------------------------
+
+    def test_apply_mutation_raises_transaction_aborted_on_malformed_payload(
+        self, tmp_path: Path
+    ) -> None:
+        """A known action with an extra unknown key raises TransactionAborted.
+
+        This proves that _apply_mutation validates the payload before dispatching.
+        """
+        b = _make_backend(tmp_path)
+        try:
+            bad_event = Event(
+                id="E000001",
+                timestamp=_T0,
+                actor="test",
+                action="project.created",
+                target_kind="project",
+                target_id="proj-1",
+                payload_json={
+                    "id": "proj-1",
+                    "name": "Test",
+                    "description": "desc",
+                    "created_at": _T0.isoformat(),
+                    "updated_at": _T0.isoformat(),
+                    "unknown_extra_field": "should_trigger_forbid",
+                },
+            )
+            with pytest.raises(TransactionAborted):
+                b.apply_event(bad_event)
+        finally:
+            b.close()
+
+    def test_apply_mutation_raises_on_missing_required_field(
+        self, tmp_path: Path
+    ) -> None:
+        """A known action with a missing required field raises TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            bad_event = Event(
+                id="E000001",
+                timestamp=_T0,
+                actor="test",
+                action="prd.reviewed",
+                target_kind="prd",
+                target_id="proj-1",
+                payload_json={
+                    # missing 'reviewer' (required by PrdReviewedPayload)
+                    "project_id": "proj-1",
+                },
+            )
+            with pytest.raises(TransactionAborted):
+                b.apply_event(bad_event)
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # Regression: the critical replay-from-empty test still passes
+    # ------------------------------------------------------------------
+
+    def test_replay_from_empty_still_passes_after_payload_centralization(
+        self, tmp_path: Path
+    ) -> None:
+        """Critical regression test: replay produces byte-for-byte identical state.
+
+        This duplicates the audit-guarantee test but is owned by the P6-5
+        payload-centralization change to make regressions immediately obvious.
+        """
+        clock = _make_clock()
+        b = _make_backend(tmp_path, clock)
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        try:
+            b.apply_event(_make_project_event(event_id="E000001"))
+            b.apply_event(_make_init_event(event_id="E000002"))
+            b.apply_event(
+                _make_project_event(
+                    event_id="E000003",
+                    project_id="proj-1",
+                    project_name="Replayed Project",
+                )
+            )
+        finally:
+            b.close()
+
+        original_dump = _sqlite_dump(db_path)
+
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            b2.replay_from_empty(events_path)
+        finally:
+            pass
+
+        b2.close()
+
+        replayed_dump = _sqlite_dump(db_path)
+
+        assert original_dump == replayed_dump, (
+            "Replayed state.db does not match original after P6-5 payload centralization.\n"
+            f"Original dump (truncated):\n{original_dump[:500]}\n\n"
+            f"Replayed dump (truncated):\n{replayed_dump[:500]}"
         )

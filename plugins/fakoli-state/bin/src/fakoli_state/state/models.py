@@ -105,7 +105,6 @@ class TaskStatus(enum.StrEnum):
     accepted = "accepted"
     done = "done"
     rejected = "rejected"
-    stale = "stale"
 
 
 class TaskPriority(enum.StrEnum):
@@ -442,9 +441,14 @@ class Event(BaseModel):
 
     @model_validator(mode="after")
     def _validate_event_id_format(self) -> Event:
+        # Allow the PENDING sentinel so callers can defer ID assignment to
+        # the Backend (apply_event assigns the ID inside the BEGIN IMMEDIATE
+        # lock — eliminating the read-before-lock race from Critic-3/PR #41).
+        if self.id == "PENDING":
+            return self
         if not self.id.startswith("E") or not self.id[1:].isdigit():
             raise ValueError(
-                f"Event.id must be in monotonic format 'E000001'; got {self.id!r}"
+                f"Event.id must be in monotonic format 'E000001' or 'PENDING'; got {self.id!r}"
             )
         return self
 

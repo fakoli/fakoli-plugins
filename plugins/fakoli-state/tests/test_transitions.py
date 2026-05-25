@@ -7,7 +7,6 @@ Each transition has:
 Special tests:
 - PRD → ready → claimed requires reviewed PRD
 - drafted → reviewed requires acceptance_criteria
-- stale only when lease expired (FrozenClock to advance past lease)
 - Transitions return new instance (model_copy semantics)
 - Evidence complete substring membership
 """
@@ -18,7 +17,6 @@ import datetime
 
 import pytest
 
-from fakoli_state.clock import FrozenClock
 from fakoli_state.state.models import (
     PRD,
     Claim,
@@ -47,8 +45,6 @@ from fakoli_state.state.transitions import (
     task_ready_to_claimed,
     task_rejected_to_drafted,
     task_reviewed_to_ready,
-    task_stale_to_ready,
-    task_to_stale,
 )
 
 # ---------------------------------------------------------------------------
@@ -546,71 +542,6 @@ class TestTaskRejectedToDrafted:
         task = _make_task(status=TaskStatus.done)
         with pytest.raises(TransitionError) as exc_info:
             task_rejected_to_drafted(task, now=_T1)
-        assert exc_info.value.code == "wrong_status"
-
-
-# ---------------------------------------------------------------------------
-# Task transitions — to_stale
-# ---------------------------------------------------------------------------
-
-
-class TestTaskToStale:
-    def test_task_to_stale_only_when_lease_expired(self) -> None:
-        """FrozenClock past lease expiry → transition succeeds."""
-        clock = FrozenClock(_T0)
-        task = _make_task(status=TaskStatus.claimed)
-        claim = _make_claim(now=_T0, expires_in_seconds=3600)  # expires at T0 + 1h
-
-        # At T0, lease not expired → fails
-        with pytest.raises(TransitionError) as exc_info:
-            task_to_stale(task, claim, now=clock.now())
-        assert exc_info.value.gate_name == "lease_expiry_gate"
-
-        # Advance clock past expiry → succeeds
-        clock.advance(hours=2)
-        result = task_to_stale(task, claim, now=clock.now())
-        assert result.status == TaskStatus.stale
-
-    def test_task_to_stale_wrong_source_status(self) -> None:
-        """Only claimed / in_progress / blocked can go stale."""
-        task = _make_task(status=TaskStatus.ready)
-        # Use an already-expired claim so the status check fires first
-        expired_claim = _make_claim(now=_T0, expires_in_seconds=-1)
-        with pytest.raises(TransitionError) as exc_info:
-            task_to_stale(task, expired_claim, now=_T1)
-        assert exc_info.value.code == "wrong_status"
-
-    def test_task_in_progress_to_stale(self) -> None:
-        """in_progress status is eligible for stale transition."""
-        task = _make_task(status=TaskStatus.in_progress)
-        expired_claim = _make_claim(now=_T0, expires_in_seconds=-1)
-        result = task_to_stale(task, expired_claim, now=_T1)
-        assert result.status == TaskStatus.stale
-
-    def test_task_blocked_to_stale(self) -> None:
-        """blocked status is also eligible."""
-        task = _make_task(status=TaskStatus.blocked)
-        expired_claim = _make_claim(now=_T0, expires_in_seconds=-1)
-        result = task_to_stale(task, expired_claim, now=_T1)
-        assert result.status == TaskStatus.stale
-
-
-# ---------------------------------------------------------------------------
-# Task transitions — stale → ready
-# ---------------------------------------------------------------------------
-
-
-class TestTaskStaleToReady:
-    def test_happy_path(self) -> None:
-        task = _make_task(status=TaskStatus.stale)
-        result = task_stale_to_ready(task, now=_T1)
-        assert result.status == TaskStatus.ready
-        assert result.updated_at == _T1
-
-    def test_wrong_status(self) -> None:
-        task = _make_task(status=TaskStatus.claimed)
-        with pytest.raises(TransitionError) as exc_info:
-            task_stale_to_ready(task, now=_T1)
         assert exc_info.value.code == "wrong_status"
 
 

@@ -26,6 +26,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from fakoli_state.clock import Clock
+from fakoli_state.state.backend import PENDING_EVENT_ID
 from fakoli_state.state.models import ClaimStatus, Event
 
 if TYPE_CHECKING:
@@ -77,7 +78,7 @@ def detect_and_release_stale(
 
         try:
             stale_event = Event(
-                id=backend.next_event_id(),
+                id=PENDING_EVENT_ID,
                 timestamp=now,
                 actor=actor,
                 action="claim.stale",

@@ -632,16 +632,19 @@ class ClaimManager:
         return "C" + uuid.uuid4().hex[:8].upper()
 
     def _generate_event_id(self) -> str:
-        """Delegate to the backend so CLI and ClaimManager produce identical
-        E%06d sequential IDs.
+        """Return the PENDING sentinel so apply_event() assigns the ID inside
+        the BEGIN IMMEDIATE lock — eliminating the read-before-lock race
+        flagged by Critic-3 on PR #41.
 
-        The original implementation generated 20-digit microsecond IDs which
-        collided with the CLI's MAX-based sequential generator — once a 20-digit
-        ID landed in the events table, the CLI's `MAX(CAST(SUBSTR(id, 2) AS
-        INTEGER)) + 1` returned a giant number and the E%06d format silently
-        broke. (Greptile + critic both flagged this on PR #39.)
+        Previously delegated to backend.next_event_id() (which fixed the
+        Phase 4 bug where ClaimManager generated 20-digit microsecond IDs
+        that collided with the CLI's sequential generator).  The next
+        correctness step is moving ID generation inside the lock entirely
+        via PENDING_EVENT_ID.
         """
-        return self._backend.next_event_id()
+        from fakoli_state.state.backend import PENDING_EVENT_ID
+
+        return PENDING_EVENT_ID
 
     def _build_claim_model(
         self,
