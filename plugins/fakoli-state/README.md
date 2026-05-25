@@ -3,7 +3,7 @@
 Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-0.0.1-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](.claude-plugin/plugin.json)
 [![Status](https://img.shields.io/badge/plugin--state-alpha%20%2F%20in--development-orange.svg)](.claude-plugin/plugin.json)
 
 ---
@@ -51,7 +51,7 @@ Once published, install via `/plugin install fakoli-state` from the fakoli marke
 
 ## Quick Start
 
-> **Status: Coming in v0.1 — currently scaffolding (Phase 1 of 8)**
+> **Status: Coming in v1.1 — currently scaffolding (Phase 1 of 8)**
 
 The intended first-run experience will be:
 

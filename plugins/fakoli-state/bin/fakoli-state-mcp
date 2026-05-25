@@ -12,10 +12,19 @@ if ! command -v uv > /dev/null 2>&1; then
     exit 127
 fi
 
-# Sync only when uv.lock is missing or pyproject.toml is newer than .venv.
-# This check is file-age based and fully idempotent — no cat/grep involved.
-if [ ! -f uv.lock ] || [ pyproject.toml -nt .venv ]; then
+# Sync only when uv.lock is missing, pyproject.toml is newer than .venv,
+# or uv.lock is newer than .venv (covers the `git pull` case where only the
+# lock file moves). File-age based, fully idempotent — no cat/grep involved.
+if [ ! -f uv.lock ] || [ pyproject.toml -nt .venv ] || [ uv.lock -nt .venv ]; then
     uv sync --quiet
+fi
+
+# Phase 6 lands the MCP server. Until then, fail cleanly instead of leaking a
+# Python traceback to whatever invoked us.
+if ! uv run --quiet python -c 'import fakoli_state.mcp_server' 2> /dev/null; then
+    printf 'fakoli-state-mcp: MCP server is not yet implemented (lands in Phase 6 of v1).\n' >&2
+    printf '                  Use bin/fakoli-state for CLI access in the meantime.\n' >&2
+    exit 1
 fi
 
 exec uv run --quiet python -m fakoli_state.mcp_server "$@"

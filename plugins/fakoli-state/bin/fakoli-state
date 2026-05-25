@@ -12,9 +12,10 @@ if ! command -v uv > /dev/null 2>&1; then
     exit 127
 fi
 
-# Sync only when uv.lock is missing or pyproject.toml is newer than .venv.
-# This check is file-age based and fully idempotent — no cat/grep involved.
-if [ ! -f uv.lock ] || [ pyproject.toml -nt .venv ]; then
+# Sync only when uv.lock is missing, pyproject.toml is newer than .venv,
+# or uv.lock is newer than .venv (covers the `git pull` case where only the
+# lock file moves). File-age based, fully idempotent — no cat/grep involved.
+if [ ! -f uv.lock ] || [ pyproject.toml -nt .venv ] || [ uv.lock -nt .venv ]; then
     uv sync --quiet
 fi
 
