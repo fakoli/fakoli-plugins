@@ -101,6 +101,8 @@ Apply the dependency rules below to form waves. All tasks within a wave are inde
 
 ## Wave Assignment Rules
 
+For a one-page quick reference covering the DSL, agent capability matrix, and language-verification commands, see `references/wave-engine-ref.md`. For the full design rationale and worked real-world examples, see `docs/wave-engine.md`.
+
 ### From Declared Dependencies
 
 Read each task's "Depends on" field. Tasks with no dependencies are Wave 1. Tasks whose dependencies are all in Wave N are Wave N+1.
@@ -180,61 +182,15 @@ Construct the prompt for each agent from its plan task. Include:
 5. **Verify command** (from plan)
 6. **Status file instruction** — tell the agent to write its result to `docs/plans/agent-<name>-status.md`
 
-Example dispatch prompt:
-```
-Task: Implement retry with exponential backoff
-
-Intent: Failed executions must be retried with increasing delay before routing to the dead letter queue.
-
-Acceptance criteria:
-- Configurable max retries (default 3) and initial delay (default 1000ms)
-- Delay doubles each attempt with +/-10% jitter to prevent thundering herd
-- Retries exhausted -> route to DLQ, not silent failure
-- Each retry creates a new execution attempt linked to the same thread
-
-Scope: packages/orchestrator/src/retry.ts
-
-Upstream context (from Wave 1 scout):
-- packages/orchestrator/src/queue-manager.ts exists with enqueueTimer()
-- No existing delay utility found; implement one inline
-
-Verify: bun test packages/orchestrator/src/retry.test.ts
-
-When done, write your status to: docs/plans/agent-welder-status.md
-Use the standard format: Status, Wave, Timestamp, Files Modified, Files Read, Decisions, Notes for Specific Agents.
-```
+For a complete, ready-to-copy example of a dispatch prompt with all six fields filled in (plus annotation of what makes a prompt effective), see `references/example-dispatch-prompt.md`.
 
 ---
 
 ## Status File Protocol
 
-Agents write status files at `docs/plans/agent-<name>-status.md`. The wave engine reads these after each wave.
+Agents write status files at `docs/plans/agent-<name>-status.md`. The wave engine reads these after each wave to confirm completion, surface escalations, and extract files-modified + decisions for the next wave.
 
-### Status File Format
-
-```markdown
-# Agent <Name> Status
-
-**Status:** IN_PROGRESS | COMPLETE | NEEDS_REVIEW | BLOCKED
-**Wave:** <number>
-**Timestamp:** <ISO 8601>
-
-## Files Modified
-- `path/to/file.ts` — what was changed
-
-## Files Read (not modified)
-- `path/to/file.ts` — why it was read
-
-## Decisions
-Key choices downstream agents must honor:
-1. Decision with rationale
-
-## Notes for Specific Agents
-- **<agent-name>:** specific instruction for that agent
-
-## Blockers (if BLOCKED)
-What is preventing progress and what is needed to resolve it
-```
+For the full format specification — status values, reading rules, writing rules, and worked examples for welder and critic — see `references/status-protocol.md`. The summary that follows covers only the operational protocol the execute skill enforces.
 
 ### Reading Status Files After Each Wave
 
