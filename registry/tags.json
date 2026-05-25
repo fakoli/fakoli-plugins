@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-04-04T22:31:29Z",
-  "totalTags": 83,
+  "generatedAt": "2026-05-25T02:51:01Z",
+  "totalTags": 90,
   "tags": [
     {
       "tag": "workflow",
@@ -27,11 +27,23 @@
       "count": 2
     },
     {
+      "tag": "mcp",
+      "count": 2
+    },
+    {
       "tag": "orchestration",
       "count": 2
     },
     {
+      "tag": "planning",
+      "count": 2
+    },
+    {
       "tag": "slides",
+      "count": 2
+    },
+    {
+      "tag": "tasks",
       "count": 2
     },
     {
@@ -40,6 +52,10 @@
     },
     {
       "tag": "admin-reports",
+      "count": 1
+    },
+    {
+      "tag": "agent-coordination",
       "count": 1
     },
     {
@@ -60,6 +76,10 @@
     },
     {
       "tag": "chat",
+      "count": 1
+    },
+    {
+      "tag": "claims",
       "count": 1
     },
     {
@@ -112,6 +132,10 @@
     },
     {
       "tag": "events",
+      "count": 1
+    },
+    {
+      "tag": "evidence-based",
       "count": 1
     },
     {
@@ -171,15 +195,15 @@
       "count": 1
     },
     {
+      "tag": "locks",
+      "count": 1
+    },
+    {
       "tag": "macos",
       "count": 1
     },
     {
       "tag": "marketplace",
-      "count": 1
-    },
-    {
-      "tag": "mcp",
       "count": 1
     },
     {
@@ -215,10 +239,6 @@
       "count": 1
     },
     {
-      "tag": "planning",
-      "count": 1
-    },
-    {
       "tag": "plugin-management",
       "count": 1
     },
@@ -232,6 +252,10 @@
     },
     {
       "tag": "project-manager",
+      "count": 1
+    },
+    {
+      "tag": "project-state",
       "count": 1
     },
     {
@@ -279,15 +303,15 @@
       "count": 1
     },
     {
+      "tag": "sqlite",
+      "count": 1
+    },
+    {
       "tag": "ssrf",
       "count": 1
     },
     {
       "tag": "streaming",
-      "count": 1
-    },
-    {
-      "tag": "tasks",
       "count": 1
     },
     {
@@ -332,6 +356,10 @@
     },
     {
       "tag": "whiteboard",
+      "count": 1
+    },
+    {
+      "tag": "work-packets",
       "count": 1
     }
   ]

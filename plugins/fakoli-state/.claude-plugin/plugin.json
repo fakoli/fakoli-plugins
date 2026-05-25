@@ -1,0 +1,23 @@
+{
+  "name": "fakoli-state",
+  "version": "1.0.0",
+  "description": "Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "agent-coordination",
+    "claims",
+    "evidence-based",
+    "locks",
+    "mcp",
+    "planning",
+    "project-state",
+    "sqlite",
+    "tasks",
+    "work-packets"
+  ]
+}
