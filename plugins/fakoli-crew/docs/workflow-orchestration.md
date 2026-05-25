@@ -27,8 +27,8 @@ With both installed, you get the full pipeline:
 fakoli-flow knows about every fakoli-crew agent — it dispatches the right specialist for
 each task type, enforces file ownership, and runs the critic gate after every code wave.
 
-See [fakoli-flow README](../../fakoli-flow/README.md) and
-[fakoli-flow getting-started.md](../../fakoli-flow/docs/getting-started.md) for the full
+See [fakoli-flow README](https://github.com/fakoli/fakoli-plugins/blob/main/plugins/fakoli-flow/README.md) and
+[fakoli-flow getting-started.md](https://github.com/fakoli/fakoli-plugins/blob/main/plugins/fakoli-flow/docs/getting-started.md) for the full
 walkthrough.
 
 ## Alternative: SuperPowers

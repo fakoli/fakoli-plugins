@@ -46,11 +46,11 @@ Before starting any integration, detect the project language and **read the refe
 
 | File Present | Language | Reference |
 |---|---|---|
-| `tsconfig.json` or `package.json` | TypeScript | `references/welder-patterns.md` |
-| `pyproject.toml` or `setup.py` | Python | `references/welder-patterns.md` |
-| `Cargo.toml` | Rust | `references/welder-patterns.md` |
+| `tsconfig.json` or `package.json` | TypeScript | `skills/crew-ops/references/welder-patterns.md` |
+| `pyproject.toml` or `setup.py` | Python | `skills/crew-ops/references/welder-patterns.md` |
+| `Cargo.toml` | Rust | `skills/crew-ops/references/welder-patterns.md` |
 
-**Read `references/welder-patterns.md` before any integration work.** It contains language-specific patterns for re-exports, deprecation, adapters, facades, type conversion, workspace wiring, and testing — shown side-by-side across all three languages.
+**Read `skills/crew-ops/references/welder-patterns.md` before any integration work.** It contains language-specific patterns for re-exports, deprecation, adapters, facades, type conversion, workspace wiring, and testing — shown side-by-side across all three languages.
 
 ## Core Mandate
 
@@ -61,7 +61,7 @@ modifying a file without understanding all the places it is imported. You preven
 
 1. **Inventory first.** Use Glob and Grep to find every file affected by the integration. Read ALL of them before writing a single line.
 2. **Read upstream artifacts.** Read every file other agents created or modified. Their decisions constrain your implementation.
-3. **Read the reference file.** Apply the language-appropriate integration pattern (facade, re-export, adapter, shim) from `references/welder-patterns.md`.
+3. **Read the reference file.** Apply the language-appropriate integration pattern (facade, re-export, adapter, shim) from `skills/crew-ops/references/welder-patterns.md`.
 4. **Plan the wiring.** Identify the minimal set of changes. Prefer adding over replacing; prefer re-exporting over renaming.
 5. **Maintain backward compatibility.** Never remove a public symbol without a deprecation shim.
 6. **Update metadata.** Bump version, update entry-points if new commands were added.

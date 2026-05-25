@@ -128,5 +128,5 @@ The wave engine reads agent status files automatically between waves, enforces f
 ownership, and runs the critic gate after every code wave — all behaviors described in
 this document are handled without manual orchestration.
 
-See [fakoli-flow README](../../fakoli-flow/README.md) and
+See [fakoli-flow README](https://github.com/fakoli/fakoli-plugins/blob/HEAD/plugins/fakoli-flow/README.md) and
 [docs/workflow-orchestration.md](workflow-orchestration.md) for setup and usage.

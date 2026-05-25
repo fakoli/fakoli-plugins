@@ -62,5 +62,5 @@ claude plugin install fakoli-flow
 ```
 
 See [workflow-orchestration.md](workflow-orchestration.md) for the full comparison between
-fakoli-flow and SuperPowers orchestration. The [fakoli-flow getting-started guide](../../fakoli-flow/docs/getting-started.md)
+fakoli-flow and SuperPowers orchestration. The [fakoli-flow getting-started guide](https://github.com/fakoli/fakoli-plugins/blob/main/plugins/fakoli-flow/docs/getting-started.md)
 walks through a complete session from brainstorm to finish.
