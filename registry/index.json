@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-05-25T21:11:35Z",
+  "generatedAt": "2026-05-25T21:24:06Z",
   "pluginCount": 11,
   "plugins": [
     {
@@ -26,7 +26,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:05Z"
     },
     {
       "name": "cli-to-plugin",
@@ -46,7 +46,7 @@
         "automation"
       ],
       "path": "plugins/cli-to-plugin",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:05Z"
     },
     {
       "name": "safe-fetch",
@@ -68,7 +68,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:05Z"
     },
     {
       "name": "fakoli-speak",
@@ -94,7 +94,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:05Z"
     },
     {
       "name": "marketplace-manager",
@@ -113,12 +113,12 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:05Z"
     },
     {
       "name": "fakoli-crew",
       "version": "2.2.0",
-      "description": "Eight specialist AI agents for software engineering — TypeScript architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
+      "description": "Thirteen specialist AI agents for software engineering — 8 generalist roles (polyglot architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) and 5 cross-plugin critics (agent-critic, skill-critic, hook-critic, mcp-critic, structure-critic) — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
       "author": {
         "name": "Sekou Doumbouya",
         "url": "https://github.com/fakoli"
@@ -136,7 +136,7 @@
         "workflow"
       ],
       "path": "plugins/fakoli-crew",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:06Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -157,7 +157,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:06Z"
     },
     {
       "name": "gws",
@@ -205,7 +205,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:06Z"
     },
     {
       "name": "fakoli-state",
@@ -230,7 +230,7 @@
         "work-packets"
       ],
       "path": "plugins/fakoli-state",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:06Z"
     },
     {
       "name": "fakoli-flow",
@@ -253,7 +253,7 @@
         "code-review"
       ],
       "path": "plugins/fakoli-flow",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:06Z"
     },
     {
       "name": "nano-banana-pro",
@@ -274,7 +274,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-05-25T21:11:35Z"
+      "indexedAt": "2026-05-25T21:24:06Z"
     }
   ]
 }

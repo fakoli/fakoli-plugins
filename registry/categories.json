@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-25T21:11:35Z",
+  "generatedAt": "2026-05-25T21:24:06Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -38,7 +38,7 @@
         {
           "name": "fakoli-crew",
           "version": "2.2.0",
-          "description": "Eight specialist AI agents for software engineering — TypeScript architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
+          "description": "Thirteen specialist AI agents for software engineering — 8 generalist roles (polyglot architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) and 5 cross-plugin critics (agent-critic, skill-critic, hook-critic, mcp-critic, structure-critic) — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
           "path": "plugins/fakoli-crew"
         },
         {

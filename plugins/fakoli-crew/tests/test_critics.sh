@@ -31,11 +31,11 @@ RECIPES_ABS="${TESTS_ROOT}/RECIPES.md"
 # Fixture filenames are the conventions T6 will follow; if T6 chooses different
 # names, update this table to match.
 CRITIC_RECIPES=(
-  "agent-critic|bad-agent.md|MUST FIX|missing required frontmatter keys (name/description/model/color)"
-  "skill-critic|bad-skill/SKILL.md|MUST FIX|second-person prose + missing required description trigger phrase"
-  "hook-critic|bad-hooks.json|MUST FIX|bare-array hooks (missing wrapper) + hardcoded absolute path"
-  "mcp-critic|bad-mcp.json|MUST FIX|hardcoded credentials + HTTP (not HTTPS) transport"
-  "structure-critic|bad-plugin.json|MUST FIX|manifest at plugin root instead of .claude-plugin/plugin.json"
+  "agent-critic|bad-agent.md|MUST FIX|missing required name: frontmatter key + uses allowed-tools: (command convention) instead of tools: (agent convention)"
+  "skill-critic|bad-skill/SKILL.md|SHOULD FIX|vague description ('a skill that helps with things') + no numbered decision flow or step enumeration"
+  "hook-critic|bad-hook.sh|MUST FIX|set -e on a script governed by a non-blocking contract + bare './hooks/state.txt' path missing \${CLAUDE_PLUGIN_ROOT} prefix"
+  "mcp-critic|bad-mcp.json|MUST FIX|stdio server entry missing required args field (Claude Code's MCP loader requires args, even an empty array)"
+  "structure-critic|bad-plugin.json|MUST FIX|missing required version field (semver) + description is 6 chars ('tiny.'), below the meaningful-description floor"
 )
 
 _print_help() {
