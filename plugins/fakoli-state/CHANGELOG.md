@@ -14,6 +14,21 @@ Phases 6-8 are planned and actively scheduled. Each phase ships as its own PR in
 
 ---
 
+## [1.4.1] — 2026-05-25
+
+Docs-only patch release. Stages the deferred items from the PR #41 critic +
+Greptile reviews into a single backlog document so Phase 6 work picks them
+up explicitly without re-reading chat transcripts.
+
+### Added
+
+- `docs/tech-debt-backlog.md` — 31 open items + 11 already-closed (for
+  reference), grouped into: Phase 6 must-close (5), Cleanup (16), Test
+  quality (8), Performance (2). Each entry cites its source (Greptile,
+  Critic-1/2/3/4) and includes a concrete fix sketch.
+
+---
+
 ## [1.4.0] — 2026-05-25
 
 Phase 5: Context engine. Delivers the context engine, review apply gate, three new CLI commands, one new hook subcommand, two new skills, two new plugin-owned agents, a new PostToolUse hook, state engine extensions, and a comprehensive test suite. The plugin now supports the complete claim → packet → work → submit → apply lifecycle.
