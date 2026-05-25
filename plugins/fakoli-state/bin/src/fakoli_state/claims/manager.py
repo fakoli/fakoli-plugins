@@ -356,22 +356,14 @@ class ClaimManager:
         )
         self._backend.apply_event(claim_event)
 
-        # Emit task.status_changed event (ready → claimed).
-        status_event = Event(
-            id=self._generate_event_id(),
-            timestamp=now,
-            actor=self._actor,
-            action="task.status_changed",
-            target_kind="task",
-            target_id=task_id,
-            payload_json={
-                "task_id": task_id,
-                "from": TaskStatus.ready,
-                "to": TaskStatus.claimed,
-                "reason": f"claimed by {self._actor} via claim {claim_id}",
-            },
-        )
-        self._backend.apply_event(status_event)
+        # DO NOT emit a separate task.status_changed event here.
+        # _handle_claim_created already transitions the task to 'claimed'
+        # atomically with the INSERT INTO claims, so a second event is
+        # always either (a) an idempotent no-op (the WHERE status='ready'
+        # guard matches 0 rows on the second go) producing 25-30% audit
+        # noise, or (b) a real race condition during concurrent operation.
+        # Critic-2 + Critic-3 flagged this on PR #41 — same fix pattern
+        # as release().
 
         return ClaimResult(
             claim=claim,
@@ -469,25 +461,16 @@ class ClaimManager:
         )
         self._backend.apply_event(release_event)
 
-        # Emit task.status_changed event back to ready.
-        # Use the actual task status as 'from' so the concurrency guard in
-        # _handle_task_status_changed matches what is actually in the DB.
-        from_status = task.status if task is not None else TaskStatus.claimed
-        status_event = Event(
-            id=self._generate_event_id(),
-            timestamp=now,
-            actor=self._actor,
-            action="task.status_changed",
-            target_kind="task",
-            target_id=claim.task_id,
-            payload_json={
-                "task_id": claim.task_id,
-                "from": str(from_status),
-                "to": TaskStatus.ready,
-                "reason": reason or f"claim {claim_id} released by {self._actor}",
-            },
-        )
-        self._backend.apply_event(status_event)
+        # DO NOT emit a separate task.status_changed event here.
+        # _handle_claim_released already transitions the task back to 'ready'
+        # atomically with the claim status update — emitting a second event
+        # with from=task.status (read BEFORE the handler ran) would either
+        # (a) hit the idempotent no-op path (audit noise; 25-30% of events
+        # in a busy workflow are redundant), OR (b) for tasks already at
+        # needs_review (mid-evidence-submission), silently reset them to
+        # ready, destroying the link to the submitted Evidence row.
+        # Critic-3 + Critic-2 both flagged this on PR #41.
+        _ = task  # retained in signature for future audit/event payload use
 
     def renew(self, claim_id: str) -> Claim:
         """Heartbeat a claim — extend the lease and record last_heartbeat_at.
