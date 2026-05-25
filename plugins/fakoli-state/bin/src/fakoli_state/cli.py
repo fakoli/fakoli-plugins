@@ -709,7 +709,7 @@ def prd_review(
                 action="prd.approved",
                 target_kind="prd",
                 target_id=project_id,
-                payload_json={"approver": reviewer},
+                payload_json={"project_id": project_id, "approver": reviewer},
             )
             backend.apply_event(event)
             typer.echo(f"PRD approved by '{reviewer}'.")
@@ -730,7 +730,7 @@ def prd_review(
                 action="prd.reviewed",
                 target_kind="prd",
                 target_id=project_id,
-                payload_json={"reviewer": reviewer, "notes": notes},
+                payload_json={"project_id": project_id, "reviewer": reviewer, "notes": notes},
             )
             backend.apply_event(event)
             typer.echo(f"PRD reviewed by '{reviewer}'.")
@@ -853,24 +853,32 @@ def plan(
             )
             backend.apply_event(upsert_event)
 
-            # Promote proposed → drafted.
-            event_id = _next_event_id(backend)
-            now = clock.now()
-            status_event = Event(
-                id=event_id,
-                timestamp=now,
-                actor="fakoli-state-cli",
-                action="task.status_changed",
-                target_kind="task",
-                target_id=inferred_task.id,
-                payload_json={
-                    "task_id": inferred_task.id,
-                    "from": "proposed",
-                    "to": "drafted",
-                    "reason": "plan: initial draft after inference",
-                },
-            )
-            backend.apply_event(status_event)
+            # Promote proposed → drafted, but ONLY if the task is currently
+            # at 'proposed'. On re-plan, existing tasks may have advanced
+            # past 'drafted' (Phase 4+: claimed, in_progress, etc.) and
+            # emitting a status_changed for those would error or worse
+            # silently regress them. The task.created upsert above does NOT
+            # touch status (Greptile PR #38 fix), so existing-task status
+            # is preserved; we only need to promote fresh proposed tasks.
+            current = backend.get_task(inferred_task.id)
+            if current is not None and current.status.value == "proposed":
+                event_id = _next_event_id(backend)
+                now = clock.now()
+                status_event = Event(
+                    id=event_id,
+                    timestamp=now,
+                    actor="fakoli-state-cli",
+                    action="task.status_changed",
+                    target_kind="task",
+                    target_id=inferred_task.id,
+                    payload_json={
+                        "task_id": inferred_task.id,
+                        "from": "proposed",
+                        "to": "drafted",
+                        "reason": "plan: initial draft after inference",
+                    },
+                )
+                backend.apply_event(status_event)
     finally:
         backend.close()
 

@@ -521,21 +521,37 @@ class SqliteBackend:
         event_id: str,
         timestamp: str,
     ) -> None:
-        """Mark PRD as reviewed and insert a Review row.
+        """Mark PRD as reviewed.
 
         Payload fields:
-            reviewer (str) — required
+            project_id (str) — required (scopes the UPDATE so multi-PRD
+                              setups in future phases don't co-mutate)
+            reviewer (str)   — required
             notes (str | None) — optional
 
-        The Review row ID is derived deterministically from the event_id so
-        that replay produces byte-for-byte identical rows.
+        We deliberately do NOT insert into the reviews table here. The
+        prds.status column transitioning draft → reviewed is its own audit
+        record. The reviews table is reserved for outcome-bearing review
+        decisions (approve, reject, needs_changes). Recording prd.reviewed
+        as decision='approve' would make it indistinguishable from a real
+        approval and cause false positives for any downstream code (e.g.,
+        the Phase 4 claims manager) that queries
+        `reviews WHERE decision='approve'` to determine approval state.
+
+        event_id is kept in the signature for symmetry with
+        _handle_prd_approved (which uses it for the stable review ID).
         """
+        del event_id  # see docstring
+        project_id: str | None = payload.get("project_id")
+        if not project_id:
+            raise TransactionAborted(
+                "prd.reviewed payload missing required field 'project_id'."
+            )
         reviewer: str | None = payload.get("reviewer")
         if not reviewer:
             raise TransactionAborted(
                 "prd.reviewed payload missing required field 'reviewer'."
             )
-        notes: str | None = payload.get("notes")
 
         conn.execute(
             """
@@ -543,20 +559,9 @@ class SqliteBackend:
                SET status = 'reviewed',
                    last_reviewed_at = ?,
                    last_reviewed_by = ?
+             WHERE project_id = ?
             """,
-            (timestamp, reviewer),
-        )
-
-        # Derive a stable review ID from the event ID so replay is idempotent.
-        review_id = f"RV-{event_id}"
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO reviews
-                (id, target_kind, target_id, reviewed_by, decision, notes, created_at)
-            VALUES
-                (?, 'prd', 'prd', ?, 'approve', ?, ?)
-            """,
-            (review_id, reviewer, notes, timestamp),
+            (timestamp, reviewer, project_id),
         )
 
     def _handle_prd_approved(
@@ -566,14 +571,23 @@ class SqliteBackend:
         event_id: str,
         timestamp: str,
     ) -> None:
-        """Mark PRD as approved and insert a Review row.
+        """Mark PRD as approved and insert an approval Review row.
 
         Payload fields:
-            approver (str) — required
+            project_id (str) — required (scopes the UPDATE)
+            approver (str)   — required
 
         The Review row ID is derived deterministically from the event_id so
-        that replay produces byte-for-byte identical rows.
+        that replay produces byte-for-byte identical rows. This is the
+        canonical 'approved' marker — queries should use the PRD's status
+        column OR look for reviews WHERE target_id=<project_id> AND
+        decision='approve' AND target_kind='prd'.
         """
+        project_id: str | None = payload.get("project_id")
+        if not project_id:
+            raise TransactionAborted(
+                "prd.approved payload missing required field 'project_id'."
+            )
         approver: str | None = payload.get("approver")
         if not approver:
             raise TransactionAborted(
@@ -586,8 +600,9 @@ class SqliteBackend:
                SET status = 'approved',
                    last_reviewed_at = ?,
                    last_reviewed_by = ?
+             WHERE project_id = ?
             """,
-            (timestamp, approver),
+            (timestamp, approver, project_id),
         )
 
         review_id = f"RV-{event_id}"
@@ -596,9 +611,9 @@ class SqliteBackend:
             INSERT OR REPLACE INTO reviews
                 (id, target_kind, target_id, reviewed_by, decision, notes, created_at)
             VALUES
-                (?, 'prd', 'prd', ?, 'approve', NULL, ?)
+                (?, 'prd', ?, ?, 'approve', NULL, ?)
             """,
-            (review_id, approver, timestamp),
+            (review_id, project_id, approver, timestamp),
         )
 
     def _handle_feature_created(
@@ -807,6 +822,14 @@ class SqliteBackend:
                     f"task.status_changed: task '{task_id}' not found."
                 )
             actual_status = row[0]
+            # Idempotent re-application: if the task is already at the
+            # target status, treat as a successful no-op. This lets `plan`
+            # (which emits proposed→drafted) be re-run safely after the
+            # first run has already promoted tasks. Without this branch,
+            # re-plan would always raise because status no longer matches
+            # the 'from' field.
+            if actual_status == to_status:
+                return
             raise TransactionAborted(
                 f"task.status_changed: concurrency guard failed for task '{task_id}'. "
                 f"Expected status '{from_status}', got '{actual_status}'. "
@@ -845,7 +868,14 @@ class SqliteBackend:
                 feature_id           = excluded.feature_id,
                 title                = excluded.title,
                 description          = excluded.description,
-                status               = excluded.status,
+                -- status is intentionally OMITTED from the upsert. Status
+                -- transitions go exclusively through task.status_changed
+                -- events. If task.created carried status=proposed and we
+                -- overwrote it on re-plan, a re-plan after Phase 4 claims
+                -- would silently reset claimed/in_progress tasks back to
+                -- proposed, stripping the claim. Greptile flagged this on
+                -- PR #38; the fix is to let status be managed by its
+                -- dedicated transition handler only.
                 priority             = excluded.priority,
                 dependencies         = excluded.dependencies,
                 conflict_groups      = excluded.conflict_groups,

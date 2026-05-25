@@ -882,6 +882,56 @@ class TestShow:
 # ---------------------------------------------------------------------------
 
 
+class TestReplanPreservesTaskStatus:
+    """Regression test for Greptile PR #38 finding #3 (P2): _insert_task_row
+    upsert was overwriting status='proposed' on re-plan, which would silently
+    reset claimed/in_progress tasks back to proposed. After the fix, status
+    is excluded from the ON CONFLICT update set and changes only via
+    task.status_changed events.
+    """
+
+    def test_replan_does_not_reset_advanced_task_status(self, tmp_path: Path) -> None:
+        """Simulate Phase 4 by manually advancing a task past 'drafted', then
+        re-running plan; the advanced status must be preserved."""
+        import sqlite3
+
+        _do_init(tmp_path, name="Replan Test")
+        _write_prd(tmp_path, _FULL_PRD_CONTENT)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+        _invoke_cmd(tmp_path, ["plan"])  # tasks now at 'drafted'
+
+        # Simulate Phase 4 claim by mutating one task to 'claimed' directly.
+        # (Phase 4 will do this through claim events; we patch the DB to
+        # represent the post-claim state without needing Phase 4 code.)
+        db_path = tmp_path / ".fakoli-state" / "state.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "UPDATE tasks SET status = 'claimed' WHERE id = 'T001'"
+        )
+        conn.commit()
+        conn.close()
+
+        # Re-parse + re-plan. Without the fix, task.created would upsert
+        # status back to 'proposed', then task.status_changed would error
+        # (or worse, succeed and reset to 'drafted').
+        reparse = _invoke_cmd(tmp_path, ["prd", "parse"])
+        assert reparse.exit_code == 0
+        replan = _invoke_cmd(tmp_path, ["plan"])
+        assert replan.exit_code == 0, f"re-plan after claim failed: {replan.output}"
+
+        # Verify T001 is STILL 'claimed' — the upsert did not reset it.
+        conn = sqlite3.connect(str(db_path))
+        status = conn.execute(
+            "SELECT status FROM tasks WHERE id = 'T001'"
+        ).fetchone()[0]
+        conn.close()
+        assert status == "claimed", (
+            f"re-plan reset T001 from 'claimed' to '{status}' — the "
+            "ON CONFLICT upsert is silently overwriting task status. "
+            "status must be managed by task.status_changed events ONLY."
+        )
+
+
 class TestE2E:
     def test_full_planning_workflow(self, tmp_path: Path) -> None:
         """init → write PRD → prd parse → prd review --approve → plan → score → review tasks → list --status ready → show T001.

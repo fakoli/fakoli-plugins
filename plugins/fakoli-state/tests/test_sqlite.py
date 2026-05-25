@@ -1108,6 +1108,45 @@ class TestErrorPaths:
         finally:
             b.close()
 
+    def test_task_status_changed_idempotent_when_already_at_target(
+        self, tmp_path: Path
+    ) -> None:
+        """task.status_changed must be idempotent — re-applying when the task
+        is already at the target status is a no-op success, not an error.
+        Without this, plan re-runs would always raise once tasks moved past
+        the first transition. (Regression test for Greptile PR #38 finding.)
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            # Seed a feature + task in 'drafted' state.
+            b.apply_event(_make_event(
+                "feature.created", _make_feature_payload(feat_id="F001"),
+                event_id="E000010", target_kind="feature", target_id="F001",
+            ))
+            task_payload = _make_task_payload(task_id="T001", feature_id="F001")
+            task_payload["status"] = "drafted"  # seed directly at drafted
+            b.apply_event(_make_event(
+                "task.created", task_payload,
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+
+            # Apply a status_changed proposed → drafted; the task is ALREADY
+            # at 'drafted'. Should silently succeed (no-op).
+            idempotent_event = _make_event(
+                "task.status_changed",
+                {"task_id": "T001", "from": "proposed", "to": "drafted"},
+                event_id="E000012",
+            )
+            b.apply_event(idempotent_event)  # must not raise
+
+            # Confirm status unchanged
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "drafted"
+        finally:
+            b.close()
+
     def test_task_status_changed_unknown_task_aborts(
         self, tmp_path: Path
     ) -> None:
@@ -1347,7 +1386,11 @@ class TestHandlePrdParsed:
 
 class TestHandlePrdReviewed:
     def test_handle_prd_reviewed_writes_jsonl_and_sqlite(self, tmp_path: Path) -> None:
-        """prd.reviewed event updates PRD status and inserts reviews row."""
+        """prd.reviewed event updates PRD status to 'reviewed'. Does NOT
+        insert a reviews row — the prds.status column transition is its
+        own audit. (See Greptile PR #38 finding: writing decision='approve'
+        for prd.reviewed made it indistinguishable from prd.approved.)
+        """
         b = _make_backend(tmp_path)
         events_path = str(tmp_path / "events.jsonl")
         try:
@@ -1360,7 +1403,7 @@ class TestHandlePrdReviewed:
             # Now review it
             reviewed_event = _make_event(
                 "prd.reviewed",
-                {"reviewer": "alice", "notes": "Looks good."},
+                {"project_id": "proj-1", "reviewer": "alice", "notes": "Looks good."},
                 event_id="E000004",
                 target_kind="prd",
             )
@@ -1376,13 +1419,17 @@ class TestHandlePrdReviewed:
             assert prd.status.value == "reviewed"
             assert prd.last_reviewed_by == "alice"
 
-            # Review row inserted
+            # NO reviews row inserted — reviews table is only for
+            # outcome-bearing decisions (approve/reject/needs_changes).
             conn = sqlite3.connect(str(tmp_path / "state.db"))
             review_row = conn.execute(
-                "SELECT id, reviewed_by FROM reviews WHERE reviewed_by = 'alice'"
+                "SELECT id FROM reviews WHERE reviewed_by = 'alice'"
             ).fetchone()
             conn.close()
-            assert review_row is not None
+            assert review_row is None, (
+                "prd.reviewed must NOT insert a reviews row — only "
+                "prd.approved (and future prd.rejected) should."
+            )
         finally:
             b.close()
 
@@ -1399,11 +1446,35 @@ class TestHandlePrdReviewed:
 
             bad_event = _make_event(
                 "prd.reviewed",
-                {"notes": "No reviewer field"},  # missing reviewer
+                {"project_id": "proj-1", "notes": "No reviewer field"},  # missing reviewer
                 event_id="E000004",
             )
             with pytest.raises(TransactionAborted):
                 b.apply_event(bad_event)
+        finally:
+            b.close()
+
+    def test_handle_prd_reviewed_missing_project_id_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """prd.reviewed without project_id → TransactionAborted. (Regression
+        test for Greptile PR #38 finding: the UPDATE prds statement was
+        missing a WHERE clause; project_id is now required so multi-PRD
+        setups don't accidentally co-mutate.)
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
+            ))
+            bad = _make_event(
+                "prd.reviewed",
+                {"reviewer": "alice"},  # no project_id
+                event_id="E000004",
+            )
+            with pytest.raises(TransactionAborted, match="project_id"):
+                b.apply_event(bad)
         finally:
             b.close()
 
@@ -1424,10 +1495,14 @@ class TestHandlePrdApproved:
                 "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
             ))
             b.apply_event(_make_event(
-                "prd.reviewed", {"reviewer": "alice"}, event_id="E000004"
+                "prd.reviewed",
+                {"project_id": "proj-1", "reviewer": "alice"},
+                event_id="E000004",
             ))
             b.apply_event(_make_event(
-                "prd.approved", {"approver": "bob"}, event_id="E000005"
+                "prd.approved",
+                {"project_id": "proj-1", "approver": "bob"},
+                event_id="E000005",
             ))
 
             events = _read_jsonl(events_path)
@@ -1436,6 +1511,33 @@ class TestHandlePrdApproved:
             prd = b.get_prd()
             assert prd is not None
             assert prd.status.value == "approved"
+        finally:
+            b.close()
+
+    def test_handle_prd_approved_missing_project_id_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """prd.approved without project_id → TransactionAborted. (Greptile
+        PR #38 fix #2: UPDATE statements scoped via WHERE project_id = ?.)
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
+            ))
+            b.apply_event(_make_event(
+                "prd.reviewed",
+                {"project_id": "proj-1", "reviewer": "alice"},
+                event_id="E000004",
+            ))
+            bad = _make_event(
+                "prd.approved",
+                {"approver": "bob"},  # no project_id
+                event_id="E000005",
+            )
+            with pytest.raises(TransactionAborted, match="project_id"):
+                b.apply_event(bad)
         finally:
             b.close()
 
@@ -1450,9 +1552,13 @@ class TestHandlePrdApproved:
                 "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
             ))
             b.apply_event(_make_event(
-                "prd.reviewed", {"reviewer": "alice"}, event_id="E000004"
+                "prd.reviewed",
+                {"project_id": "proj-1", "reviewer": "alice"},
+                event_id="E000004",
             ))
-            bad_event = _make_event("prd.approved", {}, event_id="E000005")
+            bad_event = _make_event(
+                "prd.approved", {"project_id": "proj-1"}, event_id="E000005"
+            )
             with pytest.raises(TransactionAborted):
                 b.apply_event(bad_event)
         finally:
@@ -1834,13 +1940,13 @@ class TestReplayIncludesNewEventActions:
 
             # E000004: prd.reviewed
             b.apply_event(_make_event(
-                "prd.reviewed", {"reviewer": "alice"},
+                "prd.reviewed", {"project_id": "proj-1", "reviewer": "alice"},
                 event_id="E000004"
             ))
 
             # E000005: prd.approved
             b.apply_event(_make_event(
-                "prd.approved", {"approver": "bob"},
+                "prd.approved", {"project_id": "proj-1", "approver": "bob"},
                 event_id="E000005"
             ))
 
