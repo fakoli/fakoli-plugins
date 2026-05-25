@@ -75,6 +75,12 @@
       "source": "./plugins/gws"
     },
     {
+      "name": "fakoli-state",
+      "version": "0.0.1",
+      "description": "Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.",
+      "source": "./plugins/fakoli-state"
+    },
+    {
       "name": "fakoli-flow",
       "version": "1.0.1",
       "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",

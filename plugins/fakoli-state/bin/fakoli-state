@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# fakoli-state — shell wrapper that bridges bin/src/ Python source to Claude Code
+# skills, hooks, and the shell. Ensures uv is synced (idempotent) then execs the
+# CLI module so signals propagate cleanly to the Python process.
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+cd "$BIN_DIR"
+
+if ! command -v uv > /dev/null 2>&1; then
+    printf 'fakoli-state: uv is required: https://docs.astral.sh/uv/getting-started/installation/\n' >&2
+    exit 127
+fi
+
+# Sync only when uv.lock is missing or pyproject.toml is newer than .venv.
+# This check is file-age based and fully idempotent — no cat/grep involved.
+if [ ! -f uv.lock ] || [ pyproject.toml -nt .venv ]; then
+    uv sync --quiet
+fi
+
+exec uv run --quiet python -m fakoli_state.cli "$@"
