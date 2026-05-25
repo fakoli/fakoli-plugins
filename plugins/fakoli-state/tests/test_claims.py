@@ -572,7 +572,11 @@ class TestRelease:
             b.close()
 
     def test_release_emits_correct_events(self, tmp_path: Path) -> None:
-        """Release emits claim.released and task.status_changed events to JSONL."""
+        """Release emits ONLY claim.released (the side-effect task transition
+        is handled atomically inside _handle_claim_released; emitting a
+        separate task.status_changed would either no-op (audit noise) or
+        worse, reset a needs_review task back to ready. Critic-2 + Critic-3
+        flagged this on PR #41.)"""
         import json
 
         clock = _make_clock()
@@ -587,7 +591,16 @@ class TestRelease:
         lines = [json.loads(line) for line in open(events_path).readlines() if line.strip()]
         actions = [evt["action"] for evt in lines]
         assert "claim.released" in actions
-        assert "task.status_changed" in actions
+        # task.status_changed is NOT emitted by release — the handler
+        # does the task transition atomically. The only task.status_changed
+        # events in the log are from the test setup (ready promotion).
+        post_release_lines = lines[lines.index(next(evt for evt in lines if evt["action"] == "claim.released")):]
+        post_release_actions = [evt["action"] for evt in post_release_lines]
+        assert "task.status_changed" not in post_release_actions, (
+            "release() should NOT emit task.status_changed after the claim.released "
+            "event — the handler already transitions the task atomically. "
+            "Extra event would cause idempotent no-ops or evidence loss."
+        )
 
         released_line = next(evt for evt in lines if evt["action"] == "claim.released")
         assert released_line["payload_json"]["claim_id"] == claim_id

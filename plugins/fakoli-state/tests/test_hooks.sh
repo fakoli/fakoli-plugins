@@ -125,9 +125,10 @@ EVENTS_FILE="${INITIALIZED_DIR}/.fakoli-state/events.jsonl"
 if [ -f "$EVENTS_FILE" ] && grep -q "file_changed\|new_file.py" "$EVENTS_FILE" 2>/dev/null; then
   _pass "record-file-change: events.jsonl contains expected content after append"
 else
-  # The CLI may not be on PATH; the bash fallback requires python3 for escaping.
-  # If neither path ran, the test is inconclusive — treat as pass to avoid false failure.
-  _pass "record-file-change: events.jsonl check skipped (CLI/python3 path not exercised)"
+  # Critic-4 flagged this branch as always-passing (false confidence). Now
+  # asserts properly: if neither CLI nor python3 fallback wrote the audit
+  # entry, the hook's write contract is broken.
+  _fail "record-file-change: events.jsonl was not written or missing expected content"
 fi
 
 # ---------------------------------------------------------------------------
@@ -146,6 +147,96 @@ MALFORMED="NOT VALID JSON"
 STDERR_OUT="$(printf '%s' "$MALFORMED" | bash "$CHECK_CLAIM" 2>&1)"
 EXIT_CODE=$?
 _assert_exit_zero "check-claim: exits 0 with malformed JSON payload" "$EXIT_CODE"
+
+# ---------------------------------------------------------------------------
+# Phase 5 setup: capture-evidence.sh path + per-test state dirs
+# ---------------------------------------------------------------------------
+CAPTURE_EVIDENCE="${REPO_ROOT}/hooks/capture-evidence.sh"
+
+# A fresh initialized dir for capture-evidence tests (separate from above to
+# avoid interference with record-file-change tests).
+CE_DIR="${TMP_DIR}/ce-test"
+mkdir -p "${CE_DIR}/.fakoli-state"
+touch "${CE_DIR}/.fakoli-state/state.db"
+
+# ---------------------------------------------------------------------------
+# Smoke test 11: capture-evidence.sh exits 0 outside any project (.fakoli-state/ absent)
+# ---------------------------------------------------------------------------
+cd "$UNINITIALIZED_DIR" || exit 1
+EXIT_CODE=0
+bash "$CAPTURE_EVIDENCE" < /dev/null 2>/dev/null
+EXIT_CODE=$?
+_assert_exit_zero "capture-evidence: exits 0 outside .fakoli-state/ project" "$EXIT_CODE"
+
+# ---------------------------------------------------------------------------
+# Smoke test 12: capture-evidence.sh exits 0 with stdin tty (no payload)
+# ---------------------------------------------------------------------------
+cd "$CE_DIR" || exit 1
+EXIT_CODE=0
+bash "$CAPTURE_EVIDENCE" < /dev/null 2>/dev/null
+EXIT_CODE=$?
+_assert_exit_zero "capture-evidence: exits 0 with null stdin (no payload)" "$EXIT_CODE"
+
+# ---------------------------------------------------------------------------
+# Smoke test 13: capture-evidence.sh exits 0 for non-verification command
+# (incidental shell calls must not be captured)
+# ---------------------------------------------------------------------------
+cd "$CE_DIR" || exit 1
+PAYLOAD='{"tool_input":{"command":"echo hello"},"tool_response":{"stdout":"hello\n","stderr":"","exit_code":0},"session_id":"sess-ce"}'
+printf '%s' "$PAYLOAD" | bash "$CAPTURE_EVIDENCE" 2>/dev/null
+EXIT_CODE=$?
+_assert_exit_zero "capture-evidence: exits 0 for non-verification command (echo)" "$EXIT_CODE"
+
+# And orphan.json should NOT have been written for this non-verification command.
+CE_ORPHAN="${CE_DIR}/.fakoli-state/.evidence-buffer/orphan.json"
+if [ ! -f "$CE_ORPHAN" ]; then
+  _pass "capture-evidence: orphan.json NOT written for non-verification command"
+else
+  # File may have been written by a previous sub-test accidentally; check content.
+  if grep -q "echo hello" "$CE_ORPHAN" 2>/dev/null; then
+    _fail "capture-evidence: orphan.json written for non-verification command 'echo hello'"
+  else
+    _pass "capture-evidence: orphan.json did not capture non-verification command"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Smoke test 14: capture-evidence.sh exits 0 for a verification command (pytest)
+# and writes to orphan.json when no active claim
+# ---------------------------------------------------------------------------
+CE2_DIR="${TMP_DIR}/ce-test2"
+mkdir -p "${CE2_DIR}/.fakoli-state"
+touch "${CE2_DIR}/.fakoli-state/state.db"
+
+cd "$CE2_DIR" || exit 1
+PAYLOAD='{"tool_input":{"command":"pytest tests/ -v"},"tool_response":{"stdout":"5 passed","stderr":"","exit_code":0},"session_id":"sess-ce2"}'
+printf '%s' "$PAYLOAD" | bash "$CAPTURE_EVIDENCE" 2>/dev/null
+EXIT_CODE=$?
+_assert_exit_zero "capture-evidence: exits 0 for verification command (pytest)" "$EXIT_CODE"
+
+CE2_ORPHAN="${CE2_DIR}/.fakoli-state/.evidence-buffer/orphan.json"
+if [ -f "$CE2_ORPHAN" ] && grep -q "pytest" "$CE2_ORPHAN" 2>/dev/null; then
+  _pass "capture-evidence: orphan.json written with pytest command captured"
+else
+  # Critic-4 flagged this as always-passing. The orphan write IS the
+  # contract when no active claim exists; if it didn't fire, the hook
+  # is broken.
+  _fail "capture-evidence: orphan.json missing or did not capture pytest command"
+fi
+
+# ---------------------------------------------------------------------------
+# Smoke test 15: capture-evidence.sh exits 0 for exit_code=1 verification command
+# (hook must never block even when the test run itself failed)
+# ---------------------------------------------------------------------------
+CE3_DIR="${TMP_DIR}/ce-test3"
+mkdir -p "${CE3_DIR}/.fakoli-state"
+touch "${CE3_DIR}/.fakoli-state/state.db"
+
+cd "$CE3_DIR" || exit 1
+PAYLOAD='{"tool_input":{"command":"pytest tests/ -v"},"tool_response":{"stdout":"1 failed","stderr":"FAILED test_foo.py","exit_code":1},"session_id":"sess-ce3"}'
+printf '%s' "$PAYLOAD" | bash "$CAPTURE_EVIDENCE" 2>/dev/null
+EXIT_CODE=$?
+_assert_exit_zero "capture-evidence: exits 0 even when captured command exit_code=1" "$EXIT_CODE"
 
 # ---------------------------------------------------------------------------
 # Summary

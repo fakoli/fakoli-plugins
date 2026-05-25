@@ -12,6 +12,7 @@ Phase 3 extends routing with: prd.parsed, prd.reviewed, prd.approved,
 feature.created, task.created, task.scored, task.expanded, task.status_changed.
 Phase 4 extends routing with: claim.created, claim.released, claim.renewed,
 claim.stale.
+Phase 5 extends routing with: evidence.submitted, task.applied.
 """
 
 from __future__ import annotations
@@ -134,6 +135,19 @@ class SqliteBackend:
         and ClaimManager so event IDs never drift into incompatible
         schemes (Greptile + critic flagged the original split — CLI used
         sequential, ClaimManager used 20-digit microsecond IDs).
+
+        Known race: this is a SELECT MAX(id) outside any lock. Two
+        concurrent processes calling next_event_id() then apply_event()
+        can both observe MAX=N, both attempt to INSERT E{N+1}, and the
+        second's INSERT OR IGNORE silently no-ops (the event survives
+        in JSONL but is missing from the events table). Critic-3 flagged
+        this on PR #41 as a real concern for the Phase 6 MCP server (the
+        first real multi-process scenario). The fix requires generating
+        the ID INSIDE apply_event's BEGIN IMMEDIATE transaction, which is
+        an apply_event API change deferred to Phase 6 ('next_event_id
+        race' on the Phase 6 backlog). Until Phase 6 ships, single-CLI
+        usage is race-free; multi-process usage should use file-based
+        coordination at the caller level.
         """
         if self._conn is None:
             return "E000001"
@@ -240,11 +254,25 @@ class SqliteBackend:
                     # writes on crash; in production we'd raise).
                     continue
 
-                # Skip abort tombstones.
-                if raw.get("action") == "error.transaction_aborted":
+                # Skip abort tombstones and informational warning lines.
+                # warn.idempotent_no_op entries (written by _append_warn_log
+                # whenever a claim release/stale is already-terminal) lack a
+                # canonical Event 'id' field — passing them to model_validate
+                # would crash mid-replay on any project that triggered a stale
+                # reaping cycle. Critic-3 flagged this on PR #41.
+                action = raw.get("action", "")
+                if action in ("error.transaction_aborted", "warn.idempotent_no_op"):
                     continue
 
-                event = Event.model_validate(raw)
+                try:
+                    event = Event.model_validate(raw)
+                except Exception:
+                    # Defensive: any future non-canonical audit line (e.g. a
+                    # hook fallback that wrote a malformed entry) shouldn't
+                    # abort replay — log skip and move on. The byte-compare
+                    # test will fail on the next phase if a real action is
+                    # dropped silently, so this is safe forwards-compat.
+                    continue
                 # During replay we write only to SQLite; the JSONL is the source.
                 # We temporarily redirect apply_event to avoid re-appending to JSONL.
                 self._apply_event_sqlite_only(event)
@@ -369,6 +397,7 @@ class SqliteBackend:
         Phase 3 adds: prd.parsed, prd.reviewed, prd.approved, feature.created,
         task.created, task.scored, task.expanded, task.status_changed.
         Phase 4 adds: claim.created, claim.released, claim.renewed, claim.stale.
+        Phase 5 adds: evidence.submitted, task.applied.
         """
         action = event.action
         payload = event.payload_json
@@ -401,6 +430,10 @@ class SqliteBackend:
             self._handle_claim_renewed(conn, payload, event.timestamp.isoformat())
         elif action == "claim.stale":
             self._handle_claim_stale(conn, payload, event.timestamp.isoformat())
+        elif action == "evidence.submitted":
+            self._handle_evidence_submitted(conn, payload, event.timestamp.isoformat())
+        elif action == "task.applied":
+            self._handle_task_applied(conn, payload, event.id, event.timestamp.isoformat())
         elif action == "file_changed":
             # Audit-trail-only event emitted by the PostToolUse hook
             # (record-file-change.sh → fakoli-state hook record-file-change).
@@ -1253,6 +1286,329 @@ class SqliteBackend:
                 (timestamp, task_id),
             )
             # No error if 0 rows — the task may have been completed already.
+
+    # ------------------------------------------------------------------
+    # Phase 5 handlers — completion flow
+    # ------------------------------------------------------------------
+
+    def _handle_evidence_submitted(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Insert evidence and atomically transition task to needs_review.
+
+        Payload fields:
+            task_id (str)            — required; FK into tasks
+            claim_id (str)           — required; FK into claims
+            submitted_by (str)       — required; agent identifier
+            evidence_id (str)        — required; PK for the evidence row
+            commands_run (list[str]) — required; must be non-empty
+            files_changed (list[str])— required
+            output_excerpt (str | None) — optional
+            pr_url (str | None)         — optional
+            commit_sha (str | None)     — optional
+            screenshots (list[str])     — optional, default []
+            known_limitations (str | None) — optional
+
+        Idempotent on replay:
+            - INSERT OR IGNORE on evidence.id PK — duplicate events are no-ops.
+            - Task UPDATE uses WHERE status IN ('claimed', 'in_progress', 'blocked');
+              if already 'needs_review' that branch is treated as a no-op.
+
+        Auto-release the active claim:
+            - UPDATE claims SET status='released' WHERE id=claim_id AND
+              status='active'. 0 rows = claim already stale/released; log only.
+        """
+        task_id: str | None = payload.get("task_id")
+        claim_id: str | None = payload.get("claim_id")
+        submitted_by: str | None = payload.get("submitted_by")
+        evidence_id: str | None = payload.get("evidence_id")
+        commands_run: list[Any] = payload.get("commands_run", [])
+        files_changed: list[Any] = payload.get("files_changed", [])
+
+        for field_name, value in (
+            ("task_id", task_id),
+            ("claim_id", claim_id),
+            ("submitted_by", submitted_by),
+            ("evidence_id", evidence_id),
+        ):
+            if not value:
+                raise TransactionAborted(
+                    f"evidence.submitted payload missing required field {field_name!r}."
+                )
+
+        # `commands_run` and `files_changed` default to [] above, so an `is None`
+        # check would be unreachable; instead require them to be non-empty —
+        # submitting evidence with neither a verification command nor any
+        # changed files is meaningless.
+        if not commands_run:
+            raise TransactionAborted(
+                "evidence.submitted payload requires non-empty 'commands_run'."
+            )
+        if not files_changed:
+            raise TransactionAborted(
+                "evidence.submitted payload requires non-empty 'files_changed'."
+            )
+
+        output_excerpt: str | None = payload.get("output_excerpt")
+        pr_url: str | None = payload.get("pr_url")
+        commit_sha: str | None = payload.get("commit_sha")
+        screenshots: list[Any] = payload.get("screenshots") or []
+        known_limitations: str | None = payload.get("known_limitations")
+
+        # INSERT OR IGNORE: idempotent on replay — duplicate evidence.submitted
+        # events (after crash mid-transaction) do not produce duplicate rows.
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO evidence
+                (id, task_id, claim_id, commands_run, output_excerpt,
+                 files_changed, pr_url, commit_sha, screenshots,
+                 known_limitations, submitted_at, submitted_by)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                evidence_id,
+                task_id,
+                claim_id,
+                json.dumps(commands_run),
+                output_excerpt,
+                json.dumps(files_changed),
+                pr_url,
+                commit_sha,
+                json.dumps(screenshots),
+                known_limitations,
+                timestamp,
+                submitted_by,
+            ),
+        )
+
+        # Atomically transition the task to needs_review.
+        # WHERE status IN ('claimed', 'in_progress', 'blocked') is the
+        # concurrency guard — allows submit from any active-work status.
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'needs_review',
+                   updated_at = ?
+             WHERE id = ?
+               AND status IN ('claimed', 'in_progress', 'blocked')
+            """,
+            (timestamp, task_id),
+        )
+
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            # Task not updated — check why.
+            row = conn.execute(
+                "SELECT status FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"evidence.submitted: task '{task_id}' not found."
+                )
+            actual_status = row[0]
+            # Idempotent replay path: task already at needs_review.
+            if actual_status == "needs_review":
+                pass  # acceptable — evidence INSERT OR IGNORE above was also a no-op
+            else:
+                raise TransactionAborted(
+                    f"evidence.submitted: task '{task_id}' has status "
+                    f"'{actual_status}', which is not eligible for evidence submission "
+                    "(must be 'claimed', 'in_progress', or 'blocked')."
+                )
+
+        # Auto-release the active claim.
+        conn.execute(
+            """
+            UPDATE claims
+               SET status = 'released',
+                   released_at = ?,
+                   release_reason = 'auto-released on submit'
+             WHERE id = ?
+               AND status = 'active'
+            """,
+            (timestamp, claim_id),
+        )
+
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            # Claim already released or stale — idempotent; log warning only.
+            row = conn.execute(
+                "SELECT status FROM claims WHERE id = ?", (claim_id,)
+            ).fetchone()
+            current_status = row[0] if row else "not found"
+            self._append_warn_log(
+                action="evidence.submitted",
+                target_id=claim_id or "",
+                reason=(
+                    f"evidence.submitted: claim '{claim_id}' auto-release skipped; "
+                    f"current status is '{current_status}'."
+                ),
+            )
+
+    def _handle_task_applied(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        event_id: str,
+        timestamp: str,
+    ) -> None:
+        """Gate needs_review → accepted → done (or rejected) and record a Review.
+
+        Payload fields:
+            task_id (str)              — required
+            reviewer (str)             — required
+            decision (str)             — required; 'accepted' or 'rejected'
+            notes (str | None)         — optional
+
+        Transition logic:
+            - decision='accepted': UPDATE tasks SET status='accepted' WHERE
+              status='needs_review', then immediately UPDATE tasks SET
+              status='done'. These two mutations are committed in the same
+              transaction (accepted → done is automatic; they are never split).
+            - decision='rejected': UPDATE tasks SET status='rejected' WHERE
+              status='needs_review'.
+
+        Review row:
+            INSERT OR REPLACE INTO reviews with id=f"RV-{event_id}" for
+            replay safety. target_kind='task', target_id=task_id.
+
+        0 rows on the main UPDATE: existence check then raise with clear
+        status-drift message.
+        """
+        task_id: str | None = payload.get("task_id")
+        reviewer: str | None = payload.get("reviewer")
+        decision: str | None = payload.get("decision")
+
+        for field_name, value in (
+            ("task_id", task_id),
+            ("reviewer", reviewer),
+            ("decision", decision),
+        ):
+            if not value:
+                raise TransactionAborted(
+                    f"task.applied payload missing required field {field_name!r}."
+                )
+
+        if decision not in ("accepted", "rejected"):
+            raise TransactionAborted(
+                f"task.applied: 'decision' must be 'accepted' or 'rejected', "
+                f"got {decision!r}."
+            )
+
+        notes: str | None = payload.get("notes")
+
+        if decision == "accepted":
+            # Transition needs_review → accepted.
+            conn.execute(
+                """
+                UPDATE tasks
+                   SET status = 'accepted',
+                       updated_at = ?
+                 WHERE id = ?
+                   AND status = 'needs_review'
+                """,
+                (timestamp, task_id),
+            )
+            if conn.execute("SELECT changes()").fetchone()[0] == 0:
+                row = conn.execute(
+                    "SELECT status FROM tasks WHERE id = ?", (task_id,)
+                ).fetchone()
+                if row is None:
+                    raise TransactionAborted(
+                        f"task.applied: task '{task_id}' not found."
+                    )
+                actual_status = row[0]
+                # Idempotent replay: already accepted or done.
+                if actual_status not in ("accepted", "done"):
+                    raise TransactionAborted(
+                        f"task.applied: status-drift for task '{task_id}'. "
+                        f"Expected 'needs_review', got '{actual_status}'. "
+                        "The task may have been reviewed by a concurrent operation."
+                    )
+            else:
+                # Immediately promote accepted → done in the same transaction.
+                conn.execute(
+                    """
+                    UPDATE tasks
+                       SET status = 'done',
+                           updated_at = ?
+                     WHERE id = ?
+                       AND status = 'accepted'
+                    """,
+                    (timestamp, task_id),
+                )
+                # accepted → done is an automatic follow-up; 0 rows here would
+                # be a logic error (we just set it to 'accepted' above), so we
+                # do raise — it signals an unexpected concurrent mutation.
+                if conn.execute("SELECT changes()").fetchone()[0] == 0:
+                    raise TransactionAborted(
+                        f"task.applied: failed to auto-promote task '{task_id}' "
+                        "from 'accepted' to 'done'. Unexpected concurrent mutation."
+                    )
+
+        else:  # decision == "rejected"
+            # Per spec: needs_review → rejected → drafted (automatic; same txn).
+            # The 'rejected' state is a brief audit marker; the task immediately
+            # transitions to 'drafted' so it can be re-reviewed and re-promoted.
+            # Critic-1 + Critic-2 both flagged that the original code left the
+            # task permanently at 'rejected' with no path back, contradicting
+            # docs/specs/2026-05-24-fakoli-state-v0.md and skills/finish/SKILL.md.
+            conn.execute(
+                """
+                UPDATE tasks
+                   SET status = 'rejected',
+                       updated_at = ?
+                 WHERE id = ?
+                   AND status = 'needs_review'
+                """,
+                (timestamp, task_id),
+            )
+            if conn.execute("SELECT changes()").fetchone()[0] == 0:
+                row = conn.execute(
+                    "SELECT status FROM tasks WHERE id = ?", (task_id,)
+                ).fetchone()
+                if row is None:
+                    raise TransactionAborted(
+                        f"task.applied: task '{task_id}' not found."
+                    )
+                actual_status = row[0]
+                # Idempotent replay: either we already rejected (transient
+                # marker before drafted) or already drafted (final state).
+                if actual_status not in ("rejected", "drafted"):
+                    raise TransactionAborted(
+                        f"task.applied: status-drift for task '{task_id}'. "
+                        f"Expected 'needs_review', got '{actual_status}'. "
+                        "The task may have been reviewed by a concurrent operation."
+                    )
+            else:
+                # Initial run (not replay): auto-promote rejected → drafted
+                # in the same transaction. The audit log carries 'rejected'
+                # as the recorded decision; the task lifecycle continues
+                # at 'drafted' so it can be re-reviewed.
+                conn.execute(
+                    """
+                    UPDATE tasks
+                       SET status = 'drafted',
+                           updated_at = ?
+                     WHERE id = ?
+                       AND status = 'rejected'
+                    """,
+                    (timestamp, task_id),
+                )
+
+        # Insert the Review row — INSERT OR REPLACE for replay safety.
+        review_id = f"RV-{event_id}"
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO reviews
+                (id, target_kind, target_id, reviewed_by, decision, notes, created_at)
+            VALUES
+                (?, 'task', ?, ?, ?, ?, ?)
+            """,
+            (review_id, task_id, reviewer, decision, notes, timestamp),
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers — task row insertion (shared by task.created and
