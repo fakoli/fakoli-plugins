@@ -1,23 +1,14 @@
 ---
 name: crew-ops
-description: This skill should be used when coordinating multiple fakoli-crew agents on a single project — assembling crews, planning waves, assigning file ownership, or routing work across guido, critic, scout, smith, welder, herald, keeper, and sentinel. Provides wave patterns, file-ownership rules, status-file protocol, and language-style references shared across the crew.
+description: "This skill should be used when coordinating multiple fakoli-crew agents on a single project — assembling crews, planning waves, assigning file ownership, or routing work across guido, critic, scout, smith, welder, herald, keeper, and sentinel. Provides wave patterns, file-ownership rules, status-file protocol, and language-style references shared across the crew. Trigger phrases: \"assemble a crew\", \"who owns this file\", \"plan the waves\", \"run the crew on X\", \"coordinate agents to Y\", \"which agent should handle\", \"multi-agent orchestration\"."
 ---
 # Crew Operations
 
-Use this skill to orchestrate multi-agent work. Assign one owner per file, route work through the wave pattern below, and have each agent write status to `docs/plans/agent-<name>-status.md` so others can pick up coordinated work without conflict.
+To orchestrate multi-agent work, assign one owner per file, route work through the wave pattern below, and have each agent write status to `docs/plans/agent-<name>-status.md` so others can pick up coordinated work without conflict.
 
 ## Available Agents
 
-| Agent | Role | Best For |
-|-------|------|----------|
-| guido | TypeScript architect | Interface design, type system patterns, project structure |
-| critic | Code reviewer | Quality audits, finding bugs, import analysis |
-| scout | Researcher | API docs, codebase exploration, technical references |
-| smith | Plugin engineer | Manifests, hooks, commands, plugin structure |
-| welder | Integration engineer | Refactoring, wiring new code into existing systems |
-| herald | Documentation writer | READMEs, descriptions, branding, user-facing copy |
-| keeper | Infrastructure engineer | CI/CD, CLAUDE.md, contributor docs, registry |
-| sentinel | QA engineer | Testing, validation, verification scorecards |
+See `skills/crew-ops/references/agent-roster.md` for the full 8-agent roster with roles, colors, and file paths.
 
 ## Pre-Built Crews
 
@@ -26,12 +17,13 @@ Use this skill to orchestrate multi-agent work. Assign one owner per file, route
 - **Research & build**: scout + guido + welder (critic as gate)
 - **Full overhaul**: all 8 in waves
 
-## Skills
+## Companion Command
 
-| Skill | Purpose |
-|-------|---------|
-| `/crew` | List agents and crew compositions |
-| Debugging | Systematic 4-phase root cause analysis (see `skills/debugging/SKILL.md`) |
+`/crew` — list all 8 agents and suggest crew compositions for a given task.
+
+## Related Skill
+
+`debugging` — systematic 4-phase root cause analysis (see `skills/debugging/SKILL.md`).
 
 ## Wave Pattern
 

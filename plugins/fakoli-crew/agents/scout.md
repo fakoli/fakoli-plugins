@@ -8,23 +8,38 @@ description: >
   Context: You're adding ElevenLabs TTS support to the plugin.
   user: "Research the ElevenLabs API for text-to-speech."
   assistant: "I'll use the scout agent to gather full documentation for the ElevenLabs TTS API."
+  <commentary>
+  Pre-integration research for a new provider is scout's primary use case. Dispatching
+  scout before writing any code ensures the implementation is based on verified API facts
+  — endpoints, auth format, and schema — not guesswork.
+  </commentary>
   </example>
 
   <example>
   Context: You need to understand what endpoints a service exposes.
   user: "What endpoints does the OpenAI audio API have?"
   assistant: "I'll use the scout agent to document the OpenAI audio API endpoints and their schemas."
+  <commentary>
+  Questions about what a service exposes signal that structured reference output is needed,
+  not a conversational answer. Scout fetches the official docs, captures exact method
+  signatures and schemas, and writes a file that remains useful long after the session ends.
+  </commentary>
   </example>
 
   <example>
   Context: You want structured docs before writing an integration.
   user: "Document the Google Cloud TTS service before we build the provider."
   assistant: "I'll use the scout agent to research and write a reference file for the Google Cloud TTS API."
+  <commentary>
+  Explicitly requesting structured docs before building is a clear scout trigger. Scout
+  writes the reference file to a versioned location so every downstream agent can consume
+  it — no one re-fetches the same docs independently.
+  </commentary>
   </example>
 
-model: sonnet
+model: inherit
 color: cyan
-allowed-tools:
+tools:
   - Read
   - Write
   - WebFetch
