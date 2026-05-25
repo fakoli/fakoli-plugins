@@ -964,3 +964,950 @@ class TestJSONLWriteFailure:
             # Restore write permission so cleanup works
             os.chmod(events_path, stat.S_IREAD | stat.S_IWRITE)
             b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 event handlers — helper factories
+# ---------------------------------------------------------------------------
+
+
+def _make_feature_payload(
+    *,
+    feat_id: str = "F001",
+    title: str = "Test Feature",
+    description: str = "A test feature.",
+    status: str = "proposed",
+    requirements: list[str] | None = None,
+    tasks: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": feat_id,
+        "title": title,
+        "description": description,
+        "status": status,
+        "requirements": requirements or [],
+        "tasks": tasks or [],
+    }
+
+
+def _make_task_payload(
+    *,
+    task_id: str = "T001",
+    feature_id: str = "F001",
+    title: str = "Test Task",
+    description: str = "A test task.",
+    status: str = "proposed",
+    priority: str = "medium",
+    acceptance_criteria: list[str] | None = None,
+    verification_commands: list[str] | None = None,
+    likely_files: list[str] | None = None,
+    now: datetime = _T0,
+) -> dict[str, Any]:
+    return {
+        "id": task_id,
+        "feature_id": feature_id,
+        "title": title,
+        "description": description,
+        "status": status,
+        "priority": priority,
+        "dependencies": [],
+        "conflict_groups": [],
+        "scores": {},
+        "acceptance_criteria": acceptance_criteria or ["Tests pass."],
+        "implementation_notes": [],
+        "verification": {
+            "commands": verification_commands or ["pytest tests/ -v"],
+            "manual_steps": [],
+            "required_evidence": [],
+        },
+        "likely_files": likely_files or [],
+        "parent_task_id": None,
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+    }
+
+
+class TestErrorPaths:
+    """Cover the error-handling branches of SqliteBackend.
+
+    These are the audit-critical safety nets: rollback on mutation failure,
+    abort-event tombstones, and graceful skip during replay. They're
+    infrastructure code paths that rarely fire in healthy operation but must
+    behave correctly when they do — otherwise the replay/audit guarantee
+    silently degrades.
+    """
+
+    def test_apply_event_unknown_action_triggers_abort_tombstone(
+        self, tmp_path: Path
+    ) -> None:
+        """An event with an action the router doesn't recognise must roll
+        back the SQLite mutation, write an error.transaction_aborted entry
+        to events.jsonl, and raise TransactionAborted. Without the tombstone
+        replay would silently re-fire the bad event."""
+        b = _make_backend(tmp_path)
+        try:
+            bad_event = Event(
+                id="E000099",
+                timestamp=_T0,
+                actor="test",
+                action="task.never_implemented",  # router doesn't know this
+                target_kind="task",
+                target_id="T001",
+                payload_json={"task_id": "T001"},
+            )
+            with pytest.raises(TransactionAborted):
+                b.apply_event(bad_event)
+
+            # JSONL must contain the original event AND the abort tombstone.
+            events_path = str(tmp_path / "events.jsonl")
+            events = _read_jsonl(events_path)
+            actions = [e.get("action") for e in events]
+            assert "task.never_implemented" in actions, (
+                "the original (failed) event should be written to JSONL first"
+            )
+            assert "error.transaction_aborted" in actions, (
+                "an abort tombstone must follow the failed event"
+            )
+            # SQLite must NOT contain the task row.
+            assert b.get_task("T001") is None
+        finally:
+            b.close()
+
+    def test_close_is_idempotent_after_failure(self, tmp_path: Path) -> None:
+        """close() must swallow exceptions from the underlying connection so
+        double-close (and close-after-error) never leaks an exception to
+        callers. Covers the close() exception-swallow path."""
+        b = _make_backend(tmp_path)
+        b.close()
+        # Second close must not raise; the connection is already None.
+        b.close()
+        # Re-close again on a freshly-failed connection by forcing one.
+        b._conn = sqlite3.connect(":memory:")  # noqa: SLF001
+        b._conn.close()
+        b.close()  # _conn is already-closed; close path must not raise
+
+    def test_task_status_changed_missing_required_field_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """task.status_changed without the required 'from' field must abort
+        with a clear message — not silently update. Covers the payload
+        validation branch in _handle_task_status_changed."""
+        b = _make_backend(tmp_path)
+        try:
+            bad = Event(
+                id="E000051",
+                timestamp=_T0,
+                actor="test",
+                action="task.status_changed",
+                target_kind="task",
+                target_id="T001",
+                payload_json={"task_id": "T001", "to": "drafted"},  # no "from"
+            )
+            with pytest.raises(TransactionAborted, match="from"):
+                b.apply_event(bad)
+        finally:
+            b.close()
+
+    def test_task_status_changed_unknown_task_aborts(
+        self, tmp_path: Path
+    ) -> None:
+        """task.status_changed for a nonexistent task must abort cleanly
+        with 'task not found' — not silently UPDATE zero rows."""
+        b = _make_backend(tmp_path)
+        try:
+            bad = Event(
+                id="E000052",
+                timestamp=_T0,
+                actor="test",
+                action="task.status_changed",
+                target_kind="task",
+                target_id="T999",
+                payload_json={
+                    "task_id": "T999",
+                    "from": "proposed",
+                    "to": "drafted",
+                },
+            )
+            with pytest.raises(TransactionAborted, match="not found|T999"):
+                b.apply_event(bad)
+        finally:
+            b.close()
+
+    def test_replay_skips_unsupported_action_gracefully(
+        self, tmp_path: Path
+    ) -> None:
+        """During replay an unknown action should be skipped (rolled back,
+        not raised). This lets older log files replay forward on a newer
+        codebase that may have removed a no-longer-supported action."""
+        b = _make_backend(tmp_path)
+        try:
+            # Hand-write an events.jsonl with one good event + one unknown.
+            events_path = str(tmp_path / "events.jsonl")
+            with open(events_path, "w", encoding="utf-8") as fh:
+                fh.write(_make_project_event().model_dump_json() + "\n")
+                fh.write(
+                    Event(
+                        id="E000099",
+                        timestamp=_T0,
+                        actor="test",
+                        action="some.future.action",
+                        target_kind="task",
+                        target_id="T001",
+                        payload_json={},
+                    ).model_dump_json()
+                    + "\n"
+                )
+
+            # replay_from_empty should not raise; just skip the unknown action.
+            b.replay_from_empty(events_path)
+
+            # Project row from the first event must be present.
+            project = b.get_project()
+            assert project is not None
+            assert project.id == "proj-1"
+        finally:
+            b.close()
+
+
+def _make_prd_parsed_payload(
+    *,
+    project_id: str = "proj-1",
+    summary: str = "A test PRD summary.",
+    requirements: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if requirements is None:
+        requirements = [
+            {
+                "id": "R001",
+                "prd_section": "requirements",
+                "text": "First requirement.",
+                "source_paragraph": None,
+                "derived": False,
+            },
+            {
+                "id": "R002",
+                "prd_section": "requirements",
+                "text": "Second requirement.",
+                "source_paragraph": None,
+                "derived": False,
+            },
+        ]
+    return {
+        "project_id": project_id,
+        "status": "draft",
+        "summary": summary,
+        "goals": ["Goal one.", "Goal two."],
+        "non_goals": [],
+        "requirements": requirements,
+        "acceptance_criteria": ["AC one."],
+        "risks": [],
+        "open_questions": [],
+    }
+
+
+def _make_event(
+    action: str,
+    payload: dict[str, Any],
+    *,
+    event_id: str = "E000003",
+    target_kind: str = "prd",
+    target_id: str = "proj-1",
+    now: datetime = _T0,
+) -> Event:
+    return Event(
+        id=event_id,
+        timestamp=now,
+        actor="test",
+        action=action,
+        target_kind=target_kind,
+        target_id=target_id,
+        payload_json=payload,
+    )
+
+
+def _setup_project(b: SqliteBackend) -> None:
+    """Apply project.created so FK constraints are satisfied."""
+    b.apply_event(_make_project_event(event_id="E000001"))
+    b.apply_event(_make_init_event(event_id="E000002"))
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — prd.parsed handler
+# ---------------------------------------------------------------------------
+
+
+class TestHandlePrdParsed:
+    def test_handle_prd_parsed_writes_jsonl_and_sqlite(self, tmp_path: Path) -> None:
+        """prd.parsed event writes JSONL line AND PRD + requirements rows to SQLite."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+
+            payload = _make_prd_parsed_payload()
+            event = _make_event("prd.parsed", payload, event_id="E000003")
+            b.apply_event(event)
+
+            # JSONL line present
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "prd.parsed" for e in events)
+
+            # PRD row in SQLite
+            prd = b.get_prd()
+            assert prd is not None
+            assert "test PRD summary" in prd.summary.lower() or "summary" in prd.summary.lower()
+
+            # Requirements rows
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            rows = conn.execute("SELECT id FROM requirements").fetchall()
+            conn.close()
+            req_ids = {r[0] for r in rows}
+            assert "R001" in req_ids
+            assert "R002" in req_ids
+        finally:
+            b.close()
+
+    def test_handle_prd_parsed_payload_validation_missing_project_id(
+        self, tmp_path: Path
+    ) -> None:
+        """prd.parsed without project_id → TransactionAborted, error in JSONL, no PRD row."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+
+            bad_payload = _make_prd_parsed_payload()
+            del bad_payload["project_id"]  # remove required field
+            event = _make_event("prd.parsed", bad_payload, event_id="E000003")
+
+            with pytest.raises(TransactionAborted):
+                b.apply_event(event)
+
+            # Abort tombstone in JSONL
+            events = _read_jsonl(events_path)
+            aborts = [e for e in events if e.get("action") == "error.transaction_aborted"]
+            assert len(aborts) >= 1
+
+            # No PRD row written
+            prd = b.get_prd()
+            assert prd is None
+        finally:
+            b.close()
+
+    def test_prd_parsed_replaces_requirements_destructively(self, tmp_path: Path) -> None:
+        """Apply prd.parsed twice with different requirements; final state matches second parse."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+
+            # First parse: R001, R002, R003
+            payload_v1 = _make_prd_parsed_payload(
+                requirements=[
+                    {"id": "R001", "prd_section": "requirements", "text": "V1 req 1.",
+                     "source_paragraph": None, "derived": False},
+                    {"id": "R002", "prd_section": "requirements", "text": "V1 req 2.",
+                     "source_paragraph": None, "derived": False},
+                    {"id": "R003", "prd_section": "requirements", "text": "V1 req 3.",
+                     "source_paragraph": None, "derived": False},
+                ]
+            )
+            b.apply_event(_make_event("prd.parsed", payload_v1, event_id="E000003"))
+
+            # Second parse: only R001, R002 (different text)
+            payload_v2 = _make_prd_parsed_payload(
+                summary="Second version summary.",
+                requirements=[
+                    {"id": "R001", "prd_section": "requirements", "text": "V2 req 1.",
+                     "source_paragraph": None, "derived": False},
+                    {"id": "R002", "prd_section": "requirements", "text": "V2 req 2.",
+                     "source_paragraph": None, "derived": False},
+                ]
+            )
+            b.apply_event(_make_event("prd.parsed", payload_v2, event_id="E000004"))
+
+            # Final state: only 2 requirements, R003 gone
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            rows = conn.execute("SELECT id, text FROM requirements").fetchall()
+            conn.close()
+
+            assert len(rows) == 2
+            req_ids = {r[0] for r in rows}
+            assert "R003" not in req_ids
+            # Text is from v2
+            texts = {r[1] for r in rows}
+            assert any("V2" in t for t in texts)
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — prd.reviewed handler
+# ---------------------------------------------------------------------------
+
+
+class TestHandlePrdReviewed:
+    def test_handle_prd_reviewed_writes_jsonl_and_sqlite(self, tmp_path: Path) -> None:
+        """prd.reviewed event updates PRD status and inserts reviews row."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            # First parse the PRD
+            b.apply_event(_make_event(
+                "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
+            ))
+
+            # Now review it
+            reviewed_event = _make_event(
+                "prd.reviewed",
+                {"reviewer": "alice", "notes": "Looks good."},
+                event_id="E000004",
+                target_kind="prd",
+            )
+            b.apply_event(reviewed_event)
+
+            # JSONL line
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "prd.reviewed" for e in events)
+
+            # PRD status updated
+            prd = b.get_prd()
+            assert prd is not None
+            assert prd.status.value == "reviewed"
+            assert prd.last_reviewed_by == "alice"
+
+            # Review row inserted
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            review_row = conn.execute(
+                "SELECT id, reviewed_by FROM reviews WHERE reviewed_by = 'alice'"
+            ).fetchone()
+            conn.close()
+            assert review_row is not None
+        finally:
+            b.close()
+
+    def test_handle_prd_reviewed_payload_validation_missing_reviewer(
+        self, tmp_path: Path
+    ) -> None:
+        """prd.reviewed without reviewer → TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
+            ))
+
+            bad_event = _make_event(
+                "prd.reviewed",
+                {"notes": "No reviewer field"},  # missing reviewer
+                event_id="E000004",
+            )
+            with pytest.raises(TransactionAborted):
+                b.apply_event(bad_event)
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — prd.approved handler
+# ---------------------------------------------------------------------------
+
+
+class TestHandlePrdApproved:
+    def test_handle_prd_approved_writes_jsonl_and_sqlite(self, tmp_path: Path) -> None:
+        """prd.approved updates status to 'approved' and inserts review row."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
+            ))
+            b.apply_event(_make_event(
+                "prd.reviewed", {"reviewer": "alice"}, event_id="E000004"
+            ))
+            b.apply_event(_make_event(
+                "prd.approved", {"approver": "bob"}, event_id="E000005"
+            ))
+
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "prd.approved" for e in events)
+
+            prd = b.get_prd()
+            assert prd is not None
+            assert prd.status.value == "approved"
+        finally:
+            b.close()
+
+    def test_handle_prd_approved_payload_validation_missing_approver(
+        self, tmp_path: Path
+    ) -> None:
+        """prd.approved without approver → TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
+            ))
+            b.apply_event(_make_event(
+                "prd.reviewed", {"reviewer": "alice"}, event_id="E000004"
+            ))
+            bad_event = _make_event("prd.approved", {}, event_id="E000005")
+            with pytest.raises(TransactionAborted):
+                b.apply_event(bad_event)
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — feature.created handler
+# ---------------------------------------------------------------------------
+
+
+class TestHandleFeatureCreated:
+    def test_handle_feature_created_writes_jsonl_and_sqlite(self, tmp_path: Path) -> None:
+        """feature.created event inserts feature row and writes JSONL."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+
+            feat_payload = _make_feature_payload(feat_id="F001")
+            event = _make_event(
+                "feature.created", feat_payload,
+                event_id="E000003", target_kind="feature", target_id="F001"
+            )
+            b.apply_event(event)
+
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "feature.created" for e in events)
+
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            row = conn.execute(
+                "SELECT id, title FROM features WHERE id = 'F001'"
+            ).fetchone()
+            conn.close()
+            assert row is not None
+            assert row[1] == "Test Feature"
+        finally:
+            b.close()
+
+    def test_handle_feature_created_payload_validation(self, tmp_path: Path) -> None:
+        """feature.created with invalid payload (bad status) → TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+
+            bad_payload = _make_feature_payload()
+            bad_payload["status"] = "invalid_status_not_in_enum"
+            event = _make_event("feature.created", bad_payload, event_id="E000003")
+            with pytest.raises(TransactionAborted):
+                b.apply_event(event)
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — task.created handler
+# ---------------------------------------------------------------------------
+
+
+class TestHandleTaskCreated:
+    def _setup_feature(self, b: SqliteBackend) -> None:
+        """Insert F001 so FK constraint is satisfied."""
+        feat_payload = _make_feature_payload(feat_id="F001")
+        event = _make_event(
+            "feature.created", feat_payload,
+            event_id="E000003", target_kind="feature", target_id="F001"
+        )
+        b.apply_event(event)
+
+    def test_handle_task_created_writes_jsonl_and_sqlite(self, tmp_path: Path) -> None:
+        """task.created event inserts task row and writes JSONL."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            self._setup_feature(b)
+
+            task_payload = _make_task_payload(task_id="T001")
+            event = _make_event(
+                "task.created", task_payload,
+                event_id="E000004", target_kind="task", target_id="T001"
+            )
+            b.apply_event(event)
+
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "task.created" for e in events)
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.id == "T001"
+            assert task.title == "Test Task"
+        finally:
+            b.close()
+
+    def test_handle_task_created_payload_validation(self, tmp_path: Path) -> None:
+        """task.created with missing required fields → TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            self._setup_feature(b)
+
+            bad_payload = _make_task_payload()
+            del bad_payload["created_at"]  # required field removed
+            event = _make_event("task.created", bad_payload, event_id="E000004")
+            with pytest.raises(TransactionAborted):
+                b.apply_event(event)
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — task.scored handler
+# ---------------------------------------------------------------------------
+
+
+class TestHandleTaskScored:
+    def _setup_task(self, b: SqliteBackend) -> None:
+        feat_payload = _make_feature_payload(feat_id="F001")
+        b.apply_event(_make_event(
+            "feature.created", feat_payload,
+            event_id="E000003", target_kind="feature", target_id="F001"
+        ))
+        task_payload = _make_task_payload(task_id="T001")
+        b.apply_event(_make_event(
+            "task.created", task_payload,
+            event_id="E000004", target_kind="task", target_id="T001"
+        ))
+
+    def test_handle_task_scored_writes_jsonl_and_sqlite(self, tmp_path: Path) -> None:
+        """task.scored event updates task scores in SQLite and writes JSONL."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            self._setup_task(b)
+
+            score_payload = {
+                "task_id": "T001",
+                "scores": {
+                    "complexity": 3,
+                    "parallelizability": 4,
+                    "context_load": 2,
+                    "blast_radius": 2,
+                    "review_risk": 2,
+                    "agent_suitability": 3,
+                },
+                "explanation": "complexity: 3 (base 2, +1 files)",
+            }
+            event = _make_event(
+                "task.scored", score_payload,
+                event_id="E000005", target_kind="task", target_id="T001"
+            )
+            b.apply_event(event)
+
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "task.scored" for e in events)
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.scores.complexity == 3
+            assert task.scores.parallelizability == 4
+        finally:
+            b.close()
+
+    def test_handle_task_scored_payload_validation_missing_task_id(
+        self, tmp_path: Path
+    ) -> None:
+        """task.scored without task_id → TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            self._setup_task(b)
+
+            bad_payload = {
+                "scores": {"complexity": 3},
+                "explanation": "test",
+                # missing task_id
+            }
+            event = _make_event("task.scored", bad_payload, event_id="E000005")
+            with pytest.raises(TransactionAborted):
+                b.apply_event(event)
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — task.expanded handler
+# ---------------------------------------------------------------------------
+
+
+class TestHandleTaskExpanded:
+    def _setup_task(self, b: SqliteBackend) -> None:
+        feat_payload = _make_feature_payload(feat_id="F001")
+        b.apply_event(_make_event(
+            "feature.created", feat_payload,
+            event_id="E000003", target_kind="feature", target_id="F001"
+        ))
+        task_payload = _make_task_payload(task_id="T001")
+        b.apply_event(_make_event(
+            "task.created", task_payload,
+            event_id="E000004", target_kind="task", target_id="T001"
+        ))
+
+    def test_handle_task_expanded_writes_jsonl_and_sqlite(self, tmp_path: Path) -> None:
+        """task.expanded inserts subtask rows and writes JSONL."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            self._setup_task(b)
+
+            subtask_payload = _make_task_payload(task_id="T001.1", feature_id="F001")
+            expand_payload = {
+                "parent_task_id": "T001",
+                "subtasks": [subtask_payload],
+            }
+            event = _make_event(
+                "task.expanded", expand_payload,
+                event_id="E000005", target_kind="task", target_id="T001"
+            )
+            b.apply_event(event)
+
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "task.expanded" for e in events)
+
+            # Subtask inserted
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            row = conn.execute(
+                "SELECT id, parent_task_id FROM tasks WHERE id = 'T001.1'"
+            ).fetchone()
+            conn.close()
+            assert row is not None
+            assert row[1] == "T001"  # parent_task_id was forced
+        finally:
+            b.close()
+
+    def test_handle_task_expanded_payload_validation_missing_parent(
+        self, tmp_path: Path
+    ) -> None:
+        """task.expanded without parent_task_id → TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            self._setup_task(b)
+
+            bad_payload = {
+                "subtasks": [_make_task_payload(task_id="T001.1")],
+                # missing parent_task_id
+            }
+            event = _make_event("task.expanded", bad_payload, event_id="E000005")
+            with pytest.raises(TransactionAborted):
+                b.apply_event(event)
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — task.status_changed handler
+# ---------------------------------------------------------------------------
+
+
+class TestHandleTaskStatusChanged:
+    def _setup_task(self, b: SqliteBackend) -> None:
+        feat_payload = _make_feature_payload(feat_id="F001")
+        b.apply_event(_make_event(
+            "feature.created", feat_payload,
+            event_id="E000003", target_kind="feature", target_id="F001"
+        ))
+        task_payload = _make_task_payload(task_id="T001", status="proposed")
+        b.apply_event(_make_event(
+            "task.created", task_payload,
+            event_id="E000004", target_kind="task", target_id="T001"
+        ))
+
+    def test_handle_task_status_changed_writes_jsonl_and_sqlite(
+        self, tmp_path: Path
+    ) -> None:
+        """task.status_changed updates task status and writes JSONL."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            self._setup_task(b)
+
+            status_payload = {
+                "task_id": "T001",
+                "from": "proposed",
+                "to": "drafted",
+                "reason": "Planning complete.",
+            }
+            event = _make_event(
+                "task.status_changed", status_payload,
+                event_id="E000005", target_kind="task", target_id="T001"
+            )
+            b.apply_event(event)
+
+            events = _read_jsonl(events_path)
+            assert any(e.get("action") == "task.status_changed" for e in events)
+
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "drafted"
+        finally:
+            b.close()
+
+    def test_handle_task_status_changed_payload_validation_missing_task_id(
+        self, tmp_path: Path
+    ) -> None:
+        """task.status_changed without task_id → TransactionAborted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            self._setup_task(b)
+
+            bad_payload = {"from": "proposed", "to": "drafted"}  # no task_id
+            event = _make_event("task.status_changed", bad_payload, event_id="E000005")
+            with pytest.raises(TransactionAborted):
+                b.apply_event(event)
+        finally:
+            b.close()
+
+    def test_task_status_changed_concurrency_guard_fails_on_drift(
+        self, tmp_path: Path
+    ) -> None:
+        """task.status_changed with wrong 'from' status → TransactionAborted (concurrency guard)."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            self._setup_task(b)
+
+            # Task is in 'proposed', but we claim it's in 'drafted'
+            drift_payload = {
+                "task_id": "T001",
+                "from": "drafted",  # WRONG — actual status is 'proposed'
+                "to": "reviewed",
+            }
+            event = _make_event("task.status_changed", drift_payload, event_id="E000005")
+            with pytest.raises(TransactionAborted):
+                b.apply_event(event)
+
+            # Task status unchanged
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "proposed"
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — THE CRITICAL TEST: replay includes all new event actions
+# ---------------------------------------------------------------------------
+
+
+class TestReplayIncludesNewEventActions:
+    def test_replay_includes_new_event_actions(self, tmp_path: Path) -> None:
+        """events.jsonl with all 8 new actions; replay_from_empty reproduces identical state.
+
+        This is the CRITICAL audit guarantee test for Phase 3 events.
+        """
+        clock = _make_clock()
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
+
+        try:
+            # E000001: project.created
+            b.apply_event(_make_project_event(event_id="E000001"))
+            # E000002: state.initialized
+            b.apply_event(_make_init_event(event_id="E000002"))
+
+            # E000003: prd.parsed
+            b.apply_event(_make_event(
+                "prd.parsed", _make_prd_parsed_payload(),
+                event_id="E000003"
+            ))
+
+            # E000004: prd.reviewed
+            b.apply_event(_make_event(
+                "prd.reviewed", {"reviewer": "alice"},
+                event_id="E000004"
+            ))
+
+            # E000005: prd.approved
+            b.apply_event(_make_event(
+                "prd.approved", {"approver": "bob"},
+                event_id="E000005"
+            ))
+
+            # E000006: feature.created
+            b.apply_event(_make_event(
+                "feature.created", _make_feature_payload(feat_id="F001"),
+                event_id="E000006", target_kind="feature", target_id="F001"
+            ))
+
+            # E000007: task.created
+            b.apply_event(_make_event(
+                "task.created", _make_task_payload(task_id="T001"),
+                event_id="E000007", target_kind="task", target_id="T001"
+            ))
+
+            # E000008: task.scored
+            b.apply_event(_make_event(
+                "task.scored",
+                {
+                    "task_id": "T001",
+                    "scores": {
+                        "complexity": 2,
+                        "parallelizability": 4,
+                        "context_load": 5,
+                        "blast_radius": 2,
+                        "review_risk": 2,
+                        "agent_suitability": 4,
+                    },
+                    "explanation": "complexity: 2 (base 2)",
+                },
+                event_id="E000008", target_kind="task", target_id="T001"
+            ))
+
+            # E000009: task.status_changed (proposed → drafted)
+            b.apply_event(_make_event(
+                "task.status_changed",
+                {"task_id": "T001", "from": "proposed", "to": "drafted", "reason": "planned"},
+                event_id="E000009", target_kind="task", target_id="T001"
+            ))
+
+            # E000010: task.expanded (add subtask T001.1)
+            subtask_data = _make_task_payload(task_id="T001.1", feature_id="F001")
+            b.apply_event(_make_event(
+                "task.expanded",
+                {"parent_task_id": "T001", "subtasks": [subtask_data]},
+                event_id="E000010", target_kind="task", target_id="T001"
+            ))
+
+        finally:
+            b.close()
+
+        # Capture original dump
+        original_dump = _sqlite_dump(db_path)
+
+        # Replay from empty
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            b2.replay_from_empty(events_path)
+        finally:
+            b2.close()
+
+        # Compare
+        replayed_dump = _sqlite_dump(db_path)
+        assert original_dump == replayed_dump, (
+            "Replayed state.db does not match original after Phase 3 events.\n"
+            f"Original dump (first 800 chars):\n{original_dump[:800]}\n\n"
+            f"Replayed dump (first 800 chars):\n{replayed_dump[:800]}"
+        )

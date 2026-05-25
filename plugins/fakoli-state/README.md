@@ -3,7 +3,7 @@
 Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](.claude-plugin/plugin.json)
 [![Status](https://img.shields.io/badge/plugin--state-alpha%20%2F%20in--development-orange.svg)](.claude-plugin/plugin.json)
 
 ---

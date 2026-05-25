@@ -8,7 +8,8 @@ process crash after the JSONL write but before the COMMIT leaves the log
 in a state that can be replayed cleanly.
 
 Phase 2 note: only 'project.created' and 'state.initialized' are routed;
-all other actions raise NotImplementedError with a clear message.
+Phase 3 extends routing with: prd.parsed, prd.reviewed, prd.approved,
+feature.created, task.created, task.scored, task.expanded, task.status_changed.
 """
 
 from __future__ import annotations
@@ -24,7 +25,17 @@ from fakoli_state.state.backend import (
     StateLocked,
     TransactionAborted,
 )
-from fakoli_state.state.models import PRD, Claim, ClaimStatus, Event, Project, Task
+from fakoli_state.state.models import (
+    PRD,
+    Claim,
+    ClaimStatus,
+    Event,
+    Feature,
+    Project,
+    Requirement,
+    Score,
+    Task,
+)
 from fakoli_state.state.schema import DDL, SCHEMA_VERSION
 
 if TYPE_CHECKING:
@@ -336,8 +347,9 @@ class SqliteBackend:
     def _apply_mutation(self, conn: sqlite3.Connection, event: Event) -> None:
         """Dispatch event.action to the appropriate mutation handler.
 
-        Phase 2 only handles 'project.created' and 'state.initialized'.
-        All other actions raise NotImplementedError.
+        Phase 2 handles 'project.created' and 'state.initialized'.
+        Phase 3 adds: prd.parsed, prd.reviewed, prd.approved, feature.created,
+        task.created, task.scored, task.expanded, task.status_changed.
         """
         action = event.action
         payload = event.payload_json
@@ -346,9 +358,25 @@ class SqliteBackend:
             self._handle_project_created(conn, payload)
         elif action == "state.initialized":
             self._handle_state_initialized(conn, payload)
+        elif action == "prd.parsed":
+            self._handle_prd_parsed(conn, payload)
+        elif action == "prd.reviewed":
+            self._handle_prd_reviewed(conn, payload, event.id, event.timestamp.isoformat())
+        elif action == "prd.approved":
+            self._handle_prd_approved(conn, payload, event.id, event.timestamp.isoformat())
+        elif action == "feature.created":
+            self._handle_feature_created(conn, payload)
+        elif action == "task.created":
+            self._handle_task_created(conn, payload)
+        elif action == "task.scored":
+            self._handle_task_scored(conn, payload, event.timestamp.isoformat())
+        elif action == "task.expanded":
+            self._handle_task_expanded(conn, payload)
+        elif action == "task.status_changed":
+            self._handle_task_status_changed(conn, payload, event.timestamp.isoformat())
         else:
             raise NotImplementedError(
-                f"Event action {action!r} is not yet supported in Phase 2. "
+                f"Event action {action!r} is not yet supported. "
                 "This action will be implemented in a later phase."
             )
 
@@ -380,6 +408,474 @@ class SqliteBackend:
         # Nothing to mutate for Phase 2 — the event row insertion is handled
         # by the caller (_apply_event_sqlite_only / apply_event).
         _ = payload  # acknowledged; intentionally unused
+
+    # ------------------------------------------------------------------
+    # Phase 3 handlers
+    # ------------------------------------------------------------------
+
+    def _handle_prd_parsed(
+        self, conn: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        """Upsert PRD and destructively replace all requirements.
+
+        Payload fields (all required):
+            project_id (str)  — FK into projects table
+            status (str)      — PRDStatus value (default 'draft' if absent)
+            summary (str)
+            goals (list[str])
+            non_goals (list[str])
+            requirements (list[dict]) — each is a Requirement payload
+            acceptance_criteria (list[str])
+            risks (list[str])
+            open_questions (list[str])
+
+        The ``requirements`` list in the PRD payload contains full Requirement
+        dicts.  The top-level ``prds.requirements`` column stores only the list
+        of requirement IDs (FK-style); the actual Requirement rows live in the
+        ``requirements`` table.
+
+        Parsing is destructive: old Requirement rows are deleted and replaced
+        with the new set inside a SAVEPOINT so failure leaves no partial state.
+        """
+        project_id: str | None = payload.get("project_id")
+        if not project_id:
+            raise TransactionAborted(
+                "prd.parsed payload missing required field 'project_id'."
+            )
+        summary: str = payload.get("summary", "")
+        status: str = payload.get("status", "draft")
+        goals = payload.get("goals", [])
+        non_goals = payload.get("non_goals", [])
+        requirements_raw: list[dict[str, Any]] = payload.get("requirements", [])
+        acceptance_criteria = payload.get("acceptance_criteria", [])
+        risks = payload.get("risks", [])
+        open_questions = payload.get("open_questions", [])
+
+        # Validate requirement payloads and collect IDs.
+        requirement_objects: list[Requirement] = []
+        for req_data in requirements_raw:
+            try:
+                req = Requirement.model_validate(req_data)
+            except Exception as exc:
+                raise TransactionAborted(
+                    f"prd.parsed: invalid Requirement in payload: {exc}"
+                ) from exc
+            requirement_objects.append(req)
+
+        requirement_ids = [r.id for r in requirement_objects]
+
+        # Upsert the PRD row.
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO prds
+                (project_id, status, summary, goals, non_goals, requirements,
+                 acceptance_criteria, risks, open_questions,
+                 last_reviewed_at, last_reviewed_by)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+            """,
+            (
+                project_id,
+                status,
+                summary,
+                json.dumps(goals),
+                json.dumps(non_goals),
+                json.dumps(requirement_ids),
+                json.dumps(acceptance_criteria),
+                json.dumps(risks),
+                json.dumps(open_questions),
+            ),
+        )
+
+        # Destructive re-parse of requirements — use SAVEPOINT so failure is
+        # atomic within the outer transaction.
+        conn.execute("SAVEPOINT prd_requirements_replace")
+        try:
+            conn.execute("DELETE FROM requirements")
+            for req in requirement_objects:
+                conn.execute(
+                    """
+                    INSERT INTO requirements
+                        (id, prd_section, text, source_paragraph, derived)
+                    VALUES
+                        (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        req.id,
+                        req.prd_section,
+                        req.text,
+                        req.source_paragraph,
+                        1 if req.derived else 0,
+                    ),
+                )
+        except Exception:
+            conn.execute("ROLLBACK TO prd_requirements_replace")
+            conn.execute("RELEASE prd_requirements_replace")
+            raise
+        conn.execute("RELEASE prd_requirements_replace")
+
+    def _handle_prd_reviewed(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        event_id: str,
+        timestamp: str,
+    ) -> None:
+        """Mark PRD as reviewed and insert a Review row.
+
+        Payload fields:
+            reviewer (str) — required
+            notes (str | None) — optional
+
+        The Review row ID is derived deterministically from the event_id so
+        that replay produces byte-for-byte identical rows.
+        """
+        reviewer: str | None = payload.get("reviewer")
+        if not reviewer:
+            raise TransactionAborted(
+                "prd.reviewed payload missing required field 'reviewer'."
+            )
+        notes: str | None = payload.get("notes")
+
+        conn.execute(
+            """
+            UPDATE prds
+               SET status = 'reviewed',
+                   last_reviewed_at = ?,
+                   last_reviewed_by = ?
+            """,
+            (timestamp, reviewer),
+        )
+
+        # Derive a stable review ID from the event ID so replay is idempotent.
+        review_id = f"RV-{event_id}"
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO reviews
+                (id, target_kind, target_id, reviewed_by, decision, notes, created_at)
+            VALUES
+                (?, 'prd', 'prd', ?, 'approve', ?, ?)
+            """,
+            (review_id, reviewer, notes, timestamp),
+        )
+
+    def _handle_prd_approved(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        event_id: str,
+        timestamp: str,
+    ) -> None:
+        """Mark PRD as approved and insert a Review row.
+
+        Payload fields:
+            approver (str) — required
+
+        The Review row ID is derived deterministically from the event_id so
+        that replay produces byte-for-byte identical rows.
+        """
+        approver: str | None = payload.get("approver")
+        if not approver:
+            raise TransactionAborted(
+                "prd.approved payload missing required field 'approver'."
+            )
+
+        conn.execute(
+            """
+            UPDATE prds
+               SET status = 'approved',
+                   last_reviewed_at = ?,
+                   last_reviewed_by = ?
+            """,
+            (timestamp, approver),
+        )
+
+        review_id = f"RV-{event_id}"
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO reviews
+                (id, target_kind, target_id, reviewed_by, decision, notes, created_at)
+            VALUES
+                (?, 'prd', 'prd', ?, 'approve', NULL, ?)
+            """,
+            (review_id, approver, timestamp),
+        )
+
+    def _handle_feature_created(
+        self, conn: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        """Insert a Feature row from the event payload.
+
+        Payload fields: all Feature model fields (id, title, description,
+        status, requirements, tasks).
+        """
+        try:
+            feature = Feature.model_validate(payload)
+        except Exception as exc:
+            raise TransactionAborted(
+                f"feature.created: invalid Feature payload: {exc}"
+            ) from exc
+
+        data = feature.model_dump(mode="json")
+        # Use INSERT ... ON CONFLICT DO UPDATE (UPSERT) instead of INSERT OR
+        # REPLACE to avoid violating the ON DELETE RESTRICT FK from tasks.
+        # INSERT OR REPLACE is equivalent to DELETE + INSERT which trips the FK
+        # when tasks already reference this feature.
+        conn.execute(
+            """
+            INSERT INTO features
+                (id, title, description, status, requirements, tasks)
+            VALUES
+                (:id, :title, :description, :status, :requirements, :tasks)
+            ON CONFLICT(id) DO UPDATE SET
+                title        = excluded.title,
+                description  = excluded.description,
+                status       = excluded.status,
+                requirements = excluded.requirements,
+                tasks        = excluded.tasks
+            """,
+            {
+                "id": data["id"],
+                "title": data["title"],
+                "description": data["description"],
+                "status": data["status"],
+                "requirements": json.dumps(data["requirements"]),
+                "tasks": json.dumps(data["tasks"]),
+            },
+        )
+
+    def _handle_task_created(
+        self, conn: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        """Insert a Task row from the event payload.
+
+        Payload fields: all Task model fields.  Scores may be None for all
+        dimensions at creation time; they get populated by task.scored later.
+        """
+        try:
+            task = Task.model_validate(payload)
+        except Exception as exc:
+            raise TransactionAborted(
+                f"task.created: invalid Task payload: {exc}"
+            ) from exc
+
+        self._insert_task_row(conn, task)
+
+    def _handle_task_scored(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Update a task's scores and explanation.
+
+        Payload fields:
+            task_id (str) — required
+            scores (dict[str, int | None]) — dimension name → score; required
+            explanation (str) — required
+
+        The scores dict is merged with any existing Score fields; null-valued
+        dimensions remain null (not coerced to 0).  The explanation is stored
+        inside the Score model's ``explanation`` field.
+        """
+        task_id: str | None = payload.get("task_id")
+        if not task_id:
+            raise TransactionAborted(
+                "task.scored payload missing required field 'task_id'."
+            )
+        scores_dict: dict[str, Any] | None = payload.get("scores")
+        if scores_dict is None:
+            raise TransactionAborted(
+                "task.scored payload missing required field 'scores'."
+            )
+        explanation: str | None = payload.get("explanation")
+
+        # Build the Score model from the payload dimensions + explanation.
+        score_data = dict(scores_dict)
+        score_data["explanation"] = explanation
+        try:
+            score = Score.model_validate(score_data)
+        except Exception as exc:
+            raise TransactionAborted(
+                f"task.scored: invalid scores payload: {exc}"
+            ) from exc
+
+        scores_json = json.dumps(score.model_dump(mode="json"))
+
+        conn.execute(
+            """
+            UPDATE tasks
+               SET scores = ?,
+                   updated_at = ?
+             WHERE id = ?
+            """,
+            (scores_json, timestamp, task_id),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            raise TransactionAborted(
+                f"task.scored: task '{task_id}' not found."
+            )
+
+    def _handle_task_expanded(
+        self, conn: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        """Insert subtask rows derived from expanding a parent task.
+
+        Payload fields:
+            parent_task_id (str) — required; must exist in tasks table
+            subtasks (list[dict]) — list of Task payloads; each will be
+                                    inserted with parent_task_id set
+
+        The parent task's status is NOT changed here; the subtask rows
+        themselves signal expansion (parent_task_id IS NOT NULL).
+        """
+        parent_task_id: str | None = payload.get("parent_task_id")
+        if not parent_task_id:
+            raise TransactionAborted(
+                "task.expanded payload missing required field 'parent_task_id'."
+            )
+        subtasks_raw: list[dict[str, Any]] = payload.get("subtasks", [])
+        if not subtasks_raw:
+            raise TransactionAborted(
+                "task.expanded payload has empty 'subtasks' list; nothing to expand."
+            )
+
+        for subtask_data in subtasks_raw:
+            # Force parent_task_id from the event, not from the payload sub-dict.
+            subtask_data = dict(subtask_data)
+            subtask_data["parent_task_id"] = parent_task_id
+            try:
+                subtask = Task.model_validate(subtask_data)
+            except Exception as exc:
+                raise TransactionAborted(
+                    f"task.expanded: invalid subtask payload: {exc}"
+                ) from exc
+            self._insert_task_row(conn, subtask)
+
+    def _handle_task_status_changed(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Atomically transition a task from one status to another.
+
+        Payload fields:
+            task_id (str) — required
+            from (str)    — expected current status (concurrency guard)
+            to (str)      — target status
+            reason (str | None) — optional human-readable reason
+
+        The UPDATE uses a WHERE status=from clause as a concurrency guard.
+        If zero rows are updated (the task does not exist or its status has
+        drifted), TransactionAborted is raised.
+        """
+        task_id: str | None = payload.get("task_id")
+        from_status: str | None = payload.get("from")
+        to_status: str | None = payload.get("to")
+
+        if not task_id:
+            raise TransactionAborted(
+                "task.status_changed payload missing required field 'task_id'."
+            )
+        if not from_status:
+            raise TransactionAborted(
+                "task.status_changed payload missing required field 'from'."
+            )
+        if not to_status:
+            raise TransactionAborted(
+                "task.status_changed payload missing required field 'to'."
+            )
+
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = ?,
+                   updated_at = ?
+             WHERE id = ?
+               AND status = ?
+            """,
+            (to_status, timestamp, task_id, from_status),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            # Determine whether task exists at all for a clearer error.
+            row = conn.execute(
+                "SELECT status FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"task.status_changed: task '{task_id}' not found."
+                )
+            actual_status = row[0]
+            raise TransactionAborted(
+                f"task.status_changed: concurrency guard failed for task '{task_id}'. "
+                f"Expected status '{from_status}', got '{actual_status}'. "
+                "The task status may have been changed by a concurrent operation."
+            )
+
+    # ------------------------------------------------------------------
+    # Internal helpers — task row insertion (shared by task.created and
+    # task.expanded)
+    # ------------------------------------------------------------------
+
+    def _insert_task_row(self, conn: sqlite3.Connection, task: Task) -> None:
+        """Insert or upsert a Task row in the tasks table.
+
+        Uses INSERT ... ON CONFLICT DO UPDATE (not INSERT OR REPLACE) for the
+        same reason as feature.created: INSERT OR REPLACE is DELETE + INSERT,
+        which trips ON DELETE RESTRICT on claims.task_id and evidence.task_id
+        if anything has been claimed against this task. The upsert pattern
+        preserves the row identity, so foreign keys remain valid even when
+        `plan` is re-run after work has begun.
+        """
+        data = task.model_dump(mode="json")
+        conn.execute(
+            """
+            INSERT INTO tasks
+                (id, feature_id, title, description, status, priority,
+                 dependencies, conflict_groups, scores, acceptance_criteria,
+                 implementation_notes, verification, likely_files,
+                 parent_task_id, created_at, updated_at)
+            VALUES
+                (:id, :feature_id, :title, :description, :status, :priority,
+                 :dependencies, :conflict_groups, :scores, :acceptance_criteria,
+                 :implementation_notes, :verification, :likely_files,
+                 :parent_task_id, :created_at, :updated_at)
+            ON CONFLICT(id) DO UPDATE SET
+                feature_id           = excluded.feature_id,
+                title                = excluded.title,
+                description          = excluded.description,
+                status               = excluded.status,
+                priority             = excluded.priority,
+                dependencies         = excluded.dependencies,
+                conflict_groups      = excluded.conflict_groups,
+                scores               = excluded.scores,
+                acceptance_criteria  = excluded.acceptance_criteria,
+                implementation_notes = excluded.implementation_notes,
+                verification         = excluded.verification,
+                likely_files         = excluded.likely_files,
+                parent_task_id       = excluded.parent_task_id,
+                updated_at           = excluded.updated_at
+            """,
+            {
+                "id": data["id"],
+                "feature_id": data["feature_id"],
+                "title": data["title"],
+                "description": data["description"],
+                "status": data["status"],
+                "priority": data["priority"],
+                "dependencies": json.dumps(data["dependencies"]),
+                "conflict_groups": json.dumps(data["conflict_groups"]),
+                "scores": json.dumps(data["scores"]),
+                "acceptance_criteria": json.dumps(data["acceptance_criteria"]),
+                "implementation_notes": json.dumps(data["implementation_notes"]),
+                "verification": json.dumps(data["verification"]),
+                "likely_files": json.dumps(data["likely_files"]),
+                "parent_task_id": data["parent_task_id"],
+                "created_at": data["created_at"],
+                "updated_at": data["updated_at"],
+            },
+        )
 
     def _insert_event_row(self, conn: sqlite3.Connection, event: Event) -> None:
         """Insert the event into the events mirror table."""
