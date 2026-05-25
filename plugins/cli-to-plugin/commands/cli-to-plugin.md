@@ -34,8 +34,10 @@ If `--override <path>` is set, verify the file exists and parses as YAML **befor
 
 ```bash
 test -f "$OVERRIDE_PATH" || { echo "HALT: override file not found: $OVERRIDE_PATH"; exit 1; }
-uv run --with pyyaml -c "import yaml, sys; yaml.safe_load(open('$OVERRIDE_PATH'))"
+uv run --with pyyaml -c "import yaml, sys; yaml.safe_load(open(sys.argv[1]))" -- "$OVERRIDE_PATH"
 ```
+
+Passing the path via `sys.argv` rather than interpolating it inside the Python string protects against paths containing single quotes (e.g., `/tmp/it's-here.yaml`).
 
 On failure: **halt** with the parse error.
 

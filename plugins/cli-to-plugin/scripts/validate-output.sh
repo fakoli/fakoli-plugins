@@ -179,7 +179,9 @@ else
         awk '/^---$/{c++; if(c==2) exit; next} c==1 {print}' "$skill_file" > "$frontmatter_tmp"
 
         if [[ ! -s "$frontmatter_tmp" ]]; then
-            echo -e "  ${YELLOW}WARN:${NC} No YAML frontmatter found in $skill_name/SKILL.md"
+            # SKILL.md frontmatter is required by the marketplace skill schema, so a missing
+            # block is a hard FAIL — not a soft WARN. Label matches the outcome.
+            echo -e "  ${RED}FAIL:${NC} No YAML frontmatter found in $skill_name/SKILL.md" >&2
             rm -f "$frontmatter_tmp"
             ((skill_fails++)) || true
             continue

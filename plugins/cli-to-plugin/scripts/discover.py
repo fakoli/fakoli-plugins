@@ -268,7 +268,6 @@ def _is_flag_section(heading: str) -> bool:
         "FLAGS", "OPTIONS", "GLOBAL FLAGS", "GLOBAL OPTIONS",
         "INHERITED FLAGS", "INHERITED OPTIONS",
         "OPTIONAL FLAGS", "REQUIRED FLAGS",
-        "GLOBAL OPTIONS",
     }
 
 

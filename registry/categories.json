@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-25T07:22:11Z",
+  "generatedAt": "2026-05-25T07:44:32Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -13,7 +13,7 @@
         },
         {
           "name": "cli-to-plugin",
-          "version": "1.0.2",
+          "version": "1.0.3",
           "description": "Convert any CLI tool into a self-contained Claude Code plugin by walking its --help tree and generating one skill per command group, plus optional LLM-proposed workflow meta-skills.",
           "path": "plugins/cli-to-plugin"
         },

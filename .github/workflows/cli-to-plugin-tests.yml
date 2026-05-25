@@ -47,6 +47,10 @@ jobs:
             --cov-fail-under=90
 
       - name: Run smoke test
+        # The smoke test exits 0 with a SKIP message when `claude` is not on PATH (the case
+        # on standard runners today). It still provides value: bash syntax check, fixture
+        # access, marketplace-root resolution. End-to-end execution will be exercised once
+        # an action installs the Claude CLI with slash-command support.
         run: bash plugins/cli-to-plugin/tests/smoke/test-gh-generation.sh
 
       - name: Validate cli-to-plugin manifest

@@ -1,6 +1,6 @@
 {
   "name": "cli-to-plugin",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Convert any CLI tool into a self-contained Claude Code plugin by walking its --help tree and generating one skill per command group, plus optional LLM-proposed workflow meta-skills.",
   "author": {
     "name": "Sekou Doumbouya",
