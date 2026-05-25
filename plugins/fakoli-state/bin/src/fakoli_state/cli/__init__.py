@@ -15,6 +15,7 @@ from fakoli_state.cli.init_status import init, status
 from fakoli_state.cli.packet_apply import apply, packet, submit
 from fakoli_state.cli.plan import expand, list_tasks, plan, review_app, score, show
 from fakoli_state.cli.prd import prd_app
+from fakoli_state.cli.sync import sync_app
 
 # ---------------------------------------------------------------------------
 # Root application
@@ -37,6 +38,7 @@ app = typer.Typer(
 app.add_typer(prd_app, name="prd")
 app.add_typer(review_app, name="review")
 app.add_typer(hook_app, name="hook")
+app.add_typer(sync_app, name="sync")
 
 # ---------------------------------------------------------------------------
 # --version callback

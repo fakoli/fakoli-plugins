@@ -1,0 +1,79 @@
+name: fakoli-state live GitHub API
+
+# Nightly job that exercises the real GitHub Issues REST API to catch upstream
+# drift (label format changes, deprecated endpoints, gh CLI version skew)
+# before users hit them. Marker-gated; the default `pytest -q` excludes these.
+#
+# Gated on `secrets.FAKOLI_STATE_TEST_GH_TOKEN`. When the secret is absent the
+# job prints a notice and exits 0 so the cron stays green on forks and PRs
+# without secret access. The test repo target comes from the
+# `FAKOLI_STATE_TEST_REPO` Actions variable; defaults to a fakoli-owned
+# scratch repo if the var is unset (see plugins/fakoli-state/docs/live-tests.md).
+
+on:
+  schedule:
+    # 06:00 UTC daily = 22:00 PST / 02:00 EST -- low-traffic window so a
+    # rate-limited test repo never collides with active developer work.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: fakoli-state-live-github
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  live-tests:
+    name: live GitHub tests
+    runs-on: ubuntu-latest
+    env:
+      # Promoting the secret to a job-level env var lets steps gate on
+      # `env.HAS_TOKEN` instead of `secrets.X != ''` (the latter does not
+      # short-circuit correctly when the secret is unset on a fork).
+      HAS_TOKEN: ${{ secrets.FAKOLI_STATE_TEST_GH_TOKEN != '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Notice when secret missing
+        if: env.HAS_TOKEN != 'true'
+        run: |
+          echo "::notice title=Live GitHub tests skipped::Set FAKOLI_STATE_TEST_GH_TOKEN repository secret to enable nightly live-API drift detection."
+
+      - name: Set up Python 3.12
+        if: env.HAS_TOKEN == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        if: env.HAS_TOKEN == 'true'
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+
+      - name: Install fakoli-state deps
+        if: env.HAS_TOKEN == 'true'
+        working-directory: plugins/fakoli-state/bin
+        run: uv sync
+
+      - name: Smoke-check gh CLI
+        if: env.HAS_TOKEN == 'true'
+        # The live tests today use the HTTP transport so the gh CLI is not
+        # strictly required, but it is pre-installed on ubuntu-latest. Printing
+        # the version makes the runner log self-describing for the future
+        # tests that exercise the gh_cli transport against the live API.
+        run: gh --version
+
+      - name: Run live GitHub tests
+        if: env.HAS_TOKEN == 'true'
+        working-directory: plugins/fakoli-state/bin
+        env:
+          GITHUB_TOKEN: ${{ secrets.FAKOLI_STATE_TEST_GH_TOKEN }}
+          # Repository the tests create/close issues against. Defaults to the
+          # fakoli-owned scratch repo when the variable is unset so a freshly
+          # forked repo with the secret but no var still works.
+          FAKOLI_STATE_TEST_REPO: ${{ vars.FAKOLI_STATE_TEST_REPO || 'fakoli/fakoli-state-sync-test' }}
+        run: uv run pytest -q -m "live_github" --tb=short

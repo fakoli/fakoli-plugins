@@ -7,12 +7,24 @@ Derives the schema from the Pydantic models in models.py.  Rules:
   bool→INTEGER (0/1), list[X]→TEXT (JSON), dict→TEXT (JSON),
   Pydantic embedded→TEXT (JSON), StrEnum→TEXT.
 - CREATE TABLE IF NOT EXISTS + CREATE INDEX IF NOT EXISTS — always idempotent.
-- PRAGMA user_version = 1 at the end for schema-version tracking.
+- PRAGMA user_version = N at the end for schema-version tracking.
+
+Version history
+---------------
+- v1: Phase 2-7 schema (projects, prds, requirements, features, tasks,
+  claims, evidence, decisions, reviews, events, conflict_groups). No
+  sync_mappings table.
+- v2: Phase 8 prep — sync_mappings table introduced (composite PK only;
+  no UNIQUE on external_id).
+- v3: Phase 8 ship — sync_mappings adds UNIQUE(external_system, external_id),
+  external_url column, provider_metadata_json column, FK CASCADE direction
+  flip. Migration: see docs/migrations.md (auto-upgrade on initialize for
+  purely-additive changes).
 """
 
 from __future__ import annotations
 
-SCHEMA_VERSION: int = 1
+SCHEMA_VERSION: int = 3
 
 
 def generate_schema_sql() -> str:  # noqa: PLR0915  (acceptable length for DDL)
@@ -21,9 +33,12 @@ def generate_schema_sql() -> str:  # noqa: PLR0915  (acceptable length for DDL)
     The result is idempotent: safe to run against an existing database.
     Foreign-key constraints use RESTRICT only where cascade-delete would be
     data-loss dangerous (tasks, claims, evidence).  Lookup tables (decisions,
-    reviews, events, sync_mappings, conflict_groups) use no explicit ON DELETE
-    clause, defaulting to RESTRICT, which is acceptable for Phase 2 where
-    deletes are not yet implemented.
+    reviews, events, conflict_groups) use no explicit ON DELETE clause,
+    defaulting to RESTRICT, which is acceptable for Phase 2 where deletes
+    are not yet implemented.  sync_mappings uses ON DELETE CASCADE so
+    dropping a task automatically drops its external mappings (Phase 8
+    direction flip — RESTRICT would have wedged any future task.deleted
+    pathway against synced tasks).
     """
     return """\
 PRAGMA foreign_keys = ON;
@@ -159,14 +174,20 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events (timestamp);
 
 CREATE TABLE IF NOT EXISTS sync_mappings (
-    task_id                      TEXT NOT NULL REFERENCES tasks(id) ON DELETE RESTRICT,
+    task_id                      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
     external_system              TEXT NOT NULL,
     external_id                  TEXT NOT NULL,
+    external_url                 TEXT,
     last_synced_at               TEXT NOT NULL,
     sync_state                   TEXT NOT NULL DEFAULT 'in_sync',
     conflict_resolution_strategy TEXT NOT NULL DEFAULT 'prompt',
-    PRIMARY KEY (task_id, external_system)
+    provider_metadata_json       TEXT,
+    PRIMARY KEY (task_id, external_system),
+    UNIQUE (external_system, external_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_sync_mappings_external
+    ON sync_mappings (external_system, external_id);
 
 CREATE TABLE IF NOT EXISTS conflict_groups (
     id       TEXT PRIMARY KEY,
@@ -175,7 +196,7 @@ CREATE TABLE IF NOT EXISTS conflict_groups (
     reason   TEXT NOT NULL
 );
 
-PRAGMA user_version = 1;
+PRAGMA user_version = 3;
 """
 
 

@@ -172,6 +172,46 @@ fakoli-state does not auto-merge. The deliberate separation between `apply` (sta
 
 ---
 
+### Step 5 — Sync to external tracker (optional)
+
+Phase 8 ships bidirectional sync. If the project has a sync provider
+configured (a `GITHUB_REPOSITORY` env var, a `gh auth` session, or any
+contributor-registered provider in `PROVIDER_REGISTRY`) AND the task is
+now at `status=done`, push the final state so the remote tracker
+reflects the completion.
+
+```bash
+fakoli-state sync github --task T012
+```
+
+This runs a single-task push + pull pass through the GitHub Issues
+provider. The closed-issue mapping (`done` → `status:done` label +
+issue state `closed`) writes back to GitHub; any remote-side edits land
+locally in the same pass. Failures (rate limit, deleted issue, auth
+missing) surface on stderr and exit `1` without blocking the next task.
+
+Run a health check first if this is the first sync of the session:
+
+```bash
+fakoli-state sync github --health
+```
+
+For other providers (Linear, Monday, Jira) use the generic form:
+
+```bash
+fakoli-state sync provider <provider_id> --task T012
+```
+
+See [`docs/github-sync.md`](../../docs/github-sync.md) for the full CLI
+surface and conflict-resolution strategies.
+
+**Otherwise** — no provider configured, no `GITHUB_REPOSITORY`, no `gh
+auth` — skip this step. The local `state.db` + `events.jsonl` is the
+canonical record; nothing else needs to happen. fakoli-state is fully
+functional without any external sync.
+
+---
+
 ## Co-authoring Guidance
 
 When the human is the reviewer and an agent runs this skill:

@@ -287,6 +287,151 @@ class ProgressNotedPayload(BaseModel):
     noted_at: str
 
 
+class SyncMappingUpsertedPayload(BaseModel):
+    """Payload for 'sync_mapping.upserted' — Phase 8 external-system sync.
+
+    Mirrors the SyncMapping model (state/models.py). The handler INSERTs a new
+    row or, on (task_id, external_system) conflict, UPDATEs the existing row.
+
+    Field-by-field mirror of :class:`fakoli_state.state.models.SyncMapping`.
+    When a new field is added to ``SyncMapping`` it MUST be added here too —
+    ``apply_sync_mapping`` constructs this payload from the canonical model
+    and any mismatch surfaces at the call site (extra='forbid' on this model).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    external_system: str
+    external_id: str
+    external_url: str | None = None
+    last_synced_at: str
+    sync_state: str = "in_sync"
+    conflict_resolution_strategy: str = "prompt"
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SyncMappingDeletedPayload(BaseModel):
+    """Payload for 'sync_mapping.deleted' — Phase 8 external-system sync.
+
+    Composite-key delete: removes all sync_mappings rows for ``task_id``
+    (across every external_system). If you need per-system deletion supply
+    ``external_system`` as well; when None, every mapping for the task is
+    removed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    external_system: str | None = None
+
+
+class TaskSyncedFromRemotePayload(BaseModel):
+    """Payload for 'task.synced_from_remote' — Phase 8 pull-applies-remote.
+
+    Emitted by the sync CLI's pull path when the remote payload has
+    legitimately moved ahead of local state (``remote_moved AND NOT
+    local_moved``) — i.e. a non-conflict update. The handler overwrites
+    the local Task's ``title``, ``description``, and ``status`` fields
+    with the remote values, then bumps ``updated_at``.
+
+    Why a dedicated action (rather than re-using ``task.status_changed``
+    or ``task.created``)?
+    * ``task.status_changed`` only carries status, so title/description
+      updates would silently drop.
+    * ``task.created`` with INSERT OR REPLACE semantics would risk losing
+      Task fields not present in the remote payload (scores, dependencies,
+      verification, …).
+
+    The forbid-extras schema means callers cannot accidentally smuggle
+    other Task fields through the pull path — anything the remote knows
+    must be explicitly added to this model first.
+
+    Fields
+    ------
+    task_id:
+        Local task id (``T001``) to mutate.
+    title, description, status:
+        New values pulled from the remote. ``status`` is the local
+        :class:`fakoli_state.state.models.TaskStatus` value (already
+        translated by the provider, e.g. via ``LABEL_TO_STATUS``).
+    actor:
+        Audit string for who/what triggered this pull (e.g.
+        ``"sync.github_issues"``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    title: str
+    description: str
+    status: str
+    actor: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 Wave 3 — sync.* audit events (Task 6 / cli/sync.py)
+# ---------------------------------------------------------------------------
+#
+# Every push / pull / conflict / batch operation emits a `sync.*` action
+# whose handler is an audit-only no-op (like `file_changed` and
+# `progress.noted`).  The JSONL row IS the audit record; no SQLite mutation
+# is performed by these events themselves.  The actual mapping persistence
+# happens via the existing `sync_mapping.upserted` event, kept separate so
+# replay-from-empty can reconstruct mappings without depending on `sync.*`.
+#
+# A single generic payload model is used for every `sync.*` action because
+# the fields they audit overlap completely (provider id, optional task /
+# external id, success / failure detail).  `extra="forbid"` still rejects
+# unknown keys; the open shape is on the typed string fields, not the
+# field set.
+
+
+class SyncAuditPayload(BaseModel):
+    """Generic payload for every `sync.*` audit-only event.
+
+    Fields
+    ------
+    provider_id:
+        Registry key of the provider involved (e.g. ``"github_issues"``).
+        ``None`` for the bare-reconciliation events that span all providers.
+    task_id:
+        Local task id (e.g. ``"T001"``) when the event scopes to a single
+        task; ``None`` for batch / reconciliation level events.
+    external_id:
+        Provider-native id (e.g. GitHub issue number) when known; absent
+        on first-push events that haven't yet learned the remote id.
+    strategy:
+        :class:`fakoli_state.state.models.ConflictResolutionStrategy`
+        value as a string when this is a conflict event; ``None`` otherwise.
+    resolution:
+        Free-form short description of how the conflict was resolved
+        (``"local_wins_deferred"``, ``"remote_wins_deferred"``,
+        ``"prompt_defaulted_to_local"``, ``"prompt_chose_local"``,
+        ``"prompt_chose_remote"``, ``"prompt_skipped"``,
+        ``"manual_merge_file_written"``).
+    exception_type, exception_message:
+        Populated on `sync.*.failed` events. Both ``None`` on success.
+    direction:
+        ``"push"`` or ``"pull"``; redundant with the action prefix but
+        cheap to include and trivially queryable from JSONL.
+    audit_note:
+        Optional free-form short note (e.g. ``"watch loop iteration 3"``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str | None = None
+    task_id: str | None = None
+    external_id: str | None = None
+    strategy: str | None = None
+    resolution: str | None = None
+    exception_type: str | None = None
+    exception_message: str | None = None
+    direction: str | None = None
+    audit_note: str | None = None
+
+
 __all__ = [
     "ClaimCreatedPayload",
     "ClaimReleasedPayload",
@@ -301,9 +446,13 @@ __all__ = [
     "ProgressNotedPayload",
     "ProjectCreatedPayload",
     "StateInitializedPayload",
+    "SyncAuditPayload",
+    "SyncMappingDeletedPayload",
+    "SyncMappingUpsertedPayload",
     "TaskAppliedPayload",
     "TaskCreatedPayload",
     "TaskExpandedPayload",
     "TaskScoredPayload",
     "TaskStatusChangedPayload",
+    "TaskSyncedFromRemotePayload",
 ]

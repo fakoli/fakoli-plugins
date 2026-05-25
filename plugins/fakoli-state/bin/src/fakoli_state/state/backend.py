@@ -12,7 +12,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from fakoli_state.state.models import PRD, Claim, Event, Evidence, Feature, Project, Task
+    from fakoli_state.state.models import (
+        PRD,
+        Claim,
+        Event,
+        Evidence,
+        Feature,
+        Project,
+        SyncMapping,
+        Task,
+    )
 
 # ---------------------------------------------------------------------------
 # Sentinel for race-free event ID assignment
@@ -142,6 +151,57 @@ class Backend(Protocol):
     def close(self) -> None:
         """Release any held resources (connections, file handles)."""
         ...
+
+    # ------------------------------------------------------------------
+    # Phase 8 — sync mapping query helpers
+    # ------------------------------------------------------------------
+
+    def get_sync_mapping(
+        self,
+        task_id: str,
+        *,
+        external_system: str | None = None,
+    ) -> SyncMapping | None:
+        """Return the SyncMapping for ``task_id``, or None if not mapped.
+
+        If ``external_system`` is None, returns the first mapping by
+        ``external_system`` ASC — kept for backward-compat single-provider
+        callers. Multi-provider callers MUST pass ``external_system``
+        explicitly to get a scoped lookup; otherwise which provider's
+        mapping wins is ASC-sort-position-dependent and brittle. Callers
+        that need to enumerate every mapping for a task should use
+        ``list_sync_mappings`` and filter by ``task_id`` instead.
+        """
+        raise NotImplementedError(
+            "Backend.get_sync_mapping() must be implemented by the concrete backend."
+        )
+
+    def list_sync_mappings(
+        self,
+        external_system: str | None = None,
+    ) -> list[SyncMapping]:
+        """Return SyncMapping rows, optionally filtered by external_system."""
+        raise NotImplementedError(
+            "Backend.list_sync_mappings() must be implemented by the concrete backend."
+        )
+
+    def apply_sync_mapping(
+        self,
+        mapping: SyncMapping,
+        *,
+        actor: str = "system",
+    ) -> Event:
+        """Convenience wrapper that emits a sync_mapping.upserted event.
+
+        Builds an Event with PENDING_EVENT_ID, calls apply_event(), and
+        returns the materialized Event (with the backend-assigned ID) so the
+        caller can record it. The underlying SQLite mutation is the upsert
+        described by ``_handle_sync_mapping_upserted``. ``actor`` is recorded
+        in the event audit row; defaults to ``"system"``.
+        """
+        raise NotImplementedError(
+            "Backend.apply_sync_mapping() must be implemented by the concrete backend."
+        )
 
     def next_event_id(self) -> str:
         """Return a hint of the next sequential event ID in canonical E%06d format.
