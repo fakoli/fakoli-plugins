@@ -2295,3 +2295,55 @@ class TestLocalMovedOnlyEmitsLocalAhead:
         assert payload["task_id"] == "T001"
         # provider_id round-trips through the audit row.
         assert payload["provider_id"] == _TEST_PROVIDER_ID
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 v1.9.0 / PR #50 Greptile P1: malformed config.yaml must not crash sync
+# ---------------------------------------------------------------------------
+
+
+class TestMalformedConfigFallsBackToRegistry:
+    """`_resolve_configured_providers` must swallow ``yaml.YAMLError``.
+
+    The function is documented as best-effort: "if the config cannot be
+    read for any reason (missing, malformed, raises) the registry fallback
+    is used." Before the Greptile P1 fix, the ``except (ValueError, OSError)``
+    block let ``yaml.YAMLError`` (a subclass of ``Exception``, not of
+    ``ValueError`` or ``OSError``) escape — so a syntactically broken
+    ``.fakoli-state/config.yaml`` blew up ``fakoli-state sync`` with an
+    unhandled traceback instead of the documented graceful fallback.
+    """
+
+    def test_malformed_yaml_falls_back_to_registry_without_raising(
+        self,
+        initialized_project: Path,
+        patched_registry: dict[str, Any],
+    ) -> None:
+        """Bare `sync` against a project with broken YAML exits cleanly.
+
+        Overwrites the init-generated config.yaml with syntactically
+        invalid YAML (an unclosed list) so ``yaml.safe_load`` raises
+        ``yaml.YAMLError``. The CLI must catch this and fall back to
+        ``sorted(PROVIDER_REGISTRY)`` so reconciliation still runs.
+        """
+        config_path = initialized_project / ".fakoli-state" / "config.yaml"
+        # Deliberately malformed YAML: unclosed list in sync.providers.
+        # yaml.safe_load raises yaml.YAMLError (specifically a ScannerError
+        # / ParserError subclass), which is NOT a ValueError or OSError.
+        config_path.write_text("sync:\n  providers: [unclosed\n", encoding="utf-8")
+
+        r = runner.invoke(
+            app,
+            ["sync", "--cwd", str(initialized_project)],
+            catch_exceptions=False,
+        )
+
+        # The CLI must exit cleanly via the registry fallback path.
+        # An empty patched_registry means there's nothing to reconcile,
+        # so we expect exit 0 with "No discrepancies".
+        assert r.exit_code == 0, (
+            f"malformed config.yaml should fall back to PROVIDER_REGISTRY, "
+            f"not crash with yaml.YAMLError; got exit={r.exit_code}, "
+            f"output={r.output!r}"
+        )
+        assert "No discrepancies found" in r.output

@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import typer
+import yaml
 
 from fakoli_state.cli._helpers import (
     _open_backend,
@@ -797,8 +798,10 @@ def _pull_one_task(
     #     branches that have not yet been wired to mutate inline).
     # Also tracks the resolution token for the deferred branches so the
     # audit row is self-describing (e.g. "local_wins_deferred",
-    # "prompt_chose_remote", "manual_merge_pending").
-    deferred_resolution: str | None = None
+    # "prompt_chose_remote", "manual_merge_pending"). The resolution
+    # token is the value returned by ``_resolve_conflict`` and is passed
+    # straight into the audit payload below (Wave 3 critic CONSIDER #1 /
+    # Greptile P2, PR #50: no need for an intermediate variable).
 
     if remote_moved and local_moved:
         # --fix forces remote_wins for this run.
@@ -860,7 +863,6 @@ def _pull_one_task(
             # (`_bump_mapping_state` inside `_resolve_conflict`) still
             # ran, so subsequent polls do not re-detect the same
             # conflict — only the terminal name changes.
-            deferred_resolution = resolution
             results["pulled"] += 1
             _emit_audit(
                 backend,
@@ -870,7 +872,7 @@ def _pull_one_task(
                     "task_id": task.id,
                     "external_id": existing.external_id,
                     "direction": "pull",
-                    "resolution": deferred_resolution,
+                    "resolution": resolution,
                 },
                 target_kind="task",
                 target_id=task.id,
@@ -1414,10 +1416,15 @@ def _resolve_configured_providers(state_dir: Path) -> list[str]:
             cfg = load_config(config_path)
             if cfg.sync_providers is not None:
                 return list(cfg.sync_providers)
-        except (ValueError, OSError):
+        except (ValueError, OSError, yaml.YAMLError):
             # Best-effort: defer the loud error to the next config-touching
             # command (init / doctor). Sync defaults to the registry so the
             # operator can still inspect/repair drift.
+            # ``yaml.YAMLError`` covers malformed YAML — it is a subclass
+            # of ``Exception`` (not of ``ValueError`` or ``OSError``), so
+            # without it a syntactically broken config.yaml would escape
+            # the best-effort catch and crash ``fakoli-state sync`` with
+            # an unhandled traceback. (Greptile P1, PR #50.)
             pass
     return sorted(sync_registry.PROVIDER_REGISTRY)
 
