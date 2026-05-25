@@ -1,6 +1,6 @@
 # Example Dispatch Prompt
 
-When constructing the prompt sent to an agent via the `Agent` tool from the `execute` skill, include the six required fields documented in `skills/execute/SKILL.md` (Task name, Acceptance criteria, Scope, Upstream context, Verify command, Status file instruction).
+When constructing the prompt sent to an agent via the `Agent` tool from the `execute` skill, include the six required fields documented in `skills/execute/SKILL.md` (Task name **and intent**, Acceptance criteria, Scope, Upstream context, Verify command, Status file instruction). In the example below, Task and Intent are written as two adjacent labeled sections — they form a single required field but are kept visually separate for readability.
 
 The following is a concrete, complete example showing all six fields. Use it as a template — copy the shape, swap in the values from the current plan task and prior-wave status files.
 
