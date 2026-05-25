@@ -3,3 +3,8 @@
 
 # Python virtualenv (uv sync materializes this)
 bin/.venv/
+
+# Test artifacts (created when running pytest or smoke-testing CLI from bin/)
+bin/.coverage
+bin/.fakoli-state/
+bin/.pytest_cache/
