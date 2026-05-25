@@ -6,14 +6,67 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-Phases 3-8 are planned and actively scheduled. Each phase ships as its own PR into the fakoli-plugins monorepo.
+Phases 5-8 are planned and actively scheduled. Each phase ships as its own PR into the fakoli-plugins monorepo.
 
-- **Phase 3** — Planning engine (template path): `prd parse`, `prd review`, `plan`, `score`, `expand`, `review tasks`, `list`, `show` CLI commands, prd and plan skills, planner agent, and tests.
-- **Phase 4** — Claims manager: `claim`, `release`, `renew`, `next` CLI commands, git branch auto-creation on claim, claim skill, `check-claim.sh` and `record-file-change.sh` hooks, and tests.
 - **Phase 5** — Context engine: `packet`, `submit`, `apply` CLI commands, Review engine apply gate, execute and finish skills, `capture-evidence.sh` hook, critic and sentinel agents, and tests.
 - **Phase 6** — MCP server: 13 agent-facing tools, `.mcp.json` wiring, `bin/fakoli-state-mcp` bash wrapper, MCP integration tests, and `docs/mcp.md`.
 - **Phase 7** — LLM augmentation: Anthropic provider implementation, `--use-llm` flags on `plan`, `score`, `expand`, RecordedLLMProvider for tests, and brainstorm skill bridge to `fakoli-flow:brainstorm`.
 - **Phase 8** — GitHub sync: bidirectional Issues sync engine, `sync github` CLI command, state-keeper agent, reconciliation (`sync --fix`), nightly live-GitHub CI, `docs/github-sync.md`, marketplace.json regen, and feature-complete release. Phases 2-8 will be released as successive minor versions on top of 1.0.0.
+
+---
+
+## [1.3.0] — 2026-05-24
+
+Phase 4: Claims manager. Delivers atomic claim/release/renew/next semantics with lease and heartbeat enforcement, git branch auto-creation, two new bash hooks, a claim skill, and a comprehensive test suite. The plugin now supports the complete claim-based coordination workflow for AI agents working in parallel.
+
+### Added
+
+- Claims manager (`claims/manager.py` — atomic claim/release/renew with lease and heartbeat semantics; Clock-injected for deterministic tests).
+- Stale claim detector (`claims/stale.py` — runs on every CLI invocation; returns expired claims back to the ready pool with audit trail).
+- Four new CLI commands: `claim TASK_ID [--worktree] [--force] [--actor]`, `release CLAIM_ID [--force] [--reason]`, `renew CLAIM_ID`, `next [--actor]`.
+- Hook sub-app: `fakoli-state hook check-claim` and `fakoli-state hook record-file-change` (used by the new bash hooks).
+- Git ops module: `git_ops/branch.py` auto-creates `agent/<task>-<slug>` branches on claim (with name-collision suffix, graceful no-op when git absent); `git_ops/worktree.py` for optional `--worktree` parallel-checkout.
+- Two new hooks: `check-claim.sh` (PreToolUse on Edit|Write|NotebookEdit; warns when active claims exist) and `record-file-change.sh` (PostToolUse; appends file_changed events to the audit log).
+- New skill: `skills/claim/SKILL.md` — workflow choreography for the claim → work → renew → release loop.
+- State engine: 4 new event handlers (`claim.created`, `claim.released`, `claim.renewed`, `claim.stale`) all routed through `_apply_mutation` dispatch.
+- 98 new tests (300 → 398): `test_claims.py` (concurrency-critical, `claims/` coverage 99%), `test_git_ops.py` (real git per test), `test_hooks.sh` (11 bash smoke tests), extended `test_sqlite.py` and `test_cli.py`.
+- Audit guarantee extended: `TestReplayIncludesPhase4ClaimActions` byte-compares `sqlite3 .dump` after replaying `claim.created` → `claim.renewed` → `claim.released`; companion `test_replay_includes_claim_stale` covers the stale path.
+
+### Fixed
+
+- `claims/stale.py` event payload was missing the required `reason` field expected by `_handle_claim_stale` (caught by Wave 3 tests).
+- `_handle_claim_released` was incorrectly requiring `release_reason` — payload field is optional and the ClaimManager legitimately passes None when no reason is given.
+
+### Notes
+
+- Stale claim reaping is automatic on every mutating CLI command (`claim`, `release`, `renew`, `next`); users don't need to think about it.
+- Claims survive without git: when git is absent or cwd is not a git repo, the claim succeeds without a branch and prints a warning (record-only mode).
+
+---
+
+## [1.2.0] — 2026-05-24
+
+Phase 3: Planning engine. Delivers the full planning runtime — deterministic PRD parser, six-dimension scoring engine, dependency and conflict-group inference, eight new CLI subcommands, two new skills, a new agent, and a PRD template doc. The plugin now supports the complete PRD-to-ready-tasks workflow without LLM augmentation.
+
+### Added
+
+- Planning engine: deterministic template parser (`planning/template.py` — turns structured markdown into Pydantic Requirements/Features/Tasks; full quick-start example documented at `docs/prd-template.md`).
+- Six-dimension scoring engine (`planning/scoring.py` — rule-based heuristics for complexity, parallelizability, context_load, blast_radius, review_risk, agent_suitability; explanation string per task).
+- Dependency and conflict-group inference (`planning/inference.py` — subset-overlap heuristic for dependencies, partial-overlap detection for conflict groups).
+- Eight new CLI subcommands: `prd parse`, `prd review [--approve]`, `plan`, `score [TASK_ID]`, `expand TASK_ID` (Phase 7 scaffold), `review tasks`, `list [--status STATUS --feature F]`, `show TASK_ID`.
+- Two new skills: `skills/prd/` (PRD authoring/review workflow) and `skills/plan/` (PRD → ready tasks workflow), both following the state-ops imperative-voice and scannable-description conventions.
+- New agent: `agents/planner.md` (PRD-to-tasks specialist; defers to `fakoli-crew:guido` when fakoli-crew is installed; allowed-tools excludes Edit/Write to enforce the "propose, don't mutate" Iron Rule at the tool-permission level).
+- PRD template doc (`docs/prd-template.md` — ~2,500 words; quick-start JSON-to-YAML converter example demonstrates every documented field).
+- SQLite event router extended with 8 new actions: `prd.parsed`, `prd.reviewed`, `prd.approved`, `feature.created`, `task.created`, `task.scored`, `task.expanded`, `task.status_changed`; all routed via `_apply_mutation` dispatch; replay-from-empty handles all 8.
+
+### Fixed
+
+- `_insert_task_row` switched from `INSERT OR REPLACE` to `INSERT ... ON CONFLICT DO UPDATE` to preserve task row identity across `plan` re-runs. `INSERT OR REPLACE` is DELETE+INSERT, which trips `ON DELETE RESTRICT` on `claims.task_id` and `evidence.task_id` once work has begun. Regression test: `test_plan_is_idempotent`.
+
+### Tests
+
+- 122 new tests (174 → 296). `state/` coverage 95.05% (audit-critical), `planning/` ~93%, `cli` ~88%, overall 92.72%.
+- Audit guarantee extended: `test_replay_includes_new_event_actions` byte-compares `sqlite3 .dump` before/after replaying a mixed sequence of all 8 new event actions.
 
 ---
 

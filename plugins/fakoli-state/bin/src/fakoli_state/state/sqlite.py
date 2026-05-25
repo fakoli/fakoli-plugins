@@ -8,7 +8,10 @@ process crash after the JSONL write but before the COMMIT leaves the log
 in a state that can be replayed cleanly.
 
 Phase 2 note: only 'project.created' and 'state.initialized' are routed;
-all other actions raise NotImplementedError with a clear message.
+Phase 3 extends routing with: prd.parsed, prd.reviewed, prd.approved,
+feature.created, task.created, task.scored, task.expanded, task.status_changed.
+Phase 4 extends routing with: claim.created, claim.released, claim.renewed,
+claim.stale.
 """
 
 from __future__ import annotations
@@ -24,7 +27,17 @@ from fakoli_state.state.backend import (
     StateLocked,
     TransactionAborted,
 )
-from fakoli_state.state.models import PRD, Claim, ClaimStatus, Event, Project, Task
+from fakoli_state.state.models import (
+    PRD,
+    Claim,
+    ClaimStatus,
+    Event,
+    Feature,
+    Project,
+    Requirement,
+    Score,
+    Task,
+)
 from fakoli_state.state.schema import DDL, SCHEMA_VERSION
 
 if TYPE_CHECKING:
@@ -113,6 +126,22 @@ class SqliteBackend:
             except Exception:  # noqa: BLE001
                 pass
             self._conn = None
+
+    def next_event_id(self) -> str:
+        """Return the next sequential event ID in E%06d format.
+
+        Queries MAX(id) on the events mirror table. Used by both the CLI
+        and ClaimManager so event IDs never drift into incompatible
+        schemes (Greptile + critic flagged the original split — CLI used
+        sequential, ClaimManager used 20-digit microsecond IDs).
+        """
+        if self._conn is None:
+            return "E000001"
+        row = self._conn.execute(
+            "SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) FROM events"
+        ).fetchone()
+        max_num: int = row[0] if row and row[0] is not None else 0
+        return f"E{max_num + 1:06d}"
 
     # ------------------------------------------------------------------
     # Core mutation
@@ -336,8 +365,10 @@ class SqliteBackend:
     def _apply_mutation(self, conn: sqlite3.Connection, event: Event) -> None:
         """Dispatch event.action to the appropriate mutation handler.
 
-        Phase 2 only handles 'project.created' and 'state.initialized'.
-        All other actions raise NotImplementedError.
+        Phase 2 handles 'project.created' and 'state.initialized'.
+        Phase 3 adds: prd.parsed, prd.reviewed, prd.approved, feature.created,
+        task.created, task.scored, task.expanded, task.status_changed.
+        Phase 4 adds: claim.created, claim.released, claim.renewed, claim.stale.
         """
         action = event.action
         payload = event.payload_json
@@ -346,9 +377,42 @@ class SqliteBackend:
             self._handle_project_created(conn, payload)
         elif action == "state.initialized":
             self._handle_state_initialized(conn, payload)
+        elif action == "prd.parsed":
+            self._handle_prd_parsed(conn, payload)
+        elif action == "prd.reviewed":
+            self._handle_prd_reviewed(conn, payload, event.id, event.timestamp.isoformat())
+        elif action == "prd.approved":
+            self._handle_prd_approved(conn, payload, event.id, event.timestamp.isoformat())
+        elif action == "feature.created":
+            self._handle_feature_created(conn, payload)
+        elif action == "task.created":
+            self._handle_task_created(conn, payload)
+        elif action == "task.scored":
+            self._handle_task_scored(conn, payload, event.timestamp.isoformat())
+        elif action == "task.expanded":
+            self._handle_task_expanded(conn, payload)
+        elif action == "task.status_changed":
+            self._handle_task_status_changed(conn, payload, event.timestamp.isoformat())
+        elif action == "claim.created":
+            self._handle_claim_created(conn, payload, event.timestamp.isoformat())
+        elif action == "claim.released":
+            self._handle_claim_released(conn, payload, event.timestamp.isoformat())
+        elif action == "claim.renewed":
+            self._handle_claim_renewed(conn, payload, event.timestamp.isoformat())
+        elif action == "claim.stale":
+            self._handle_claim_stale(conn, payload, event.timestamp.isoformat())
+        elif action == "file_changed":
+            # Audit-trail-only event emitted by the PostToolUse hook
+            # (record-file-change.sh → fakoli-state hook record-file-change).
+            # No SQLite mutation: the JSONL line is the audit record. Greptile
+            # + critic flagged that the original code had no handler, so this
+            # action triggered NotImplementedError, the transaction rolled back,
+            # an error.transaction_aborted tombstone followed in JSONL, and the
+            # event was silently dropped from the events table on replay.
+            pass
         else:
             raise NotImplementedError(
-                f"Event action {action!r} is not yet supported in Phase 2. "
+                f"Event action {action!r} is not yet supported. "
                 "This action will be implemented in a later phase."
             )
 
@@ -380,6 +444,886 @@ class SqliteBackend:
         # Nothing to mutate for Phase 2 — the event row insertion is handled
         # by the caller (_apply_event_sqlite_only / apply_event).
         _ = payload  # acknowledged; intentionally unused
+
+    # ------------------------------------------------------------------
+    # Phase 3 handlers
+    # ------------------------------------------------------------------
+
+    def _handle_prd_parsed(
+        self, conn: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        """Upsert PRD and destructively replace all requirements.
+
+        Payload fields (all required):
+            project_id (str)  — FK into projects table
+            status (str)      — PRDStatus value (default 'draft' if absent)
+            summary (str)
+            goals (list[str])
+            non_goals (list[str])
+            requirements (list[dict]) — each is a Requirement payload
+            acceptance_criteria (list[str])
+            risks (list[str])
+            open_questions (list[str])
+
+        The ``requirements`` list in the PRD payload contains full Requirement
+        dicts.  The top-level ``prds.requirements`` column stores only the list
+        of requirement IDs (FK-style); the actual Requirement rows live in the
+        ``requirements`` table.
+
+        Parsing is destructive: old Requirement rows are deleted and replaced
+        with the new set inside a SAVEPOINT so failure leaves no partial state.
+        """
+        project_id: str | None = payload.get("project_id")
+        if not project_id:
+            raise TransactionAborted(
+                "prd.parsed payload missing required field 'project_id'."
+            )
+        summary: str = payload.get("summary", "")
+        status: str = payload.get("status", "draft")
+        goals = payload.get("goals", [])
+        non_goals = payload.get("non_goals", [])
+        requirements_raw: list[dict[str, Any]] = payload.get("requirements", [])
+        acceptance_criteria = payload.get("acceptance_criteria", [])
+        risks = payload.get("risks", [])
+        open_questions = payload.get("open_questions", [])
+
+        # Validate requirement payloads and collect IDs.
+        requirement_objects: list[Requirement] = []
+        for req_data in requirements_raw:
+            try:
+                req = Requirement.model_validate(req_data)
+            except Exception as exc:
+                raise TransactionAborted(
+                    f"prd.parsed: invalid Requirement in payload: {exc}"
+                ) from exc
+            requirement_objects.append(req)
+
+        requirement_ids = [r.id for r in requirement_objects]
+
+        # Upsert the PRD row.
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO prds
+                (project_id, status, summary, goals, non_goals, requirements,
+                 acceptance_criteria, risks, open_questions,
+                 last_reviewed_at, last_reviewed_by)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+            """,
+            (
+                project_id,
+                status,
+                summary,
+                json.dumps(goals),
+                json.dumps(non_goals),
+                json.dumps(requirement_ids),
+                json.dumps(acceptance_criteria),
+                json.dumps(risks),
+                json.dumps(open_questions),
+            ),
+        )
+
+        # Destructive re-parse of requirements — use SAVEPOINT so failure is
+        # atomic within the outer transaction.
+        conn.execute("SAVEPOINT prd_requirements_replace")
+        try:
+            conn.execute("DELETE FROM requirements")
+            for req in requirement_objects:
+                conn.execute(
+                    """
+                    INSERT INTO requirements
+                        (id, prd_section, text, source_paragraph, derived)
+                    VALUES
+                        (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        req.id,
+                        req.prd_section,
+                        req.text,
+                        req.source_paragraph,
+                        1 if req.derived else 0,
+                    ),
+                )
+        except Exception:
+            conn.execute("ROLLBACK TO prd_requirements_replace")
+            conn.execute("RELEASE prd_requirements_replace")
+            raise
+        conn.execute("RELEASE prd_requirements_replace")
+
+    def _handle_prd_reviewed(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        event_id: str,
+        timestamp: str,
+    ) -> None:
+        """Mark PRD as reviewed.
+
+        Payload fields:
+            project_id (str) — required (scopes the UPDATE so multi-PRD
+                              setups in future phases don't co-mutate)
+            reviewer (str)   — required
+            notes (str | None) — optional
+
+        We deliberately do NOT insert into the reviews table here. The
+        prds.status column transitioning draft → reviewed is its own audit
+        record. The reviews table is reserved for outcome-bearing review
+        decisions (approve, reject, needs_changes). Recording prd.reviewed
+        as decision='approve' would make it indistinguishable from a real
+        approval and cause false positives for any downstream code (e.g.,
+        the Phase 4 claims manager) that queries
+        `reviews WHERE decision='approve'` to determine approval state.
+
+        event_id is kept in the signature for symmetry with
+        _handle_prd_approved (which uses it for the stable review ID).
+        """
+        del event_id  # see docstring
+        project_id: str | None = payload.get("project_id")
+        if not project_id:
+            raise TransactionAborted(
+                "prd.reviewed payload missing required field 'project_id'."
+            )
+        reviewer: str | None = payload.get("reviewer")
+        if not reviewer:
+            raise TransactionAborted(
+                "prd.reviewed payload missing required field 'reviewer'."
+            )
+
+        conn.execute(
+            """
+            UPDATE prds
+               SET status = 'reviewed',
+                   last_reviewed_at = ?,
+                   last_reviewed_by = ?
+             WHERE project_id = ?
+            """,
+            (timestamp, reviewer, project_id),
+        )
+
+    def _handle_prd_approved(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        event_id: str,
+        timestamp: str,
+    ) -> None:
+        """Mark PRD as approved and insert an approval Review row.
+
+        Payload fields:
+            project_id (str) — required (scopes the UPDATE)
+            approver (str)   — required
+
+        The Review row ID is derived deterministically from the event_id so
+        that replay produces byte-for-byte identical rows. This is the
+        canonical 'approved' marker — queries should use the PRD's status
+        column OR look for reviews WHERE target_id=<project_id> AND
+        decision='approve' AND target_kind='prd'.
+        """
+        project_id: str | None = payload.get("project_id")
+        if not project_id:
+            raise TransactionAborted(
+                "prd.approved payload missing required field 'project_id'."
+            )
+        approver: str | None = payload.get("approver")
+        if not approver:
+            raise TransactionAborted(
+                "prd.approved payload missing required field 'approver'."
+            )
+
+        conn.execute(
+            """
+            UPDATE prds
+               SET status = 'approved',
+                   last_reviewed_at = ?,
+                   last_reviewed_by = ?
+             WHERE project_id = ?
+            """,
+            (timestamp, approver, project_id),
+        )
+
+        review_id = f"RV-{event_id}"
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO reviews
+                (id, target_kind, target_id, reviewed_by, decision, notes, created_at)
+            VALUES
+                (?, 'prd', ?, ?, 'approve', NULL, ?)
+            """,
+            (review_id, project_id, approver, timestamp),
+        )
+
+    def _handle_feature_created(
+        self, conn: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        """Insert a Feature row from the event payload.
+
+        Payload fields: all Feature model fields (id, title, description,
+        status, requirements, tasks).
+        """
+        try:
+            feature = Feature.model_validate(payload)
+        except Exception as exc:
+            raise TransactionAborted(
+                f"feature.created: invalid Feature payload: {exc}"
+            ) from exc
+
+        data = feature.model_dump(mode="json")
+        # Use INSERT ... ON CONFLICT DO UPDATE (UPSERT) instead of INSERT OR
+        # REPLACE to avoid violating the ON DELETE RESTRICT FK from tasks.
+        # INSERT OR REPLACE is equivalent to DELETE + INSERT which trips the FK
+        # when tasks already reference this feature.
+        conn.execute(
+            """
+            INSERT INTO features
+                (id, title, description, status, requirements, tasks)
+            VALUES
+                (:id, :title, :description, :status, :requirements, :tasks)
+            ON CONFLICT(id) DO UPDATE SET
+                title        = excluded.title,
+                description  = excluded.description,
+                status       = excluded.status,
+                requirements = excluded.requirements,
+                tasks        = excluded.tasks
+            """,
+            {
+                "id": data["id"],
+                "title": data["title"],
+                "description": data["description"],
+                "status": data["status"],
+                "requirements": json.dumps(data["requirements"]),
+                "tasks": json.dumps(data["tasks"]),
+            },
+        )
+
+    def _handle_task_created(
+        self, conn: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        """Insert a Task row from the event payload.
+
+        Payload fields: all Task model fields.  Scores may be None for all
+        dimensions at creation time; they get populated by task.scored later.
+        """
+        try:
+            task = Task.model_validate(payload)
+        except Exception as exc:
+            raise TransactionAborted(
+                f"task.created: invalid Task payload: {exc}"
+            ) from exc
+
+        self._insert_task_row(conn, task)
+
+    def _handle_task_scored(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Update a task's scores and explanation.
+
+        Payload fields:
+            task_id (str) — required
+            scores (dict[str, int | None]) — dimension name → score; required
+            explanation (str) — required
+
+        The scores dict is merged with any existing Score fields; null-valued
+        dimensions remain null (not coerced to 0).  The explanation is stored
+        inside the Score model's ``explanation`` field.
+        """
+        task_id: str | None = payload.get("task_id")
+        if not task_id:
+            raise TransactionAborted(
+                "task.scored payload missing required field 'task_id'."
+            )
+        scores_dict: dict[str, Any] | None = payload.get("scores")
+        if scores_dict is None:
+            raise TransactionAborted(
+                "task.scored payload missing required field 'scores'."
+            )
+        explanation: str | None = payload.get("explanation")
+
+        # Build the Score model from the payload dimensions + explanation.
+        score_data = dict(scores_dict)
+        score_data["explanation"] = explanation
+        try:
+            score = Score.model_validate(score_data)
+        except Exception as exc:
+            raise TransactionAborted(
+                f"task.scored: invalid scores payload: {exc}"
+            ) from exc
+
+        scores_json = json.dumps(score.model_dump(mode="json"))
+
+        conn.execute(
+            """
+            UPDATE tasks
+               SET scores = ?,
+                   updated_at = ?
+             WHERE id = ?
+            """,
+            (scores_json, timestamp, task_id),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            raise TransactionAborted(
+                f"task.scored: task '{task_id}' not found."
+            )
+
+    def _handle_task_expanded(
+        self, conn: sqlite3.Connection, payload: dict[str, Any]
+    ) -> None:
+        """Insert subtask rows derived from expanding a parent task.
+
+        Payload fields:
+            parent_task_id (str) — required; must exist in tasks table
+            subtasks (list[dict]) — list of Task payloads; each will be
+                                    inserted with parent_task_id set
+
+        The parent task's status is NOT changed here; the subtask rows
+        themselves signal expansion (parent_task_id IS NOT NULL).
+        """
+        parent_task_id: str | None = payload.get("parent_task_id")
+        if not parent_task_id:
+            raise TransactionAborted(
+                "task.expanded payload missing required field 'parent_task_id'."
+            )
+        subtasks_raw: list[dict[str, Any]] = payload.get("subtasks", [])
+        if not subtasks_raw:
+            raise TransactionAborted(
+                "task.expanded payload has empty 'subtasks' list; nothing to expand."
+            )
+
+        for subtask_data in subtasks_raw:
+            # Force parent_task_id from the event, not from the payload sub-dict.
+            subtask_data = dict(subtask_data)
+            subtask_data["parent_task_id"] = parent_task_id
+            try:
+                subtask = Task.model_validate(subtask_data)
+            except Exception as exc:
+                raise TransactionAborted(
+                    f"task.expanded: invalid subtask payload: {exc}"
+                ) from exc
+            self._insert_task_row(conn, subtask)
+
+    def _handle_task_status_changed(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Atomically transition a task from one status to another.
+
+        Payload fields:
+            task_id (str) — required
+            from (str)    — expected current status (concurrency guard)
+            to (str)      — target status
+            reason (str | None) — optional human-readable reason
+
+        The UPDATE uses a WHERE status=from clause as a concurrency guard.
+        If zero rows are updated (the task does not exist or its status has
+        drifted), TransactionAborted is raised.
+        """
+        task_id: str | None = payload.get("task_id")
+        from_status: str | None = payload.get("from")
+        to_status: str | None = payload.get("to")
+
+        if not task_id:
+            raise TransactionAborted(
+                "task.status_changed payload missing required field 'task_id'."
+            )
+        if not from_status:
+            raise TransactionAborted(
+                "task.status_changed payload missing required field 'from'."
+            )
+        if not to_status:
+            raise TransactionAborted(
+                "task.status_changed payload missing required field 'to'."
+            )
+
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = ?,
+                   updated_at = ?
+             WHERE id = ?
+               AND status = ?
+            """,
+            (to_status, timestamp, task_id, from_status),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            # Determine whether task exists at all for a clearer error.
+            row = conn.execute(
+                "SELECT status FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"task.status_changed: task '{task_id}' not found."
+                )
+            actual_status = row[0]
+            # Idempotent re-application: if the task is already at the
+            # target status, treat as a successful no-op. This lets `plan`
+            # (which emits proposed→drafted) be re-run safely after the
+            # first run has already promoted tasks. Without this branch,
+            # re-plan would always raise because status no longer matches
+            # the 'from' field.
+            if actual_status == to_status:
+                return
+            raise TransactionAborted(
+                f"task.status_changed: concurrency guard failed for task '{task_id}'. "
+                f"Expected status '{from_status}', got '{actual_status}'. "
+                "The task status may have been changed by a concurrent operation."
+            )
+
+    # ------------------------------------------------------------------
+    # Phase 4 handlers — claim lifecycle
+    # ------------------------------------------------------------------
+
+    def _handle_claim_created(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Atomically INSERT the claim and transition the task to 'claimed'.
+
+        Payload fields (all required):
+            id (str)                — claim PK
+            task_id (str)          — FK into tasks
+            claimed_by (str)       — agent identifier
+            claim_type (str)       — ClaimType value
+            status (str)           — must be 'active' for a new claim
+            branch (str | None)
+            worktree_path (str | None)
+            expected_files (list[str])
+            created_at (str)       — ISO 8601 UTC
+            lease_expires_at (str) — ISO 8601 UTC
+            last_heartbeat_at (str) — ISO 8601 UTC
+
+        Idempotent: INSERT OR IGNORE on the claim id PK — replay is safe.
+
+        Concurrency guard: the task status UPDATE uses WHERE status='ready'
+        so a parallel claim attempt that has already transitioned the task
+        results in 0 rows updated → TransactionAborted.  The task→claimed
+        transition is a side effect of claim.created; it does NOT need a
+        separate task.status_changed event.
+        """
+        claim_id: str | None = payload.get("id")
+        task_id: str | None = payload.get("task_id")
+        claimed_by: str | None = payload.get("claimed_by")
+        claim_type: str | None = payload.get("claim_type")
+        status: str | None = payload.get("status")
+        created_at: str | None = payload.get("created_at")
+        lease_expires_at: str | None = payload.get("lease_expires_at")
+        last_heartbeat_at: str | None = payload.get("last_heartbeat_at")
+
+        for field_name, value in (
+            ("id", claim_id),
+            ("task_id", task_id),
+            ("claimed_by", claimed_by),
+            ("claim_type", claim_type),
+            ("status", status),
+            ("created_at", created_at),
+            ("lease_expires_at", lease_expires_at),
+            ("last_heartbeat_at", last_heartbeat_at),
+        ):
+            if not value:
+                raise TransactionAborted(
+                    f"claim.created payload missing required field {field_name!r}."
+                )
+
+        branch: str | None = payload.get("branch")
+        worktree_path: str | None = payload.get("worktree_path")
+        expected_files = payload.get("expected_files", [])
+
+        # INSERT OR IGNORE: idempotent on replay — duplicate claim.created events
+        # (after crash mid-transaction) do not produce duplicate rows.
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO claims
+                (id, task_id, claimed_by, claim_type, status, branch,
+                 worktree_path, expected_files, created_at,
+                 lease_expires_at, last_heartbeat_at, released_at, release_reason)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+            """,
+            (
+                claim_id,
+                task_id,
+                claimed_by,
+                claim_type,
+                status,
+                branch,
+                worktree_path,
+                json.dumps(expected_files),
+                created_at,
+                lease_expires_at,
+                last_heartbeat_at,
+            ),
+        )
+
+        # Side-effect: transition the task status from 'ready' → 'claimed'.
+        # The WHERE status='ready' is the concurrency guard — if another claim
+        # has already moved the task to 'claimed', 0 rows are updated and we
+        # abort (the INSERT OR IGNORE above means the claim row itself is also
+        # a no-op on replay, keeping the two mutations consistent).
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'claimed',
+                   updated_at = ?
+             WHERE id = ?
+               AND status = 'ready'
+            """,
+            (timestamp, task_id),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            # Determine whether the task exists and what its current status is.
+            row = conn.execute(
+                "SELECT status FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"claim.created: task '{task_id}' not found."
+                )
+            actual_status = row[0]
+            # Idempotent replay path: if the INSERT OR IGNORE above was a no-op
+            # (claim already existed) AND the task is already 'claimed', this
+            # is a replay of a previously-committed claim.created — treat as
+            # no-op instead of raising.
+            if actual_status == "claimed":
+                return
+            raise TransactionAborted(
+                f"claim.created: concurrency guard failed for task '{task_id}'. "
+                f"Expected status 'ready', got '{actual_status}'. "
+                "Another claim may have already acquired this task."
+            )
+
+    def _handle_claim_released(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Release an active claim and return the task to 'ready'.
+
+        Payload fields (all required):
+            claim_id (str)       — PK of the claim to release
+            released_by (str)    — agent releasing the claim
+            release_reason (str) — human-readable reason
+
+        On already-released (idempotent): log a warning tombstone to the event
+        log via _append_abort_event but do NOT raise — the stale detector runs
+        frequently and should not error on already-released claims.
+
+        Side-effect: UPDATE tasks SET status='ready' WHERE id=task_id AND
+        status='claimed' — uses the WHERE guard for concurrency safety.
+        """
+        claim_id: str | None = payload.get("claim_id")
+        released_by: str | None = payload.get("released_by")
+        # release_reason is optional — the ClaimManager passes None when the
+        # caller provides no explicit reason.  Only claim_id and released_by are
+        # strictly required.
+        release_reason: str | None = payload.get("release_reason")
+        # `force` honours the CLI's --force flag: lets non-owners release a
+        # claim and lets release succeed even on already-stale/non-active
+        # claims (Greptile + critic both flagged that the original handler
+        # silently no-op'd force-release of stale claims).
+        force: bool = bool(payload.get("force", False))
+
+        for field_name, value in (
+            ("claim_id", claim_id),
+            ("released_by", released_by),
+        ):
+            if not value:
+                raise TransactionAborted(
+                    f"claim.released payload missing required field {field_name!r}."
+                )
+
+        # Force-release writes a distinct terminal status (force_released) so
+        # the audit trail captures the override; normal release uses 'released'.
+        # Force also allows non-active claims to be released so a stranded
+        # stale claim can be cleaned up after the fact.
+        target_status = "force_released" if force else "released"
+        if force:
+            status_guard = "status NOT IN ('released', 'force_released')"
+        else:
+            status_guard = "status = 'active'"
+
+        conn.execute(
+            f"""
+            UPDATE claims
+               SET status = ?,
+                   released_at = ?,
+                   release_reason = ?
+             WHERE id = ?
+               AND {status_guard}
+            """,  # noqa: S608 — status_guard is a literal, not user input
+            (target_status, timestamp, release_reason, claim_id),
+        )
+
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            # Check whether the claim exists at all, or was already released.
+            row = conn.execute(
+                "SELECT status FROM claims WHERE id = ?", (claim_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"claim.released: claim '{claim_id}' not found."
+                )
+            # Already in a terminal state — idempotent no-op; log but don't raise.
+            current_status = row[0]
+            self._append_warn_log(
+                action="claim.released",
+                target_id=claim_id or "",
+                reason=(
+                    f"claim.released: claim '{claim_id}' already has status "
+                    f"'{current_status}'; treating as idempotent no-op."
+                ),
+            )
+            return
+
+        # Side-effect: return the task to 'ready'. Widened from the original
+        # WHERE status='claimed' (which would TransactionAborted on tasks that
+        # had advanced to in_progress or blocked) to all post-claim, pre-done
+        # statuses. Critic flagged this: release --force is supposed to work
+        # even when the task has progressed mid-work.
+        task_row = conn.execute(
+            "SELECT task_id FROM claims WHERE id = ?", (claim_id,)
+        ).fetchone()
+        if task_row is not None:
+            task_id = task_row[0]
+            conn.execute(
+                """
+                UPDATE tasks
+                   SET status = 'ready',
+                       updated_at = ?
+                 WHERE id = ?
+                   AND status IN ('claimed', 'in_progress', 'blocked')
+                """,
+                (timestamp, task_id),
+            )
+            # 0 rows is now acceptable: the task may have legitimately advanced
+            # to needs_review, accepted, or done in parallel (Phase 5 completion).
+            # No error — releasing the claim is the right behaviour regardless.
+
+    def _handle_claim_renewed(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Extend the lease on an active claim.
+
+        Payload fields (all required):
+            claim_id (str)          — PK of the claim to renew
+            lease_expires_at (str)  — new expiry (ISO 8601 UTC)
+            last_heartbeat_at (str) — updated heartbeat timestamp (ISO 8601 UTC)
+
+        Does NOT mutate the tasks table.
+
+        Raises TransactionAborted if the claim does not exist or is not active.
+
+        The event-level `timestamp` parameter is taken for signature symmetry
+        with the other claim handlers (the router dispatches uniformly); the
+        renewed lease timestamps come from the payload itself.
+        """
+        del timestamp  # see docstring
+        claim_id: str | None = payload.get("claim_id")
+        lease_expires_at: str | None = payload.get("lease_expires_at")
+        last_heartbeat_at: str | None = payload.get("last_heartbeat_at")
+
+        for field_name, value in (
+            ("claim_id", claim_id),
+            ("lease_expires_at", lease_expires_at),
+            ("last_heartbeat_at", last_heartbeat_at),
+        ):
+            if not value:
+                raise TransactionAborted(
+                    f"claim.renewed payload missing required field {field_name!r}."
+                )
+
+        conn.execute(
+            """
+            UPDATE claims
+               SET lease_expires_at = ?,
+                   last_heartbeat_at = ?
+             WHERE id = ?
+               AND status = 'active'
+            """,
+            (lease_expires_at, last_heartbeat_at, claim_id),
+        )
+
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            row = conn.execute(
+                "SELECT status FROM claims WHERE id = ?", (claim_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"claim.renewed: claim '{claim_id}' not found."
+                )
+            actual_status = row[0]
+            raise TransactionAborted(
+                f"claim.renewed: cannot renew claim '{claim_id}' "
+                f"with status '{actual_status}' (must be 'active')."
+            )
+
+    def _handle_claim_stale(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Mark an active claim as stale and return the task to 'ready'.
+
+        Payload fields (all required):
+            claim_id (str)    — PK of the claim to mark stale
+            detected_at (str) — when staleness was detected (ISO 8601 UTC)
+            reason (str)      — typically 'lease_expired'
+
+        On already-stale (idempotent): log a warning tombstone but do NOT raise.
+        The stale detector runs on every CLI call and should not error on claims
+        it has already processed.
+
+        Side-effect: UPDATE tasks SET status='ready' WHERE id=task_id AND
+        status IN ('claimed', 'in_progress', 'blocked').  If the task status
+        has already moved beyond those states (e.g., accepted, done), the
+        UPDATE is a no-op — that is intentional and not an error.
+        """
+        claim_id: str | None = payload.get("claim_id")
+        detected_at: str | None = payload.get("detected_at")
+        reason: str | None = payload.get("reason")
+
+        for field_name, value in (
+            ("claim_id", claim_id),
+            ("detected_at", detected_at),
+            ("reason", reason),
+        ):
+            if not value:
+                raise TransactionAborted(
+                    f"claim.stale payload missing required field {field_name!r}."
+                )
+
+        conn.execute(
+            """
+            UPDATE claims
+               SET status = 'stale',
+                   released_at = ?,
+                   release_reason = 'lease_expired'
+             WHERE id = ?
+               AND status = 'active'
+            """,
+            (timestamp, claim_id),
+        )
+
+        if conn.execute("SELECT changes()").fetchone()[0] == 0:
+            # Check whether it's already stale (idempotent no-op) or truly missing.
+            row = conn.execute(
+                "SELECT status FROM claims WHERE id = ?", (claim_id,)
+            ).fetchone()
+            if row is None:
+                raise TransactionAborted(
+                    f"claim.stale: claim '{claim_id}' not found."
+                )
+            # Already stale (or force_released) — idempotent; log warning only.
+            current_status = row[0]
+            self._append_warn_log(
+                action="claim.stale",
+                target_id=claim_id or "",
+                reason=(
+                    f"claim.stale: claim '{claim_id}' already has status "
+                    f"'{current_status}'; treating as idempotent no-op."
+                ),
+            )
+            return
+
+        # Side-effect: return the task to 'ready' if it is still in an
+        # active-work status.  Tasks already at accepted/done/rejected are
+        # left untouched — the work completed before the lease expired.
+        task_row = conn.execute(
+            "SELECT task_id FROM claims WHERE id = ?", (claim_id,)
+        ).fetchone()
+        if task_row is not None:
+            task_id = task_row[0]
+            conn.execute(
+                """
+                UPDATE tasks
+                   SET status = 'ready',
+                       updated_at = ?
+                 WHERE id = ?
+                   AND status IN ('claimed', 'in_progress', 'blocked')
+                """,
+                (timestamp, task_id),
+            )
+            # No error if 0 rows — the task may have been completed already.
+
+    # ------------------------------------------------------------------
+    # Internal helpers — task row insertion (shared by task.created and
+    # task.expanded)
+    # ------------------------------------------------------------------
+
+    def _insert_task_row(self, conn: sqlite3.Connection, task: Task) -> None:
+        """Insert or upsert a Task row in the tasks table.
+
+        Uses INSERT ... ON CONFLICT DO UPDATE (not INSERT OR REPLACE) for the
+        same reason as feature.created: INSERT OR REPLACE is DELETE + INSERT,
+        which trips ON DELETE RESTRICT on claims.task_id and evidence.task_id
+        if anything has been claimed against this task. The upsert pattern
+        preserves the row identity, so foreign keys remain valid even when
+        `plan` is re-run after work has begun.
+        """
+        data = task.model_dump(mode="json")
+        conn.execute(
+            """
+            INSERT INTO tasks
+                (id, feature_id, title, description, status, priority,
+                 dependencies, conflict_groups, scores, acceptance_criteria,
+                 implementation_notes, verification, likely_files,
+                 parent_task_id, created_at, updated_at)
+            VALUES
+                (:id, :feature_id, :title, :description, :status, :priority,
+                 :dependencies, :conflict_groups, :scores, :acceptance_criteria,
+                 :implementation_notes, :verification, :likely_files,
+                 :parent_task_id, :created_at, :updated_at)
+            ON CONFLICT(id) DO UPDATE SET
+                feature_id           = excluded.feature_id,
+                title                = excluded.title,
+                description          = excluded.description,
+                -- status is intentionally OMITTED from the upsert. Status
+                -- transitions go exclusively through task.status_changed
+                -- events. If task.created carried status=proposed and we
+                -- overwrote it on re-plan, a re-plan after Phase 4 claims
+                -- would silently reset claimed/in_progress tasks back to
+                -- proposed, stripping the claim. Greptile flagged this on
+                -- PR #38; the fix is to let status be managed by its
+                -- dedicated transition handler only.
+                priority             = excluded.priority,
+                dependencies         = excluded.dependencies,
+                conflict_groups      = excluded.conflict_groups,
+                scores               = excluded.scores,
+                acceptance_criteria  = excluded.acceptance_criteria,
+                implementation_notes = excluded.implementation_notes,
+                verification         = excluded.verification,
+                likely_files         = excluded.likely_files,
+                parent_task_id       = excluded.parent_task_id,
+                updated_at           = excluded.updated_at
+            """,
+            {
+                "id": data["id"],
+                "feature_id": data["feature_id"],
+                "title": data["title"],
+                "description": data["description"],
+                "status": data["status"],
+                "priority": data["priority"],
+                "dependencies": json.dumps(data["dependencies"]),
+                "conflict_groups": json.dumps(data["conflict_groups"]),
+                "scores": json.dumps(data["scores"]),
+                "acceptance_criteria": json.dumps(data["acceptance_criteria"]),
+                "implementation_notes": json.dumps(data["implementation_notes"]),
+                "verification": json.dumps(data["verification"]),
+                "likely_files": json.dumps(data["likely_files"]),
+                "parent_task_id": data["parent_task_id"],
+                "created_at": data["created_at"],
+                "updated_at": data["updated_at"],
+            },
+        )
 
     def _insert_event_row(self, conn: sqlite3.Connection, event: Event) -> None:
         """Insert the event into the events mirror table."""
@@ -467,6 +1411,37 @@ class SqliteBackend:
         except OSError:
             # If we can't write the abort tombstone, swallow the error — the
             # caller already has the TransactionAborted exception.
+            pass
+
+    def _append_warn_log(
+        self,
+        action: str,
+        target_id: str,
+        reason: str,
+    ) -> None:
+        """Append a warn.idempotent_no_op entry to the JSONL log.
+
+        Used for idempotent no-ops (already-released / already-stale claims)
+        where we need an audit trail but must not raise TransactionAborted.
+        Unlike _append_abort_event this method does not require an Event object,
+        so it avoids constructing a model with a non-standard ID.
+        """
+        now = self._clock.now()
+        warn_data = {
+            "timestamp": now.isoformat(),
+            "actor": "system",
+            "action": "warn.idempotent_no_op",
+            "target_kind": "claim",
+            "target_id": target_id,
+            "payload_json": {
+                "original_action": action,
+                "reason": reason,
+            },
+        }
+        try:
+            with open(self._events_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(warn_data) + "\n")
+        except OSError:
             pass
 
     # ------------------------------------------------------------------
