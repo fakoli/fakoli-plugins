@@ -336,11 +336,17 @@ class TestStatusInitialized:
 
 class TestVersion:
     def test_version_still_works(self) -> None:
-        """--version prints 'fakoli-state 1.4.0' and exits 0."""
+        """--version prints 'fakoli-state {__version__}' and exits 0.
+
+        Imports __version__ rather than hardcoding so the test doesn't
+        need a one-line bump on every release (Critic-4 TQ-5 in PR #41).
+        """
+        from fakoli_state import __version__
+
         result = runner.invoke(app, ["--version"], catch_exceptions=False)
         assert result.exit_code == 0
         assert "fakoli-state" in result.output
-        assert "1.4.0" in result.output
+        assert __version__ in result.output
 
     def test_version_short_flag(self) -> None:
         """-V is an alias for --version."""
