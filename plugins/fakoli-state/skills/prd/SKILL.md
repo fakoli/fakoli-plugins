@@ -52,6 +52,22 @@ The structured template at `docs/prd-template.md` (relative to the plugin root) 
 
 ### Step 1 — Author or update `.fakoli-state/prd.md`
 
+Before opening the editor, check whether `.fakoli-state/prd.md` already exists. The subsequent `fakoli-state prd parse` step (Step 2) is destructive — it replaces every `Requirement`, `Feature`, and `Task` row in `state.db`. Re-entering this skill on top of a hand-authored PRD without the user's knowledge would silently clobber that work.
+
+```bash
+ls .fakoli-state/prd.md 2>/dev/null
+```
+
+**If the file exists**, do not open the editor or re-parse without confirmation. Show the user a one-line summary of the existing file (first heading and total line count are usually enough) and ask:
+
+> `.fakoli-state/prd.md` already exists (`<first-heading>`, `<N>` lines). Open it for editing, save it as a backup first, or cancel? (yes / no / save-as-backup)
+
+- On `yes` — open the file in the editor and continue authoring in place.
+- On `no` — stop. Tell the user the PRD was left untouched; suggest they review the existing file directly or run `/fakoli-state:state-ops` to inspect current PRD status.
+- On `save-as-backup` — copy the existing file to `.fakoli-state/prd.md.bak` first, then open `.fakoli-state/prd.md` in the editor.
+
+**If the file does not exist**, proceed directly to opening the editor.
+
 Open the PRD in an editor:
 
 ```bash
@@ -163,7 +179,7 @@ Confirm `prd-status: approved` in the output. The project is now ready for `/fak
 
 The PRD will change. Here is the safe sequence for updates:
 
-1. Edit `.fakoli-state/prd.md` with the revised content.
+1. Edit `.fakoli-state/prd.md` with the revised content. Before any destructive re-parse, confirm the user intends to overwrite the existing `Requirement`/`Feature`/`Task` rows. Mirror the Step 1 overwrite-gate pattern: show the user a one-line summary (heading + line count) of the current `prd.md`, and prompt `proceed / cancel / save-as-backup` before running `prd parse`. On `save-as-backup`, copy `.fakoli-state/prd.md` to `.fakoli-state/prd.md.bak` first.
 2. Run `fakoli-state prd parse` again. Re-parse replaces all `Requirement`, `Feature`, and `Task` entities — it is not a merge.
 3. Re-run `fakoli-state prd review` if the changes are material (added/removed requirements, changed acceptance criteria, altered feature scope).
 4. Re-run `fakoli-state prd review --approve` for significant scope changes. Minor editorial corrections (typo fixes, clarified wording, unchanged structure) do not require re-approval.

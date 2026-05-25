@@ -23,7 +23,7 @@ description: >
 
 model: opus
 color: magenta
-allowed-tools:
+tools:
   - Read
   - Grep
   - Glob

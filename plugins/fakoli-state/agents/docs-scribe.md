@@ -64,7 +64,7 @@ description: >
 
 model: opus
 color: purple
-allowed-tools:
+tools:
   - Read
   - Write
   - Edit

@@ -244,12 +244,14 @@ When the human is the reviewer and an agent runs this skill:
 
 **When `fakoli-flow:finish` is installed:** that skill wraps this one for wave-based batch completion. It drives `apply` for all completed tasks in a wave, then triggers automated PR creation via `gh pr create`. Solo and human-reviewer workflows use this skill directly. `fakoli-flow:finish` calls `fakoli-state apply` for each task the same way, but orchestrates the full wave before handing off to git.
 
-**When `fakoli-crew` is installed:** `sentinel` validates evidence before the reviewer reaches this skill. When `fakoli-crew:sentinel` is present, run sentinel verification first:
+**When `fakoli-crew` is installed:** the `sentinel` agent validates evidence before the reviewer reaches this skill. Detect availability explicitly rather than guessing:
 
 ```bash
-# sentinel runs automatically in fakoli-flow; in solo mode, trigger manually:
-/fakoli-state:sentinel
+claude plugin list 2>/dev/null | grep -q "^fakoli-crew"
 ```
+
+- **Exit code 0** (`fakoli-crew` present): dispatch the `fakoli-crew:sentinel` agent against the task's evidence bundle before invoking `fakoli-state apply`. `fakoli-flow:finish` does this dispatch automatically as part of its wave-completion flow; in solo mode, ask the parent Claude session to dispatch the agent and pass the task ID.
+- **Non-zero exit** (`fakoli-crew` absent): fall through to the plugin-local `sentinel` agent if you are running under a Claude session that has access to it, otherwise rely on the reviewer's own reading of the evidence. Sentinel is an agent surface, not a skill — it must be dispatched via the agent mechanism, never via a slash command.
 
 Sentinel produces a pass/fail recommendation that supplements (but does not replace) the reviewer's judgment. The `apply` call is always a human decision.
 

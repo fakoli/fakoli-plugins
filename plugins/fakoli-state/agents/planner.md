@@ -41,7 +41,7 @@ description: >
 
 model: opus
 color: white
-allowed-tools:
+tools:
   - Read
   - Grep
   - Glob

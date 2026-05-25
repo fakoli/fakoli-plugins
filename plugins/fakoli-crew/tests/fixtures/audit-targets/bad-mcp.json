@@ -1,0 +1,9 @@
+{
+  "_comment": "INTENTIONAL ANTIPATTERN FIXTURE — DO NOT FIX. This .mcp.json is a deliberately-broken manifest used to smoke-test fakoli-crew's `mcp-critic` per the procedure in tests/RECIPES.md (T7). The bug below is intentional. Intentional bug: the stdio server entry is missing the required `args` field. Expected critic finding: MUST FIX — per the mcp-critic manifest-schema checklist, 'stdio servers have command (string) and args (array of strings); missing or wrong-typed fails install.' The server will silently fail to start because Claude Code's MCP loader requires args (even an empty array `[]`) for stdio transports. Expected verdict: FAIL (1x MUST FIX).",
+  "mcpServers": {
+    "bad-server": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/bad-server"
+    }
+  }
+}

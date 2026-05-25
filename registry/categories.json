@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-25T19:12:17Z",
+  "generatedAt": "2026-05-25T21:11:35Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -37,7 +37,7 @@
         },
         {
           "name": "fakoli-crew",
-          "version": "2.1.1",
+          "version": "2.2.0",
           "description": "Eight specialist AI agents for software engineering — TypeScript architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
           "path": "plugins/fakoli-crew"
         },
@@ -55,7 +55,7 @@
         },
         {
           "name": "fakoli-state",
-          "version": "1.9.0",
+          "version": "1.10.0",
           "description": "Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.",
           "path": "plugins/fakoli-state"
         },

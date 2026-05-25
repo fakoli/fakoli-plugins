@@ -64,7 +64,7 @@ description: >
 
 model: opus
 color: cyan
-allowed-tools:
+tools:
   - Read
   - Write
   - Edit
