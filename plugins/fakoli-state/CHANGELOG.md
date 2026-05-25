@@ -6,11 +6,86 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-Phases 6-8 are planned and actively scheduled. Each phase ships as its own PR into the fakoli-plugins monorepo.
+Phases 6 (proper), 7, and 8 remain scheduled. Each phase ships as its own PR into the fakoli-plugins monorepo.
 
-- **Phase 6** — MCP server: 13 agent-facing tools, `.mcp.json` wiring, `bin/fakoli-state-mcp` bash wrapper, MCP integration tests, and `docs/mcp.md`.
+- **Phase 6 (proper)** — MCP server: 13 agent-facing tools, `.mcp.json` wiring, `bin/fakoli-state-mcp` bash wrapper, MCP integration tests, and `docs/mcp.md`.
 - **Phase 7** — LLM augmentation: Anthropic provider implementation, `--use-llm` flags on `plan`, `score`, `expand`, RecordedLLMProvider for tests, and brainstorm skill bridge to `fakoli-flow:brainstorm`.
-- **Phase 8** — GitHub sync: bidirectional Issues sync engine, `sync github` CLI command, state-keeper agent, reconciliation (`sync --fix`), nightly live-GitHub CI, `docs/github-sync.md`, marketplace.json regen, and feature-complete release. Phases 2-8 will be released as successive minor versions on top of 1.0.0.
+- **Phase 8** — GitHub sync: bidirectional Issues sync engine, `sync github` CLI command, state-keeper agent, reconciliation (`sync --fix`), nightly live-GitHub CI, `docs/github-sync.md`, marketplace.json regen, and feature-complete release.
+
+---
+
+## [1.5.0] — 2026-05-25
+
+Phase 6 prep: backend / state-engine refactors that unblock the MCP server
+(landing next in Phase 6 proper) by closing the five must-fix items from the
+PR #41 critic and Greptile reviews tracked as P6-1..P6-5 in
+`docs/tech-debt-backlog.md`.
+
+### Added
+
+- `bin/src/fakoli_state/cli/` — new package replacing the 2,499-line `cli.py`
+  monolith. Per-command modules: `init_status`, `prd`, `plan`, `claim`,
+  `packet_apply`, `hooks`, plus `_helpers` for shared utilities and
+  `__init__.py` as the Typer-app assembler. Public import path
+  (`from fakoli_state.cli import app`) is unchanged. (P6-4)
+- `bin/src/fakoli_state/state/payloads.py` — 17 per-action Pydantic v2 payload
+  models (`ProjectCreatedPayload`, `PrdParsedPayload`,
+  `EvidenceSubmittedPayload`, etc.) all using `ConfigDict(extra="forbid")`.
+  `SqliteBackend._apply_mutation` now validates `event.payload_json` against
+  the model for `event.action` once before dispatch, replacing the 17-elif
+  chain with a `dict[str, (PayloadModel, handler)]` table. Handler signatures
+  normalize to `(conn, payload: TypedPayload, event: Event)` — handlers read
+  fields via attribute access rather than `payload.get(...)`. (P6-5)
+- `Backend` Protocol gains three methods previously only on the SqliteBackend
+  reach-through: `get_feature(feature_id)`, `list_events(target_id,
+  target_kind, limit)`, `get_latest_evidence(task_id)`. The CLI no longer
+  touches `backend._conn` directly; the three call sites in
+  `cli/_helpers.py` (`_fetch_recent_events`, `_fetch_latest_evidence`)
+  collapse into Protocol calls. (P6-1)
+- `PENDING_EVENT_ID = "PENDING"` sentinel on `state.backend`. Callers
+  construct events as `Event(id=PENDING_EVENT_ID, ...)` and the backend
+  assigns the real `E000001`-format ID inside `apply_event`'s BEGIN IMMEDIATE
+  transaction, closing the read-before-lock race that allowed event drops
+  under concurrent claim/release. (P6-2)
+- 37 new test cases in `tests/test_sqlite.py::TestPayloadValidation`
+  covering each payload model's happy path and `extra="forbid"` rejection
+  plus dispatch-level `ValidationError` propagation.
+- 7 new test cases in `tests/test_sqlite.py::TestBackendProtocolExtensions`
+  covering the three new Protocol methods.
+
+### Changed
+
+- All CLI commands and `claims.stale.detect_and_release_stale()` now emit
+  events via `PENDING_EVENT_ID` instead of pre-allocating IDs through
+  `backend.next_event_id()`. `next_event_id()` remains for backward
+  compatibility but is documented as the legacy path.
+- `SqliteBackend.apply_event` rewrites `event.id` in place when the sentinel
+  is passed and returns the updated event so callers can recover the assigned
+  ID without re-querying.
+
+### Removed
+
+- `bin/src/fakoli_state/cli.py` — replaced by the package above. Imports
+  resolve identically.
+- `TaskStatus.stale` from `state.models` and the corresponding
+  `task_to_stale` / `task_stale_to_ready` transitions. The state was
+  structurally unreachable — only claims can be stale, and the task returns
+  directly to `ready` when the claim is reaped. Task lifecycle ASCII diagram
+  in `docs/specs/2026-05-24-fakoli-state-v0.md` updated. CL-16 (claim.stale
+  task transition skips the intermediate `stale` state) is resolved as a
+  side-effect. (P6-3)
+- `cli/_helpers.py::_fetch_recent_events` and `_fetch_latest_evidence` —
+  callers now go through the Protocol methods.
+
+### Migration notes
+
+- External code calling `apply_event` should switch to passing
+  `Event(id=PENDING_EVENT_ID, ...)` to get race-free ID assignment. Pre-built
+  events with concrete IDs still work (the replay path requires this) but the
+  pre-allocation path is racy under concurrency.
+- Subclasses of `Backend` must implement the three new methods or accept the
+  `NotImplementedError` from the Protocol default.
+- The CLI external surface (`fakoli-state <subcommand>`) is unchanged.
 
 ---
 

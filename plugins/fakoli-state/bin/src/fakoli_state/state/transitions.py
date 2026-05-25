@@ -10,8 +10,7 @@ Design rules (enforced by this module's structure):
 
 Naming: every public function is named <entity>_<from>_to_<to> so the full
 transition table is greppable. The one exception is <entity>_to_<state> for
-transitions that can originate from multiple source states (e.g. prd_to_rejected,
-task_to_stale).
+transitions that can originate from multiple source states (e.g. prd_to_rejected).
 """
 
 from __future__ import annotations
@@ -46,8 +45,6 @@ __all__ = [
     "task_accepted_to_done",
     "task_needs_review_to_rejected",
     "task_rejected_to_drafted",
-    "task_to_stale",
-    "task_stale_to_ready",
 ]
 
 
@@ -199,25 +196,6 @@ def _evidence_complete(task: Task, evidence: Evidence) -> None:
                 f"Task '{task.id}' cannot be accepted: "
                 f"required evidence not found: {missing!r}. "
                 "Submit evidence that covers all required_evidence items."
-            ),
-        )
-
-
-def _claim_expired(claim: Claim, now: datetime.datetime) -> None:
-    """Gate: claim.lease_expires_at must be in the past for a stale transition.
-
-    Raises TransitionError with gate_name='lease_expiry_gate' on failure.
-    """
-    if claim.lease_expires_at >= now:
-        raise TransitionError(
-            code="gate_failed",
-            gate_name="lease_expiry_gate",
-            current_status=claim.status.value,
-            message=(
-                f"Claim '{claim.id}' lease has not expired yet "
-                f"(expires {claim.lease_expires_at.isoformat()}, "
-                f"now {now.isoformat()}). "
-                "Wait for the lease to expire or release the claim explicitly."
             ),
         )
 
@@ -588,58 +566,3 @@ def task_rejected_to_drafted(task: Task, now: datetime.datetime) -> Task:
     return task.model_copy(update={"status": TaskStatus.drafted, "updated_at": now})
 
 
-def task_to_stale(
-    task: Task, claim: Claim, now: datetime.datetime
-) -> Task:
-    """Transition Task to stale when its active claim lease has expired.
-
-    Gate: claim.lease_expires_at must be strictly before now.
-
-    This is the entry point of the stale → force_released → ready recovery path.
-    The claim is not mutated here — the Claims manager owns that side-effect.
-
-    Args:
-        task:  The current Task (may be in 'claimed' or 'in_progress' status).
-        claim: The active Claim whose lease is being evaluated.
-        now:   Current UTC timestamp.
-
-    Returns:
-        A new Task instance with status='stale'.
-
-    Raises:
-        TransitionError: If the task is not in a stale-eligible status, or if
-                         the lease has not yet expired.
-    """
-    stale_eligible = {TaskStatus.claimed, TaskStatus.in_progress, TaskStatus.blocked}
-    if task.status not in stale_eligible:
-        raise TransitionError(
-            code="wrong_status",
-            current_status=task.status.value,
-            message=(
-                f"Task '{task.id}' cannot be moved to 'stale' from "
-                f"'{task.status.value}'. "
-                f"Only {{'claimed', 'in_progress', 'blocked'}} tasks can go stale."
-            ),
-        )
-    _claim_expired(claim, now)
-    return task.model_copy(update={"status": TaskStatus.stale, "updated_at": now})
-
-
-def task_stale_to_ready(task: Task, now: datetime.datetime) -> Task:
-    """Transition Task: stale → ready (the force_released → ready path).
-
-    Called after a stale claim has been force-released, returning the task to
-    the claimable pool.
-
-    Args:
-        task: The current Task (must be in 'stale' status).
-        now:  Current UTC timestamp.
-
-    Returns:
-        A new Task instance with status='ready'.
-
-    Raises:
-        TransitionError: If task.status is not 'stale'.
-    """
-    _assert_task_status(task, TaskStatus.stale, "stale → ready")
-    return task.model_copy(update={"status": TaskStatus.ready, "updated_at": now})

@@ -191,9 +191,10 @@ Pydantic v2 models in `bin/src/fakoli_state/state/models.py` are the single sour
 ```
 proposed → drafted → reviewed → ready → claimed → in_progress
                                                    ├─→ blocked → in_progress
-                                                   ├─→ needs_review → accepted → done
-                                                   └─→ stale (lease expired) → force_released → ready
+                                                   └─→ needs_review → accepted → done
                                   reject path:    needs_review → rejected → drafted
+                                  stale claim:    claim.stale event returns task to ready
+                                                  (claim goes stale; task status does NOT)
 ```
 
 **Scoring scale** (1-5 per dimension):

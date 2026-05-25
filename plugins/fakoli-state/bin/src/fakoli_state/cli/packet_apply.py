@@ -1,0 +1,435 @@
+"""packet, submit, apply commands (Phase 5)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import typer
+
+from fakoli_state.cli._helpers import (
+    _open_backend,
+    _reap_stale_claims,
+    _require_state_dir,
+    _resolve_state_dir,
+)
+from fakoli_state.state.backend import PENDING_EVENT_ID
+
+# ---------------------------------------------------------------------------
+# packet subcommand
+# ---------------------------------------------------------------------------
+
+
+def packet(
+    task_id: str = typer.Argument(..., help="Task ID to render a work packet for (e.g. T001)."),  # noqa: B008
+    fmt: str = typer.Option(  # noqa: B008
+        "md",
+        "--format",
+        "-f",
+        help="Output format: md (default) or json.",
+    ),
+    cwd: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cwd",
+        help="Project directory. Defaults to the current working directory.",
+        hidden=True,
+    ),
+) -> None:
+    """Render a work packet for TASK_ID and write it to .fakoli-state/packets/."""
+    from fakoli_state.context.packets import render_packet
+
+    state_dir = _resolve_state_dir(cwd)
+    _require_state_dir(state_dir)
+
+    backend = _open_backend(state_dir)
+    try:
+        _reap_stale_claims(backend)
+
+        # Fetch the task.
+        task = backend.get_task(task_id)
+        if task is None:
+            typer.echo(f"Error: task '{task_id}' not found.", err=True)
+            raise typer.Exit(code=1)
+
+        # Fetch the parent feature via the Backend protocol.
+        feature = backend.get_feature(task.feature_id)
+
+        # Split dependencies into completed and open.
+        from fakoli_state.state.models import Task
+
+        dependencies_completed: list[Task] = []
+        dependencies_open: list[Task] = []
+        if task.dependencies:
+            dep_tasks = [backend.get_task(dep_id) for dep_id in task.dependencies]
+            for dep in dep_tasks:
+                if dep is None:
+                    continue
+                if dep.status.value == "done":
+                    dependencies_completed.append(dep)
+                else:
+                    dependencies_open.append(dep)
+
+        # Fetch the active claim for this task, if any.
+        active_claim = None
+        for claim in backend.list_active_claims():
+            if claim.task_id == task_id:
+                active_claim = claim
+                break
+
+        work_packet = render_packet(
+            task,
+            feature=feature,
+            dependencies_completed=dependencies_completed,
+            dependencies_open=dependencies_open,
+            related_decisions=None,  # Phase 6+ wiring
+            active_claim=active_claim,
+        )
+    finally:
+        backend.close()
+
+    # Determine output path and content.
+    packets_dir = state_dir / "packets"
+    packets_dir.mkdir(exist_ok=True)
+
+    if fmt == "json":
+        out_path = packets_dir / f"{task_id}.json"
+        content = json.dumps(work_packet.json_data, indent=2)
+    else:
+        out_path = packets_dir / f"{task_id}.md"
+        content = work_packet.markdown
+
+    out_path.write_text(content, encoding="utf-8")
+    typer.echo(f"Wrote packet to {out_path}")
+    typer.echo("")
+    # Echo the rendered content matching the selected format. Greptile PR #41
+    # flagged that we always echoed markdown regardless of --format, so
+    # `packet --format json` printed markdown to stdout while writing JSON to
+    # the file — confusing for any caller piping the output downstream.
+    typer.echo(content)
+
+
+# ---------------------------------------------------------------------------
+# submit subcommand
+# ---------------------------------------------------------------------------
+
+
+def submit(
+    task_id: str = typer.Argument(..., help="Task ID to submit evidence for (e.g. T001)."),  # noqa: B008
+    commands: str = typer.Option(  # noqa: B008
+        ...,
+        "--commands",
+        help="Comma-separated verification commands that were run.",
+    ),
+    files_changed: str = typer.Option(  # noqa: B008
+        ...,
+        "--files-changed",
+        help="Comma-separated file paths modified.",
+    ),
+    output_file: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--output-file",
+        help="Path to a file whose content will be used as the output excerpt.",
+    ),
+    pr_url: str | None = typer.Option(  # noqa: B008
+        None,
+        "--pr-url",
+        help="Pull request URL.",
+    ),
+    commit_sha: str | None = typer.Option(  # noqa: B008
+        None,
+        "--commit-sha",
+        help="Commit SHA associated with this submission.",
+    ),
+    known_limitations: str | None = typer.Option(  # noqa: B008
+        None,
+        "--known-limitations",
+        help="Known limitations or caveats.",
+    ),
+    actor: str | None = typer.Option(  # noqa: B008
+        None,
+        "--actor",
+        help="Actor submitting evidence; defaults to $USER or 'agent'.",
+    ),
+    cwd: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cwd",
+        help="Project directory. Defaults to the current working directory.",
+        hidden=True,
+    ),
+) -> None:
+    """Record completion evidence for TASK_ID; auto-releases the active claim."""
+    import os
+    import uuid
+
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.state.models import Event
+
+    resolved_actor = actor or os.environ.get("USER") or "agent"
+    state_dir = _resolve_state_dir(cwd)
+    _require_state_dir(state_dir)
+
+    backend = _open_backend(state_dir)
+    try:
+        clock = SystemClock()
+        _reap_stale_claims(backend)
+
+        # Locate the active claim for this task.
+        active_claims = backend.list_active_claims()
+        task_claim = None
+        for c in active_claims:
+            if c.task_id == task_id:
+                task_claim = c
+                break
+
+        if task_claim is None:
+            typer.echo(
+                f"Error: no active claim found for task '{task_id}'. "
+                f"Run `fakoli-state claim {task_id}` first.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        # Parse comma-separated arguments.
+        commands_list = [c.strip() for c in commands.split(",") if c.strip()]
+        files_list = [f.strip() for f in files_changed.split(",") if f.strip()]
+
+        # Read and truncate output file content if provided.
+        output_excerpt: str | None = None
+        if output_file is not None:
+            try:
+                raw = output_file.read_text(encoding="utf-8", errors="replace")
+                output_excerpt = raw[:8000]
+            except OSError as exc:
+                typer.echo(
+                    f"Warning: cannot read --output-file {output_file}: {exc}",
+                    err=True,
+                )
+
+        # Build a unique evidence ID with "EV" prefix (mirrors ClaimManager UUID pattern).
+        evidence_id = "EV" + uuid.uuid4().hex[:8].upper()
+
+        now = clock.now()
+
+        payload: dict[str, object] = {
+            "task_id": task_id,
+            "claim_id": task_claim.id,
+            "submitted_by": resolved_actor,
+            "evidence_id": evidence_id,
+            "commands_run": commands_list,
+            "files_changed": files_list,
+            "output_excerpt": output_excerpt,
+            "pr_url": pr_url,
+            "commit_sha": commit_sha,
+            "screenshots": [],
+            "known_limitations": known_limitations,
+        }
+
+        event = Event(
+            id=PENDING_EVENT_ID,
+            timestamp=now,
+            actor=resolved_actor,
+            action="evidence.submitted",
+            target_kind="task",
+            target_id=task_id,
+            payload_json=payload,
+        )
+        backend.apply_event(event)
+
+        # Fetch the fresh task state and evidence for gates summary.
+        fresh_task = backend.get_task(task_id)
+    finally:
+        backend.close()
+
+    typer.echo(f"Evidence submitted for task '{task_id}'.")
+    typer.echo(f"  Evidence ID:  {evidence_id}")
+    typer.echo(f"  Claim ID:     {task_claim.id} (auto-released)")
+    typer.echo(f"  Submitted by: {resolved_actor}")
+    typer.echo(f"  Commands:     {commands_list}")
+    typer.echo(f"  Files:        {files_list}")
+    if pr_url:
+        typer.echo(f"  PR URL:       {pr_url}")
+    if commit_sha:
+        typer.echo(f"  Commit SHA:   {commit_sha}")
+    typer.echo("")
+    typer.echo(f"Task '{task_id}' status → needs_review.")
+    typer.echo(f"Run `fakoli-state apply {task_id}` when ready for human review.")
+
+    # Gate summary: build a minimal Evidence object for evidence_complete check.
+    if fresh_task is not None:
+        try:
+            from fakoli_state.review.gates import evidence_complete
+            from fakoli_state.state.models import Evidence
+
+            evidence_obj = Evidence(
+                id=evidence_id,
+                task_id=task_id,
+                claim_id=task_claim.id,
+                commands_run=commands_list,
+                output_excerpt=output_excerpt,
+                files_changed=files_list,
+                pr_url=pr_url,
+                commit_sha=commit_sha,
+                screenshots=[],
+                known_limitations=known_limitations,
+                submitted_at=now,
+                submitted_by=resolved_actor,
+            )
+            passed, missing = evidence_complete(fresh_task, evidence_obj)
+            if passed:
+                typer.echo("Evidence gate: PASSED — all required evidence present.")
+            else:
+                typer.echo(
+                    "Evidence gate: INCOMPLETE — missing items for required_evidence:"
+                )
+                for item in missing:
+                    typer.echo(f"  - {item}")
+        except Exception:  # noqa: BLE001
+            pass  # gate summary is informational; never block the command
+
+
+# ---------------------------------------------------------------------------
+# apply subcommand
+# ---------------------------------------------------------------------------
+
+
+def apply(
+    task_id: str = typer.Argument(..., help="Task ID to apply a review decision to (e.g. T001)."),  # noqa: B008
+    approve: bool = typer.Option(  # noqa: B008
+        False,
+        "--approve",
+        help="Approve: transition needs_review → accepted → done.",
+    ),
+    reject: bool = typer.Option(  # noqa: B008
+        False,
+        "--reject",
+        help="Reject: transition needs_review → rejected.",
+    ),
+    reason: str | None = typer.Option(  # noqa: B008
+        None,
+        "--reason",
+        help="Review notes; required when using --reject.",
+    ),
+    reviewer: str | None = typer.Option(  # noqa: B008
+        None,
+        "--reviewer",
+        help="Reviewer identity; defaults to $USER or 'human'.",
+    ),
+    cwd: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cwd",
+        help="Project directory. Defaults to the current working directory.",
+        hidden=True,
+    ),
+) -> None:
+    """Human review gate: transition needs_review → accepted (→ done) or → rejected."""
+    import os
+
+    state_dir = _resolve_state_dir(cwd)
+    _require_state_dir(state_dir)
+
+    resolved_reviewer = reviewer or os.environ.get("USER") or "human"
+
+    backend = _open_backend(state_dir)
+    try:
+        _reap_stale_claims(backend)
+
+        task = backend.get_task(task_id)
+        if task is None:
+            typer.echo(f"Error: task '{task_id}' not found.", err=True)
+            raise typer.Exit(code=1)
+
+        if task.status.value != "needs_review":
+            typer.echo(
+                f"Error: task '{task_id}' has status '{task.status.value}', "
+                "expected 'needs_review'. "
+                "Run `fakoli-state submit` first to record completion evidence.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        # Review-only mode: neither --approve nor --reject; show evidence summary.
+        if not approve and not reject:
+            # Fetch the latest evidence row for this task via the Backend protocol.
+            evidence_obj = backend.get_latest_evidence(task_id)
+            if evidence_obj is not None:
+                try:
+                    from fakoli_state.review.gates import evidence_complete
+
+                    passed, missing = evidence_complete(task, evidence_obj)
+                    typer.echo(f"Task '{task_id}' awaiting review (status: needs_review).")
+                    typer.echo("")
+                    if passed:
+                        typer.echo("Evidence gate: PASSED — all required evidence present.")
+                    else:
+                        typer.echo(
+                            "Evidence gate: INCOMPLETE — missing items for required_evidence:"
+                        )
+                        for item in missing:
+                            typer.echo(f"  - {item}")
+                except Exception:  # noqa: BLE001
+                    typer.echo(f"Task '{task_id}' awaiting review (status: needs_review).")
+            else:
+                typer.echo(f"Task '{task_id}' awaiting review (status: needs_review).")
+                typer.echo("No evidence found — run `fakoli-state submit` first.")
+            typer.echo("")
+            typer.echo(
+                "Pass --approve to accept or --reject --reason TEXT to reject."
+            )
+            raise typer.Exit(code=0)
+
+        # Mutual exclusion guard.
+        if approve and reject:
+            typer.echo(
+                "Error: pass either --approve or --reject, not both.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        # --reject requires --reason.
+        if reject and not reason:
+            typer.echo(
+                "Error: --reject requires --reason TEXT.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        from fakoli_state.clock import SystemClock
+        from fakoli_state.state.models import Event
+
+        clock = SystemClock()
+        now = clock.now()
+
+        if approve:
+            decision = "accepted"
+        else:
+            decision = "rejected"
+
+        payload: dict[str, object] = {
+            "task_id": task_id,
+            "reviewer": resolved_reviewer,
+            "decision": decision,
+            "notes": reason,
+        }
+
+        event = Event(
+            id=PENDING_EVENT_ID,
+            timestamp=now,
+            actor=resolved_reviewer,
+            action="task.applied",
+            target_kind="task",
+            target_id=task_id,
+            payload_json=payload,
+        )
+        backend.apply_event(event)
+    finally:
+        backend.close()
+
+    if approve:
+        typer.echo(f"Task '{task_id}' approved by '{resolved_reviewer}' → done.")
+    else:
+        typer.echo(
+            f"Task '{task_id}' rejected by '{resolved_reviewer}' → drafted "
+            "(rejection recorded; task returned to 'drafted' for rework)."
+        )
+        if reason:
+            typer.echo(f"  Reason: {reason}")

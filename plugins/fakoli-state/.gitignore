@@ -1,5 +1,6 @@
 # Agent build scratch space — never commit
 .fakoli-state-build/
+docs/plans/agent-*-status.md
 
 # Python virtualenv (uv sync materializes this)
 bin/.venv/
