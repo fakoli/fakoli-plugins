@@ -6,12 +6,78 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-v1.10.0 closes the Phase 10 plugin-dev best-practices audit MUST FIX list,
-applies the first cross-plugin specialist-critic pass against the fakoli-state
-surface, and tracks 57 deferred items in `docs/phase-11-backlog.md`. v2.0 will
-add LinearIssuesProvider and MondayBoardsProvider; v2.x will spec webhook-based
-sync (vs polling) and wire the immediate-apply `*_applied` conflict-resolution
-variants — see `docs/phase-9-backlog.md` for the full v2.x roadmap.
+_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.12+ planned work._
+
+---
+
+## [1.11.0] — 2026-05-25
+
+Comprehensive documentation overhaul + 2 silent-failure bug fixes surfaced
+during research. No breaking changes; the `submit --screenshots` flag is
+the only behavior change and is purely additive (optional).
+
+### Added (docs)
+
+- **Positioning + foundation:** `docs/_positioning.md` (internal reference),
+  rewritten `README.md` with hero block / 5-wedge comparison / working v1.10.0
+  Quick Start, `docs/architecture.md` (579 lines, 3 mermaid diagrams, 25-entity
+  data model, replay guarantee), `docs/design.md` (301 lines, design rationale
+  + Deferred decisions). [PR #54]
+- **User-facing how-to (5 files):** `docs/how-to/getting-started.md`,
+  `authoring-a-prd.md`, `claiming-and-shipping-a-task.md`,
+  `syncing-with-github.md`, `integrating-with-fakoli-flow-and-crew.md`. [PR #55]
+- **Reference (5 files):** `docs/cli-reference.md` (all 23 commands),
+  `skills-reference.md` (7 skills + dependency graph),
+  `agents-reference.md` (6 agents + defer-to-crew mapping),
+  `hooks-reference.md` (4 hooks + non-blocking contract),
+  `faq.md` (15 Q&A). [PR #55]
+- **Visual brand:** `assets/logo-{64,256,1024}.png` generated via
+  nano-banana-pro; `assets/diagrams/{component,lifecycle,trinity}.mmd`
+  for re-render. [PR #54]
+- **CLI flag:** `submit --screenshots PATH1,PATH2` for tasks whose
+  `verification.required_evidence` includes "screenshots". 2 new tests. [PR #55]
+
+### Fixed (silent-failure bugs)
+
+- **`skills/claim/SKILL.md` + `skills/execute/SKILL.md` had no fakoli-flow
+  detection snippet** — both used prose-only "when fakoli-flow is installed"
+  framing with no shell check, so the bridge to `/fakoli-flow:execute`
+  never fired even when the plugin was installed. Added Step 0 detection
+  blocks mirroring `skills/brainstorm/SKILL.md`. [PR #55]
+- **`submit` CLI hardcoded `screenshots=[]`** — Evidence model field,
+  evidence_complete gate, and gate tests all existed; only the CLI surface
+  was missing. Tasks requiring "screenshots" evidence were unsatisfiable.
+  See `Added` above. [PR #55]
+- **`grep -q "^fakoli-..."` detection pattern was broken at 5 sites** —
+  real `claude plugin list` output starts with `  ❯ ` indent + `@source`
+  suffix; `^` anchor never matched. Trinity composition silently never
+  activated even when fakoli-flow + fakoli-crew were installed. Fixed in
+  `skills/brainstorm/SKILL.md`, `skills/finish/SKILL.md`, and 3 PR-B docs.
+  Updated 5 roadmap entries (P11-SK-S1/S2/S3/S6) so future work uses the
+  corrected pattern. [PR #55]
+- **PR A doc drifts caught during PR B research:** `docs/architecture.md`
+  default lease 15 → 60 min; `docs/mcp.md` `get_next_task` ranking corrected
+  (priority desc → complexity asc → created_at asc, not agent_suitability);
+  `agents/sentinel.md` frontmatter `allowed-tools:` → `tools:` (Phase 10
+  audit leftover); `docs/design.md` + `docs/faq.md` config file pointer
+  `settings.json` → `config.yaml`. [PR #55]
+
+### Changed
+
+- `.claude-plugin/plugin.json` description tightened from 192 → 131 chars;
+  10 high-signal keywords (added `local-first`, `runtime-neutral`,
+  `terraform-for-work`, `llm-work-packets`; dropped generic terms). [PR #54]
+- Repo root `README.md`: added fakoli-state to "The Fakoli Ecosystem"
+  trinity narrative; refreshed "Available Plugins" row (removed stale
+  "Scaffolded; phases 2-8 in progress"). [This PR]
+
+### Tests
+
+- 967 passed (up from 965 in v1.10.0; +2 for the new `--screenshots` flag).
+- 0 regressions.
+- Manual scratch-dir verification of the getting-started.md Quick Start
+  end-to-end (init → PRD → parse → review → approve → plan → score → claim
+  → packet → submit → apply → done).
 
 ---
 
