@@ -10,6 +10,7 @@ LLM enrichment is layered on top and may fail open with a stderr warning.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -87,6 +88,30 @@ def plan(
             "always produced first; LLM enrichment is additive."
         ),
     ),
+    no_llm: bool = typer.Option(  # noqa: B008
+        False,
+        "--no-llm",
+        help=(
+            "Disable the LLM task-generation backstop. When the PRD has "
+            "features+requirements but no `## Tasks` section, default "
+            "behaviour is to call the LLM to generate tasks and append "
+            "them to prd.md. With --no-llm the CLI fails loudly instead, "
+            "matching the pre-v1.15 behaviour for users who prefer to "
+            "author tasks manually."
+        ),
+    ),
+    prune_force: bool = typer.Option(  # noqa: B008
+        False,
+        "--prune-force",
+        help=(
+            "Force-delete orphan tasks that have advanced past 'ready' "
+            "status (claimed / in_progress / needs_review / etc.). Without "
+            "this flag, orphans in those statuses cause plan to fail "
+            "loudly so the user can release/complete them first. With "
+            "this flag, the audit trail (events + evidence + reviews) is "
+            "preserved but the task row itself is deleted. Use with care."
+        ),
+    ),
 ) -> None:
     """Generate features and tasks from the parsed PRD.
 
@@ -100,11 +125,23 @@ def plan(
     back to the deterministic description with a stderr warning — they never
     abort plan.
 
+    When the PRD has features+requirements but no ``## Tasks`` section the
+    CLI calls the LLM planner (see ``planning.llm_planner``) to draft tasks,
+    appends them to ``prd.md``, and re-parses. Pass ``--no-llm`` to opt out
+    of this backstop and fail loudly instead.
+
     Idempotent: running plan twice will not duplicate tasks (INSERT OR REPLACE
-    semantics in the SQLite backend handle deduplication by task ID).
+    semantics in the SQLite backend handle deduplication by task ID). The
+    LLM backstop is also idempotent — once a ``## Tasks`` section exists in
+    ``prd.md`` it is never re-appended.
     """
     from fakoli_state.clock import SystemClock
     from fakoli_state.planning.inference import infer_all
+    from fakoli_state.planning.llm_planner import (
+        PlannerProviderUnavailable,
+        TaskGenerationError,
+        generate_tasks_markdown,
+    )
     from fakoli_state.planning.template import parse_prd
     from fakoli_state.state.models import Event
 
@@ -127,22 +164,164 @@ def plan(
         raise typer.Exit(code=1) from exc
 
     provider = _resolve_llm_provider(use_llm)
-    result = parse_prd(markdown, prd_id="prd", provider=provider)
+    parsed = parse_prd(markdown, prd_id="prd", provider=provider)
 
     # Non-fatal parse errors are surfaced as warnings during plan.
-    if result.errors:
-        for err in result.errors:
+    if parsed.errors:
+        for err in parsed.errors:
             typer.echo(
                 f"  Warning [{err.section}:{err.line}]: {err.message}",
                 err=True,
             )
 
+    # ------------------------------------------------------------------
+    # LLM task-generation backstop (v1.15+)
+    #
+    # When the PRD has features+requirements but no `## Tasks` section the
+    # deterministic parser yields 0 tasks. Previously the CLI happily
+    # exited 0 with "Planned N features, 0 tasks" and the user had to
+    # remember to invoke the planner subagent. Now we call the LLM
+    # planner here, append generated tasks to prd.md, and re-parse so
+    # the rest of this command runs over a populated task list.
+    # ------------------------------------------------------------------
+    llm_generated_count = 0
+    llm_tier_used: str | None = None
+    if (
+        not no_llm
+        and len(parsed.tasks) == 0
+        and len(parsed.features) > 0
+    ):
+        try:
+            gen_result = generate_tasks_markdown(
+                prd=parsed.prd,
+                features=parsed.features,
+                requirements=parsed.requirements,
+            )
+        except PlannerProviderUnavailable as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        except TaskGenerationError as exc:
+            typer.echo(f"Error: LLM task generation failed: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        # Idempotency: only append `## Tasks` when the file does not
+        # already contain one. Re-running `plan` on a file we previously
+        # appended to is a no-op for the file — the parsed.tasks check
+        # above is the safeguard, but a defensive markdown re-read +
+        # `## Tasks` substring check ensures concurrent writers can't
+        # double-append.
+        try:
+            current_markdown = prd_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            typer.echo(f"Error: cannot re-read {prd_path}: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        from fakoli_state.planning._plan_helpers import has_tasks_section
+        if not has_tasks_section(current_markdown):
+            new_markdown = (
+                current_markdown.rstrip() + "\n\n" + gen_result.markdown + "\n"
+            )
+            try:
+                prd_path.write_text(new_markdown, encoding="utf-8")
+            except OSError as exc:
+                typer.echo(
+                    f"Error: cannot write generated tasks to {prd_path}: {exc}",
+                    err=True,
+                )
+                raise typer.Exit(code=1) from exc
+
+        # Re-parse so the rest of plan() consumes the freshly-appended tasks.
+        try:
+            markdown = prd_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            typer.echo(f"Error: cannot re-read {prd_path}: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        parsed = parse_prd(markdown, prd_id="prd", provider=provider)
+        llm_generated_count = len(parsed.tasks)
+        llm_tier_used = gen_result.provider_used
+
     backend = _open_backend(state_dir)
     try:
         clock = SystemClock()
 
+        # --------------------------------------------------------------
+        # Orphan-prune (v1.15.0)
+        #
+        # Re-parse is supposed to be destructive — the docs (and the prd
+        # skill body) say so explicitly. But before v1.15.0 plan emitted
+        # task.created/feature.created for everything in the new parse
+        # WITHOUT emitting task.deleted/feature.deleted for entities that
+        # disappeared from the PRD. The classification + emission logic
+        # lives in planning._plan_helpers so the CLI and MCP share one
+        # implementation (greptile + critic flagged the previous twin
+        # implementations — the CLI version was missing the
+        # TransactionAborted catch that the MCP version had).
+        # --------------------------------------------------------------
+        from fakoli_state.planning._plan_helpers import (
+            classify_orphans,
+            emit_prune_events,
+        )
+
+        classification = classify_orphans(
+            backend.list_tasks(),
+            {t.id for t in parsed.tasks},
+            backend.list_features(),
+            {f.id for f in parsed.features},
+        )
+
+        if classification.unsafe_task_orphans and not prune_force:
+            typer.echo(
+                f"Error: {len(classification.unsafe_task_orphans)} orphan "
+                "task(s) were removed from prd.md but have advanced past "
+                "`ready` status. Re-parse would lose claim/evidence history "
+                "if these were deleted silently. Address each one, OR "
+                "re-run with --prune-force to delete despite the status:",
+                err=True,
+            )
+            for t in classification.unsafe_task_orphans:
+                typer.echo(
+                    f"  - {t.id} ({t.status.value}): {t.title}",
+                    err=True,
+                )
+            typer.echo(
+                "\nOptions per task:\n"
+                "  • Release the claim (`fakoli-state release` or "
+                "`fakoli-state release --force`) so status returns to `ready`\n"
+                "  • Complete the work (`fakoli-state apply --approve` for "
+                "needs_review tasks)\n"
+                "  • Re-add the task to prd.md so it's no longer an orphan\n"
+                "  • Run `fakoli-state plan --prune-force` to delete the "
+                "row anyway (events + evidence + reviews are preserved as "
+                "audit history; the task row itself is removed).",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        # Surface TransactionAborted as a clean CLI error rather than a
+        # raw Python traceback. The handler's message is user-actionable
+        # as-is (names the blocking IDs and the resolution). Greptile MUST
+        # FIX from PR #63 review — previously this catch was missing and
+        # the most accessible trigger was "user removes a feature heading
+        # from prd.md while keeping its referencing tasks": the feature
+        # becomes an orphan, the handler refuses, the CLI crashed.
+        try:
+            prune_result = emit_prune_events(
+                backend,
+                classification,
+                actor="fakoli-state-cli",
+                clock=clock,
+                prune_force=prune_force,
+            )
+        except TransactionAborted as exc:
+            typer.echo(f"Error: orphan cleanup refused — {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        deleted_task_ids = prune_result.pruned_task_ids
+        deleted_feature_ids = prune_result.pruned_feature_ids
+
         # Emit feature.created for each feature.
-        for feature in result.features:
+        for feature in parsed.features:
             now = clock.now()
             feature_data = feature.model_dump(mode="json")
             event = Event(
@@ -157,7 +336,7 @@ def plan(
             backend.apply_event(event)
 
         # Emit task.created for each task (status proposed at creation time).
-        for task in result.tasks:
+        for task in parsed.tasks:
             now = clock.now()
             task_data = task.model_dump(mode="json")
             event = Event(
@@ -173,7 +352,7 @@ def plan(
 
         # Run inference on the parsed tasks (before they are stored with updated
         # deps/conflict groups — we upsert them via task.created events again).
-        inference_result = infer_all(result.tasks)
+        inference_result = infer_all(parsed.tasks)
 
         # Re-upsert tasks with inferred dependencies and conflict groups,
         # then promote proposed → drafted.
@@ -220,16 +399,59 @@ def plan(
         # Echo summary inside the try block so it only runs on full success;
         # otherwise inference_result may be unbound (if apply_event raised
         # before line 173) and the access below would NameError.
-        typer.echo(
-            f"Planned {len(result.features)} features, "
-            f"{len(result.tasks)} tasks."
-        )
+        if llm_generated_count and llm_tier_used:
+            typer.echo(
+                f"Planned {len(parsed.features)} features, "
+                f"{len(parsed.tasks)} tasks "
+                f"({llm_generated_count} generated via LLM ({llm_tier_used}), "
+                f"appended to {prd_path})."
+            )
+        elif (
+            no_llm
+            and len(parsed.tasks) == 0
+            and len(parsed.features) > 0
+        ):
+            # Opt-out path: the user explicitly disabled the backstop AND
+            # the deterministic parse produced zero tasks. There is no
+            # work to do downstream, so fail loudly per spec.
+            typer.echo(
+                f"Planned {len(parsed.features)} features, 0 tasks.",
+            )
+            typer.echo(
+                "Error: 0 tasks generated; pass without --no-llm to "
+                "auto-generate via LLM, or author tasks manually in "
+                f"{prd_path}.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        else:
+            typer.echo(
+                f"Planned {len(parsed.features)} features, "
+                f"{len(parsed.tasks)} tasks."
+            )
         if inference_result.conflict_groups:
             typer.echo(
                 f"Detected {len(inference_result.conflict_groups)} conflict group(s)."
             )
+        if deleted_task_ids or deleted_feature_ids:
+            # Surface the prune outcome explicitly — the user removed these
+            # entities from prd.md and should know the state.db is now in
+            # sync, not silently lingering with orphans.
+            bits: list[str] = []
+            if deleted_task_ids:
+                bits.append(f"{len(deleted_task_ids)} orphan task(s) ({', '.join(deleted_task_ids)})")
+            if deleted_feature_ids:
+                bits.append(f"{len(deleted_feature_ids)} orphan feature(s) ({', '.join(deleted_feature_ids)})")
+            typer.echo(f"Pruned {' and '.join(bits)} removed from prd.md.")
     finally:
         backend.close()
+
+
+# Helpers `_has_tasks_section` and `_TASKS_HEADING_RE` previously lived
+# here in duplicated form alongside the MCP twin in mcp_server.py. As of
+# v1.15.0 post-review they live in planning/_plan_helpers.py and both
+# layers import from there — see that module's docstring for the
+# multi-critic finding that drove the extraction.
 
 
 # ---------------------------------------------------------------------------

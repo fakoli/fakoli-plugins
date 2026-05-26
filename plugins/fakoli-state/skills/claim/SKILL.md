@@ -251,6 +251,23 @@ Ending this skill with a numbered list like "1. Run `fakoli-state show T012` 2. 
 
 **When to actually hand off CLI commands:** if the user explicitly opts out ("just give me the commands"), or if the runtime lacks the tool needed to execute them (e.g., MCP-only client with no shell and no equivalent `claim` tool). In those cases, a CLI list is the right output. Otherwise, drive.
 
+### Decision-presentation discipline (v1.15.0)
+
+When this skill surfaces a multi-option choice — which task to claim from the ready queue, whether to release a claim early, whether to force-claim something with an existing lease — present it as a **structured Q&A turn**, not as prose with bullets.
+
+Use `AskUserQuestion` when running inside Claude Code. The labeled options become an explicit pick UI and the answer comes back as a known label, so the agent can act unambiguously. For other runtimes, fall back to explicit numbered prompts ("Pick 1 / 2 / 3").
+
+**Anti-pattern:** ending a turn with paragraph-style alternatives like "I'd suggest T012 because it's lowest risk, but T015 has higher value, and T019 unlocks the most downstream work — what's your call?" That asks for a decision but doesn't pin down the answer shape. Replace with:
+
+> Three ready tasks I'd recommend claiming first:
+> 1. **T012** — Implement retry-with-backoff (low complexity, no blockers)
+> 2. **T015** — Add caching layer (higher value, but T012 is a dep)
+> 3. **T019** — Migrate to new API (unlocks 3 downstream tasks)
+>
+> Pick 1 / 2 / 3 (or name a different task ID).
+
+The rule is the same as the v1.14.0 `resolve-decisions` Q&A pattern, applied to claim-time decisions: any time the agent could present 2+ options, use structured Q&A. Prose-with-bullets that looks like options but lacks an explicit "pick N" prompt forces the user to type free-form intent the agent then has to interpret — wasted turn.
+
 ---
 
 ## Common Pitfalls

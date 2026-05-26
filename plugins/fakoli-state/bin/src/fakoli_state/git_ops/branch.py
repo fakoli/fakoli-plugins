@@ -92,13 +92,16 @@ def create_branch_for_task(
     *,
     cwd: Path,
     base: str | None = None,
+    branch_prefix: str = "agent",
 ) -> BranchResult:
-    """Create an ``agent/<task_id_lower>-<slug>`` branch in *cwd*.
+    """Create a ``<branch_prefix>/<task_id_lower>-<slug>`` branch in *cwd*.
 
     Behavior:
     - If git not available OR not a git repo → BranchResult(None, False, reason)
       (the CLI warns but does NOT fail the claim).
-    - Builds: ``agent/<task_id.lower()>-<slug(title)>`` truncated to 80 chars.
+    - Builds: ``<branch_prefix>/<task_id.lower()>-<slug(title)>`` truncated to
+      80 chars. When ``branch_prefix`` is empty, the leading prefix +
+      separator is omitted entirely.
     - If that branch already exists, appends -2, -3, … until a unique name is found.
     - Runs ``git checkout -b <branch>`` (or ``git checkout -b <branch> <base>``).
     - On success: BranchResult(branch, True, None).
@@ -106,10 +109,15 @@ def create_branch_for_task(
     - On git error: BranchResult(None, False, str(error)).
 
     Args:
-        task_id: The task identifier (e.g. "T001"). Lowercased before use.
-        title:   Human-readable task title, converted to a slug.
-        cwd:     Directory in which to run git commands.
-        base:    Optional base ref to branch off. If None, branches off HEAD.
+        task_id:       The task identifier (e.g. "T001"). Lowercased before use.
+        title:         Human-readable task title, converted to a slug.
+        cwd:           Directory in which to run git commands.
+        base:          Optional base ref to branch off. If None, branches off HEAD.
+        branch_prefix: Prefix to prepend (default ``"agent"``). v1.15.0+
+                       reads this from ``config.yaml`` so host projects with
+                       ``feature/`` or ``fix/`` conventions get matching
+                       branches instead of the silently-incompatible default.
+                       Empty string opts out of any prefix.
 
     Returns:
         BranchResult describing what happened (or why it was skipped).
@@ -120,7 +128,10 @@ def create_branch_for_task(
     if not is_git_repo(cwd):
         return BranchResult(None, False, "not a git repository")
 
-    base_name = f"agent/{task_id.lower()}-{_slug(title)}"
+    if branch_prefix:
+        base_name = f"{branch_prefix}/{task_id.lower()}-{_slug(title)}"
+    else:
+        base_name = f"{task_id.lower()}-{_slug(title)}"
     # Truncate to 80 chars total to stay well under git's 250-byte limit
     # while keeping branch names scannable.
     base_name = base_name[:80]

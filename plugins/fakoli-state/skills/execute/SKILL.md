@@ -96,13 +96,64 @@ This check costs one minute. A wrong interpretation discovered at submit costs t
 
 ---
 
-### Step 3 — Do the work
+### Step 3 — Do the work (route to a fakoli-crew specialist when available, v1.15.0)
 
-Make the edits, refactors, or new code the task requires. Commit incrementally to the claim's branch:
+Before opening the editor yourself, decide WHO should do the work — you-the-agent, or a specialist crew member. The decision is deterministic, not a question to put to the user.
+
+**Detection — same explicit shell check as Step 0:**
+
+```bash
+claude plugin list 2>/dev/null | grep -q "fakoli-crew"
+```
+
+**If fakoli-crew is absent** (or `claude` CLI not on `PATH`): do the work yourself in this session. Skip the routing block below; continue with the hooks-and-commits prose.
+
+**If fakoli-crew is installed**: analyze the task and dispatch to the best-fit crew member directly. **Do not** ask the user "want me to do this here, or dispatch?" — that meta-question forces the user to make a routing decision the agent has the context to make. Asking it biases toward the worst answer (self-implement, bypassing the specialist team).
+
+Routing heuristic (apply in order; take the first row that fits):
+
+| Signal in task | Likely crew member | Rationale |
+|---|---|---|
+| `likely_files` includes `.claude-plugin/`, `hooks/hooks.json`, command frontmatter | `fakoli-crew:smith` | plugin-structure work — manifests, hook wiring, frontmatter |
+| `likely_files` includes new abstractions / interface design / type system (`.ts`, `.py`, `.rs` with "Protocol" / "interface" / "trait" in title or criteria) | `fakoli-crew:guido` | design + interface specialist |
+| `likely_files` includes existing-file integration (verbs like "wire", "integrate", "refactor to use", "connect") | `fakoli-crew:welder` | facade + re-export integration specialist |
+| Task title verb: "Research", "Document the X API" | `fakoli-crew:scout` | API research → structured reference doc |
+| `likely_files` includes README, docs, `*.md` user-facing copy | `fakoli-crew:herald` | user-facing documentation specialist |
+| `likely_files` includes `CLAUDE.md`, `.github/workflows/`, contributor docs, `pyproject.toml` infra | `fakoli-crew:keeper` | repository infrastructure |
+| Acceptance criteria centered on tests + verification of existing behavior | `fakoli-crew:sentinel` | binary PASS/FAIL validation |
+| Multi-file refactor + integration + cross-package wiring (3+ files across 2+ packages) | `fakoli-flow:execute` (if installed, see Step 0) OR pair `guido` for design + `welder` for integration | wave-based orchestration |
+
+**Tie-break rule.** When two rows both match (e.g. a TS task with "Protocol" in the title AND verbs like "wire" — guido row 2 and welder row 3 both fire), prefer the row whose Signal column more narrowly describes the **primary verb** of the task title. "Design" / "Define" / "Specify" / "Author the interface" → guido (row 2). "Integrate" / "Wire" / "Connect" / "Refactor to use" → welder (row 3). If both verbs are present in the title equally, pick guido first (design before integration is the workflow order).
+
+After dispatch, the agent's job is to:
+- Read the work packet
+- Brief the crew specialist with the task ID + acceptance criteria + likely_files + verification commands
+- Surface the specialist's output inline (do not ghost the user — show progress)
+- Run the verification commands yourself (Step 5) once the specialist returns
+
+**Only ask the user when ALL of these conditions are clearly true** (any other situation: dispatch silently):
+
+- (a) Two or more rows in the table above match AND the tie-break rule above does not disambiguate (e.g. the task touches three crews and you cannot identify a clear primary), OR
+- (b) Zero rows match — the task's `likely_files` and verb shape don't fit any row (genuine novelty, not just "I'm not sure"), OR
+- (c) The user explicitly said earlier in this session "I want to drive this one myself" — track the preference for the rest of the session.
+
+"The task is unusual" alone is NOT a reason to ask. If you find yourself reaching for that phrase, recheck rows 1-8 — almost every real engineering task fits one. The bias when in doubt: dispatch, not ask.
+
+In every other case: **route silently and report the routing decision inline** ("Dispatching to fakoli-crew:guido for the HttpTransport interface design; I'll surface the proposal here and run verification afterward.").
+
+**Anti-pattern to avoid:** ending Step 3 with "How would you like to proceed with implementation? Four reasonable approaches: 1. I implement it here, 2. dispatch to fakoli-crew, 3. …". That meta-question is the same prose-with-bullets shape v1.13.0 named — but worse, because the question has an obvious answer (whichever specialist matches the task) and the user has no information the agent lacks. The framing biases toward "do it yourself" because the question reads as "should I bother the team?" rather than "which specialist owns this?". Just dispatch.
+
+---
+
+### Step 3a — Implementation discipline (whoever does the work)
+
+Whether the work is done by you-the-agent or a dispatched crew specialist, the same incremental-commit discipline applies. Commit incrementally to the claim's branch:
 
 ```
 agent/t012-add-retry-backoff
 ```
+
+(Or whatever branch prefix the project configured — v1.15.0 made `branch_prefix` host-project-configurable via `.fakoli-state/config.yaml`. The default is `agent/`.)
 
 Incremental commits create a recoverable trail. If the agent session is interrupted, the commits survive on the branch and the work does not need to restart from zero.
 

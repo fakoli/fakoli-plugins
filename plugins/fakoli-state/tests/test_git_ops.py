@@ -188,6 +188,55 @@ class TestCreateBranchForTask:
         ).stdout.strip()
         assert current == result.branch
 
+    def test_custom_branch_prefix_feature(self, git_repo: Path) -> None:
+        """v1.15.0: host projects that use the `feature/` convention can
+        set `branch_prefix: "feature"` in config.yaml; claim creates
+        `feature/<task>-<slug>` instead of `agent/<task>-<slug>`."""
+        result = create_branch_for_task(
+            "T010", "Add caching", cwd=git_repo, branch_prefix="feature"
+        )
+        assert result.created is True
+        assert result.branch is not None
+        assert result.branch.startswith("feature/t010-")
+        assert "agent" not in result.branch
+
+    def test_custom_branch_prefix_fix(self, git_repo: Path) -> None:
+        result = create_branch_for_task(
+            "T011", "Repair leak", cwd=git_repo, branch_prefix="fix"
+        )
+        assert result.created is True
+        assert result.branch is not None
+        assert result.branch.startswith("fix/t011-")
+
+    def test_nested_branch_prefix_allowed(self, git_repo: Path) -> None:
+        """`feature/agent` — host project's prefix + the agent marker. Both
+        signals preserved."""
+        result = create_branch_for_task(
+            "T012", "Do thing", cwd=git_repo, branch_prefix="feature/agent"
+        )
+        assert result.created is True
+        assert result.branch is not None
+        assert result.branch.startswith("feature/agent/t012-")
+
+    def test_empty_branch_prefix_omits_separator(self, git_repo: Path) -> None:
+        """`branch_prefix: ""` is the explicit no-prefix mode — branch is
+        just `<task>-<slug>` with no leading prefix or slash."""
+        result = create_branch_for_task(
+            "T013", "Bare branch", cwd=git_repo, branch_prefix=""
+        )
+        assert result.created is True
+        assert result.branch is not None
+        assert result.branch == "t013-bare-branch"
+        assert "/" not in result.branch
+
+    def test_default_prefix_is_agent_for_backwards_compat(self, git_repo: Path) -> None:
+        """Pre-v1.15.0 callers that don't pass branch_prefix get the
+        original `agent/` default."""
+        result = create_branch_for_task("T014", "Default behaviour", cwd=git_repo)
+        assert result.created is True
+        assert result.branch is not None
+        assert result.branch.startswith("agent/t014-")
+
 
 # ---------------------------------------------------------------------------
 # TestCreateWorktreeForTask

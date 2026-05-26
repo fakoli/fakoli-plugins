@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import sqlite3
+import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -53,6 +54,7 @@ from fakoli_state.state.payloads import (
     ClaimStalePayload,
     EvidenceSubmittedPayload,
     FeatureCreatedPayload,
+    FeatureDeletedPayload,
     FileChangedPayload,
     PrdApprovedPayload,
     PrdParsedPayload,
@@ -64,6 +66,7 @@ from fakoli_state.state.payloads import (
     SyncMappingUpsertedPayload,
     TaskAppliedPayload,
     TaskCreatedPayload,
+    TaskDeletedPayload,
     TaskExpandedPayload,
     TaskScoredPayload,
     TaskStatusChangedPayload,
@@ -510,6 +513,25 @@ class SqliteBackend:
             tasks=json.loads(row[5] or "[]"),
         )
 
+    def list_features(self) -> list[Feature]:
+        """Return all Feature rows ordered by ID — see Protocol docstring."""
+        conn = self._require_conn()
+        rows = conn.execute(
+            "SELECT id, title, description, status, requirements, tasks "
+            "FROM features ORDER BY id"
+        ).fetchall()
+        return [
+            Feature(
+                id=r[0],
+                title=r[1],
+                description=r[2],
+                status=r[3],
+                requirements=json.loads(r[4] or "[]"),
+                tasks=json.loads(r[5] or "[]"),
+            )
+            for r in rows
+        ]
+
     def list_events(
         self,
         *,
@@ -830,6 +852,12 @@ class SqliteBackend:
             "task.status_changed": (
                 TaskStatusChangedPayload,
                 self._handle_task_status_changed,
+            ),
+            # v1.15.0 — orphan cleanup on re-parse.
+            "task.deleted": (TaskDeletedPayload, self._handle_task_deleted),
+            "feature.deleted": (
+                FeatureDeletedPayload,
+                self._handle_feature_deleted,
             ),
             # Phase 8: pull-applies-remote — local Task gets title/desc/status
             # rewritten from the remote payload after a non-conflict pull.
@@ -1348,6 +1376,171 @@ class SqliteBackend:
                 f"Expected status '{from_status}', got '{actual_status}'. "
                 "The task status may have been changed by a concurrent operation."
             )
+
+    # ------------------------------------------------------------------
+    # v1.15.0 handlers — orphan cleanup on PRD re-parse
+    # ------------------------------------------------------------------
+
+    # Task statuses that may be deleted without an explicit `force=True`.
+    # Anything outside this set carries claim/evidence history and would
+    # silently lose audit data on delete. The handler refuses those unless
+    # the caller (via `fakoli-state plan --prune-force`) explicitly accepts
+    # the risk.
+    _DELETABLE_TASK_STATUSES: frozenset[str] = frozenset({
+        "proposed", "drafted", "ready",
+    })
+
+    def _handle_task_deleted(
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskDeletedPayload,
+        event: Event,  # noqa: ARG002 — event metadata recorded via JSONL only
+    ) -> None:
+        """Delete a Task row, refusing to clobber unsafe statuses by default.
+
+        Cleanup walk:
+        1. Status check — refuses unless safe-deletable or `force=True`.
+        2. Audit-FK check — `claims` and `evidence` are RESTRICT-FK'd on
+           task_id by schema design. If either exists for this task, the
+           DELETE would fail with a generic SQLite FK error; we pre-check
+           and raise a clearer message. ``force=True`` does NOT bypass
+           this — those tables hold the audit history that the schema
+           intentionally protects.
+        3. ``conflict_groups.task_ids`` — JSON array; rewrite to drop the
+           deleted task ID. Cosmetic since the row is going anyway, but
+           keeps the groups table self-consistent.
+        4. ``tasks`` — the row itself. ``parent_task_id ON DELETE SET
+           NULL`` automatically detaches any child subtasks (they
+           become orphaned rather than cascade-deleted, by design).
+
+        Audit history preserved: ``events`` rows targeting this task ID
+        stay in events.jsonl forever. ``events.target_id = 'T014'`` will
+        still resolve to the now-gone task on replay — that is the
+        intended audit-trail behaviour and the reason this handler does
+        not touch the events table.
+        """
+        task_id = payload.task_id
+
+        # 1. Status check.
+        row = conn.execute(
+            "SELECT status FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if row is None:
+            raise TransactionAborted(
+                f"task.deleted: task '{task_id}' not found in state.db"
+            )
+        current_status: str = row[0]
+
+        if not payload.force and current_status not in self._DELETABLE_TASK_STATUSES:
+            raise TransactionAborted(
+                f"task.deleted: refusing to delete task '{task_id}' in status "
+                f"'{current_status}' without force=True. "
+                f"Safe-delete statuses: {sorted(self._DELETABLE_TASK_STATUSES)}. "
+                "Release any active claim, complete the work, or pass "
+                "force=True (via `fakoli-state plan --prune-force`) to "
+                "delete despite the status."
+            )
+
+        # 2. Audit-FK check (claims, evidence — RESTRICT by schema design).
+        claim_count = conn.execute(
+            "SELECT COUNT(*) FROM claims WHERE task_id = ?", (task_id,)
+        ).fetchone()[0]
+        evidence_count = conn.execute(
+            "SELECT COUNT(*) FROM evidence WHERE task_id = ?", (task_id,)
+        ).fetchone()[0]
+        if claim_count or evidence_count:
+            raise TransactionAborted(
+                f"task.deleted: cannot delete task '{task_id}' — it has "
+                f"{claim_count} claim row(s) and {evidence_count} evidence "
+                "row(s) that are FK-protected by schema. The audit history "
+                "intentionally outlives the task. Re-add the task to "
+                "prd.md if you want to preserve a working entry, or "
+                "accept that the orphan is conceptually dropped but its "
+                "row stays (the data is reachable via events.jsonl)."
+            )
+
+        # 3. Rewrite conflict_groups.task_ids JSON arrays to remove this task.
+        # Explicit Row indexing (row["id"]) is safer than positional unpack —
+        # the connection's row_factory = sqlite3.Row makes this self-documenting
+        # and survives column-order changes. Critic SHOULD FIX from PR #63.
+        groups = conn.execute(
+            "SELECT id, task_ids FROM conflict_groups"
+        ).fetchall()
+        for row in groups:
+            group_id = row["id"]
+            task_ids_json = row["task_ids"]
+            try:
+                task_ids = json.loads(task_ids_json) if task_ids_json else []
+            except (TypeError, ValueError):
+                # Malformed JSON in a conflict_group row would otherwise be
+                # silently left alone — meaning a subsequent query reading
+                # that group could still see the deleted task ID. Log the
+                # corruption to stderr so the operator sees it AND rewrite
+                # the row to an empty array so downstream queries are
+                # consistent with what was actually deleted.
+                print(
+                    f"warning: conflict_groups row {group_id!r} has malformed "
+                    f"task_ids JSON ({task_ids_json!r}); resetting to "
+                    "empty array as part of task.deleted cleanup.",
+                    file=sys.stderr,
+                )
+                conn.execute(
+                    "UPDATE conflict_groups SET task_ids = ? WHERE id = ?",
+                    ("[]", group_id),
+                )
+                continue
+            if task_id in task_ids:
+                task_ids = [t for t in task_ids if t != task_id]
+                conn.execute(
+                    "UPDATE conflict_groups SET task_ids = ? WHERE id = ?",
+                    (json.dumps(task_ids), group_id),
+                )
+
+        # 4. The task row itself.
+        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+
+    def _handle_feature_deleted(
+        self,
+        conn: sqlite3.Connection,
+        payload: FeatureDeletedPayload,
+        event: Event,  # noqa: ARG002 — event metadata recorded via JSONL only
+    ) -> None:
+        """Delete a Feature row, refusing if any tasks still reference it.
+
+        The schema has ``tasks.feature_id REFERENCES features(id) ON DELETE
+        RESTRICT``, so the underlying DELETE would already fail with a
+        FK error. We pre-check so the error message names the actual
+        blocking task IDs instead of a generic FK violation.
+
+        ``force=True`` does NOT bypass this check — feature deletion in
+        the presence of referencing tasks is data corruption, not a
+        risk the user can accept. To remove a feature with tasks, the
+        tasks must be deleted first (which the orphan-prune flow does
+        in the correct order — tasks before features).
+        """
+        feature_id = payload.feature_id
+
+        row = conn.execute(
+            "SELECT id FROM features WHERE id = ?", (feature_id,)
+        ).fetchone()
+        if row is None:
+            raise TransactionAborted(
+                f"feature.deleted: feature '{feature_id}' not found in state.db"
+            )
+
+        blocking = conn.execute(
+            "SELECT id FROM tasks WHERE feature_id = ? ORDER BY id", (feature_id,)
+        ).fetchall()
+        if blocking:
+            blocking_ids = [r[0] for r in blocking]
+            raise TransactionAborted(
+                f"feature.deleted: refusing to delete feature '{feature_id}' "
+                f"while tasks still reference it: {blocking_ids}. "
+                "Delete those tasks first (the orphan-prune flow in `plan` "
+                "does this in the right order — tasks before features)."
+            )
+
+        conn.execute("DELETE FROM features WHERE id = ?", (feature_id,))
 
     # ------------------------------------------------------------------
     # Phase 8 handler — pull-applies-remote (P1-1 fix)

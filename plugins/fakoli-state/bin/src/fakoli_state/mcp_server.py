@@ -26,6 +26,8 @@ Tool names match the spec exactly (2026-05-24-fakoli-state-v0.md §MCP Server).
 from __future__ import annotations
 
 import json
+import re
+import sys
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -1536,23 +1538,63 @@ class PlanTasksResponse(BaseModel):
     task_count: int
     conflict_group_count: int
     warnings: list[ParseErrorEntry]
+    # v1.15.0 fields — LLM task-generation backstop signalling. ``llm_generated``
+    # is True when this call invoked the LLM to draft a ``## Tasks`` section
+    # and appended it to prd.md. ``llm_provider`` is the tier label used
+    # (``anthropic`` today; ``claude-agent-sdk`` reserved for v1.16+), or
+    # None when no LLM call was made (either because tasks already existed
+    # or ``use_llm=False``).
+    llm_generated: bool = False
+    llm_provider: str | None = None
+    # v1.15.0 fields — orphan-prune signalling. ``pruned_task_ids`` and
+    # ``pruned_feature_ids`` list entities that existed in state.db but
+    # were absent from the new PRD parse and got deleted as part of this
+    # call. Empty lists mean no orphans were pruned (the common case).
+    pruned_task_ids: list[str] = []
+    pruned_feature_ids: list[str] = []
 
 
 @mcp.tool
-def plan_tasks(cwd: str | None = None) -> PlanTasksResponse:
+def plan_tasks(
+    cwd: str | None = None,
+    use_llm: bool = True,
+    prune_force: bool = False,
+) -> PlanTasksResponse:
     """Run the planner pipeline against the current PRD: emit
     feature.created and task.created events with dependency inference and
     conflict groups, then promote proposed tasks to drafted.
 
-    Mirrors ``fakoli-state plan`` (deterministic mode — never invokes the
-    LLM; agents that need LLM enrichment must use the CLI). Parse errors
-    from the underlying PRD parse are surfaced as warnings, not raised.
+    Mirrors ``fakoli-state plan``. When the PRD has features+requirements
+    but no ``## Tasks`` section the tool calls the LLM planner (see
+    ``planning.llm_planner``) to draft tasks, appends them to ``prd.md``,
+    and re-parses. Pass ``use_llm=False`` to opt out of this backstop —
+    the tool will then return ``task_count=0`` without mutating the file,
+    leaving the caller to author tasks manually.
+
+    Parse errors from the underlying PRD parse are surfaced as warnings,
+    not raised. LLM failures (no provider configured, bad LLM output) are
+    raised as ``ToolError`` so MCP clients see them rather than a silent
+    zero-count response.
 
     Args:
         cwd: Project root. Defaults to Path.cwd().
+        use_llm: When True (the default) and the PRD has 0 tasks but ≥1
+            feature, invoke the LLM planner to generate a ``## Tasks``
+            section and append it to ``prd.md``. When False, skip the
+            backstop and return whatever the deterministic parse produced.
+        prune_force: When True, allow deletion of orphan tasks that have
+            advanced past ``ready`` status (claimed / in_progress / etc.).
+            Default False: orphans in those statuses cause the tool to
+            raise ``ToolError`` so the caller can release/complete them
+            first instead of losing claim/evidence history.
     """
     from fakoli_state.clock import SystemClock
     from fakoli_state.planning.inference import infer_all
+    from fakoli_state.planning.llm_planner import (
+        PlannerProviderUnavailable,
+        TaskGenerationError,
+        generate_tasks_markdown,
+    )
     from fakoli_state.planning.template import parse_prd as _parse_prd_impl
     from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
     from fakoli_state.state.models import Event
@@ -1582,6 +1624,76 @@ def plan_tasks(cwd: str | None = None) -> PlanTasksResponse:
         for e in result.errors
     ]
 
+    # ------------------------------------------------------------------
+    # LLM task-generation backstop (v1.15+)
+    #
+    # When the PRD has features+requirements but no `## Tasks` section the
+    # deterministic parser yields 0 tasks. Previously plan_tasks returned
+    # task_count=0 silently and downstream tools were left without tasks
+    # to operate on. Now we call the LLM planner, append generated tasks
+    # to prd.md, and re-parse before any events are emitted.
+    # ------------------------------------------------------------------
+    llm_generated = False
+    llm_provider: str | None = None
+    if (
+        use_llm
+        and len(result.tasks) == 0
+        and len(result.features) > 0
+    ):
+        try:
+            gen_result = generate_tasks_markdown(
+                prd=result.prd,
+                features=result.features,
+                requirements=result.requirements,
+            )
+        except PlannerProviderUnavailable as exc:
+            raise ToolError(str(exc)) from exc
+        except TaskGenerationError as exc:
+            # mcp-critic SHOULD FIX from PR #63: TaskGenerationError's
+            # message can include up to 500 chars of raw LLM output (see
+            # llm_planner._validate_and_normalize). Re-raising it through
+            # ToolError leaks that to the MCP client. The full exception
+            # is logged for ops, but the client sees a safe summary.
+            print(
+                f"LLM task generation failed for plan_tasks: {exc}",
+                file=sys.stderr,
+            )
+            raise ToolError(
+                "LLM task generation failed: the response did not contain "
+                "any '### TXXX:' blocks. Check the LLM provider's output "
+                "in stderr for the full response; fix prd.md or re-tune "
+                "the prompt and re-run plan_tasks."
+            ) from exc
+
+        # Idempotency guard: only append `## Tasks` when not already
+        # present, so re-running plan_tasks after a previous append is a
+        # no-op on the file.
+        try:
+            current_markdown = prd_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ToolError(f"Cannot re-read {prd_path}: {exc}") from exc
+
+        from fakoli_state.planning._plan_helpers import has_tasks_section
+        if not has_tasks_section(current_markdown):
+            new_markdown = (
+                current_markdown.rstrip() + "\n\n" + gen_result.markdown + "\n"
+            )
+            try:
+                prd_path.write_text(new_markdown, encoding="utf-8")
+            except OSError as exc:
+                raise ToolError(
+                    f"Cannot write generated tasks to {prd_path}: {exc}"
+                ) from exc
+
+        # Re-parse so the event emission below sees the new tasks.
+        try:
+            markdown = prd_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ToolError(f"Cannot re-read {prd_path}: {exc}") from exc
+        result = _parse_prd_impl(markdown, prd_id="prd")
+        llm_generated = True
+        llm_provider = gen_result.provider_used
+
     backend = _open_backend(state_dir)
     try:
         # Guard: `parse_prd` must have run first so the backend has a PRD row.
@@ -1596,6 +1708,55 @@ def plan_tasks(cwd: str | None = None) -> PlanTasksResponse:
             )
 
         clock = SystemClock()
+
+        # --------------------------------------------------------------
+        # Orphan-prune (v1.15.0). Shares planning._plan_helpers with the
+        # CLI — see that module's docstring for the multi-critic review
+        # finding that drove the extraction (previously this logic was
+        # duplicated, the safe-status set was triplicated, and the CLI
+        # was missing the TransactionAborted catch that the MCP had).
+        # --------------------------------------------------------------
+        from fakoli_state.planning._plan_helpers import (
+            classify_orphans,
+            emit_prune_events,
+        )
+
+        classification = classify_orphans(
+            backend.list_tasks(),
+            {t.id for t in result.tasks},
+            backend.list_features(),
+            {f.id for f in result.features},
+        )
+
+        if classification.unsafe_task_orphans and not prune_force:
+            blocked = ", ".join(
+                f"{t.id}({t.status.value})"
+                for t in classification.unsafe_task_orphans
+            )
+            raise ToolError(
+                f"{len(classification.unsafe_task_orphans)} orphan task(s) "
+                "removed from prd.md have advanced past `ready` status; "
+                "deleting silently would lose claim/evidence history. "
+                f"Blocked: {blocked}. Release the claims (or complete the "
+                "work) and re-call plan_tasks, OR re-call with "
+                "prune_force=True to delete despite the status (audit "
+                "history is preserved either way)."
+            )
+
+        try:
+            prune_result = emit_prune_events(
+                backend,
+                classification,
+                actor="fakoli-state-mcp",
+                clock=clock,
+                prune_force=prune_force,
+            )
+        except TransactionAborted as exc:
+            raise ToolError(str(exc)) from exc
+
+        pruned_task_ids = prune_result.pruned_task_ids
+        pruned_feature_ids = prune_result.pruned_feature_ids
+
         # Emit feature.created per feature.
         for feature in result.features:
             now = clock.now()
@@ -1671,9 +1832,19 @@ def plan_tasks(cwd: str | None = None) -> PlanTasksResponse:
             task_count=len(result.tasks),
             conflict_group_count=len(inference_result.conflict_groups),
             warnings=warnings,
+            llm_generated=llm_generated,
+            llm_provider=llm_provider,
+            pruned_task_ids=pruned_task_ids,
+            pruned_feature_ids=pruned_feature_ids,
         )
     finally:
         backend.close()
+
+
+# `_has_tasks_section` and `_TASKS_HEADING_RE` previously lived here as a
+# twin of cli/plan.py. As of v1.15.0 post-review they live in
+# planning/_plan_helpers.py — see that module's docstring for the
+# multi-critic finding that drove the extraction.
 
 
 # ---------------------------------------------------------------------------

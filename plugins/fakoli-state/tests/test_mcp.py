@@ -1715,6 +1715,239 @@ class TestPlanTasks:
 
 
 # ===========================================================================
+# Tool 18: plan_tasks — v1.15+ LLM task-generation backstop
+# ===========================================================================
+
+
+# PRD with features + requirements but NO `## Tasks` section. Triggers
+# the LLM-backstop path in plan_tasks.
+_PRD_WITHOUT_TASKS_MCP = """\
+# Project: MCP LLM Backstop Test
+
+## Summary
+
+A project for exercising the LLM task-generation backstop via MCP.
+
+## Goals
+
+- Verify the backstop fires when tasks are absent.
+
+## Requirements
+
+- R001: Accept input.
+- R002: Produce output.
+
+## Features
+
+### F001: Core Feature
+
+The single feature exercised by the test PRD.
+
+**Requirements:** R001, R002
+"""
+
+
+_CANNED_LLM_TASKS_MCP = """\
+## Tasks
+
+### T001: Implement input handler
+
+**Feature:** F001
+**Priority:** high
+**Likely files:** src/app/handler.py
+
+Parse the input correctly with validation.
+
+**Acceptance criteria:**
+
+- Valid input is parsed.
+- Invalid input raises with the filename.
+
+**Verification:**
+
+- `pytest tests/test_handler.py -v`
+
+### T002: Implement output writer
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/app/writer.py
+
+Write output to disk atomically.
+
+**Acceptance criteria:**
+
+- Output round-trips back to the input.
+
+**Verification:**
+
+- `pytest tests/test_writer.py -v`
+"""
+
+
+def _build_recorded_planner_provider(prd_content: str):  # type: ignore[no-untyped-def]
+    """Construct a RecordedLLMProvider keyed to the planner's prompt for
+    ``prd_content`` and a canned ``## Tasks`` response.
+
+    Parses the PRD via ``parse_prd`` to recover the same model objects the
+    production path passes to the planner, then builds the planner user
+    prompt via the same helper and hashes it under the planner's tuning
+    args (max_tokens=8000, temperature=0.0)."""
+    from fakoli_state.planning.llm import LLMResponse, RecordedLLMProvider
+    from fakoli_state.planning.llm_planner import (
+        _SYSTEM_PROMPT,
+        _build_user_prompt,
+    )
+    from fakoli_state.planning.template import parse_prd
+
+    parsed = parse_prd(prd_content, prd_id="prd")
+    user_prompt = _build_user_prompt(
+        parsed.prd, parsed.features, parsed.requirements, None
+    )
+    key = RecordedLLMProvider.record_key(
+        _SYSTEM_PROMPT, user_prompt, max_tokens=8000, temperature=0.0
+    )
+    canned = LLMResponse(
+        text=_CANNED_LLM_TASKS_MCP,
+        input_tokens=100,
+        cached_input_tokens=0,
+        output_tokens=50,
+        model="claude-opus-4-7",
+        finish_reason="end_turn",
+    )
+    return RecordedLLMProvider({key: canned})
+
+
+class TestPlanTasksLlmBackstop:
+    """v1.15+ behaviour: when prd.md has features+requirements but no
+    `## Tasks` section the MCP tool calls the LLM planner, appends to
+    prd.md, re-parses, and reports llm_generated=True. Mirrors the CLI
+    spec — keeps MCP and CLI behaviour in lock-step."""
+
+    def _install_recorded_resolver(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        provider: Any,
+    ) -> None:
+        """Replace ``resolve_planner_provider`` so the tool uses a recorded
+        provider without needing ANTHROPIC_API_KEY or a real API call."""
+        from fakoli_state.planning import llm_planner
+
+        monkeypatch.setattr(
+            llm_planner,
+            "resolve_planner_provider",
+            lambda: (provider, "anthropic"),
+        )
+
+    def test_happy_path_generates_appends_and_reports_llm_flags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PRD without `## Tasks` → plan_tasks calls LLM, mutates prd.md,
+        emits task events, and returns llm_generated=True with
+        llm_provider='anthropic'."""
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir, _PRD_WITHOUT_TASKS_MCP)
+        monkeypatch.chdir(tmp_path)
+
+        provider = _build_recorded_planner_provider(_PRD_WITHOUT_TASKS_MCP)
+        self._install_recorded_resolver(monkeypatch, provider)
+
+        async def run() -> tuple[Any, Any]:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                plan = _data(await c.call_tool("plan_tasks", {}))
+                tasks = _data(await c.call_tool("list_tasks", {}))
+                return plan, tasks
+
+        plan, tasks = _run(run())
+        assert plan["feature_count"] == 1
+        assert plan["task_count"] == 2
+        assert plan["llm_generated"] is True
+        assert plan["llm_provider"] == "anthropic"
+
+        # Tasks reached the backend with the canned IDs.
+        task_ids = {t["id"] for t in tasks}
+        assert {"T001", "T002"}.issubset(task_ids)
+
+        # prd.md was mutated — `## Tasks` is now present on disk.
+        prd_text = (state_dir / "prd.md").read_text(encoding="utf-8")
+        assert "## Tasks" in prd_text
+        assert "### T001" in prd_text and "### T002" in prd_text
+
+    def test_use_llm_false_returns_zero_without_mutating_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With use_llm=False the tool MUST NOT call the LLM or touch
+        prd.md. The response reports task_count=0 and llm_generated=False
+        so the MCP caller can decide what to do next."""
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir, _PRD_WITHOUT_TASKS_MCP)
+        monkeypatch.chdir(tmp_path)
+
+        # Resolver should NOT fire when use_llm=False; install a raising
+        # stub so an accidental call surfaces as a test failure.
+        from fakoli_state.planning import llm_planner
+
+        def _explode() -> None:
+            raise AssertionError(
+                "resolve_planner_provider should not be called with use_llm=False"
+            )
+
+        monkeypatch.setattr(llm_planner, "resolve_planner_provider", _explode)
+
+        prd_before = (state_dir / "prd.md").read_text(encoding="utf-8")
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                return _data(await c.call_tool("plan_tasks", {"use_llm": False}))
+
+        plan = _run(run())
+        assert plan["feature_count"] == 1
+        assert plan["task_count"] == 0
+        assert plan["llm_generated"] is False
+        assert plan["llm_provider"] is None
+
+        # File on disk is untouched.
+        prd_after = (state_dir / "prd.md").read_text(encoding="utf-8")
+        assert prd_before == prd_after
+
+    def test_provider_unavailable_raises_tool_error_with_full_message(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When ``resolve_planner_provider`` raises
+        ``PlannerProviderUnavailable`` the MCP tool must raise
+        ``ToolError`` carrying the full multi-line setup message — never
+        a silent ``task_count=0`` response."""
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir, _PRD_WITHOUT_TASKS_MCP)
+        monkeypatch.chdir(tmp_path)
+
+        from fakoli_state.planning import llm_planner
+        from fakoli_state.planning.llm_planner import PlannerProviderUnavailable
+
+        sentinel_msg = (
+            "No LLM provider available for task generation. "
+            "Set ANTHROPIC_API_KEY or install claude-agent-sdk."
+        )
+
+        def _raise() -> None:
+            raise PlannerProviderUnavailable(sentinel_msg)
+
+        monkeypatch.setattr(llm_planner, "resolve_planner_provider", _raise)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+
+        with pytest.raises(
+            ToolError, match="ANTHROPIC_API_KEY|claude-agent-sdk"
+        ):
+            _run(run())
+
+
+# ===========================================================================
 # Tool 19: score_tasks
 # ===========================================================================
 
@@ -2094,3 +2327,224 @@ class TestFindDecisions:
             match="PRD parse failed|parse_prd before find_decisions",
         ):
             _run(run())
+
+
+# ===========================================================================
+# Orphan-prune on re-parse (v1.15.0)
+# ===========================================================================
+
+
+_MCP_TWO_TASK_PRD = """\
+# Project: MCP Orphan Test
+
+## Summary
+
+MCP-side orphan-prune coverage.
+
+## Goals
+
+- Test orphans via MCP.
+
+## Requirements
+
+- R001: First.
+
+## Features
+
+### F001: One feature
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: Keep me
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/a.py
+
+Stays.
+
+**Acceptance criteria:**
+
+- Stays.
+
+**Verification:**
+
+- `pytest a`
+
+### T002: Delete me
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/b.py
+
+Removed on second parse.
+
+**Acceptance criteria:**
+
+- Was there.
+
+**Verification:**
+
+- `pytest b`
+"""
+
+
+_MCP_TWO_TASK_PRD_WITHOUT_T002 = """\
+# Project: MCP Orphan Test
+
+## Summary
+
+MCP-side orphan-prune coverage.
+
+## Goals
+
+- Test orphans via MCP.
+
+## Requirements
+
+- R001: First.
+
+## Features
+
+### F001: One feature
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: Keep me
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/a.py
+
+Stays.
+
+**Acceptance criteria:**
+
+- Stays.
+
+**Verification:**
+
+- `pytest a`
+"""
+
+
+class TestPlanTasksOrphanPrune:
+    """v1.15.0 behavior mirrored in MCP: plan_tasks emits task.deleted for
+    entities removed from prd.md. prune_force=True overrides the safety
+    check on unsafe statuses; without it, unsafe orphans raise ToolError."""
+
+    def _setup_two_tasks(self, tmp_path: Path) -> Path:
+        state_dir = _init_state_dir(tmp_path)
+        (state_dir / "prd.md").write_text(_MCP_TWO_TASK_PRD, encoding="utf-8")
+        return state_dir
+
+    def _list_task_ids(self, tmp_path: Path) -> set[str]:
+        import sqlite3
+        db = tmp_path / ".fakoli-state" / "state.db"
+        with sqlite3.connect(str(db)) as conn:
+            return {r[0] for r in conn.execute("SELECT id FROM tasks")}
+
+    def _set_task_status(self, tmp_path: Path, task_id: str, status: str) -> None:
+        import sqlite3
+        db = tmp_path / ".fakoli-state" / "state.db"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute(
+                "UPDATE tasks SET status = ? WHERE id = ?", (status, task_id)
+            )
+            conn.commit()
+
+    def test_safe_orphan_listed_in_pruned_task_ids(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Removing T002 from prd.md and re-running plan_tasks emits
+        task.deleted; response.pruned_task_ids surfaces the change so MCP
+        clients can show the user what was cleaned up."""
+        state_dir = self._setup_two_tasks(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def setup() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+
+        _run(setup())
+        assert self._list_task_ids(tmp_path) == {"T001", "T002"}
+
+        # Edit prd.md to remove T002 and re-plan.
+        (state_dir / "prd.md").write_text(
+            _MCP_TWO_TASK_PRD_WITHOUT_T002, encoding="utf-8"
+        )
+
+        async def re_plan() -> Any:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                return _data(await c.call_tool("plan_tasks", {}))
+
+        resp = _run(re_plan())
+        assert "T002" in resp["pruned_task_ids"], (
+            f"pruned_task_ids should include T002; got {resp['pruned_task_ids']}"
+        )
+        assert self._list_task_ids(tmp_path) == {"T001"}
+
+    def test_unsafe_orphan_raises_tool_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Orphan in unsafe status (claimed) blocks plan_tasks with a
+        ToolError naming the task ID and prune_force option."""
+        state_dir = self._setup_two_tasks(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def setup() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+
+        _run(setup())
+        self._set_task_status(tmp_path, "T002", "claimed")
+
+        (state_dir / "prd.md").write_text(
+            _MCP_TWO_TASK_PRD_WITHOUT_T002, encoding="utf-8"
+        )
+
+        async def re_plan() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+
+        with pytest.raises(ToolError, match="T002.*claimed|prune_force"):
+            _run(re_plan())
+        assert "T002" in self._list_task_ids(tmp_path)
+
+    def test_prune_force_overrides_unsafe(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """prune_force=True deletes orphans regardless of status."""
+        state_dir = self._setup_two_tasks(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def setup() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+
+        _run(setup())
+        self._set_task_status(tmp_path, "T002", "claimed")
+
+        (state_dir / "prd.md").write_text(
+            _MCP_TWO_TASK_PRD_WITHOUT_T002, encoding="utf-8"
+        )
+
+        async def re_plan() -> Any:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                return _data(
+                    await c.call_tool("plan_tasks", {"prune_force": True})
+                )
+
+        resp = _run(re_plan())
+        assert "T002" in resp["pruned_task_ids"]
+        assert self._list_task_ids(tmp_path) == {"T001"}

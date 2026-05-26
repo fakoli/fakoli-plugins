@@ -70,31 +70,67 @@ The soft-gate design is deliberate: `find-decisions` non-empty does NOT block pl
 
 ---
 
-### Step 1 — Generate features and tasks
+### Step 1 — Generate features and tasks (`plan` guarantees tasks as of v1.15.0)
 
-Invoke `fakoli-state plan` yourself — via Bash, the MCP `plan` tool when available, or whichever execution primitive the runtime exposes:
+Invoke `fakoli-state plan` yourself — via Bash, the MCP `plan_tasks` tool when available, or whichever execution primitive the runtime exposes:
 
 ```bash
 fakoli-state plan
 ```
 
-Reads the parsed PRD from `state.db` and emits `feature.created` and `task.created` events for each `Feature` and `Task` found. Dependency inference and conflict-group detection run automatically — tasks that share `likely_files` entries are grouped into the same conflict group.
+Reads the parsed PRD from `state.db` and emits `feature.created` and `task.created` events. Dependency inference and conflict-group detection run automatically — tasks that share `likely_files` entries are grouped into the same conflict group.
 
-Surface the generated count inline:
+**The CLI now GUARANTEES tasks AND orphan-free state (v1.15.0).** Two integrity guarantees were added together in v1.15.0:
+
+1. If the PRD has features+requirements but no `## Tasks` section, `plan` calls the LLM itself to generate them (instead of silently returning `0 tasks` and forcing the agent to dispatch a separate planner subagent).
+2. If tasks were removed from the PRD between parses, `plan` emits `task.deleted` events automatically so state.db stays in sync (instead of leaving orphans behind). Same for features. Safe statuses (proposed / drafted / ready) prune silently; unsafe statuses (claimed / in_progress / needs_review / …) fail loudly with a clear list and the `--prune-force` escape hatch. Tasks with claims/evidence rows can NEVER be deleted at the SQL layer (the audit history is FK-protected by schema).
+
+The output line tells you what happened:
 
 ```
-generated 3 features, 8 tasks
+Planned 3 features, 19 tasks (19 generated via LLM (anthropic), appended to .fakoli-state/prd.md)
 ```
 
-If the counts are wrong, the PRD probably wasn't re-parsed after the last edit. Run `fakoli-state prd parse` yourself, then re-run `fakoli-state plan` — do not ask the user to do it.
+When you see `(N generated via LLM ...)`, surface it explicitly in chat so the user knows their `prd.md` was modified:
 
-**Pause here and present the task list.** Run `fakoli-state list` yourself and present the titles, features, and priorities in chat:
+> Plan generated 3 features and 19 tasks. The PRD had no `## Tasks` section, so I generated them via LLM and appended a `## Tasks` block to `.fakoli-state/prd.md` (auditable on disk). Want to review the generated tasks before continuing? (show me / looks good / I want to edit first)
+
+If the LLM call fails (no `ANTHROPIC_API_KEY`, network failure, malformed response), the CLI exits non-zero with a clear message. **Do not paper over a failure by dispatching the planner subagent as a workaround** — surface the error to the user and ask whether they want to set up the LLM path or author tasks manually in `## Tasks`.
+
+If you genuinely don't want LLM auto-gen for a specific call (e.g. on a CI machine without API keys), pass `--no-llm`. The CLI exits 1 with a clear "0 tasks generated; author them manually" message.
+
+**Pause and present the task list.** Run `fakoli-state list` yourself and present titles, features, and priorities in chat:
 
 > Plan generated 3 features, 8 tasks. Here they are:
 > [list output]
 > Anything mis-scoped or missing before I run `score`? (yes / looks good / let me check first)
 
 Catching mis-scoped tasks here costs one loop; catching them after scoring or claiming costs three.
+
+### Step 1.5 — Present post-plan decisions as structured Q&A
+
+**One decision per turn. Ask, wait for the answer, apply, then surface the next decision.** Never batch three decisions into one wall-of-questions — that's the same anti-pattern the resolve-decisions skill names at the PRD layer, and it produces the same failure mode here (the user picks one and leaves the rest unresolved, or skips everything because the wall is overwhelming).
+
+When the LLM-generated task list lands, it may carry decisions the user has to make before scoring/claiming starts — for example: scope overruns ("87h estimated, 80h budget"), structural concerns about the PRD ("R010 says ≥32 tools but F003 description says ≥35"), or expansion candidates the LLM flagged. **Surface each decision as a structured Q&A turn, not as prose with bullets.**
+
+For Claude Code runtimes, use the `AskUserQuestion` tool so the user gets a structured pick UI rather than free-form text to type. For other runtimes, fall back to explicit numbered prompts:
+
+> **Decision 1 — Scope overrun (87h vs 80h budget)**
+> The generated tasks total ~87h of work; your declared phase budget is 80h. How should we resolve the 7h overrun?
+> 1. Cut T014 + trim T002 (lands at ~80h; F004 keeps T012+T013)
+> 2. Cut T008 + T018 + trim T007 (distributed across features)
+> 3. Defer T017 (Wasm network policy — affects F005)
+> 4. Keep all tasks and accept the overrun
+>
+> Pick 1 / 2 / 3 / 4 (or describe your own).
+
+Always: agent generates the question, proposes 2-4 candidate answers when the surrounding context allows, accepts the pick, applies the choice (edit `prd.md`, re-parse, etc.). One decision per turn — do NOT batch three decisions into one question.
+
+When the LLM flagged tasks for expansion (complexity ≥ 4), present them as a Q&A too rather than a list-with-recommendation:
+
+> 6 tasks scored complexity ≥ 4 and should be expanded into subtasks before being claimed. Should I run `fakoli-state expand` on them now? (all of them / let me pick which / not yet — score them first)
+
+The same rule applies whenever the post-plan output surfaces structural concerns about the PRD (e.g., "R010 vs F003 drift"). Each concern is one Q&A turn with proposed fix options, not a wall of "issues to consider."
 
 ---
 

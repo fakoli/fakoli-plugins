@@ -98,10 +98,37 @@ def claim(
             raise typer.Exit(code=1) from exc
 
         # Git branch creation — non-blocking; warnings go to stderr.
+        # v1.15.0: branch_prefix is host-project-configurable so claims
+        # respect `feature/` / `fix/` conventions instead of forcing
+        # `agent/` everywhere. Falls back silently to the default when
+        # config.yaml is missing (e.g. ad-hoc test runs).
+        branch_prefix = "agent"
+        config_path = state_dir / "config.yaml"
+        if config_path.exists():
+            try:
+                from fakoli_state.config import load_config
+                cfg = load_config(config_path)
+                branch_prefix = cfg.branch_prefix
+            except (OSError, ValueError) as exc:
+                # Config-load failure should NOT block a claim — fall back
+                # to the default prefix and let the user fix config.yaml
+                # at their leisure. BUT surface the failure to stderr so
+                # the user sees why the branch ended up `agent/...` when
+                # they thought they had set `branch_prefix: feature`.
+                # Silent fallbacks on configuration are exactly the bug
+                # class v1.15.0 was supposed to fix (critic SHOULD FIX
+                # from PR #63 review).
+                typer.echo(
+                    f"Warning: config.yaml load failed ({exc.__class__.__name__}: "
+                    f"{exc}); using default branch_prefix='agent'.",
+                    err=True,
+                )
+
         branch_result = create_branch_for_task(
             task_id,
             task.title,
             cwd=resolved_cwd,
+            branch_prefix=branch_prefix,
         )
         if branch_result.created and branch_result.reason:
             typer.echo(f"Warning (branch): {branch_result.reason}", err=True)
