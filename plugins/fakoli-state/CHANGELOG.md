@@ -104,6 +104,37 @@ continue to work; the new `--no-llm` flag is opt-in. The
 that need the subagent's structured-output discipline (PRD critique,
 expansion proposals, incremental planning across PRD revisions).
 
+### Changed (execute skill auto-dispatches to fakoli-crew, no meta-question)
+
+- **`execute` skill Step 3 now auto-routes to the best-fit
+  fakoli-crew specialist** instead of asking the user "How would
+  you like to proceed?" with a list of options. Same anti-pattern
+  the v1.13.0 / v1.14.0 releases named at adjacent layers — the
+  agent has the context to pick the routing target (likely_files,
+  acceptance criteria, title verbs) and the user has no
+  information the agent lacks. Asking the question biases toward
+  "do it yourself" by framing it as agent-vs-delegate when the
+  real choice is which-specialist.
+- New routing heuristic encoded as a table in the skill body:
+  `.claude-plugin` work → smith; interface/Protocol design →
+  guido; existing-code integration → welder; API research →
+  scout; README / user-facing docs → herald; CI / CLAUDE.md /
+  contributor infra → keeper; verification-centred → sentinel;
+  multi-package wave → fakoli-flow:execute or guido + welder
+  pair. First-match-wins so the heuristic is deterministic.
+- The "ask the user" escape hatch is explicit and narrow:
+  ambiguous scope (multiple specialties no clear primary),
+  unusual task no routing heuristic match, OR user explicitly
+  said "I want to drive this one myself" earlier. Every other
+  case: route silently and report the routing decision inline.
+- Step 3 split into Step 3 (routing) + Step 3a (implementation
+  discipline) so the hooks-and-commits guidance stays attached
+  to the actual edit phase regardless of who did the edits.
+- Step 3a also updated to reference v1.15.0's
+  configurable `branch_prefix` — the example branch name still
+  shows `agent/...` but the prose acknowledges the prefix is
+  project-configured now.
+
 ### Changed (branch-naming convention is now host-project-configurable)
 
 - **New `branch_prefix` field in `.fakoli-state/config.yaml`** (default
