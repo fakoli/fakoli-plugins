@@ -1,148 +1,176 @@
+<div align="center">
+
+![fakoli-state](assets/logo-256.png)
+
 # fakoli-state
 
-Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.
+> fakoli-state turns brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI coding agents can execute in parallel without stepping on each other — the canonical project-state layer that fakoli-flow and fakoli-crew compose around.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Plugin Version](https://img.shields.io/badge/version-1.10.0-blue.svg)](.claude-plugin/plugin.json)
-[![Status](https://img.shields.io/badge/plugin--state-alpha%20%2F%20in--development-orange.svg)](.claude-plugin/plugin.json)
+[![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
+[![Tests](https://img.shields.io/badge/tests-965%20passing-brightgreen.svg)](tests)
+
+</div>
 
 ---
 
-## What it is
+## Why fakoli-state
 
-fakoli-state is the third pillar of the Fakoli plugin ecosystem. `fakoli-flow` defines how work moves through a pipeline; `fakoli-crew` defines who does the work; fakoli-state defines **what is true** — the canonical, durable record of every requirement, task, claim, and piece of evidence in your project.
+fakoli-state is a local-first, backend-neutral project-state layer for humans and AI coding agents — the durable record of every requirement, task, claim, and piece of evidence in your project, stored in SQLite under `.fakoli-state/` and exposed through a CLI and an MCP server.
 
-It stores project state in a local SQLite database under `.fakoli-state/`, never in chat history or an issue tracker. When an AI agent claims a task, that claim is an enforced database row with a lease and a heartbeat — not a convention in a markdown file that the next agent can silently overwrite.
+It is for developers running Claude Code, Codex, Cursor, OpenHands, or Copilot who need multiple agents (and multiple humans) to coordinate against the same plan without overwriting each other. Solo builders who want PRDs that survive sessions. Project leads who want truth that outlives any one chat.
 
-The plugin ships a CLI for pure state operations, an MCP server that exposes 13 agent-facing tools to any runtime (Claude Code, Codex, Cursor, OpenHands, Copilot), and a set of skills and hooks that enforce coordination discipline the model would otherwise forget.
-
----
-
-## Why this exists — the 5 must-do-better
-
-AI coding agents need shared, durable project state that is not trapped in chat history or buried in an issue tracker. Current tools leave five gaps:
-
-1. **Richer canonical state than issue text.** GitHub Issues store requirements as free-form markdown body. fakoli-state uses Pydantic v2 models backed by SQLite — structured, queryable, and validated at every transition.
-
-2. **Explicit claim / lock / lease model.** Issue assignment and labels imply ownership but do not enforce it. fakoli-state records a `Claim` row with an expiry timestamp; stale leases are detected and released automatically on every CLI or MCP operation.
-
-3. **LLM-optimized work packets.** An agent should receive exactly what it needs — intent, acceptance criteria, scope, constraints, non-goals — not an entire issue thread. `fakoli-state packet T012` renders a compact, task-specific markdown or JSON packet from canonical state.
-
-4. **Six-dimension task scoring.** Tasks carry scores for complexity, parallelizability, context load, blast radius, review risk, and agent suitability. These drive routing decisions and surface expand recommendations before an agent wastes time on an under-specified task.
-
-5. **Runtime-neutral integration via CLI + MCP.** The state engine is not coupled to any single agent runtime. The CLI works from any shell; the MCP server (FastMCP, stdio) integrates with any MCP-compatible agent.
+When an AI agent claims a task, that claim is an enforced database row with a lease and a heartbeat — not a convention in a markdown file that the next agent can silently overwrite.
 
 ---
 
-## Installation
+## The trinity
 
-fakoli-state is not yet in the marketplace. Clone from the monorepo and wire the plugin manually:
+fakoli-flow defines how work moves, fakoli-crew defines who does the work, and fakoli-state defines what is true. The three plugins compose: when all three are installed, `flow:execute` reads `fakoli-state next`, dispatches the right crew specialist, and submits evidence back to canonical state before the merge gate. When fakoli-state is absent, flow and crew fall back to their markdown-status conventions.
 
-```bash
-git clone https://github.com/fakoli/fakoli-plugins.git
-cd fakoli-plugins/plugins/fakoli-state
-```
+---
 
-Then add the plugin path to your Claude Code plugin configuration.
+## What ships today (v1.10.0)
 
-Once published, install via `/plugin install fakoli-state` from the fakoli marketplace.
+| Surface | Count | Notes |
+|---|---|---|
+| CLI commands | **23** | Top-level + `prd`, `review`, `hook`, `sync` sub-apps |
+| MCP tools | **13** | FastMCP stdio; works in any MCP-compatible client |
+| Skills | **7 skills** | brainstorm, prd, plan, claim, execute, finish, state-ops |
+| Agents | **6 agents** | planner, critic, sentinel, state-keeper, marketplace-scribe, docs-scribe |
+| Hooks | **4 hooks** | detect-state, check-claim, record-file-change, capture-evidence |
+
+Highlights from v1.10.0:
+
+- Phase 10 plugin-dev audit closed all 8 MUST FIX items surfaced by the fakoli-crew v2.2.0 cross-plugin critic agents (agent-critic, skill-critic, hook-critic, mcp-critic, structure-critic).
+- Iron Rule least-privilege restored on five agent files (`tools:` frontmatter key replaces the silently-ignored `allowed-tools:`).
+- 965 tests passing; SQLite schema unchanged (still v3 from v1.8.0 — no migration required).
+
+Full release notes in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
 ## Quick Start
 
-> **Status: Coming in v1.1 — currently scaffolding (Phase 1 of 8)**
-
-The intended first-run experience will be:
-
 ```bash
-# Initialize state for your project
+# 1. Scaffold per-project state
 fakoli-state init --name "My Project"
+# → creates .fakoli-state/{config.yaml,state.db,events.jsonl,packets/}
+# → next step: author your PRD at .fakoli-state/prd.md
 
-# Author a PRD against the provided template
+# 2. Author the PRD against the template (see docs/prd-template.md)
 $EDITOR .fakoli-state/prd.md
 
-# Parse, review, and lock the PRD
+# 3. Parse, review, approve — the state machine requires draft → reviewed → approved
 fakoli-state prd parse
-fakoli-state prd review --approve
+# → Parsed PRD: 4 requirements, 12 tasks staged for review
+fakoli-state prd review             # draft → reviewed
+fakoli-state prd review --approve   # reviewed → approved
 
-# Generate features and tasks; score and expand
+# 4. Generate features and tasks; score across six dimensions
 fakoli-state plan
 fakoli-state score
-fakoli-state expand T001
+# → tabular output: TaskID / Complexity / Parallel / CtxLoad / Blast / Review / Agent (1–5)
 fakoli-state review tasks
 
-# Pick and claim the next task
+# 5. Pick the next ready task and claim it
 fakoli-state next
-fakoli-state claim T001          # auto-creates branch agent/t001-<slug>
+# → T001 — "Wire orchestrator retry to DLQ" (ready, no conflicts)
+fakoli-state claim T001
+# → Claim C001 active; branch agent/t001-<slug> created
 
-# Get the work packet for the active task
+# 6. Get the work packet, do the work, submit evidence
 fakoli-state packet T001
+fakoli-state submit T001 \
+    --commands "pytest tests/test_retry.py" \
+    --files-changed src/orchestrator/retry.py
 
-# Submit evidence and apply
-fakoli-state submit T001 --commands "pytest" --output-file out.log --files-changed src/foo.py
-fakoli-state apply T001
+# 7. Apply the review verdict — promotes needs_review → accepted → done
+fakoli-state apply T001 --approve
+# → Task T001 applied; event task.applied recorded in events.jsonl
 ```
 
-The `fakoli-state init` command scaffolds a `.fakoli-state/` directory in your project containing `config.yaml`, `state.db`, `events.jsonl`, `prd.md`, a `packets/` directory, and optional `snapshots/`.
+> To break a complex task into subtasks, use `fakoli-state expand T001 --use-llm` (requires `ANTHROPIC_API_KEY`) or author `T001.1` / `T001.2` rows directly in `prd.md`. Full command reference forthcoming in [`docs/cli-reference.md`](docs/cli-reference.md).
+
+Every mutation appends to `.fakoli-state/events.jsonl`. Replaying the log from scratch against an empty database reconstructs `state.db` byte-for-byte — the audit guarantee Phase 2 ships and every subsequent phase preserves.
 
 ---
 
-## Architecture overview
-
-The canonical specification for fakoli-state is at:
-[`docs/specs/2026-05-24-fakoli-state-v0.md`](docs/specs/2026-05-24-fakoli-state-v0.md)
-
-That document defines the data model, CLI command set, MCP tool surface, hook event mappings, phasing plan, and integration contracts with fakoli-flow and fakoli-crew.
-
-### Component responsibilities
+## Architecture at a glance
 
 | Layer | What it does |
 |---|---|
-| Skills | Workflow choreography (7 skills): brainstorm, prd, plan, claim, execute, finish, state-ops. Verification is delegated to `fakoli-flow:verify` and `fakoli-crew:sentinel`. |
+| Skills | Workflow choreography — 7 skills: brainstorm, prd, plan, claim, execute, finish, state-ops. Verification delegates to `fakoli-flow:verify` and `fakoli-crew:sentinel`. |
 | CLI (`fakoli-state`) | Pure state operations — CRUD, scoring, packet generation, sync |
 | MCP server | 13 agent-facing tools exposed via stdio to any MCP-compatible runtime |
 | Hooks | Enforce claim discipline, record file changes, capture test evidence |
-| State engine | SQLite backend + append-only JSONL event log |
+| State engine | SQLite backend + append-only JSONL event log (full replay guarantee) |
 | Claims manager | Atomic SQLite transactions; stale lease detection on every operation |
-| Planning engine | Deterministic template-based PRD parser; optional LLM augmentation |
+| Planning engine | Deterministic template-based PRD parser; optional `--use-llm` augmentation |
 | Context engine | Renders work packets as markdown or JSON from canonical state |
 | Git ops | Auto-creates `agent/<task>-<slug>` branch on `claim` |
 | Sync engine | Bidirectional GitHub Issues projection (polling, opt-in) |
 
-### Per-project state directory
-
-`fakoli-state init` creates this inside your project — not inside the plugin:
-
-```text
-<your-project>/.fakoli-state/
-├── config.yaml        # project-level config
-├── state.db           # SQLite — canonical state
-├── events.jsonl       # append-only audit/event log (full replay guarantee)
-├── prd.md             # PRD source
-├── packets/           # generated work packets (T001.md, T001.json, ...)
-└── snapshots/         # opt-in periodic snapshots
-```
-
-The event log is a hard guarantee: replaying `events.jsonl` from scratch against an empty database reconstructs `state.db` exactly.
+Full architecture and lifecycle diagrams: [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
-## Build status
+## Comparison vs alternatives
 
-fakoli-state is built in 9 phases. Each phase ships as its own PR into the fakoli-plugins monorepo. Phases 1–8 shipped in PRs #38–#49; Phase 9 (this release, v1.9.0) closes the audit-honesty deferrals from Phase 8 and the Phase 7 LLM-augmentation cleanup.
-
-| Phase | Name | Status |
+| Wedge | fakoli-state | GitHub Issues / CCPM |
 |---|---|---|
-| 1 | Plugin skeleton: manifest, README, LICENSE, CHANGELOG, `bin/` wrappers, `pyproject.toml`, `--version` stub | Done (v1.0.0) |
-| 2 | State engine: models, SQLite backend, JSONL event log, `init`/`status` CLI, state-ops skill, `detect-state.sh` hook | Done (v1.1.0) |
-| 3 | Planning engine: `prd parse`/`prd review`/`plan`/`score`/`expand`/`review tasks`, prd/plan skills, planner agent | Done (v1.2.0) |
-| 4 | Claims manager: `claim`/`release`/`renew`/`next` CLI, git ops, claim skill, check-claim + record-file-change hooks | Done (v1.3.0) |
-| 5 | Context engine: `packet`/`submit`/`apply` CLI, Review engine apply gate, execute/finish skills, critic + sentinel agents | Done (v1.4.0) |
-| 6 | MCP server: 13 agent-facing tools, `.mcp.json`, `bin/fakoli-state-mcp` wrapper | Done (v1.6.0) |
-| 7 | LLM augmentation: Anthropic provider, `--use-llm` flags, brainstorm skill bridge to fakoli-flow:brainstorm | Done (v1.7.0) |
-| 8 | GitHub sync: bidirectional sync engine, `sync` CLI, state-keeper agent, reconciliation, marketplace release | Done (v1.8.0) |
-| 9 | Audit honesty + multi-provider config + Phase 7 cleanup + 2 new doc agents (marketplace-scribe, docs-scribe) | Done (v1.9.0) |
+| **Canonical state shape** | Pydantic v2 models in SQLite, validated at every transition | Free-form markdown in an issue body or a `.md` file |
+| **Claim / lock model** | `Claim` row with expiry + heartbeat; stale leases reaped on every call | Assignment-by-label or "I'll take this" in chat — no enforcement |
+| **Agent work packets** | `fakoli-state packet T012` renders exact intent + acceptance criteria + non-goals | Agent must summarize the whole issue thread or plan |
+| **Task scoring** | Six dimensions: complexity, parallelizability, context load, blast radius, review risk, agent suitability | Single-axis story points (if any) |
+| **Runtime coupling** | Runtime-neutral: CLI + FastMCP stdio; any MCP client | Coupled to GitHub or to the CCPM markdown convention |
+
+Source for the wedges: [`docs/_positioning.md`](docs/_positioning.md).
+
+---
+
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md) — layered architecture, lifecycles, audit guarantee
+- [`docs/design.md`](docs/design.md) — design rationale and trade-offs
+- [`docs/how-to/getting-started.md`](docs/how-to/getting-started.md) — end-to-end first-project walkthrough *(v1.11.0)*
+- [`docs/cli-reference.md`](docs/cli-reference.md) — every CLI command, flag, and exit code *(v1.11.0)*
+- [`docs/roadmap.md`](docs/roadmap.md) — Phase 11 plans, v2.0 and beyond backlog
+- [`docs/mcp.md`](docs/mcp.md) — 13-tool MCP reference with error envelope contract
+- [`docs/prd-template.md`](docs/prd-template.md) — PRD authoring schema and worked example
+- [`docs/github-sync.md`](docs/github-sync.md) — bidirectional GitHub Issues sync reference
+- [`docs/sync-providers.md`](docs/sync-providers.md) — contributor guide for adding Linear, Monday, Jira providers
+- [`docs/llm.md`](docs/llm.md) — `--use-llm` augmentation, prompt caching, `RecordedLLMProvider` test pattern
+- [`CHANGELOG.md`](CHANGELOG.md) — release history
+
+---
+
+## Install
+
+### From the fakoli marketplace (recommended)
+
+```bash
+/plugin install fakoli-state
+```
+
+Installs the plugin, registers the four hooks, wires the MCP server, and makes the six agents discoverable to Claude Code at next session start.
+
+### Manual install (monorepo clone)
+
+```bash
+git clone https://github.com/fakoli/fakoli-plugins.git
+cd fakoli-plugins/plugins/fakoli-state
+# then add this directory to your Claude Code plugin paths
+```
+
+### Install the full trinity
+
+```bash
+/plugin install fakoli-crew
+/plugin install fakoli-flow
+/plugin install fakoli-state
+```
 
 ---
 
@@ -156,15 +184,13 @@ When both fakoli-state and fakoli-flow are installed, the flow pipeline upgrades
 
 When both fakoli-state and fakoli-crew are installed, all crew agents gain access to the `fakoli-state-mcp` MCP tool surface. The plugin-owned `agents/critic.md` and `agents/sentinel.md` defer to fakoli-crew specialists when detected.
 
-When fakoli-state is absent, fakoli-flow and fakoli-crew continue to work via their existing markdown-status conventions. Integration is opt-in.
+When fakoli-state is absent, fakoli-flow and fakoli-crew continue to work via their existing markdown-status conventions. Integration is opt-in throughout.
+
+MCP exposes capabilities; plugins encode operating discipline. The MCP server ships 13 tools any agent can call, but skills, subagents, and hooks decide *when* to claim, *which* specialist runs, *what* evidence is required, and *how* the critic gate fires. fakoli-state is plugin-first and MCP-compatible, not MCP-only.
 
 ---
 
-## Plugin-owned agents
-
-fakoli-state ships six specialist agents under `agents/`. Each defers outward to the
-corresponding fakoli-crew specialist when crew is installed; standalone users get the
-fallback behaviour.
+## Agents shipped with this plugin
 
 | Agent | Color | Owns | Defers to |
 |---|---|---|---|
@@ -175,39 +201,20 @@ fallback behaviour.
 | `marketplace-scribe` | cyan | `.claude-plugin/marketplace.json`, root README plugin table, `registry/*.json` | `fakoli-crew:keeper` |
 | `docs-scribe` | purple | Plugin `docs/` cross-references, `CHANGELOG.md`, `plugin.json.description` | `fakoli-crew:herald` |
 
-The Iron Rule (review agents never `Edit`/`Write`) is enforced at the
-`allowed-tools` frontmatter level for `critic`, `sentinel`, `state-keeper`, and
-`docs-scribe`; `planner` proposes-but-does-not-mutate (deletion-proof against
-hallucinated row writes); `marketplace-scribe` is the only agent that may run
-`Bash` (it executes `scripts/generate-index.sh` and validates regenerated
-JSON).
-
-Install the full ecosystem:
-
-```bash
-claude plugin install fakoli-crew
-claude plugin install fakoli-flow
-claude plugin install fakoli-state   # once published
-```
+The Iron Rule (review agents never `Edit`/`Write`) is enforced at the `tools:` frontmatter level for `critic`, `sentinel`, `state-keeper`, and `docs-scribe`; `planner` proposes-but-does-not-mutate; `marketplace-scribe` is the only agent permitted `Bash` (it runs `scripts/generate-index.sh` and validates regenerated JSON).
 
 ---
 
-## Background research
+## Status
 
-The design of fakoli-state is informed by three source documents in [`docs/specs/`](docs/specs/):
-
-- The original vision brief covering PRD authoring, task decomposition, claims and locks, work packets, evidence-based completion, and MCP surface design.
-- A competitive gap analysis against CCPM and against issue-tracker-as-state patterns — the source of the "5 must-do-better" list above.
-- The Fakoli plugin primer defining the plugin-first, skills-encode-choreography, hooks-enforce-rules operating model.
-
-The canonical spec at [`docs/specs/2026-05-24-fakoli-state-v0.md`](docs/specs/2026-05-24-fakoli-state-v0.md) synthesizes all three into the build plan.
+fakoli-state shipped Phases 1–10 across v1.0.0 → v1.10.0. The Phase 10 plugin-dev audit closed every MUST FIX item; 57 SHOULD FIX / CONSIDER / NIT items are tracked in [`docs/phase-11-backlog.md`](docs/phase-11-backlog.md). v2.0 will add LinearIssuesProvider and MondayBoardsProvider, spec webhook-based sync, and the immediate-apply `*_applied` conflict-resolution variants — see [`docs/roadmap.md`](docs/roadmap.md).
 
 ---
 
 ## Requirements
 
 - Claude Code with plugin support
-- Python 3.11+ with `uv` (resolved on first invocation — no manual install needed)
+- Python 3.11+ with `uv` (resolved on first invocation — no manual install)
 - fakoli-flow (recommended — enables pipeline integration)
 - fakoli-crew (recommended — provides specialist agents)
 
