@@ -1,4 +1,4 @@
-"""FastMCP (stdio) server — 21 agent-facing tools for fakoli-state.
+"""FastMCP (stdio) server — 22 agent-facing tools for fakoli-state.
 
 Each tool opens a fresh SqliteBackend against the project's
 .fakoli-state/state.db. The server process cwd is fixed at startup — the
@@ -2040,6 +2040,154 @@ def apply_review_decision(
         )
     finally:
         backend.close()
+
+
+# ===========================================================================
+# v1.14.0 — Decision resolution
+# ===========================================================================
+#
+# One read-only tool that surfaces unresolved decisions in the PRD so the
+# `resolve-decisions` skill (markdown) can drive Q&A. Detection logic lives
+# in fakoli_state.planning.decisions and is shared with the CLI.
+
+
+# ---------------------------------------------------------------------------
+# Tool 22: find_decisions
+# ---------------------------------------------------------------------------
+
+
+class UnresolvedDecisionEntry(BaseModel):
+    """One unresolved-decision record, flat for over-the-wire transport."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    kind: str  # "needs_decision" | "open_question" | "missing_field"
+    location: str
+    text: str
+    context_paragraph: str
+    suggested_resolution_field: str
+
+
+class FindDecisionsResponse(BaseModel):
+    """Result of find_decisions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decisions: list[UnresolvedDecisionEntry]
+    counts_by_kind: dict[str, int]
+    total: int
+
+
+@mcp.tool
+def find_decisions(cwd: str | None = None) -> FindDecisionsResponse:
+    """Scan the PRD for items needing a human decision.
+
+    Walks three sources:
+    1. Inline ``[NEEDS DECISION]`` markers in the raw PRD markdown.
+    2. ``## Open Questions`` items (skipping "none identified" placeholders).
+    3. Tasks in the backend whose ``acceptance_criteria`` or
+       ``verification.commands`` are empty.
+
+    Mirrors ``fakoli-state prd find-decisions``. Detection is pure — no
+    events are emitted; this tool is the read-only sibling of `parse_prd`
+    intended to drive the `resolve-decisions` skill.
+
+    Args:
+        cwd: Project root. Defaults to ``Path.cwd()``.
+
+    Returns:
+        FindDecisionsResponse with the flat list of decisions, counts by
+        kind, and the total. Stable order: all ``needs_decision`` first
+        (source order), then ``open_question`` (PRD order), then
+        ``missing_field`` (task-ID order).
+
+    Raises:
+        ToolError: When ``.fakoli-state/`` does not exist. When ``prd.md``
+            is missing we also raise — matching ``parse_prd`` so the agent
+            sees the same operational error on a fresh project rather than
+            getting a deceptive "0 decisions" response that hides the
+            missing file.
+    """
+    from fakoli_state.planning.decisions import find_unresolved_decisions
+    from fakoli_state.planning.template import parse_prd as _parse_prd_impl
+
+    state_dir = _resolve_state_dir(cwd)
+    if not state_dir.exists():
+        raise ToolError(
+            f"fakoli-state not initialized in {state_dir.parent}. "
+            "Call init_project first.",
+        )
+
+    prd_path = state_dir / _PRD_FILENAME
+    if not prd_path.exists():
+        raise ToolError(
+            f"PRD file not found at {prd_path}. "
+            "Author your PRD and call parse_prd before find_decisions.",
+        )
+
+    try:
+        markdown = prd_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ToolError(f"Cannot read {prd_path}: {exc}") from exc
+
+    result = _parse_prd_impl(markdown, prd_id="prd")
+    # Match the CLI's behavior: if the parse failed, surface the errors
+    # rather than silently returning a deceptive 0-open_questions count
+    # (the PRD model exists but with empty sections). The needs_decision
+    # detector works against raw markdown and would still find inline
+    # markers, but the user almost certainly wants the parse failure
+    # surfaced first so they can fix the structural problem before
+    # interpreting the decision list.
+    if result.errors:
+        error_summary = "; ".join(
+            f"[{e.section}:{e.line}] {e.message}" for e in result.errors[:5]
+        )
+        if len(result.errors) > 5:
+            error_summary += f"; (+{len(result.errors) - 5} more)"
+        raise ToolError(
+            f"PRD parse failed with {len(result.errors)} error(s); "
+            f"fix prd.md and call parse_prd before find_decisions. {error_summary}"
+        )
+
+    backend = _open_backend(state_dir)
+    try:
+        backend_tasks = backend.list_tasks()
+        tasks_or_none = backend_tasks if backend_tasks else None
+    finally:
+        backend.close()
+
+    decisions = find_unresolved_decisions(
+        markdown,
+        prd=result.prd,
+        tasks=tasks_or_none,
+    )
+
+    entries = [
+        UnresolvedDecisionEntry(
+            id=d.id,
+            kind=d.kind.value,
+            location=d.location,
+            text=d.text,
+            context_paragraph=d.context_paragraph,
+            suggested_resolution_field=d.suggested_resolution_field,
+        )
+        for d in decisions
+    ]
+
+    counts: dict[str, int] = {
+        "needs_decision": 0,
+        "open_question": 0,
+        "missing_field": 0,
+    }
+    for d in decisions:
+        counts[d.kind.value] = counts.get(d.kind.value, 0) + 1
+
+    return FindDecisionsResponse(
+        decisions=entries,
+        counts_by_kind=counts,
+        total=len(entries),
+    )
 
 
 # ---------------------------------------------------------------------------

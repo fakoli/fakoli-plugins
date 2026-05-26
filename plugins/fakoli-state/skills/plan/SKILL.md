@@ -45,6 +45,31 @@ Phase 3 commands used in this skill:
 
 ## Workflow
 
+### Step 0 — Scan for unresolved decisions (soft gate, v1.14.0)
+
+Before running `plan`, drive `fakoli-state prd find-decisions` (or the `find_decisions` MCP tool) yourself. The planner's task generation is shaped by the PRD's requirements and features — if those still contain `[NEEDS DECISION]` markers or unresolved Open Questions, the generated task graph will inherit the ambiguity. Surfacing unresolved items before plan runs is cheap; after plan runs, the same ambiguities will land as task descriptions that need re-editing and re-planning.
+
+If `find_decisions` returns empty, skip this step entirely — do not even mention it to the user. The soft gate only fires when there is something to decide.
+
+If it returns non-empty, present the summary and ask:
+
+> Before I generate the task graph, the PRD has **N unresolved items** that will shape what `plan` produces:
+> - X `[NEEDS DECISION]` markers (these often live inside requirements or features the planner will derive tasks from)
+> - Y `## Open Questions` (these often imply additional tasks once answered)
+> - Z missing fields on existing tasks (the review gate will block these later anyway)
+>
+> Want me to walk them as Q&A now, or proceed to `plan` without resolving? (resolve now / proceed anyway / show me the list)
+
+On `resolve now`, bridge to the `resolve-decisions` skill. After it returns, drive a fresh `prd parse` (resolution edits the markdown; state.db needs to catch up) and then continue with Step 1 below.
+
+On `proceed anyway`, continue to Step 1. The task graph will reflect the ambiguity — flag this back to the user inline ("noting we are planning against N unresolved decisions; the planner will treat any tasks that derive from unresolved items as proposed-pending"). The decisions will surface again at `review tasks` time, and the user can resolve them then.
+
+On `show me the list`, surface a compact one-line-per-item view, then re-ask.
+
+The soft-gate design is deliberate: `find-decisions` non-empty does NOT block planning. The agent surfaces the cost of proceeding without resolving and lets the user choose the cadence.
+
+---
+
 ### Step 1 — Generate features and tasks
 
 Invoke `fakoli-state plan` yourself — via Bash, the MCP `plan` tool when available, or whichever execution primitive the runtime exposes:

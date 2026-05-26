@@ -6,7 +6,112 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.14+ planned work._
+_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.15+ planned work._
+
+---
+
+## [1.14.0] — 2026-05-26
+
+Generalizes v1.13.0's "drive interactively" principle one layer deeper:
+when the PRD has `[NEEDS DECISION]` markers, unresolved `## Open Questions`,
+or task-level missing fields (empty acceptance criteria, missing
+verification), the agent now drives each one as a one-question
+conversational turn with proposed options — instead of telling the
+user "open the editor and fix these first." An LLM agent's strength
+over a CLI is exactly this: turning *blocked on a decision* into
+*let me ask you the right question*.
+
+### Added
+
+- **New `planning/decisions.py` module** with `find_unresolved_decisions`
+  function. Scans both raw markdown (for inline `[NEEDS DECISION]`
+  markers — case-sensitive bracket-enclosed; HTML comments stripped
+  to avoid false positives on draft notes) and parsed PRD/Tasks
+  (for `## Open Questions` items and missing acceptance criteria /
+  verification commands). Returns a flat ordered list of
+  `UnresolvedDecision` records. Pure module — no I/O, no backend.
+  18 unit tests in `tests/test_decisions.py`.
+- **New CLI subcommand `fakoli-state prd find-decisions`** that prints
+  a structured per-kind summary with id, location, text, surrounding
+  context paragraph, and suggested resolution field. Exits 0
+  regardless of finding count (it's a read-only inspection command).
+  4 new tests in `tests/test_cli.py`.
+- **New MCP tool `find_decisions(cwd)`** mirroring the CLI with a
+  typed `FindDecisionsResponse` model. Total MCP surface 21 → 22.
+  6 new tests in `tests/test_mcp.py`.
+- **New `resolve-decisions` skill** (`skills/resolve-decisions/SKILL.md`).
+  Drives each unresolved item as one Q&A turn with proposed options
+  when the surrounding context allows. Applies answers to `prd.md`
+  inline: `[NEEDS DECISION]` markers get rewritten in place; resolved
+  Open Questions get moved to a new `## Decisions` section that
+  preserves the audit trail (what was unclear at draft time + what
+  was decided + when); missing-field decisions edit the relevant
+  `### TXXX:` block to add the chosen acceptance criteria or
+  verification commands. Re-parses on completion. Total skills 7 → 8.
+- **Soft gates** wired into `prd` skill (Step 2 — after parse) and
+  `plan` skill (new Step 0 — before plan_tasks). When
+  `find_decisions` returns non-empty, the agent surfaces the summary
+  and asks "resolve now via the resolve-decisions skill, or proceed
+  without resolving?" The gate is soft by design: Open Questions
+  are informational and don't block review/approval; the agent
+  surfaces the cost of proceeding and lets the user pick the cadence.
+
+### Changed
+
+- README badges and "What ships today" table updated for v1.14.0:
+  version 1.13.0 → 1.14.0; tests 994 → 1022 (+28 new across
+  decisions/CLI/MCP); CLI commands 23 → 24; MCP tools 21 → 22;
+  skills 7 → 8.
+
+### Migration
+
+No breaking changes. Schema unchanged. The 21 existing MCP tools and
+23 existing CLI commands are unchanged. The skill rewrites only add
+soft-gate prose; they do not change the user-visible behavior of
+`prd review` or `plan` for clean PRDs (find_decisions returns empty,
+the gate skips). Existing PRDs that have always-clean (no markers,
+no Open Questions, no missing fields) see no change at all.
+
+### Detection scope details
+
+- **`[NEEDS DECISION]` marker:** case-sensitive, bracket-enclosed,
+  optional `: <question>` payload (e.g.
+  `[NEEDS DECISION: which encoding?]`). Markers inside HTML comments
+  (`<!-- [NEEDS DECISION: ...] -->`) are intentionally ignored so
+  drafts can carry TODO-style notes without triggering the resolver.
+  Fuzzy prose like "needs decision on the auth flow" inside a
+  paragraph does NOT trigger detection — the marker is the explicit
+  contract.
+- **`## Open Questions`:** explicit "none identified" / "none" /
+  "n/a" / "tbd" bullets are recognized as placeholders and skipped.
+  This preserves the v1.10.0 convention of declaring "no open
+  questions" with an explicit bullet instead of an empty section.
+- **Missing fields:** only `task.acceptance_criteria` and
+  `task.verification.commands` are checked. Empty requirements text
+  and empty feature descriptions are reserved for v1.15+ (the
+  detection module accepts `requirements=` and `features=`
+  parameters now to avoid a signature break later).
+
+### Fixed (post-greptile review)
+
+- **OQ IDs are now contiguous after placeholder skipping.** Previously
+  the counter advanced for every Open Questions item including
+  `"none identified"` / `"n/a"` / `"tbd"` placeholders, so a PRD with
+  `[placeholder, real, placeholder, real]` produced `OQ002` + `OQ004`
+  instead of `OQ001` + `OQ002`. Non-contiguous IDs would confuse the
+  resolver skill (which iterates decisions sequentially). The
+  contiguous-ID counter only advances for items that survive the
+  placeholder filter; the `location` field still carries the source
+  position so users can find the item in the file.
+- **MCP `find_decisions` now matches the CLI on parse failures.**
+  Previously the MCP tool silently proceeded when `parse_prd` returned
+  errors, yielding a deceptive `0 open_questions` count even though
+  the PRD was malformed. Now it raises `ToolError` with the first
+  few errors summarised in the message, matching the CLI's exit-1
+  behaviour so MCP clients see the parse failure before drawing
+  conclusions from the decision list.
+- Test suite is **1024 passing** (was 1022 — +1 regression test for
+  the OQ contiguous-ID fix, +1 for the MCP parse-failure fix).
 
 ---
 

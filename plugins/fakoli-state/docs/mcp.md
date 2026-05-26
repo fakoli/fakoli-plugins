@@ -3,7 +3,7 @@
 ## What it does
 
 Agents need to read and write canonical project state without each one shelling out to the
-CLI per operation and without fighting over the same SQLite rows. The MCP server exposes 21
+CLI per operation and without fighting over the same SQLite rows. The MCP server exposes 22
 tools over stdio so that any MCP-compatible runtime — Claude Code, Codex, Cursor, OpenHands,
 Copilot, or a local script — can drive the full PRD → plan → review → approve → claim →
 apply workflow as first-class tool calls. Read-only tools return structured Pydantic
@@ -21,6 +21,7 @@ The toolset is organized by lifecycle phase:
   `generate_work_packet`, `submit_progress`, `submit_completion_evidence`,
   `update_task_status`)
 - **Review gate** (`apply_review_decision`)
+- **Decision resolution** (`find_decisions`)
 
 The eight workflow tools added in v1.13.0 — `init_project`, `get_project_status`,
 `parse_prd`, `review_prd`, `plan_tasks`, `score_tasks`, `review_tasks`,
@@ -895,6 +896,80 @@ to `drafted` for rework. Mirrors `fakoli-state apply TASK_ID --approve` and `--r
 
 ---
 
+### Decision resolution (v1.14.0)
+
+One read-only tool that surfaces unresolved PRD items so the `resolve-decisions` skill can
+drive Q&A with the user. Detection logic lives in `fakoli_state.planning.decisions` and is
+shared with the CLI subcommand `fakoli-state prd find-decisions`.
+
+---
+
+### `find_decisions`
+
+Scans the PRD for three categories of items needing a human decision:
+
+1. **`needs_decision`** — inline `[NEEDS DECISION]` markers anywhere in the raw markdown
+   (with an optional `: <question>` payload).
+2. **`open_question`** — items under the `## Open Questions` section (skipping
+   "none identified" placeholders).
+3. **`missing_field`** — tasks in the backend whose `acceptance_criteria` or
+   `verification.commands` are empty (gates the review pipeline would block on).
+
+The tool is read-only — no events are emitted. It is the sibling of `parse_prd` intended to
+power the `resolve-decisions` skill's Q&A loop. Mirrors `fakoli-state prd find-decisions`.
+
+**Inputs**
+
+| Parameter | Type             | Required | Default      |
+|-----------|------------------|----------|--------------|
+| `cwd`     | `string \| null` | no       | `Path.cwd()` |
+
+**Output**
+
+```json
+{
+  "decisions": [
+    {
+      "id": "ND-001",
+      "kind": "needs_decision",
+      "location": "Summary (line 5)",
+      "text": "which format?",
+      "context_paragraph": "The system must serialize inputs [NEEDS DECISION: which format?].",
+      "suggested_resolution_field": "inline rewrite"
+    }
+  ],
+  "counts_by_kind": {
+    "needs_decision": 1,
+    "open_question": 0,
+    "missing_field": 0
+  },
+  "total": 1
+}
+```
+
+Stable order: all `needs_decision` first (in source order), then `open_question`
+(in PRD order), then `missing_field` (in task-ID order). Resolution is iterative — the
+agent walks the list and drives one Q&A per entry, so ordering shapes the conversation.
+
+**Failure modes**
+
+- `ToolError` — project not initialized.
+- `ToolError` — PRD file missing. (Mirrors `parse_prd` rather than returning an empty
+  response, so a fresh project doesn't silently look "resolved".)
+
+**CLI equivalent**
+
+```bash
+fakoli-state prd find-decisions
+fakoli-state prd find-decisions --file path/to/prd.md
+```
+
+**When to call**: after `parse_prd` succeeds but before `review_prd` or `plan_tasks`, so
+unresolved markers and missing fields are surfaced and resolved before downstream tools
+treat the PRD as ready.
+
+---
+
 ## Error model
 
 Every failure raises a FastMCP `ToolError`. The message is a human-readable string
@@ -924,7 +999,7 @@ before deciding whether to retry, release, or escalate.
 
 ## Integration with fakoli-crew and fakoli-flow
 
-**fakoli-crew agents** gain access to all 21 MCP tools when fakoli-state is installed
+**fakoli-crew agents** gain access to all 22 MCP tools when fakoli-state is installed
 alongside fakoli-crew. The standard work loop for a crew agent (welder, smith, guido) is:
 
 1. `get_next_task` — find the highest-priority claimable task.
