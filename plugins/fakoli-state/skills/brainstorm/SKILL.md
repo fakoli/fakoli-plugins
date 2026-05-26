@@ -45,11 +45,13 @@ This skill writes a file; it does not require any `fakoli-state` CLI subcommand 
 Before running the self-contained interview, run the explicit plugin check so the decision is deterministic and reproducible across sessions — no introspection of in-memory command lists, no fuzzy "if it seems available" prose:
 
 ```bash
-claude plugin list 2>/dev/null | grep -q "^fakoli-flow"
+claude plugin list 2>/dev/null | grep -q "fakoli-flow"
 ```
 
 - **Exit code 0** (`fakoli-flow` plugin present): bridge by invoking `/fakoli-flow:brainstorm` as a sub-skill — proceed with the bridge block below.
 - **Non-zero exit** (plugin absent, or `claude` CLI itself not on `PATH`): fall through to Step 2 (self-contained interview). The fall-through is intentional graceful degradation: missing tooling never blocks the brainstorm flow.
+
+The grep pattern is intentionally unanchored. Actual `claude plugin list` output renders each installed plugin as `  ❯ fakoli-flow@fakoli-plugins` (indented marker line, plugin name suffixed with `@<source>`); a leading `^` anchor would never match. The unanchored substring is safe because `fakoli-flow` is a unique slug within the marketplace.
 
 When `fakoli-flow` is installed, prefer it. It runs a more thorough design dialogue (scope check, section-by-section presentation, optional visual companion) and produces a spec document. Hand off the user's rough idea and announce the bridge explicitly:
 
@@ -225,6 +227,6 @@ If you want to use LLM augmentation explicitly, the user can set `ANTHROPIC_API_
 | Feature | Phase | Status |
 |---|---|---|
 | Self-contained six-question interview | Phase 7 | available — pure markdown choreography |
-| Bridge to `/fakoli-flow:brainstorm` when `fakoli-flow` is installed | Phase 7 | available — detect via `claude plugin list \| grep fakoli-flow` (explicit shell check, Phase 9 C3) |
+| Bridge to `/fakoli-flow:brainstorm` when `fakoli-flow` is installed | Phase 7 | available — detect via `claude plugin list \| grep -q "fakoli-flow"` (explicit shell check, Phase 9 C3) |
 | LLM-augmented follow-up question generation | Phase 7 | optional — requires `ANTHROPIC_API_KEY`; skill is fully usable without it |
 | `fakoli-state brainstorm` CLI command | Phase 7+ | pending — for now, run this skill via `/fakoli-state:brainstorm` |

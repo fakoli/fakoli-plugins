@@ -1505,6 +1505,143 @@ class TestSubmitCommand:
         assert result.exit_code == 0, f"submit with --pr-url failed: {result.output}"
         assert "https://github.com/repo/pull/42" in result.output
 
+    def test_submit_with_screenshots_records_them(self, tmp_path: Path) -> None:
+        """submit --screenshots parses the comma list, records it on Evidence,
+        and satisfies the 'screenshots' required_evidence gate.
+
+        Regression: before the --screenshots flag was added, the CLI hardcoded
+        `screenshots=[]` and any task requiring 'screenshots' evidence could
+        never pass the apply gate from the CLI.
+        """
+        import sqlite3 as _sqlite3
+        import json as _json
+
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        # Inject required_evidence=["screenshots"] into the task's verification
+        # blob. The planner does not surface required_evidence today; tests
+        # mutate the DB directly to exercise gate paths (same pattern as the
+        # claimed-status mutation used by test_replan_does_not_reset_*).
+        db_path = tmp_path / ".fakoli-state" / "state.db"
+        conn = _sqlite3.connect(str(db_path))
+        try:
+            verification_json = _json.dumps(
+                {
+                    "commands": ["pytest tests/ -v"],
+                    "manual_steps": [],
+                    "required_evidence": ["screenshots"],
+                }
+            )
+            conn.execute(
+                "UPDATE tasks SET verification = ? WHERE id = ?",
+                (verification_json, task_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        _do_claim(tmp_path, task_id, actor="agent-test")
+
+        result = _invoke_cmd(
+            tmp_path,
+            [
+                "submit", task_id,
+                "--commands", "pytest tests/ -v",
+                "--files-changed", "src/ui.py",
+                "--screenshots", "screenshot1.png,screenshot2.png",
+                "--actor", "agent-test",
+            ],
+        )
+        assert result.exit_code == 0, f"submit --screenshots failed: {result.output}"
+
+        # Evidence row must carry the parsed screenshots list.
+        conn = _sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute(
+                "SELECT screenshots FROM evidence WHERE task_id = ? "
+                "ORDER BY submitted_at DESC LIMIT 1",
+                (task_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None, "no Evidence row written for submitted task"
+        stored = _json.loads(row[0])
+        assert stored == ["screenshot1.png", "screenshot2.png"], (
+            f"screenshots list mismatch; got {stored!r}"
+        )
+
+        # Evidence gate must report PASSED — the screenshots requirement is
+        # now satisfied by the recorded list. Check the gate ran at all
+        # first (the gate summary block in `submit` swallows exceptions,
+        # so a missing 'Evidence gate' line means the gate raised, not
+        # that the verdict was wrong).
+        assert "Evidence gate" in result.output, (
+            "evidence gate summary block did not appear in output; the "
+            "gate likely raised an exception (suppressed by submit's "
+            f"except-Exception). Full output:\n{result.output}"
+        )
+        assert "PASSED" in result.output, (
+            f"expected 'Evidence gate: PASSED' in output, got: {result.output}"
+        )
+
+    def test_submit_without_screenshots_fails_gate_when_required(
+        self, tmp_path: Path
+    ) -> None:
+        """When a task requires 'screenshots' and submit omits --screenshots,
+        the evidence gate must report INCOMPLETE. Submit still exits 0
+        (gate feedback is informational), but the gate summary must call out
+        the missing item."""
+        import sqlite3 as _sqlite3
+        import json as _json
+
+        _do_init_and_plan(tmp_path, with_git=False)
+        task_id = _get_first_ready_task_id(tmp_path)
+        assert task_id is not None
+
+        db_path = tmp_path / ".fakoli-state" / "state.db"
+        conn = _sqlite3.connect(str(db_path))
+        try:
+            verification_json = _json.dumps(
+                {
+                    "commands": ["pytest tests/ -v"],
+                    "manual_steps": [],
+                    "required_evidence": ["screenshots"],
+                }
+            )
+            conn.execute(
+                "UPDATE tasks SET verification = ? WHERE id = ?",
+                (verification_json, task_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        _do_claim(tmp_path, task_id, actor="agent-test")
+
+        result = _invoke_cmd(
+            tmp_path,
+            [
+                "submit", task_id,
+                "--commands", "pytest tests/ -v",
+                "--files-changed", "src/ui.py",
+                "--actor", "agent-test",
+            ],
+        )
+        # Submit succeeds; the gate is informational only. Check the gate
+        # ran at all first (the gate summary block in `submit` swallows
+        # exceptions, so a missing 'Evidence gate' line means the gate
+        # raised, not that the verdict was wrong).
+        assert result.exit_code == 0, f"submit failed: {result.output}"
+        assert "Evidence gate" in result.output, (
+            "evidence gate summary block did not appear in output; the "
+            "gate likely raised an exception (suppressed by submit's "
+            f"except-Exception). Full output:\n{result.output}"
+        )
+        assert "INCOMPLETE" in result.output
+        assert "screenshots" in result.output
+
 
 # ---------------------------------------------------------------------------
 # Phase 5 — apply command

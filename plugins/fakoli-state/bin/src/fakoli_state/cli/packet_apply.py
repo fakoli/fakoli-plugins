@@ -140,6 +140,11 @@ def submit(
         "--commit-sha",
         help="Commit SHA associated with this submission.",
     ),
+    screenshots: str | None = typer.Option(  # noqa: B008
+        None,
+        "--screenshots",
+        help="Comma-separated paths to screenshot files (for tasks with screenshot evidence requirements).",
+    ),
     known_limitations: str | None = typer.Option(  # noqa: B008
         None,
         "--known-limitations",
@@ -192,6 +197,11 @@ def submit(
         # Parse comma-separated arguments.
         commands_list = [c.strip() for c in commands.split(",") if c.strip()]
         files_list = [f.strip() for f in files_changed.split(",") if f.strip()]
+        screenshots_list = (
+            [p.strip() for p in screenshots.split(",") if p.strip()]
+            if screenshots
+            else []
+        )
 
         # Read and truncate output file content if provided.
         output_excerpt: str | None = None
@@ -220,7 +230,7 @@ def submit(
             "output_excerpt": output_excerpt,
             "pr_url": pr_url,
             "commit_sha": commit_sha,
-            "screenshots": [],
+            "screenshots": screenshots_list,
             "known_limitations": known_limitations,
         }
 
@@ -269,7 +279,7 @@ def submit(
                 files_changed=files_list,
                 pr_url=pr_url,
                 commit_sha=commit_sha,
-                screenshots=[],
+                screenshots=screenshots_list,
                 known_limitations=known_limitations,
                 submitted_at=now,
                 submitted_by=resolved_actor,
