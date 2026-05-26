@@ -385,11 +385,12 @@ def _parse_features(
                             section="features",
                             line=block_line,
                             message=(
-                                f"Feature heading '### {heading}' looks like a "
-                                f"custom ID ('{raw_id}') but does not match the "
-                                "required 'Fxxx' format (F + 3+ digits, e.g. "
-                                "F001). The heading was treated as a title and "
-                                "an ID was auto-assigned."
+                                f"Feature heading '### {heading}' uses a "
+                                f"custom ID ('{raw_id}') that does not match "
+                                "the required 'Fxxx' format (F + 3+ digits, "
+                                "e.g. F001). Rename the heading to "
+                                "'### F001: <title>' (or any `F<3+digits>:` "
+                                "form) and re-run `fakoli-state prd parse`."
                             ),
                         )
                     )
@@ -508,11 +509,12 @@ def _parse_tasks(
                             section="tasks",
                             line=block_line,
                             message=(
-                                f"Task heading '### {heading}' looks like a "
-                                f"custom ID ('{raw_id}') but does not match the "
-                                "required 'Txxx' format (T + 3+ digits, e.g. "
-                                "T001). The heading was treated as a title and "
-                                "an ID was auto-assigned."
+                                f"Task heading '### {heading}' uses a "
+                                f"custom ID ('{raw_id}') that does not match "
+                                "the required 'Txxx' format (T + 3+ digits, "
+                                "e.g. T001). Rename the heading to "
+                                "'### T001: <title>' (or any `T<3+digits>:` "
+                                "form) and re-run `fakoli-state prd parse`."
                             ),
                         )
                     )

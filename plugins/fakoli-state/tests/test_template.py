@@ -725,6 +725,27 @@ Tests feature-task linking.
             f"Got: {[e.message for e in task_errors]}"
         )
 
+    def test_tasks_section_with_only_prose_emits_error(self) -> None:
+        """## Tasks section with prose only (no H3 blocks) → ParseError.
+
+        Parity with `test_features_section_with_only_prose_emits_error`.
+        """
+        prd = _MINIMAL_PRD + """
+## Features
+
+### F001: Single Feature
+
+**Requirements:** R001
+
+## Tasks
+
+Tasks will be designed during the planning phase.
+"""
+        result = parse_prd(prd)
+        assert result.tasks == []
+        task_errors = [e for e in result.errors if e.section == "tasks"]
+        assert task_errors, "Expected a ParseError for prose-only Tasks section"
+
     def test_empty_tasks_section_emits_no_error(self) -> None:
         """## Tasks section with no body → silent acceptance, no tasks."""
         prd = _MINIMAL_PRD + """

@@ -45,16 +45,21 @@ running fakoli-state in another project: an agent authored a PRD with
 
 ### Added
 
-- Seven regression tests in `tests/test_template.py`:
-  `test_features_section_with_only_bullets_emits_error`,
-  `test_features_section_with_only_prose_emits_error`,
-  `test_empty_features_section_emits_no_error`,
-  `test_malformed_feature_id_prefix_emits_warning`, and the three
-  parallel `tasks` variants. Suite now 974 passing (was 967).
+- Eight regression tests in `tests/test_template.py`: four
+  `features` variants (`bullets_only`, `prose_only`,
+  `empty_section`, `malformed_id_prefix`) and four parallel `tasks`
+  variants. Suite now 975 passing (was 967).
 
 ### Changed
 
-- README test-count badge 967 → 974; version badges 1.12.0 → 1.12.1.
+- README test-count badge 967 → 975; version badges 1.12.0 → 1.12.1.
+- The malformed-ID warning messages in `_parse_features` and
+  `_parse_tasks` were reworded to be unambiguous: the previous "an ID
+  was auto-assigned" phrasing described an internal fallback the user
+  never sees (because the ParseError blocks persistence), which read
+  as if the parse had succeeded. The new wording names the format
+  violation and tells the user to rename the heading to
+  `### F001:` / `### T001:` and re-run.
 
 ---
 
