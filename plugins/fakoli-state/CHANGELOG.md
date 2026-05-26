@@ -12,9 +12,11 @@ _No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.12+ planned wor
 
 ## [1.11.0] — 2026-05-25
 
-Comprehensive documentation overhaul + 2 silent-failure bug fixes surfaced
-during research. No breaking changes; the `submit --screenshots` flag is
-the only behavior change and is purely additive (optional).
+Comprehensive documentation overhaul + 3 silent-failure bug fixes surfaced
+during research (missing fakoli-flow detection in `claim`/`execute` skills;
+`submit` CLI hardcoding `screenshots=[]`; broken `grep -q "^fakoli-..."`
+anchor pattern at 5 sites). No breaking changes; the `submit --screenshots`
+flag is the only behavior change and is purely additive (optional).
 
 ### Added (docs)
 
