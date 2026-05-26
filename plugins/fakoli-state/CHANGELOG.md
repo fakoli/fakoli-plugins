@@ -10,6 +10,59 @@ _No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.13+ planned wor
 
 ---
 
+## [1.12.1] — 2026-05-26
+
+Bug-fix release for a silent-drop in the PRD parser. Reported by a user
+running fakoli-state in another project: an agent authored a PRD with
+`## Features` written as bullets (instead of `### F001:` H3 blocks) and
+`fakoli-state prd parse` reported "0 features, 0 tasks" before exiting
+0. The agent's work was invisibly discarded.
+
+### Fixed
+
+- `_parse_features` and `_parse_tasks` in
+  `bin/src/fakoli_state/planning/template.py` now emit a `ParseError`
+  when their section body has non-empty / non-comment content but
+  produces zero `### Fxxx:` / `### Txxx:` H3 blocks. The error message
+  names the canonical format and points to `docs/prd-template.md`. This
+  matches the parser's own documented contract ("Silent fallback is
+  explicitly rejected") — previously both functions returned `[]`
+  silently when the format was wrong, in violation of that contract.
+  CLI behavior unchanged: any `ParseError` causes `prd parse` to exit
+  non-zero before writing to `state.db`, so no malformed data ever
+  reaches state.
+- `_parse_features` and `_parse_tasks` now also warn when an H3 heading
+  looks like an attempted custom ID (e.g. `### F-DURABILITY: foo`,
+  `### T-1: foo`) but does not match the required `Fxxx` / `Txxx`
+  format (letter + 3+ digits). Previously the parser silently auto-
+  assigned a default ID and the user had no way to know their custom
+  ID had been discarded. Conservative detection (only F/T + a
+  separator like `-`, `_`, `.`) so legitimate auto-ID fallbacks for
+  English headings like `### My Feature` keep working unchanged.
+- An empty `## Features` or `## Tasks` section header (no body at all)
+  still parses cleanly with no error, preserving the existing escape
+  hatch for "section declared but no items yet".
+
+### Added
+
+- Eight regression tests in `tests/test_template.py`: four
+  `features` variants (`bullets_only`, `prose_only`,
+  `empty_section`, `malformed_id_prefix`) and four parallel `tasks`
+  variants. Suite now 975 passing (was 967).
+
+### Changed
+
+- README test-count badge 967 → 975; version badges 1.12.0 → 1.12.1.
+- The malformed-ID warning messages in `_parse_features` and
+  `_parse_tasks` were reworded to be unambiguous: the previous "an ID
+  was auto-assigned" phrasing described an internal fallback the user
+  never sees (because the ParseError blocks persistence), which read
+  as if the parse had succeeded. The new wording names the format
+  violation and tells the user to rename the heading to
+  `### F001:` / `### T001:` and re-run.
+
+---
+
 ## [1.12.0] — 2026-05-26
 
 Skill rename to resolve the `brainstorm` namespace collision with

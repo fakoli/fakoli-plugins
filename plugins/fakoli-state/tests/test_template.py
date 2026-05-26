@@ -361,6 +361,97 @@ This is a feature description paragraph.
         assert len(result.features) == 1
         assert "description" in result.features[0].description.lower()
 
+    def test_features_section_with_only_bullets_emits_error(self) -> None:
+        """## Features section with bullets and no ### Fxxx: blocks → ParseError.
+
+        Regression for the silent-drop bug: previously the parser returned
+        features=[] with no error when a user wrote features as bullets, and
+        the CLI reported '0 features' before exiting 0. The user's work was
+        invisibly discarded.
+        """
+        prd = _MINIMAL_PRD + """
+## Features
+
+- F001: Single-file conversion. Covers the basic happy path.
+- F002: Multi-file batch conversion.
+- F003: Error handling and validation.
+"""
+        result = parse_prd(prd)
+        assert result.features == [], (
+            "No features should be returned when the section format is wrong"
+        )
+        assert result.errors, "Expected a ParseError for malformed Features section"
+        feature_errors = [e for e in result.errors if e.section == "features"]
+        assert feature_errors, (
+            f"Expected at least one 'features' ParseError, got: {result.errors}"
+        )
+        assert any("### Fxxx:" in e.message for e in feature_errors), (
+            "Error message should point users to the canonical '### Fxxx:' "
+            f"format. Got: {[e.message for e in feature_errors]}"
+        )
+
+    def test_features_section_with_only_prose_emits_error(self) -> None:
+        """## Features section with prose only (no H3 blocks) → ParseError."""
+        prd = _MINIMAL_PRD + """
+## Features
+
+Features will be designed during the planning phase.
+"""
+        result = parse_prd(prd)
+        assert result.features == []
+        feature_errors = [e for e in result.errors if e.section == "features"]
+        assert feature_errors, "Expected a ParseError for prose-only Features section"
+
+    def test_empty_features_section_emits_no_error(self) -> None:
+        """## Features section with no body content → no ParseError, no features.
+
+        A user may intentionally include an empty section header; that should
+        be silently accepted (it's just declaratively saying "no features
+        yet"). The error fires only when content is *present* but ignored.
+        """
+        prd = _MINIMAL_PRD + """
+## Features
+
+"""
+        result = parse_prd(prd)
+        assert result.features == []
+        feature_errors = [e for e in result.errors if e.section == "features"]
+        assert not feature_errors, (
+            f"Empty Features section should not emit errors, got: {feature_errors}"
+        )
+
+    def test_malformed_feature_id_prefix_emits_warning(self) -> None:
+        """### F-DURABILITY style headings → ParseError warning + auto-assigned ID.
+
+        Regression for the silent custom-ID drop: a user writes a heading that
+        looks like an ID attempt (F + separator) but doesn't match Fxxx
+        format. Previously the parser silently kept the heading as the title
+        and auto-assigned F001. Now it warns so the user knows their custom
+        ID was discarded.
+        """
+        prd = _MINIMAL_PRD + """
+## Features
+
+### F-DURABILITY: Replay-safe event log
+
+**Requirements:** R001
+"""
+        result = parse_prd(prd)
+        assert len(result.features) == 1, (
+            "Feature should still be created with auto-assigned ID"
+        )
+        assert result.features[0].id == "F001", (
+            "Auto-assigned ID should be F001 since the custom ID didn't parse"
+        )
+        warnings = [
+            e for e in result.errors
+            if e.section == "features" and "F-DURABILITY" in e.message
+        ]
+        assert warnings, (
+            "Expected a ParseError warning mentioning the malformed "
+            f"'F-DURABILITY' prefix. Got: {[e.message for e in result.errors]}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Task parsing
@@ -602,6 +693,111 @@ Tests feature-task linking.
         assert not result.errors
         feature = result.features[0]
         assert "T001" in feature.tasks
+
+    def test_tasks_section_with_only_bullets_emits_error(self) -> None:
+        """## Tasks section with bullets and no ### Txxx: blocks → ParseError.
+
+        Mirror of the Features regression test: the parser used to silently
+        drop bullets-only Tasks sections, leaving the user thinking their work
+        was persisted.
+        """
+        prd = _MINIMAL_PRD + """
+## Features
+
+### F001: Single Feature
+
+**Requirements:** R001
+
+## Tasks
+
+- T001: Implement argument parsing.
+- T002: Implement core conversion.
+- T003: Wire up the CLI entry point.
+"""
+        result = parse_prd(prd)
+        assert result.tasks == [], "No tasks should be returned for malformed section"
+        task_errors = [e for e in result.errors if e.section == "tasks"]
+        assert task_errors, (
+            f"Expected 'tasks' ParseError, got: {result.errors}"
+        )
+        assert any("### Txxx:" in e.message for e in task_errors), (
+            "Error message should point to canonical '### Txxx:' format. "
+            f"Got: {[e.message for e in task_errors]}"
+        )
+
+    def test_tasks_section_with_only_prose_emits_error(self) -> None:
+        """## Tasks section with prose only (no H3 blocks) → ParseError.
+
+        Parity with `test_features_section_with_only_prose_emits_error`.
+        """
+        prd = _MINIMAL_PRD + """
+## Features
+
+### F001: Single Feature
+
+**Requirements:** R001
+
+## Tasks
+
+Tasks will be designed during the planning phase.
+"""
+        result = parse_prd(prd)
+        assert result.tasks == []
+        task_errors = [e for e in result.errors if e.section == "tasks"]
+        assert task_errors, "Expected a ParseError for prose-only Tasks section"
+
+    def test_empty_tasks_section_emits_no_error(self) -> None:
+        """## Tasks section with no body → silent acceptance, no tasks."""
+        prd = _MINIMAL_PRD + """
+## Features
+
+### F001: Single Feature
+
+**Requirements:** R001
+
+## Tasks
+
+"""
+        result = parse_prd(prd)
+        assert result.tasks == []
+        task_errors = [e for e in result.errors if e.section == "tasks"]
+        assert not task_errors, (
+            f"Empty Tasks section should not emit errors, got: {task_errors}"
+        )
+
+    def test_malformed_task_id_prefix_emits_warning(self) -> None:
+        """### T-1 style headings → ParseError warning + auto-assigned ID."""
+        prd = _MINIMAL_PRD + """
+## Features
+
+### F001: Single Feature
+
+**Requirements:** R001
+
+## Tasks
+
+### T-1: Bootstrap the parser
+
+**Feature:** F001
+**Acceptance criteria:**
+
+- Works.
+
+**Verification:**
+
+- `pytest tests/ -v`
+"""
+        result = parse_prd(prd)
+        assert len(result.tasks) == 1
+        assert result.tasks[0].id == "T001"
+        warnings = [
+            e for e in result.errors
+            if e.section == "tasks" and "T-1" in e.message
+        ]
+        assert warnings, (
+            f"Expected a warning about malformed 'T-1' prefix. "
+            f"Got: {[e.message for e in result.errors]}"
+        )
 
 
 # ---------------------------------------------------------------------------

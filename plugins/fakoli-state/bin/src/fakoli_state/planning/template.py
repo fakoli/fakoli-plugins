@@ -152,6 +152,41 @@ def _auto_id(prefix: str, index: int) -> str:
     return f"{prefix}{index:03d}"
 
 
+def _has_meaningful_content(body: list[str]) -> bool:
+    """True when a section body has any non-blank, non-comment-only line.
+
+    Used by `_parse_features` / `_parse_tasks` to distinguish "section is
+    genuinely empty" (acceptable — emit no error) from "section has content the
+    H3 parser ignored" (bug — emit ParseError so the user knows their work was
+    dropped). HTML comments are already stripped upstream by
+    `_strip_html_comments`; this is a belt-and-braces check.
+    """
+    for raw in body:
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("<!--") and stripped.endswith("-->"):
+            continue
+        return True
+    return False
+
+
+def _is_malformed_id_prefix(raw_id: str, expected_letter: str) -> bool:
+    """True when raw_id looks like an attempted Fxxx/Txxx ID but is malformed.
+
+    Catches cases like `F-DURABILITY`, `T-1`, `F_PERF`, `T.001` — where the
+    user clearly meant a custom ID but didn't follow the `^[FT]\\d{3,}` format.
+    Returns False for plain English headings like `Foo: bar` or `Tool: x` so
+    we don't false-positive on legitimate auto-ID fallbacks.
+    """
+    if len(raw_id) < 2:
+        return False
+    if raw_id[0].upper() != expected_letter.upper():
+        return False
+    # Second character is a separator → user attempted a custom ID.
+    return raw_id[1] in "-_."
+
+
 # ---------------------------------------------------------------------------
 # Section splitting
 # ---------------------------------------------------------------------------
@@ -312,6 +347,30 @@ def _parse_features(
     auto_index = 1
     blocks = _parse_h3_blocks(body, start_line)
 
+    # The Features section requires '### Fxxx: Title' H3 blocks; bullets or
+    # prose are silently invisible to the rest of the parser. If the body has
+    # any non-empty, non-comment content but produced zero H3 blocks, the user
+    # almost certainly wrote bullets — surface a loud error rather than emit
+    # an empty feature list. (See template.py docstring: silent fallback is
+    # explicitly rejected.)
+    if not blocks and _has_meaningful_content(body):
+        errors.append(
+            ParseError(
+                section="features",
+                line=start_line,
+                message=(
+                    "## Features section has content but no '### Fxxx: Title' "
+                    "blocks were parsed. Each feature must be a level-3 heading "
+                    "(e.g. '### F001: User signup') optionally followed by a "
+                    "'**Requirements:** R001, R002' line. Bullets and prose at "
+                    "the section level are not parsed. See docs/prd-template.md "
+                    "for the canonical format; omit the section entirely if no "
+                    "features are defined."
+                ),
+            )
+        )
+        return []
+
     for block_line, heading, block_lines in blocks:
         m_h3 = _H3_RE.match(f"### {heading}")
         if m_h3:
@@ -320,6 +379,21 @@ def _parse_features(
             if _FEAT_ID_RE.match(raw_id):
                 feat_id = raw_id.upper()
             else:
+                if _is_malformed_id_prefix(raw_id, "F"):
+                    errors.append(
+                        ParseError(
+                            section="features",
+                            line=block_line,
+                            message=(
+                                f"Feature heading '### {heading}' uses a "
+                                f"custom ID ('{raw_id}') that does not match "
+                                "the required 'Fxxx' format (F + 3+ digits, "
+                                "e.g. F001). Rename the heading to "
+                                "'### F001: <title>' (or any `F<3+digits>:` "
+                                "form) and re-run `fakoli-state prd parse`."
+                            ),
+                        )
+                    )
                 # ID-looking prefix doesn't match pattern — treat whole heading as title.
                 feat_id = _auto_id("F", auto_index)
                 title = heading
@@ -399,6 +473,28 @@ def _parse_tasks(
     blocks = _parse_h3_blocks(body, start_line)
     now = clock.now()
 
+    # Mirror of the Features guard: a Tasks section written with bullets
+    # instead of '### Txxx: Title' blocks must fail loudly rather than be
+    # silently dropped.
+    if not blocks and _has_meaningful_content(body):
+        errors.append(
+            ParseError(
+                section="tasks",
+                line=start_line,
+                message=(
+                    "## Tasks section has content but no '### Txxx: Title' "
+                    "blocks were parsed. Each task must be a level-3 heading "
+                    "(e.g. '### T001: Implement parser') followed by "
+                    "'**Feature:** F001', '**Acceptance criteria:**', and "
+                    "'**Verification:**' blocks. Bullets and prose at the "
+                    "section level are not parsed. See docs/prd-template.md "
+                    "for the canonical format; omit the section entirely to "
+                    "let `fakoli-state plan` generate tasks from features."
+                ),
+            )
+        )
+        return []
+
     for block_line, heading, block_lines in blocks:
         m_h3 = _H3_RE.match(f"### {heading}")
         if m_h3:
@@ -407,6 +503,21 @@ def _parse_tasks(
             if _TASK_ID_RE.match(raw_id):
                 task_id = raw_id.upper()
             else:
+                if _is_malformed_id_prefix(raw_id, "T"):
+                    errors.append(
+                        ParseError(
+                            section="tasks",
+                            line=block_line,
+                            message=(
+                                f"Task heading '### {heading}' uses a "
+                                f"custom ID ('{raw_id}') that does not match "
+                                "the required 'Txxx' format (T + 3+ digits, "
+                                "e.g. T001). Rename the heading to "
+                                "'### T001: <title>' (or any `T<3+digits>:` "
+                                "form) and re-run `fakoli-state prd parse`."
+                            ),
+                        )
+                    )
                 task_id = _auto_id("T", auto_index)
                 title = heading
         else:
