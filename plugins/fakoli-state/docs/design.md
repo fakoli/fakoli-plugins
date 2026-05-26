@@ -100,7 +100,7 @@ Heartbeat discipline is on the agent. An agent that never calls `renew` will see
 
 ### Why lease + heartbeat, not lease alone
 
-A 1-hour lease without heartbeat means stuck claims wait the full hour to free up. A 5-min lease without heartbeat means a long-running honest task gets its claim yanked mid-work. Lease + heartbeat lets us pick a short lease (default 60 min in `settings.json`) while honest work renews and keeps moving. The combination is what gives us "fast stale detection for crashed agents, no false eviction of working ones."
+A 1-hour lease without heartbeat means stuck claims wait the full hour to free up. A 5-min lease without heartbeat means a long-running honest task gets its claim yanked mid-work. Lease + heartbeat lets us pick a short lease (default 60 min, configurable in `.fakoli-state/config.yaml`) while honest work renews and keeps moving. The combination is what gives us "fast stale detection for crashed agents, no false eviction of working ones."
 
 ---
 

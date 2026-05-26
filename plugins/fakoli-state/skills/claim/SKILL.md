@@ -48,6 +48,19 @@ Git is optional. When a git repo is present in the project root, `claim` automat
 
 ## Workflow
 
+### Step 0 — Detect whether `fakoli-flow:execute` is available
+
+Before running the standalone claim flow, run the explicit plugin check so the decision is deterministic and reproducible across sessions — no introspection of in-memory command lists, no fuzzy "if it seems available" prose:
+
+```bash
+claude plugin list 2>/dev/null | grep -q "fakoli-flow"
+```
+
+- **Exit code 0** (`fakoli-flow` plugin present): prefer `/fakoli-flow:execute` for the wave-engine path. It reads `fakoli-state next`, calls `fakoli-state claim`, and dispatches the agent against the claimed task as part of a richer wave-based orchestration with critic gates between waves. The claim still appears in `state.db` — it is the same primitive, called from inside the flow. Branch on the user's existing workflow preferences when deciding whether to bridge.
+- **Non-zero exit** (plugin absent, or `claude` CLI itself not on `PATH`): proceed with the standalone path below (Step 1 onward). The fall-through is intentional graceful degradation: missing tooling never blocks the claim flow.
+
+The grep pattern is intentionally unanchored. Actual `claude plugin list` output renders each installed plugin as `  ❯ fakoli-flow@fakoli-plugins` (indented marker line, plugin name suffixed with `@<source>`); a leading `^` anchor would never match. The unanchored substring is safe because `fakoli-flow` is a unique slug within the marketplace.
+
 ### Step 1 — See what is claimable
 
 ```bash

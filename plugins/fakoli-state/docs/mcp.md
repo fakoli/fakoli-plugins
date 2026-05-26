@@ -159,8 +159,9 @@ criteria and constraints before calling `claim_task`.
 ### `get_next_task`
 
 Returns the single highest-priority `ready` task that has no active claim and no unsatisfied
-dependencies. Priority order: `critical` > `high` > `medium` > `low`. Tiebreak: higher
-`agent_suitability` score first, then task ID ascending. Returns `null` when no claimable
+dependencies. Sort key (from `ClaimManager.next_claimable()`): `priority desc` (`critical` >
+`high` > `medium` > `low`), then `complexity asc` (lower score wins; unscored tasks rank
+last), then `created_at asc` (oldest first for fairness). Returns `null` when no claimable
 task is available.
 
 Stale-claim reaping runs before the selection, so expired leases are cleared before the
@@ -336,7 +337,10 @@ raises a `ToolError` and no claim is created.
 | `lease_duration_seconds` | `int`                   | no       | `900`   |
 
 `lease_duration_seconds` is converted to minutes (floor, minimum 1) before being passed
-to `ClaimManager`. The default 900 seconds gives a 15-minute lease.
+to `ClaimManager`. The default 900 seconds gives a 15-minute MCP-side override — note that
+the CLI's `ClaimManager` ships with a 60-minute default (see
+[`bin/src/fakoli_state/claims/manager.py`](../bin/src/fakoli_state/claims/manager.py)
+line 118), and the project-level override is read from `.fakoli-state/config.yaml`.
 
 **Output**
 

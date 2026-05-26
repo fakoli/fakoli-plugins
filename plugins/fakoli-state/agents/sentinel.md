@@ -20,7 +20,7 @@ description: >
 
 model: opus
 color: gray
-allowed-tools:
+tools:
   - Read
   - Grep
   - Glob

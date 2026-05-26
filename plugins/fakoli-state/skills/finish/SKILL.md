@@ -247,8 +247,10 @@ When the human is the reviewer and an agent runs this skill:
 **When `fakoli-crew` is installed:** the `sentinel` agent validates evidence before the reviewer reaches this skill. Detect availability explicitly rather than guessing:
 
 ```bash
-claude plugin list 2>/dev/null | grep -q "^fakoli-crew"
+claude plugin list 2>/dev/null | grep -q "fakoli-crew"
 ```
+
+The grep pattern is intentionally unanchored. `claude plugin list` output renders each plugin row as `  ❯ fakoli-crew@fakoli-plugins` (indented marker, then `<plugin>@<source>` slug); a `^` anchor would never match. The unanchored substring is safe because `fakoli-crew` is a unique slug within the marketplace.
 
 - **Exit code 0** (`fakoli-crew` present): dispatch the `fakoli-crew:sentinel` agent against the task's evidence bundle before invoking `fakoli-state apply`. `fakoli-flow:finish` does this dispatch automatically as part of its wave-completion flow; in solo mode, ask the parent Claude session to dispatch the agent and pass the task ID.
 - **Non-zero exit** (`fakoli-crew` absent): fall through to the plugin-local `sentinel` agent if you are running under a Claude session that has access to it, otherwise rely on the reviewer's own reading of the evidence. Sentinel is an agent surface, not a skill — it must be dispatched via the agent mechanism, never via a slash command.

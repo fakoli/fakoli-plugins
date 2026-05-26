@@ -41,6 +41,19 @@ If the task does not appear, claim it first via `/fakoli-state:claim`. Phase 5 c
 
 ## Workflow
 
+### Step 0 — Detect whether `fakoli-flow:execute` is available
+
+Before running the standalone execute loop, run the explicit plugin check so the decision is deterministic and reproducible across sessions — no introspection of in-memory command lists, no fuzzy "if it seems available" prose:
+
+```bash
+claude plugin list 2>/dev/null | grep -q "fakoli-flow"
+```
+
+- **Exit code 0** (`fakoli-flow` plugin present): prefer `/fakoli-flow:execute` for the wave-engine path. It wraps this skill with wave-based dispatch, critic gates between waves, and coordinated submit timing for multi-agent teams. Branch on the user's existing workflow preferences when deciding whether to bridge.
+- **Non-zero exit** (plugin absent, or `claude` CLI itself not on `PATH`): proceed with the standalone path below (Step 1 onward). The fall-through is intentional graceful degradation: missing tooling never blocks the execute flow.
+
+The grep pattern is intentionally unanchored. Actual `claude plugin list` output renders each installed plugin as `  ❯ fakoli-flow@fakoli-plugins` (indented marker line, plugin name suffixed with `@<source>`); a leading `^` anchor would never match. The unanchored substring is safe because `fakoli-flow` is a unique slug within the marketplace.
+
 ### Step 1 — Fetch the work packet
 
 ```bash
