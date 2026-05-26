@@ -174,7 +174,7 @@ file for a higher-severity reason — no dedicated pass needed.
 #### CONSIDER
 - **P11-ST-C1** · `README.md` (new section near top) — No top-level surface-count table; counts scattered across deep tables. **Action:** add header table: "ships 6 agents, 7 skills, 4 hooks, 0 commands, 1 CLI, 1 MCP server with 13 tools." **Target:** Phase 11.
 - **P11-ST-C2** · `CHANGELOG.md:9-14` — Forward-looking v2.x items name LinearIssuesProvider/MondayBoardsProvider/webhooks without issue/PR links. **Action:** append `(see docs/phase-9-backlog.md § "v2.x roadmap" — P9B-1 / P9B-2 / P9B-5)` or equivalent anchor links. **Target:** Phase 11.
-- **P11-ST-C3** · `README.md:5-7` — Minimal badge set (license, version, alpha); no CI / test-count badges. **Action:** add CI status badge (once live-GitHub nightly workflow public) and `tests: 965` count badge. **Target:** Phase 11.
+- **P11-ST-C3** · `README.md:5-7` — Minimal badge set (license, version, alpha); no CI / test-count badges. **Action:** add CI status badge (once live-GitHub nightly workflow public) and `tests: 967` count badge. **Target:** Phase 11.
 
 #### NIT
 - **P11-ST-N1** · `README.md:132` — "Phase 9 (this release, v1.9.0)" parenthetical will stale on v1.10.0 ship. **Action:** replace with "Phase 9 shipped in v1.9.0" for tense-stability. **Target:** Phase 11 (drive-by during P11-ST-S1/S4).

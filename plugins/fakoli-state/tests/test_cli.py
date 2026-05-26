@@ -1573,7 +1573,15 @@ class TestSubmitCommand:
         )
 
         # Evidence gate must report PASSED — the screenshots requirement is
-        # now satisfied by the recorded list.
+        # now satisfied by the recorded list. Check the gate ran at all
+        # first (the gate summary block in `submit` swallows exceptions,
+        # so a missing 'Evidence gate' line means the gate raised, not
+        # that the verdict was wrong).
+        assert "Evidence gate" in result.output, (
+            "evidence gate summary block did not appear in output; the "
+            "gate likely raised an exception (suppressed by submit's "
+            f"except-Exception). Full output:\n{result.output}"
+        )
         assert "PASSED" in result.output, (
             f"expected 'Evidence gate: PASSED' in output, got: {result.output}"
         )
@@ -1621,8 +1629,16 @@ class TestSubmitCommand:
                 "--actor", "agent-test",
             ],
         )
-        # Submit succeeds; the gate is informational only.
+        # Submit succeeds; the gate is informational only. Check the gate
+        # ran at all first (the gate summary block in `submit` swallows
+        # exceptions, so a missing 'Evidence gate' line means the gate
+        # raised, not that the verdict was wrong).
         assert result.exit_code == 0, f"submit failed: {result.output}"
+        assert "Evidence gate" in result.output, (
+            "evidence gate summary block did not appear in output; the "
+            "gate likely raised an exception (suppressed by submit's "
+            f"except-Exception). Full output:\n{result.output}"
+        )
         assert "INCOMPLETE" in result.output
         assert "screenshots" in result.output
 
