@@ -63,35 +63,23 @@ The grep pattern is intentionally unanchored. Actual `claude plugin list` output
 
 ### Step 1 — See what is claimable
 
+Invoke `fakoli-state next` yourself — via Bash, the MCP equivalent when available, or whichever execution primitive the runtime exposes. Surface the result inline:
+
 ```bash
 fakoli-state next
 ```
 
 Returns the single highest-priority `ready` task with no unmet dependencies and no conflict-group overlap with currently active claims. Priority ordering: `critical` > `high` > `medium` > `low`; ties broken by complexity ascending (simpler first), then `created_at` ascending (oldest first).
 
-To see the full ready queue instead of just the top pick:
+If the user wants to see the full ready queue rather than the top pick, run `fakoli-state list --status ready` yourself and present it.
 
-```bash
-fakoli-state list --status ready
-```
-
-If `next` returns nothing, the queue is empty, fully claimed, or PRD-gated. Run:
-
-```bash
-fakoli-state status
-```
-
-Read `prd-status`, `ready-tasks`, and `active-claims` to identify the blocker. A non-zero `ready-tasks` count alongside a non-`approved` `prd-status` means the PRD gate is blocking all claims — the ready count is accurate, but the gate is closed.
+If `next` returns nothing, the queue is empty, fully claimed, or PRD-gated. Run `fakoli-state status` yourself and diagnose inline — read `prd-status`, `ready-tasks`, and `active-claims`, then tell the user what's blocking and what to do about it. A non-zero `ready-tasks` count alongside a non-`approved` `prd-status` means the PRD gate is blocking all claims — the ready count is accurate, but the gate is closed.
 
 ---
 
 ### Step 2 — Inspect the task before claiming
 
-```bash
-fakoli-state show TASK_ID
-```
-
-Example:
+Once `next` returns a candidate (or the user picks one from the ready queue), run `fakoli-state show TASK_ID` yourself and present the full task detail in chat:
 
 ```bash
 fakoli-state show T012
@@ -99,12 +87,16 @@ fakoli-state show T012
 
 Returns: title, intent, acceptance criteria, verification commands, all six score dimensions (`complexity`, `parallelizability`, `context_load`, `blast_radius`, `review_risk`, `agent_suitability`), `expected_files`, dependency chain, and any active claim on this task.
 
-Before claiming, confirm:
+Audit the result inline and surface anything that should give the user pause before the claim fires:
 
 - The acceptance criteria are concrete and independently verifiable — not aspirational descriptions.
 - `complexity` is 3 or under. A score of 4 or 5 means the task should have been expanded via `fakoli-state expand` during planning. Claiming an oversized task and then abandoning it mid-way wastes the lease window.
 - `agent_suitability` matches the current executor. A score of 1 or 2 signals that the task requires architectural judgment, significant human context, or decisions that a model is likely to get wrong. Defer those tasks.
 - `expected_files` does not include files that look like they belong to a different subsystem — a sign the task scope drifted during authoring.
+
+Present the inspection summary and ask:
+
+> T012 looks claimable: acceptance criteria concrete, complexity 3, agent_suitability 4, expected_files scoped to `src/retry/`. Proceed to claim? (yes / show me more / pick a different task)
 
 This step costs nothing and prevents the most common source of wasted claims.
 
@@ -112,7 +104,7 @@ This step costs nothing and prevents the most common source of wasted claims.
 
 ### Step 3 — Check for conflicts
 
-The `claim` command performs a conflict check before writing anything. Run claim with the task ID to trigger that check:
+Invoke `fakoli-state claim TASK_ID` yourself once the user confirms. The command performs the conflict check before writing anything:
 
 ```bash
 fakoli-state claim T012
@@ -130,7 +122,11 @@ ClaimError: Task 'T012' conflicts with active claims: claim C003 by agent-scout
 (files: ['src/fakoli_state/state/backend.py']). Use --force to override.
 ```
 
-If the conflict is acceptable — for example, the other actor owns C003 on a read-only research task and T012 writes to a different function in the same file — re-run with `--force`:
+Surface the conflict in chat. If it is acceptable — for example, the other actor owns C003 on a read-only research task and T012 writes to a different function in the same file — ask the user explicitly before forcing:
+
+> T012 conflicts with C003 (agent-scout) on `src/fakoli_state/state/backend.py`. Force the claim? `--force` is audit-logged. (yes / no / inspect C003 first)
+
+On `yes`, re-run with `--force` yourself:
 
 ```bash
 fakoli-state claim T012 --force
@@ -142,7 +138,7 @@ The override is logged as a warning in `events.jsonl` with the actor identity, t
 
 ### Step 4 — Acquire the lease
 
-A clean claim (no conflicts, or `--force` accepted) prints the claim result:
+A clean claim (no conflicts, or `--force` accepted) prints the claim result. Surface it inline:
 
 ```
 Claimed T012: add-retry-backoff
@@ -153,7 +149,7 @@ Lease:        60 min (expires 2026-05-24T19:00:00Z)
 
 The task transitions from `ready` to `claimed` in `state.db`. Two events are appended to `events.jsonl`: `claim.created` and `task.status_changed`.
 
-To also create a git worktree checked out to the branch (useful when running two agents in parallel from the same repo without checkout conflicts):
+If the user wants a separate git worktree (useful when running two agents in parallel from the same repo without checkout conflicts), invoke `--worktree` yourself:
 
 ```bash
 fakoli-state claim T012 --worktree
@@ -167,15 +163,15 @@ Without a git repo present, `claim` still succeeds and prints:
 Warning: not a git repository — no branch created (record-only mode).
 ```
 
-The claim is valid. Work proceeds in the repo root. The branch field on the Claim row is left `null`.
+The claim is valid. Work proceeds in the repo root. The branch field on the Claim row is left `null`. Tell the user inline what mode the claim is in (branch vs. record-only) so there is no surprise later.
 
 ---
 
 ### Step 5 — Work on the branch
 
-Actual code changes happen here, outside the skill. Commit incrementally to `agent/t012-add-retry-backoff` (or to the worktree branch). Incremental commits make the eventual PR reviewable and give a recovery point if the agent is interrupted.
+Actual code changes happen here, inside the conversation. The agent makes the edits directly on `agent/t012-add-retry-backoff` (or the worktree branch). Commit incrementally — incremental commits make the eventual PR reviewable and give a recovery point if the session is interrupted.
 
-Two hooks are active during this phase:
+Two hooks run during this phase:
 
 **`check-claim.sh`** (PreToolUse on Edit, Write, NotebookEdit) — warns whenever any active claim exists, prompting the agent to verify the file being modified is within its claim's scope. Per-file scope checking against `expected_files` arrives in Phase 5; until then this is a coarse-grained heads-up. Non-blocking: the edit proceeds regardless.
 
@@ -187,7 +183,7 @@ Both hooks run automatically. No manual action required.
 
 ### Step 6 — Heartbeat the lease
 
-The default lease is 60 minutes. For sessions longer than 55 minutes, renew before the lease expires:
+The default lease is 60 minutes. For sessions longer than 55 minutes, renew before the lease expires. Invoke renewal yourself whenever the agent notices the timer:
 
 ```bash
 fakoli-state renew C004
@@ -201,29 +197,37 @@ Renewed C004: lease extended to 2026-05-24T20:05:00Z
 
 Automated agents should renew every 5 minutes. A missed heartbeat does not immediately lose the claim — the lease detector runs on the next CLI or MCP operation. Once the lease expires, the task returns to `ready` and any agent can claim it.
 
-Only the owning actor can renew a claim. To release another actor's stale claim, use `release --force`.
+Only the owning actor can renew a claim. To release another actor's stale claim, use `release --force` (Step 8).
 
 ---
 
 ### Step 7 — Submit when complete (Phase 5)
 
-Phase 5 introduces `fakoli-state submit TASK_ID`, which auto-releases the claim and transitions the task to `needs_review`. Until Phase 5 lands, the workflow ends at "claimed + branch ready":
+Once verification passes and the work is ready to leave the agent's hands, drive the submit yourself. Read the verification output, summarize what was completed, and ask the user to acknowledge before submitting:
 
-1. Complete the work on the branch.
-2. Merge or open a PR manually.
-3. Release the claim explicitly:
+> T012 verification passed: 14 tests added, retry-backoff implemented in `src/retry/backoff.py`, no other files touched. Ready to submit? Submitting transitions T012 to `needs_review` and auto-releases C004. (yes / not yet / let me re-check)
+
+On `yes`, invoke `fakoli-state submit TASK_ID` yourself and surface the output:
 
 ```bash
-fakoli-state release C004
+fakoli-state submit T012
 ```
 
-Release emits `claim.released` and transitions the task from `claimed` back to `ready` (pending a status change to `done` which Phase 5 will handle).
+`submit` reads the evidence packet from `events.jsonl`, transitions the task to `needs_review`, and auto-releases the claim. Tell the user the task is now in `needs_review` and ask whether to hand off to `/fakoli-state:finish` for the apply gate.
+
+**The hard handoff lives in `finish`, not here.** `fakoli-state apply TASK_ID --approve` is the only command in this leg of the lifecycle that requires explicit user confirmation before the agent runs it. That gate lives in `/fakoli-state:finish` — invoke that skill rather than running `apply --approve` from here.
+
+If Phase 5 `submit` is not yet available in the running environment, fall back to the explicit Phase 4 release flow: run `fakoli-state release C004` yourself (see Step 8), confirm the task is back in `ready`, and tell the user the PR/merge step is theirs.
 
 ---
 
 ### Step 8 — Release explicitly when abandoning
 
-When work must stop before completion — blocked on an upstream issue, deprioritized, or handed off — release the claim so the task returns to the pool:
+When work must stop before completion — blocked on an upstream issue, deprioritized, or handed off — invoke release yourself so the task returns to the pool. Always ask the user for a reason first so the audit trail is informative:
+
+> Releasing C004. What's the reason? (e.g., "blocked: upstream T009 not merged")
+
+Then run:
 
 ```bash
 fakoli-state release C004 --reason "blocked: upstream T009 not merged"
@@ -231,13 +235,21 @@ fakoli-state release C004 --reason "blocked: upstream T009 not merged"
 
 The `--reason` string is stored in `release_reason` on the Claim row and logged in `events.jsonl`. Another agent can then pick up the task via `fakoli-state next`.
 
-To release a claim held by a different actor (use sparingly — logged in audit trail):
+To release a claim held by a different actor (use sparingly — logged in audit trail), confirm with the user before forcing:
 
 ```bash
 fakoli-state release C004 --force
 ```
 
 `--force` bypasses the actor-ownership check and also allows releasing claims in non-`active` states (e.g., `stale`). Every forced release is recorded with the releasing actor's identity.
+
+---
+
+## Anti-pattern to avoid
+
+Ending this skill with a numbered list like "1. Run `fakoli-state show T012` 2. Run `fakoli-state claim T012` 3. Heartbeat with `renew C004` 4. Run `submit T012` 5. Hand off to `/fakoli-state:finish`..." That handoff style only makes sense when the work is leaving this session entirely — queued for another agent, scheduled for tomorrow, blocked on stakeholder review. When the agent is sitting in the same conversation that holds the active claim, the agent drives `next`, `show`, `claim`, `renew`, `submit`, and `release` inline. The only command the agent must NOT run without explicit user confirmation is `apply --approve` (which lives in `/fakoli-state:finish`) — every other primitive in this skill is the agent's to invoke directly, with the user seeing the output in the same message.
+
+**When to actually hand off CLI commands:** if the user explicitly opts out ("just give me the commands"), or if the runtime lacks the tool needed to execute them (e.g., MCP-only client with no shell and no equivalent `claim` tool). In those cases, a CLI list is the right output. Otherwise, drive.
 
 ---
 

@@ -47,31 +47,35 @@ Phase 3 commands used in this skill:
 
 ### Step 1 — Generate features and tasks
 
+Invoke `fakoli-state plan` yourself — via Bash, the MCP `plan` tool when available, or whichever execution primitive the runtime exposes:
+
 ```bash
 fakoli-state plan
 ```
 
 Reads the parsed PRD from `state.db` and emits `feature.created` and `task.created` events for each `Feature` and `Task` found. Dependency inference and conflict-group detection run automatically — tasks that share `likely_files` entries are grouped into the same conflict group.
 
-The command prints the generated count. Verify it matches the PRD:
+Surface the generated count inline:
 
 ```
 generated 3 features, 8 tasks
 ```
 
-If the counts are wrong, check that the PRD was re-parsed after the last edit. A stale parse will produce a stale task graph. Run `fakoli-state prd parse` and then re-run `fakoli-state plan`.
+If the counts are wrong, the PRD probably wasn't re-parsed after the last edit. Run `fakoli-state prd parse` yourself, then re-run `fakoli-state plan` — do not ask the user to do it.
 
-**Pause here before continuing.** When running this skill with a human, present the task list:
+**Pause here and present the task list.** Run `fakoli-state list` yourself and present the titles, features, and priorities in chat:
 
-```bash
-fakoli-state list
-```
+> Plan generated 3 features, 8 tasks. Here they are:
+> [list output]
+> Anything mis-scoped or missing before I run `score`? (yes / looks good / let me check first)
 
-Let the human review titles, features, and priorities before proceeding. Catching mis-scoped tasks now costs one loop; catching them after scoring or claiming costs three.
+Catching mis-scoped tasks here costs one loop; catching them after scoring or claiming costs three.
 
 ---
 
 ### Step 2 — Score every task
+
+Once the user confirms the task list, invoke the scorer yourself:
 
 ```bash
 fakoli-state score
@@ -88,57 +92,54 @@ Populates all six dimensions on each `Task`. The scorer is rule-based — no LLM
 | `review_risk` | 1–5 | How carefully a human reviewer needs to inspect the output |
 | `agent_suitability` | 1–5 | How well-suited a typical frontier model is to this task |
 
-After scoring, run:
-
-```bash
-fakoli-state list
-```
-
-The output includes `agent_suitability` for each task. Surface anything that needs attention before proceeding:
+After scoring, run `fakoli-state list` yourself and read the scored output. Surface anything that needs attention before continuing:
 
 - **`complexity >= 4`**: flag for expand (Step 3). These tasks are too large for a single agent session.
 - **`agent_suitability <= 2`**: flag for human attention. Low suitability means the task involves judgment calls, ambiguous requirements, or architecturally broad changes that a model is likely to get wrong.
 - **`blast_radius >= 4`**: flag for careful claim ordering. High blast-radius tasks touch foundational code and should not run in parallel with other tasks that share files.
 
-Present these findings to the human before moving to Step 3. Do not silently continue if multiple high-complexity tasks appear — this is the moment to decide whether to expand them.
+Present these findings explicitly in chat. Do not silently continue if multiple high-complexity tasks appear — pause and ask:
+
+> Scoring done. Three tasks need a decision before we promote:
+> - T001 complexity: 5 (storage backend) — expand into subtasks?
+> - T003 complexity: 4 (auth middleware) — expand?
+> - T007 complexity: 4 (data migration) — expand?
+> - T002 agent_suitability: 2 (API contract) — want human eyes before claiming?
+>
+> Want me to expand T001/T003/T007 now, or proceed with `review tasks` as-is?
 
 ---
 
 ### Step 3 — Expand oversized tasks
 
-For each task with `complexity >= 4`, run:
+For each task with `complexity >= 4` that the user wants split, invoke `fakoli-state expand TASK_ID` yourself:
 
 ```bash
 fakoli-state expand TASK_ID
 ```
 
-**Phase 7 limitation:** in Phase 3, `expand` scaffolds the subtask structure but refuses to auto-generate subtask content without `--use-llm`. Running `fakoli-state expand T001` will return an error similar to:
+**Phase 7 limitation:** in Phase 3, `expand` scaffolds the subtask structure but refuses to auto-generate subtask content without `--use-llm`. Invoking `fakoli-state expand T001` will return an error similar to:
 
 ```
 Error: LLM augmentation required for expand. Re-run with --use-llm once Phase 7 ships.
 ```
 
-**Phase 3 workaround:** author the subtasks manually in `prd.md`. Add `### T001.1:` and `### T001.2:` blocks under `## Tasks` with their own `**Acceptance criteria:**` and `**Verification:**` fields. Re-parse, then re-plan:
+**Phase 3 workaround — drive it inline.** Propose `T001.1` and `T001.2` subtask blocks directly in the conversation (acceptance criteria, verification commands, likely files), apply them to `.fakoli-state/prd.md` yourself once the user confirms, then re-run the pipeline yourself:
 
 ```bash
-# 1. Edit prd.md to add T001.1 and T001.2 subtask blocks
-$EDITOR .fakoli-state/prd.md
-
-# 2. Re-parse
+# After applying the subtask edits to prd.md:
 fakoli-state prd parse
-
-# 3. Re-run plan to generate the subtask entities
 fakoli-state plan
-
-# 4. Re-run score to populate dimensions on the new tasks
 fakoli-state score
 ```
 
-The parent task `T001` can be dropped from `prd.md` once its subtasks are defined — or left as a logical grouping if the parser supports it. Confirm with guido's parser behavior before removing parent task blocks.
+Surface each step's output inline. The parent task `T001` can be dropped from `prd.md` once its subtasks are defined — or left as a logical grouping if the parser supports it. Confirm parser behavior before removing parent task blocks.
 
 ---
 
 ### Step 4 — Review tasks to promote them
+
+Invoke the gate yourself:
 
 ```bash
 fakoli-state review tasks
@@ -157,63 +158,47 @@ T005: PROMOTED to ready
 T006: PROMOTED to ready
 ```
 
-For each blocked task, return to `prd.md`, add the missing field, re-parse, and re-run `review tasks`. Do not retry without fixing the underlying gap — the gate will block on the same condition again.
+For each blocked task, surface the exact missing field in chat — do not just report "blocked". Propose the fix inline, apply it to `prd.md` after confirmation, re-parse, and re-run `review tasks` yourself. Do not retry without fixing the underlying gap — the gate will block on the same condition again.
+
+When the gate passes for every expected task, run `fakoli-state list --status ready` yourself and present the queue:
+
+> Review passed. Ready queue:
+> [list output]
+> Ready for `/fakoli-state:execute`? (yes / not yet — anything to adjust first)
 
 ---
 
 ### Step 5 — Verify the ready queue
 
-```bash
-fakoli-state list --status ready
-```
+If `fakoli-state list --status ready` returned non-empty in Step 4 and the user confirmed, the plan is complete — hand off into `/fakoli-state:execute` by invoking that skill, not by listing CLI commands.
 
-This is the queue agents can now claim. If it is empty after Step 4 succeeded, something blocked the gate. Check what is stuck:
+If the ready list is empty after Step 4 succeeded, something blocked the gate. Diagnose inline:
 
 ```bash
 fakoli-state list --status drafted
 ```
 
-Every task still in `drafted` missed the gate. Read the failure reason in the Step 4 output and fix each one.
-
-If the `ready` list looks correct, the plan is complete. Proceed to `/fakoli-state:execute` (Phase 5).
+Read every row, surface the failure reason, propose the fix in chat, apply it to `prd.md` after confirmation, then re-run the relevant pipeline steps yourself.
 
 ---
 
 ### Step 6 — Drill into specific tasks
 
-```bash
-fakoli-state show TASK_ID
-```
-
-Example:
+Run `fakoli-state show TASK_ID` yourself whenever a task looks suspicious — a title that seems too broad, a `blast_radius` of 5 on something that should be isolated, or a dependency chain that creates a bottleneck:
 
 ```bash
 fakoli-state show T003
 ```
 
-Returns the full task detail: title, description, acceptance criteria, verification commands, all six score dimensions, `expected_files`, and dependency chain.
-
-Run `show` on any task that looks suspicious — a title that seems too broad, a `blast_radius` of 5 on something that should be isolated, or a dependency chain that creates a bottleneck. These are planning issues that are far cheaper to fix before claiming than after.
+Surface the result inline: title, description, acceptance criteria, verification commands, all six score dimensions, `expected_files`, and dependency chain. These are planning issues that are far cheaper to fix before claiming than after.
 
 ---
 
-## Co-Authoring Guidance
+## Anti-pattern to avoid
 
-When running this skill with a human, do not chain all steps in a single shot on the first run. Pause and present findings at each step:
+Ending this skill with a numbered list like "1. Run `score` 2. Expand T001 3. Run `review tasks` 4. Run `list --status ready` 5. Run `/fakoli-state:execute`..." That handoff style only makes sense when the work is leaving this session entirely — queued for another agent, scheduled for tomorrow, blocked on stakeholder review. When the agent and user are in the same conversation, drive each command, surface its output, and present the next decision. Pause-and-present discipline is the whole point of interactive driving — it preserves the user's judgment at every gate without forcing them into a CLI.
 
-**After Step 1 (`plan`):** Show the task list. Ask whether the titles and feature groupings match intent. A missing feature or a mis-titled task caught here avoids re-planning later.
-
-**After Step 2 (`score`):** Surface every task where `agent_suitability <= 2` and every task where `complexity >= 4`. Present them explicitly:
-
-> Three tasks have `complexity >= 4` and need to be split before they can be claimed:
-> T001: Implement storage backend (complexity: 5)
-> T003: Wire authentication middleware (complexity: 4)
-> T007: Migrate existing data (complexity: 4)
->
-> Two tasks have `agent_suitability = 2` and may benefit from human review before claiming:
-> T002: Define API contract (low suitability — architectural judgment required)
-
-**After Step 4 (`review tasks`):** If any tasks are blocked, surface the exact missing field — do not just report "blocked". The human needs to know what to add.
+**When to actually hand off CLI commands:** if the user explicitly opts out ("just give me the commands"), or if the runtime lacks the tool needed to execute them (e.g., MCP-only client with no shell and no `plan` tool). In those cases, a CLI list is the right output. Otherwise, drive.
 
 ---
 

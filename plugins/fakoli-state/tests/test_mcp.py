@@ -251,7 +251,7 @@ def _run(coro: Any) -> Any:
 # ===========================================================================
 
 class TestListTools:
-    def test_list_tools_returns_all_thirteen(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_list_tools_returns_all_twenty_one(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _init_state_dir(tmp_path)
         monkeypatch.chdir(tmp_path)
 
@@ -262,10 +262,14 @@ class TestListTools:
 
         names = _run(run())
         expected = {
+            # Original 13
             "get_project_summary", "list_tasks", "get_task", "get_next_task",
             "claim_task", "release_task", "renew_claim",
             "generate_work_packet", "submit_progress", "submit_completion_evidence",
             "check_conflicts", "get_dependency_graph", "update_task_status",
+            # v1.13.0 workflow tools
+            "init_project", "get_project_status", "parse_prd", "review_prd",
+            "plan_tasks", "score_tasks", "review_tasks", "apply_review_decision",
         }
         assert expected <= names, f"Missing tools: {expected - names}"
 
@@ -1367,3 +1371,486 @@ class TestGetNextTaskPriorityOrdering:
 
         task = _run(run())
         assert task["id"] == "T_A"
+
+
+# ===========================================================================
+# v1.13.0 workflow tools — fixtures
+# ===========================================================================
+
+_MINIMAL_PRD = """\
+# Project: MCP Test Project
+
+## Summary
+
+A project for MCP workflow testing.
+
+## Goals
+
+- Verify the workflow MCP tools end-to-end.
+
+## Requirements
+
+- R001: The system accepts input.
+- R002: The system produces output.
+
+## Features
+
+### F001: Core Feature
+
+The single feature exercised by the test PRD.
+
+**Requirements:** R001, R002
+
+## Tasks
+
+### T001: Wire input handler
+
+**Feature:** F001
+**Priority:** high
+**Likely files:** src/app/handler.py
+
+**Acceptance criteria:**
+
+- Input is parsed without error.
+- Invalid input is rejected.
+
+**Verification:**
+
+- `pytest tests/test_handler.py -v`
+
+### T002: Wire output writer
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/app/writer.py
+
+**Acceptance criteria:**
+
+- Output is written atomically.
+
+**Verification:**
+
+- `pytest tests/test_writer.py -v`
+"""
+
+
+def _write_prd_file(state_dir: Path, content: str = _MINIMAL_PRD) -> Path:
+    """Drop a PRD file into .fakoli-state/prd.md."""
+    prd_path = state_dir / "prd.md"
+    prd_path.write_text(content, encoding="utf-8")
+    return prd_path
+
+
+# ===========================================================================
+# Tool 14: init_project
+# ===========================================================================
+
+
+class TestInitProject:
+    def test_happy_path_creates_state_dir_and_seeds_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("init_project", {
+                    "name": "From MCP",
+                }))
+
+        resp = _run(run())
+        assert resp["created"] is True
+        assert resp["project_name"] == "From MCP"
+        assert resp["project_id"] == "from-mcp"
+        state_dir = tmp_path / ".fakoli-state"
+        assert state_dir.exists()
+        assert (state_dir / "state.db").exists()
+        assert (state_dir / "events.jsonl").exists()
+        assert (state_dir / "config.yaml").exists()
+        assert (state_dir / "packets").is_dir()
+
+    def test_error_when_already_initialized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _init_state_dir(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("init_project", {})
+
+        with pytest.raises(ToolError, match="already exists|reinitialize"):
+            _run(run())
+
+
+# ===========================================================================
+# Tool 15: get_project_status
+# ===========================================================================
+
+
+class TestGetProjectStatus:
+    def test_happy_path_returns_full_status(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        state_dir = _init_state_dir(tmp_path, "Status Project")
+        _add_feature(state_dir)
+        _add_task(state_dir, task_id="T001", status="ready")
+        _add_task(state_dir, task_id="T002", status="ready")
+        _add_task(state_dir, task_id="T003", status="blocked")
+        _add_active_claim(
+            state_dir, claim_id="C001", task_id="T001", claimed_by="agent-x"
+        )
+        _add_prd(state_dir, status="reviewed")
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("get_project_status", {}))
+
+        data = _run(run())
+        assert data["initialized"] is True
+        assert data["project_name"] == "Status Project"
+        assert data["prd_status"] == "reviewed"
+        assert data["total_tasks"] == 3
+        assert data["ready_queue_depth"] == 2
+        assert data["active_claim_count"] == 1
+        assert data["task_counts"]["ready"] == 2
+        assert data["task_counts"]["blocked"] == 1
+
+    def test_uninitialized_returns_initialized_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No ToolError — status doubles as the bootstrap probe."""
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("get_project_status", {}))
+
+        data = _run(run())
+        assert data["initialized"] is False
+        assert data["project_id"] is None
+        assert data["total_tasks"] == 0
+        assert data["active_claim_count"] == 0
+
+
+# ===========================================================================
+# Tool 16: parse_prd
+# ===========================================================================
+
+
+class TestParsePrd:
+    def test_happy_path_emits_prd_parsed_and_returns_counts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("parse_prd", {}))
+
+        resp = _run(run())
+        assert resp["requirement_count"] == 2
+        assert resp["feature_count"] == 1
+        assert resp["task_count"] == 2
+        assert resp["errors"] == []
+        assert resp["prd_status"] == "draft"
+        # Verify the PRD was actually persisted.
+        from fakoli_state.state.sqlite import SqliteBackend
+        from fakoli_state.clock import SystemClock
+        b = SqliteBackend(
+            db_path=str(state_dir / "state.db"),
+            events_path=str(state_dir / "events.jsonl"),
+            clock=SystemClock(),
+        )
+        b.initialize()
+        try:
+            prd = b.get_prd()
+            assert prd is not None
+            assert prd.status.value == "draft"
+        finally:
+            b.close()
+
+    def test_error_when_no_prd_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _init_state_dir(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+
+        with pytest.raises(ToolError, match="PRD file not found|prd.md"):
+            _run(run())
+
+
+# ===========================================================================
+# Tool 17: review_prd
+# ===========================================================================
+
+
+class TestReviewPrd:
+    def test_draft_to_reviewed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        state_dir = _init_state_dir(tmp_path)
+        _add_prd(state_dir, status="draft")
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("review_prd", {
+                    "reviewer": "alice",
+                    "notes": "Looks good.",
+                }))
+
+        resp = _run(run())
+        assert resp["from_status"] == "draft"
+        assert resp["to_status"] == "reviewed"
+        assert resp["reviewer"] == "alice"
+
+    def test_reviewed_to_approved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        state_dir = _init_state_dir(tmp_path)
+        _add_prd(state_dir, status="reviewed")
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("review_prd", {
+                    "approve": True,
+                    "reviewer": "bob",
+                }))
+
+        resp = _run(run())
+        assert resp["from_status"] == "reviewed"
+        assert resp["to_status"] == "approved"
+
+    def test_error_when_wrong_status(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Approving while PRD is still draft → ToolError."""
+        state_dir = _init_state_dir(tmp_path)
+        _add_prd(state_dir, status="draft")
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("review_prd", {"approve": True})
+
+        with pytest.raises(ToolError, match="reviewed|draft"):
+            _run(run())
+
+
+# ===========================================================================
+# Tool 18: plan_tasks
+# ===========================================================================
+
+
+class TestPlanTasks:
+    def test_happy_path_emits_features_and_tasks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> tuple[Any, Any]:
+            async with Client(mcp) as c:
+                # parse_prd must run first so backend has a PRD row.
+                await c.call_tool("parse_prd", {})
+                plan = _data(await c.call_tool("plan_tasks", {}))
+                tasks = _data(await c.call_tool("list_tasks", {}))
+                return plan, tasks
+
+        plan, tasks = _run(run())
+        assert plan["feature_count"] == 1
+        assert plan["task_count"] == 2
+        # Tasks should be promoted to drafted after inference.
+        statuses = {t["id"]: t["status"] for t in tasks}
+        assert statuses.get("T001") == "drafted"
+        assert statuses.get("T002") == "drafted"
+
+    def test_error_when_no_prd_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _init_state_dir(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("plan_tasks", {})
+
+        with pytest.raises(ToolError, match="PRD file not found|prd.md"):
+            _run(run())
+
+
+# ===========================================================================
+# Tool 19: score_tasks
+# ===========================================================================
+
+
+class TestScoreTasks:
+    def test_score_single_task_returns_full_score(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        state_dir = _init_state_dir(tmp_path)
+        _add_feature(state_dir)
+        _add_task(state_dir, task_id="T001", status="drafted",
+                  likely_files=["src/foo.py"])
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("score_tasks", {
+                    "task_id": "T001",
+                }))
+
+        resp = _run(run())
+        assert len(resp["scored"]) == 1
+        entry = resp["scored"][0]
+        assert entry["task_id"] == "T001"
+        # All six dimensions populated (1-5 range).
+        for dim in (
+            "complexity", "parallelizability", "context_load",
+            "blast_radius", "review_risk", "agent_suitability",
+        ):
+            assert 1 <= entry[dim] <= 5
+
+    def test_error_on_unknown_task(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _init_state_dir(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("score_tasks", {"task_id": "NOPE"})
+
+        with pytest.raises(ToolError, match="not found|NOPE"):
+            _run(run())
+
+
+# ===========================================================================
+# Tool 20: review_tasks
+# ===========================================================================
+
+
+class TestReviewTasks:
+    def test_promotes_drafted_to_ready_when_gates_pass(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fully-formed drafted task should advance to ready."""
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+                return _data(await c.call_tool("review_tasks", {}))
+
+        resp = _run(run())
+        # Both T001 and T002 have AC + verification → both should advance.
+        assert "T001" in resp["promoted_to_reviewed"]
+        assert "T001" in resp["promoted_to_ready"]
+
+    def test_blocked_task_appears_with_reason(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A drafted task with no acceptance criteria must block, not crash."""
+        state_dir = _init_state_dir(tmp_path)
+        _add_feature(state_dir)
+        # Drop a drafted task and manually clear its acceptance_criteria
+        # so the gate fails.
+        _add_task(state_dir, task_id="T001", status="drafted")
+        # Wipe acceptance_criteria for T001 to trigger the gate.
+        import sqlite3 as _sqlite3
+        conn = _sqlite3.connect(str(state_dir / "state.db"))
+        conn.execute(
+            "UPDATE tasks SET acceptance_criteria = '[]' WHERE id = ?",
+            ("T001",),
+        )
+        conn.commit()
+        conn.close()
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("review_tasks", {}))
+
+        resp = _run(run())
+        blocked_ids = {b["task_id"] for b in resp["blocked"]}
+        assert "T001" in blocked_ids
+        assert "T001" not in resp["promoted_to_ready"]
+
+
+# ===========================================================================
+# Tool 21: apply_review_decision
+# ===========================================================================
+
+
+class TestApplyReviewDecision:
+    def test_approve_transitions_to_done(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        state_dir = _init_state_dir(tmp_path)
+        _add_feature(state_dir)
+        _add_task(state_dir, task_id="T001", status="needs_review")
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("apply_review_decision", {
+                    "task_id": "T001",
+                    "approve": True,
+                    "reviewer": "alice",
+                }))
+
+        resp = _run(run())
+        assert resp["task_id"] == "T001"
+        assert resp["decision"] == "accepted"
+        assert resp["from_status"] == "needs_review"
+        # Backend auto-promotes accepted → done.
+        assert resp["to_status"] in {"accepted", "done"}
+
+    def test_reject_requires_reason(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        state_dir = _init_state_dir(tmp_path)
+        _add_feature(state_dir)
+        _add_task(state_dir, task_id="T001", status="needs_review")
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("apply_review_decision", {
+                    "task_id": "T001",
+                    "approve": False,
+                })
+
+        with pytest.raises(ToolError, match="reason|Rejection"):
+            _run(run())
+
+    def test_error_when_task_not_in_needs_review(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        state_dir = _init_state_dir(tmp_path)
+        _add_feature(state_dir)
+        _add_task(state_dir, task_id="T001", status="ready")
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("apply_review_decision", {
+                    "task_id": "T001",
+                    "approve": True,
+                })
+
+        with pytest.raises(ToolError, match="needs_review|expected"):
+            _run(run())

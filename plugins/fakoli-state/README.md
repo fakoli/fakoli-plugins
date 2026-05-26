@@ -7,9 +7,9 @@
 > fakoli-state turns rough ideas and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI coding agents can execute in parallel without stepping on each other — the canonical project-state layer that fakoli-flow and fakoli-crew compose around.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.12.1-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.13.0-blue.svg)](.claude-plugin/plugin.json)
 [![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
-[![Tests](https://img.shields.io/badge/tests-975%20passing-brightgreen.svg)](tests)
+[![Tests](https://img.shields.io/badge/tests-993%20passing-brightgreen.svg)](tests)
 
 </div>
 
@@ -31,12 +31,12 @@ fakoli-flow defines how work moves, fakoli-crew defines who does the work, and f
 
 ---
 
-## What ships today (v1.12.1)
+## What ships today (v1.13.0)
 
 | Surface | Count | Notes |
 |---|---|---|
 | CLI commands | **23** | Top-level + `prd`, `review`, `hook`, `sync` sub-apps |
-| MCP tools | **13** | FastMCP stdio; works in any MCP-compatible client |
+| MCP tools | **21** | FastMCP stdio; works in any MCP-compatible client. v1.13.0 adds full PRD/planning/review surface so non-shell MCP clients can drive end-to-end. |
 | Skills | **7 skills** | start-prd, prd, plan, claim, execute, finish, state-ops |
 | Agents | **6 agents** | planner, critic, sentinel, state-keeper, marketplace-scribe, docs-scribe |
 | Hooks | **4 hooks** | detect-state, check-claim, record-file-change, capture-evidence |
