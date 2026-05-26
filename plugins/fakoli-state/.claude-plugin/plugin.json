@@ -1,7 +1,7 @@
 {
   "name": "fakoli-state",
   "version": "1.10.0",
-  "description": "Local-first project state engine: turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts.",
+  "description": "Local-first, runtime-neutral project state for humans and AI coding agents — turn PRDs into lockable, evidence-backed work packets.",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"
@@ -12,12 +12,12 @@
     "agent-coordination",
     "claims",
     "evidence-based",
-    "locks",
+    "llm-work-packets",
+    "local-first",
     "mcp",
-    "planning",
     "project-state",
+    "runtime-neutral",
     "sqlite",
-    "tasks",
-    "work-packets"
+    "terraform-for-work"
   ]
 }
