@@ -58,7 +58,7 @@ not MCP-only.
 
 ## Elevator pitch
 
-**(Q)** fakoli-state turns brainstorms and PRDs into reviewed, lockable,
+**(Q)** fakoli-state turns rough ideas and PRDs into reviewed, lockable,
 evidence-backed work packets that humans and AI coding agents can execute in
 parallel without stepping on each other — the canonical project-state layer
 that fakoli-flow and fakoli-crew compose around.

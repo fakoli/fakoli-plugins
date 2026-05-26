@@ -6,7 +6,68 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.12+ planned work._
+_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.13+ planned work._
+
+---
+
+## [1.12.0] — 2026-05-26
+
+Skill rename to resolve the `brainstorm` namespace collision with
+`fakoli-flow:brainstorm`. The fakoli-state skill that drafts a PRD from
+a rough idea is now `start-prd` — slug, slash command, and every
+cross-reference updated. The skill router can now route "let's
+brainstorm" cleanly to `fakoli-flow` and "start a PRD" cleanly to
+fakoli-state. Markdown-choreography only; no Python source, schema, or
+test changes (967 tests still passing).
+
+### Changed
+
+- **BREAKING:** `/fakoli-state:brainstorm` skill renamed to
+  `/fakoli-state:start-prd`. Directory (`skills/brainstorm/` →
+  `skills/start-prd/`), frontmatter `name:`, slash-command form, and
+  every cross-reference in README, `architecture.md`,
+  `skills-reference.md`, `how-to/integrating-with-fakoli-flow-and-crew.md`,
+  `skills/prd/SKILL.md`, `roadmap.md`, `phase-11-backlog.md`, and the
+  v0 spec updated. Skill description rewritten to remove "brainstorm"
+  as a trigger word and add concrete trigger phrases ("start a PRD",
+  "draft requirements", "author a PRD", "spec out a project"). Bridge
+  to `/fakoli-flow:brainstorm` (the OTHER plugin's skill, unrelated to
+  this rename) is unchanged and still fires when fakoli-flow is
+  installed.
+- Marketing copy updated to drop "brainstorms" in favor of "rough
+  ideas" — README hero, `_positioning.md` canonical (Q) sentence,
+  `bin/pyproject.toml` description, CLI `--help` description, and the
+  v0 spec. The vocabulary now matches the renamed skill instead of
+  pulling the skill router back toward the colliding term.
+- README badges refreshed: version 1.10.0 → 1.12.0; test count 965 → 967
+  (catches up the v1.11.0 additions that did not update the badges).
+
+### Migration
+
+If your scripts, hooks, CI, agents, or muscle memory invoke
+`/fakoli-state:brainstorm`, change to `/fakoli-state:start-prd`. No
+state schema migration is required (still v3, unchanged since v1.8.0);
+no CLI command was renamed (no `fakoli-state brainstorm` CLI command
+ever shipped — only the skill); the rename is purely at the skill-
+router layer.
+
+### Notes on historical artifacts
+
+The `docs/tech-debt-backlog.md` entry P9-5 and the
+`docs/specs/2026-05-26-plugin-audit-and-critics.md` audit doc still
+reference `skills/brainstorm/SKILL.md` — these are intentionally
+unchanged. P9-5 documents a Phase 9 fix to the file at the path it had
+AT THAT TIME; the audit doc is a frozen v1.9.0 snapshot. Rewriting
+either would obscure audit traceability. Status files under
+`docs/plans/agent-*-status.md` are similarly frozen.
+
+### Versioning note
+
+By strict SemVer this is a breaking change and would warrant 2.0.0.
+The project reserves 2.0.0 for the inflection-point release planned
+on `docs/roadmap.md` (sync v2, replay tooling, multi-backend sync
+abstraction). This rename is shipped as 1.12.0 with an explicit
+`BREAKING:` marker to keep the v2.0 slot intact.
 
 ---
 

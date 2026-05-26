@@ -24,7 +24,7 @@ from fakoli_state.cli.sync import sync_app
 app = typer.Typer(
     name="fakoli-state",
     help=(
-        "Local-first project state engine: turn brainstorms and PRDs into reviewed, "
+        "Local-first project state engine: turn rough ideas and PRDs into reviewed, "
         "lockable, evidence-backed work packets that humans and AI agents can "
         "coordinate on without conflicts."
     ),

@@ -4,12 +4,12 @@
 
 # fakoli-state
 
-> fakoli-state turns brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI coding agents can execute in parallel without stepping on each other — the canonical project-state layer that fakoli-flow and fakoli-crew compose around.
+> fakoli-state turns rough ideas and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI coding agents can execute in parallel without stepping on each other — the canonical project-state layer that fakoli-flow and fakoli-crew compose around.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.10.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.12.0-blue.svg)](.claude-plugin/plugin.json)
 [![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
-[![Tests](https://img.shields.io/badge/tests-965%20passing-brightgreen.svg)](tests)
+[![Tests](https://img.shields.io/badge/tests-967%20passing-brightgreen.svg)](tests)
 
 </div>
 
@@ -31,13 +31,13 @@ fakoli-flow defines how work moves, fakoli-crew defines who does the work, and f
 
 ---
 
-## What ships today (v1.10.0)
+## What ships today (v1.12.0)
 
 | Surface | Count | Notes |
 |---|---|---|
 | CLI commands | **23** | Top-level + `prd`, `review`, `hook`, `sync` sub-apps |
 | MCP tools | **13** | FastMCP stdio; works in any MCP-compatible client |
-| Skills | **7 skills** | brainstorm, prd, plan, claim, execute, finish, state-ops |
+| Skills | **7 skills** | start-prd, prd, plan, claim, execute, finish, state-ops |
 | Agents | **6 agents** | planner, critic, sentinel, state-keeper, marketplace-scribe, docs-scribe |
 | Hooks | **4 hooks** | detect-state, check-claim, record-file-change, capture-evidence |
 
@@ -101,7 +101,7 @@ Every mutation appends to `.fakoli-state/events.jsonl`. Replaying the log from s
 
 | Layer | What it does |
 |---|---|
-| Skills | Workflow choreography — 7 skills: brainstorm, prd, plan, claim, execute, finish, state-ops. Verification delegates to `fakoli-flow:verify` and `fakoli-crew:sentinel`. |
+| Skills | Workflow choreography — 7 skills: start-prd, prd, plan, claim, execute, finish, state-ops. Verification delegates to `fakoli-flow:verify` and `fakoli-crew:sentinel`. |
 | CLI (`fakoli-state`) | Pure state operations — CRUD, scoring, packet generation, sync |
 | MCP server | 13 agent-facing tools exposed via stdio to any MCP-compatible runtime |
 | Hooks | Enforce claim discipline, record file changes, capture test evidence |

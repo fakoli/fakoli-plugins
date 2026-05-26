@@ -18,7 +18,7 @@ for the architectural placement.
 
 ```mermaid
 graph TD
-    Brainstorm["brainstorm<br/>rough idea → prd.md draft"]
+    StartPRD["start-prd<br/>rough idea → prd.md draft"]
     PRD["prd<br/>parse + review + approve"]
     Plan["plan<br/>features + tasks + scoring"]
     Claim["claim<br/>acquire 60-min lease + branch"]
@@ -26,7 +26,7 @@ graph TD
     Finish["finish<br/>review evidence → apply"]
     StateOps["state-ops<br/>read-only inspection"]
 
-    Brainstorm --> PRD
+    StartPRD --> PRD
     PRD --> Plan
     Plan --> Claim
     Claim --> Execute
@@ -40,7 +40,7 @@ graph TD
 
     classDef lifecycle fill:#1f2937,stroke:#60a5fa,stroke-width:2px,color:#f9fafb
     classDef inspection fill:#374151,stroke:#9ca3af,stroke-width:1px,color:#f9fafb,stroke-dasharray: 5 5
-    class Brainstorm,PRD,Plan,Claim,Execute,Finish lifecycle
+    class StartPRD,PRD,Plan,Claim,Execute,Finish lifecycle
     class StateOps inspection
 ```
 
@@ -76,9 +76,9 @@ commands, [`mcp.md`](mcp.md) for the equivalent MCP read-only tools.
 
 ---
 
-## Brainstorm
+## Start-PRD
 
-**Trigger:** `/fakoli-state:brainstorm`
+**Trigger:** `/fakoli-state:start-prd`
 
 **Purpose:** Turn a rough idea into a structured PRD draft via one-question-
 at-a-time Q&A, then write the result to `.fakoli-state/prd.md` so
@@ -100,7 +100,7 @@ The skill then translates the resulting spec into the `fakoli-state` PRD
 template format. Standalone, it falls back to a deterministic six-question
 interview loop.
 
-**Detection logic** (from `skills/brainstorm/SKILL.md` Step 1):
+**Detection logic** (from `skills/start-prd/SKILL.md` Step 1):
 
 ```bash
 claude plugin list 2>/dev/null | grep -q "fakoli-flow"
@@ -110,7 +110,7 @@ Exit code 0 means bridge to `/fakoli-flow:brainstorm`. Non-zero means the
 plugin is absent (or `claude` itself is not on `PATH`) — fall through to
 the six-question interview.
 
-**Source:** `skills/brainstorm/SKILL.md`
+**Source:** `skills/start-prd/SKILL.md`
 
 **See also:** [`how-to/authoring-a-prd.md`](how-to/authoring-a-prd.md) for
 the canonical PRD template structure.
@@ -136,7 +136,7 @@ cleanly, and clears the review gate.
   parsed PRD; authoring must come first.
 
 **Bridges to fakoli-flow:** None at the skill level. LLM-assisted PRD
-drafting through `fakoli-flow` is referenced from the `brainstorm` skill
+drafting through `fakoli-flow` is referenced from the `start-prd` skill
 (see above); the `prd` skill itself operates on `.fakoli-state/prd.md`
 directly via `fakoli-state prd parse` / `review` / `review --approve`.
 
@@ -306,9 +306,9 @@ external-tracker step after `apply --approve`.
 
 Install order: fakoli-state alone. No external plugin dependencies.
 
-All 7 skills run their self-contained bodies end to end: brainstorm → prd
+All 7 skills run their self-contained bodies end to end: start-prd → prd
 → plan → claim → execute → finish, with state-ops available for inspection
-at any point. The detection checks in `brainstorm`, `execute`, and
+at any point. The detection checks in `start-prd`, `execute`, and
 `finish` exit non-zero and the skills fall through to their local
 implementations — the six-question interview, the solo execution loop, the
 solo review loop. This is the v0 wedge: a solo developer with one Claude
@@ -317,11 +317,11 @@ installing flow or crew.
 
 ### + fakoli-flow
 
-Install order: fakoli-state + fakoli-flow. The brainstorm, execute, and
+Install order: fakoli-state + fakoli-flow. The start-prd, execute, and
 finish skills bridge to their `/flow:*` equivalents; the plan, claim, prd,
 and state-ops skills stay local. Specifically:
 
-- `/fakoli-state:brainstorm` bridges to `/fakoli-flow:brainstorm` for the
+- `/fakoli-state:start-prd` bridges to `/fakoli-flow:brainstorm` for the
   richer guided design dialogue, then translates the spec back to the
   fakoli-state PRD template.
 - `/fakoli-state:execute` is wrapped by `/fakoli-flow:execute`, which adds

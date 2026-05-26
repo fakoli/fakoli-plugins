@@ -56,7 +56,7 @@ graph TD
     end
 
     subgraph Plugin["Plugin layer (operating discipline)"]
-        Skills["Skills<br/>brainstorm, prd, plan, claim,<br/>execute, finish, state-ops"]
+        Skills["Skills<br/>start-prd, prd, plan, claim,<br/>execute, finish, state-ops"]
         Agents["Plugin agents<br/>planner, critic, sentinel,<br/>state-keeper, docs-scribe,<br/>marketplace-scribe"]
     end
 
@@ -492,7 +492,7 @@ not use `set -e` / `set -u` / `set -o pipefail`, must wrap CLI calls with
 ### Skills (7)
 
 Workflow choreography lives in [`skills/*/SKILL.md`](../skills/) —
-brainstorm, prd, plan, claim, execute, finish, state-ops. Verification is
+start-prd, prd, plan, claim, execute, finish, state-ops. Verification is
 delegated to `fakoli-flow:verify` and `fakoli-crew:sentinel` rather than a
 plugin-local verify skill (intentional — see README rationale).
 
