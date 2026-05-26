@@ -652,6 +652,343 @@ Tests comma-separated likely files.
         assert "b.py" in files
         assert "c.py" in files
 
+    def test_task_dependencies_field_parsed(self) -> None:
+        """v1.16.0: **Dependencies:** T001, T002 → Task.dependencies = ['T001', 'T002'].
+
+        Regression for a user-reported bug where the planner missed that
+        T002 (chaos tests in 2-process mode) depended on T001 (HttpTransport).
+        Before v1.16.0 the parser had no way to recognise an explicit
+        **Dependencies:** field — the only path to populated dependencies
+        was the file-subset inference, which can't catch semantic
+        infrastructure dependencies.
+        """
+        prd = """\
+# Project: Dependencies Test
+
+## Summary
+
+Tests dependency field parsing.
+
+## Goals
+
+- Test deps.
+
+## Requirements
+
+- R001: Req.
+
+## Features
+
+### F001: Feature
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: Implement HttpTransport
+
+**Feature:** F001
+**Acceptance criteria:**
+
+- Works.
+
+**Verification:**
+
+- `pytest a`
+
+### T002: Test HttpTransport in 2-process mode
+
+**Feature:** F001
+**Dependencies:** T001
+
+**Acceptance criteria:**
+
+- Tests pass.
+
+**Verification:**
+
+- `pytest b`
+"""
+        result = parse_prd(prd)
+        assert not result.errors, f"Unexpected errors: {result.errors}"
+        t002 = next(t for t in result.tasks if t.id == "T002")
+        assert t002.dependencies == ["T001"], (
+            f"Expected T002.dependencies == ['T001'], got: {t002.dependencies}"
+        )
+        # T001 has no Dependencies field — empty list.
+        t001 = next(t for t in result.tasks if t.id == "T001")
+        assert t001.dependencies == []
+
+    def test_task_dependencies_multiple_normalized_uppercase(self) -> None:
+        """**Dependencies:** t001, T002 → ['T001', 'T002'] (normalised)."""
+        prd = """\
+# Project: Multi-Dep Test
+
+## Summary
+
+x.
+
+## Goals
+
+- y.
+
+## Requirements
+
+- R001: z.
+
+## Features
+
+### F001: F
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: A
+
+**Feature:** F001
+**Acceptance criteria:**
+
+- a
+
+**Verification:**
+
+- `c`
+
+### T002: B
+
+**Feature:** F001
+**Acceptance criteria:**
+
+- b
+
+**Verification:**
+
+- `c2`
+
+### T003: C depends on A and B
+
+**Feature:** F001
+**Dependencies:** t001, T002
+
+**Acceptance criteria:**
+
+- c
+
+**Verification:**
+
+- `c3`
+"""
+        result = parse_prd(prd)
+        assert not result.errors
+        t003 = next(t for t in result.tasks if t.id == "T003")
+        assert t003.dependencies == ["T001", "T002"]
+
+    def test_task_dependencies_unknown_id_warns(self) -> None:
+        """**Dependencies:** T099 when T099 doesn't exist → ParseError warning,
+        dependency still kept on the task."""
+        prd = """\
+# Project: Unknown Dep Test
+
+## Summary
+
+x.
+
+## Goals
+
+- y.
+
+## Requirements
+
+- R001: z.
+
+## Features
+
+### F001: F
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: Has Bad Dep
+
+**Feature:** F001
+**Dependencies:** T099
+
+**Acceptance criteria:**
+
+- a
+
+**Verification:**
+
+- `c`
+"""
+        result = parse_prd(prd)
+        # Dep still kept on the task.
+        t001 = result.tasks[0]
+        assert "T099" in t001.dependencies, (
+            f"Unknown dep should still be kept, got: {t001.dependencies}"
+        )
+        # And a warning fired.
+        dep_errors = [
+            e for e in result.errors if "T099" in e.message
+        ]
+        assert dep_errors, (
+            f"Expected ParseError mentioning T099. Got: {result.errors}"
+        )
+
+    def test_self_dependency_is_stripped_with_warning(self) -> None:
+        """Greptile PR #64 fix: a task that lists itself in **Dependencies:**
+        would create a perpetual claim-time warning (T001 can never be
+        `done` before T001 is claimed). The parser strips the self-ref
+        from the task's dependencies AND emits a ParseError warning
+        naming the offending task."""
+        prd = _MINIMAL_PRD + """
+## Features
+
+### F001: F
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: Self-referential
+
+**Feature:** F001
+**Dependencies:** T001
+
+**Acceptance criteria:**
+
+- a
+
+**Verification:**
+
+- `c`
+"""
+        result = parse_prd(prd)
+        t001 = result.tasks[0]
+        # Self-ref stripped — the parser does NOT keep "T001" in its own
+        # dependencies, unlike the unknown-ID case which keeps the bad
+        # value so downstream tooling can see the author's intent.
+        assert "T001" not in t001.dependencies, (
+            f"Self-dep should be stripped, got: {t001.dependencies}"
+        )
+        # And a clear warning fires.
+        self_dep_errors = [
+            e for e in result.errors
+            if "T001" in e.message and "itself" in e.message
+        ]
+        assert self_dep_errors, (
+            f"Expected self-dep ParseError. Got: {result.errors}"
+        )
+
+    def test_dependency_warning_carries_task_block_line(self) -> None:
+        """Greptile PR #64 fix: ParseError for unknown dep ID points at the
+        offending ### Txxx: block, NOT at the ## Tasks section header.
+        Without per-task block_line tracking, users got pointed at line 1
+        of the section regardless of which task held the bad reference.
+        """
+        prd = """\
+# Project: Line Attribution Test
+
+## Summary
+
+x.
+
+## Goals
+
+- y.
+
+## Requirements
+
+- R001: z.
+
+## Features
+
+### F001: F
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: Clean task
+
+**Feature:** F001
+**Acceptance criteria:**
+
+- a
+
+**Verification:**
+
+- `c`
+
+### T002: Task with bad dep — should report THIS line
+
+**Feature:** F001
+**Dependencies:** T099
+
+**Acceptance criteria:**
+
+- b
+
+**Verification:**
+
+- `c2`
+"""
+        result = parse_prd(prd)
+        # Find the unknown-dep warning.
+        bad_dep_errors = [e for e in result.errors if "T099" in e.message]
+        assert bad_dep_errors, "Expected unknown-dep warning"
+        err = bad_dep_errors[0]
+        # The ### T002: heading line. The exact number depends on the
+        # prd layout above; what matters is that it is NOT the
+        # ## Tasks section header line. Compute a rough lower bound:
+        # ## Tasks header is at line 23 in this fixture; ### T002: must
+        # be further down. We just assert > 25.
+        assert err.line > 25, (
+            f"Unknown-dep warning should point at the T002 block (line >25), "
+            f"not the ## Tasks section header. Got: line={err.line}"
+        )
+
+    def test_task_dependencies_omitted_defaults_empty(self) -> None:
+        """Task with no **Dependencies:** field → empty dependencies list."""
+        prd = """\
+# Project: No Deps Test
+
+## Summary
+
+x.
+
+## Goals
+
+- y.
+
+## Requirements
+
+- R001: z.
+
+## Features
+
+### F001: F
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: No deps
+
+**Feature:** F001
+**Acceptance criteria:**
+
+- a
+
+**Verification:**
+
+- `c`
+"""
+        result = parse_prd(prd)
+        assert result.tasks[0].dependencies == []
+
     def test_task_feature_link_updates_feature_tasks(self) -> None:
         """Task with Feature: F001 adds task ID to Feature.tasks."""
         prd = """\

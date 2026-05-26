@@ -28,7 +28,13 @@ def claim(
     force: bool = typer.Option(  # noqa: B008
         False,
         "--force",
-        help="Override conflict warnings.",
+        help=(
+            "Override file-conflict warnings (overlapping likely_files with "
+            "an active claim) AND silence v1.16.0 dependency warnings "
+            "(undone task.dependencies). The claim itself proceeds either "
+            "way for the dependency check; --force only silences the "
+            "noise."
+        ),
     ),
     actor: str | None = typer.Option(  # noqa: B008
         None,
@@ -90,6 +96,40 @@ def claim(
                 err=True,
             )
             raise typer.Exit(code=1)
+
+        # Dependency check (v1.16.0). Soft gate: warn when one or more of
+        # task.dependencies are not yet `done`, but proceed with the claim.
+        # The user's stacked-PR workflow (claim T002 while T001 is still
+        # in_progress and merge them together) is legitimate; we just want
+        # them to KNOW the deps aren't done so the choice is informed.
+        # --force silences the warning. Mirrors the conflict-check pattern
+        # one above but with warn-only semantics.
+        if task.dependencies and not force:
+            undone_deps: list[tuple[str, str]] = []  # (dep_id, status)
+            for dep_id in task.dependencies:
+                dep = backend.get_task(dep_id)
+                if dep is None:
+                    undone_deps.append((dep_id, "not-found"))
+                elif dep.status.value != "done":
+                    undone_deps.append((dep_id, dep.status.value))
+            if undone_deps:
+                typer.echo(
+                    f"Warning: task '{task_id}' has "
+                    f"{len(undone_deps)} dependency(ies) that are not yet "
+                    "`done`. Claiming anyway, but the work may be "
+                    "blocked or need rebasing once the deps land:",
+                    err=True,
+                )
+                for dep_id, dep_status in undone_deps:
+                    typer.echo(
+                        f"  - {dep_id} ({dep_status})",
+                        err=True,
+                    )
+                typer.echo(
+                    "Pass --force to silence this warning, OR claim the "
+                    "dependencies first, OR plan a stacked-branch workflow.",
+                    err=True,
+                )
 
         try:
             result = manager.claim(task_id, expected_files=expected_files, force=force)

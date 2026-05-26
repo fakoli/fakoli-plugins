@@ -472,6 +472,11 @@ def _parse_tasks(
     auto_index = 1
     blocks = _parse_h3_blocks(body, start_line)
     now = clock.now()
+    # task_id → block_line, so the post-loop dependency validation can
+    # report the right line number on each task (greptile PR #64 fix —
+    # without this map the unknown-dep warning points at the ## Tasks
+    # heading instead of the offending ### Txxx: block).
+    task_block_lines: dict[str, int] = {}
 
     # Mirror of the Features guard: a Tasks section written with bullets
     # instead of '### Txxx: Title' blocks must fail loudly rather than be
@@ -532,6 +537,7 @@ def _parse_tasks(
         likely_files: list[str] = []
         acceptance_criteria: list[str] = []
         verification_commands: list[str] = []
+        dependencies: list[str] = []
         description_parts: list[str] = []
 
         i = 0
@@ -569,6 +575,18 @@ def _parse_tasks(
                         )
                 elif key == "likely_files":
                     likely_files = [f.strip() for f in val.split(",") if f.strip()]
+                elif key == "dependencies":
+                    # v1.16.0 — explicit semantic dependencies. Comma-separated
+                    # TaskIDs (e.g. "T001, T002"). Normalised to upper-case.
+                    # Unknown-ID validation happens in a post-loop pass at the
+                    # end of _parse_tasks once every task ID in this section
+                    # has been collected (allows forward refs within the same
+                    # ## Tasks section).
+                    dependencies = [
+                        d.strip().upper()
+                        for d in val.split(",")
+                        if d.strip()
+                    ]
                 elif key == "acceptance_criteria":
                     in_acceptance_criteria = True
                     if val:
@@ -635,10 +653,64 @@ def _parse_tasks(
                 acceptance_criteria=acceptance_criteria,
                 verification=Verification(commands=verification_commands),
                 likely_files=likely_files,
+                dependencies=dependencies,
                 created_at=now,
                 updated_at=now,
             )
         )
+        task_block_lines[task_id] = block_line
+
+    # Post-loop: validate dependency references. Two distinct failure modes:
+    # 1. Self-dependency (T001 with **Dependencies:** T001) — at claim time
+    #    this creates a perpetual spurious warning because T001 will never
+    #    be `done` before T001 is claimed. Strip the self-ref from the
+    #    task's dependencies AND emit a warning so the author sees it.
+    # 2. Unknown-task dependency (**Dependencies:** T099 when T099 doesn't
+    #    exist in this ## Tasks section). Warn but keep the dep so
+    #    downstream tooling can see the author's intent.
+    # Both warnings carry the per-task block line (greptile PR #64 fix).
+    known_task_ids = {t.id for t in tasks}
+    for task in tasks:
+        block_line = task_block_lines.get(task.id, start_line)
+        cleaned_deps: list[str] = []
+        for dep_id in task.dependencies:
+            if dep_id == task.id:
+                errors.append(
+                    ParseError(
+                        section="tasks",
+                        line=block_line,
+                        message=(
+                            f"Task '{task.id}' lists itself in "
+                            "**Dependencies:** — self-references are "
+                            "stripped (would otherwise create a perpetual "
+                            "claim-time warning, since a task can never be "
+                            "`done` before being claimed). Remove "
+                            f"'{task.id}' from {task.id}'s **Dependencies:** "
+                            "field."
+                        ),
+                    )
+                )
+                continue  # skip — do NOT re-add the self-ref to cleaned_deps
+            if dep_id not in known_task_ids:
+                errors.append(
+                    ParseError(
+                        section="tasks",
+                        line=block_line,
+                        message=(
+                            f"Task '{task.id}' depends on unknown task "
+                            f"'{dep_id}' — included anyway. Either add a "
+                            f"### {dep_id}: block to ## Tasks, or remove "
+                            f"'{dep_id}' from {task.id}'s **Dependencies:** "
+                            "field."
+                        ),
+                    )
+                )
+            cleaned_deps.append(dep_id)
+        # Replace the task in-place when self-refs were stripped (Pydantic
+        # Task is immutable; model_copy + index replace).
+        if cleaned_deps != task.dependencies:
+            idx = tasks.index(task)
+            tasks[idx] = task.model_copy(update={"dependencies": cleaned_deps})
 
     return tasks
 

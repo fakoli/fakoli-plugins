@@ -6,7 +6,125 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.16+ planned work._
+_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.17+ planned work._
+
+---
+
+## [1.16.0] — 2026-05-26
+
+Single-bug release driven by in-the-wild testing: the planner missed an
+obvious task→task dependency. T002 (chaos tests in 2-process mode)
+clearly depended on T001 (HttpTransport implementation) — without T001
+the 2-process mode the tests need doesn't exist — but the generated
+task graph showed `dependencies=[]` for T002, and the user only caught
+it by reading the PRD acceptance criteria during claim.
+
+Root cause was a three-layer gap:
+
+1. **Parser** (`planning/template.py`) didn't recognise a
+   `**Dependencies:** T001, T002` field in task blocks. Even if the
+   PRD author wrote it explicitly, the parser silently dropped it.
+2. **LLM planner prompt** (`planning/llm_planner.py`) didn't instruct
+   the model to identify dependencies from acceptance criteria text.
+   The model had no example to emit and no rule telling it to look.
+3. **Only existing dep inference** (`planning/inference.py`
+   `infer_dependencies`) was a file-subset heuristic — purely
+   file-based. It would NEVER catch "T002 needs T001 because the
+   criteria say 'in 2-process mode'" if the tests lived in
+   `tests/chaos/` while the implementation lived in
+   `packages/transport/` (no file overlap).
+
+v1.16.0 closes all three.
+
+### Added
+
+- **Parser support for `**Dependencies:**` field** in task blocks
+  (`planning/template.py`). Comma-separated TaskIDs, normalised to
+  upper-case (`t001, T002` → `["T001", "T002"]`). Post-parse
+  validation surfaces a `ParseError` warning when a dependency
+  references a task ID that doesn't exist in the same `## Tasks`
+  section — the dep is kept on the task regardless so downstream
+  tooling can see the author's intent.
+- **LLM planner prompt instructions for dependency emission**
+  (`planning/llm_planner.py`). The system prompt now includes
+  `**Dependencies:**` in the example task block AND a "Dependencies
+  (CRITICAL — read carefully)" rule block explaining the two
+  trigger conditions:
+  - **Infrastructure dependency** — Task A creates infrastructure
+    (API, service, transport, schema, CLI command) that Task B
+    needs.
+  - **Phrasal dependency in acceptance criteria** — "in X mode",
+    "using Y", "after Z is complete", "given W from <other task>".
+  Plus an explicit cycle-avoidance rule and an instruction to OMIT
+  the field entirely when no deps exist (no empty `**Dependencies:**`
+  lines).
+- **`fakoli-state claim` warns on undone dependencies (soft gate)**.
+  Before acquiring the lease, claim fetches `task.dependencies` and
+  checks each one's status. If any are not yet `done`, emits a
+  stderr warning naming each dep + status, then proceeds with the
+  claim. `--force` silences the warning. The soft-gate design
+  preserves legitimate stacked-PR workflows (claim T002 while T001
+  is still in_progress and merge them together) while ensuring the
+  user knows what they're doing.
+- **10 new regression tests:**
+  - 4 in `tests/test_template.py::TestTaskParsing`: explicit deps
+    field parses, multi-value normalises uppercase, unknown ID
+    warns, omitted field defaults to empty.
+  - 4 in `tests/test_llm_planner.py::TestSystemPromptInstructsDependencyEmission`:
+    prompt shows the field, prompt names the two triggers, prompt
+    says omit-when-empty, prompt warns against cycles.
+  - 2 in `tests/test_cli.py::TestClaimCommand`: claim warns on
+    undone deps; `--force` silences the warning.
+
+### Changed
+
+- README badges updated for v1.16.0: tests 1071 → 1081 (+10);
+  version 1.15.0 → 1.16.0.
+- `docs/prd-template.md` task-field reference table gains a
+  `**Dependencies:**` row, the canonical-example T003 demonstrates
+  using it (`**Dependencies:** T001, T002`), and a paragraph
+  explains when to emit the field vs leave it to file-overlap
+  conflict groups.
+
+### Migration
+
+No breaking changes. Schema unchanged. The `Task.dependencies` field
+already existed in the Pydantic model since pre-v1.0 — v1.16.0 just
+wires it through the parser, the planner prompt, and the claim
+gate. PRDs without `**Dependencies:**` fields continue to work
+unchanged (the field is optional, defaults to empty list). The
+existing file-subset `infer_dependencies()` still runs after parse
+— v1.16.0 layers explicit semantic deps on top of, not in place of,
+the file-based inference.
+
+The claim warning is soft (proceeds with the claim) so existing CI /
+scripts that call `claim` won't suddenly start failing. Users who
+prefer stricter behaviour can wrap the warning in their own
+project's git-pre-push hook or check `fakoli-state show TASK_ID`
+before claiming.
+
+### Fixed (post-greptile review)
+
+- **Dependency ParseError now points at the offending `### Txxx:`
+  block**, not at the `## Tasks` section header. The parser tracks
+  a `task_id → block_line` map during the parse loop and consults
+  it during post-loop validation. Before the fix, a user with a
+  bad `**Dependencies:** T099` on T002 would be pointed at line 1
+  of the section instead of T002's heading.
+- **Self-dependency now stripped + warned** instead of passing
+  silently. A task with `**Dependencies:** T001` on T001 would
+  otherwise trigger a perpetual claim-time warning (T001 can never
+  be `done` before it is claimed). The parser strips the self-ref
+  AND emits a clear "remove yourself from your own dependencies"
+  warning naming the offending task. Note this differs from the
+  unknown-ID handling, which KEEPS the bad ID so downstream tooling
+  can see the author's intent — self-refs are unambiguously wrong.
+- **`--force` help text updated** to mention that the flag silences
+  both file-conflict warnings AND dependency warnings. Previously
+  only the file-conflict half was documented, so users wouldn't
+  know `--force` cleared the dep-warning noise too.
+- Suite is **1083 passing** (+2 regression tests for self-dep
+  stripping and per-block line attribution).
 
 ---
 
