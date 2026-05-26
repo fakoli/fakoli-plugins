@@ -130,10 +130,15 @@ Install any combination — each works standalone. The full trinity gives you a 
 
 # Turn a PRD into claimable, evidence-backed work packets
 fakoli-state init --name "My Project"
-fakoli-state prd parse           # PRD → requirements + tasks
-fakoli-state plan                # generate features + score across 6 dimensions
-fakoli-state claim T001          # lockable claim with lease + heartbeat
-fakoli-state apply T001 --approve  # promote to done with audit evidence
+# (author .fakoli-state/prd.md by hand — see plugins/fakoli-state/docs/prd-template.md)
+fakoli-state prd parse                                # PRD → requirements + tasks
+fakoli-state prd review                               # gate: draft → reviewed
+fakoli-state prd review --approve                     # gate: reviewed → approved
+fakoli-state plan && fakoli-state score && fakoli-state review tasks   # generate + score + ready
+fakoli-state claim T001                               # lockable claim with lease + heartbeat
+fakoli-state submit T001 \
+  --commands "pytest" --files-changed src/foo.py      # record evidence (gate input)
+fakoli-state apply T001 --approve                     # promote to done with audit trail
 ```
 
 ---
