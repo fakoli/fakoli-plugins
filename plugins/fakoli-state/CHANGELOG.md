@@ -104,6 +104,37 @@ continue to work; the new `--no-llm` flag is opt-in. The
 that need the subagent's structured-output discipline (PRD critique,
 expansion proposals, incremental planning across PRD revisions).
 
+### Changed (branch-naming convention is now host-project-configurable)
+
+- **New `branch_prefix` field in `.fakoli-state/config.yaml`** (default
+  `"agent"`, preserving pre-v1.15.0 behaviour). The CLI's `claim`
+  command reads this and creates branches as
+  `<branch_prefix>/<task-id>-<slug>` — host projects with a
+  `feature/` / `fix/` convention can now set
+  `branch_prefix: feature` and have claim produce
+  `feature/t012-add-retry` instead of the silently-incompatible
+  `agent/t012-add-retry`. The CI / CODEOWNERS / PR-template
+  automation that keys off branch prefix now fires correctly.
+- Nested prefixes (e.g. `branch_prefix: feature/agent`) are
+  preserved verbatim — git accepts the slash. Empty string
+  (`branch_prefix: ""`) is the explicit no-prefix mode and produces
+  unprefixed `t012-add-retry` branches.
+- Validation at config-load time: leading/trailing slashes,
+  whitespace, and non-string values raise `ValueError` with a clear
+  message naming the offending value. Bad config surfaces at
+  `prd parse` or `claim` time, not after the branch was created
+  with a malformed name.
+- `create_branch_for_task` gained a `branch_prefix=` keyword arg
+  (default `"agent"` for backwards compat). Pre-v1.15.0 callers
+  that don't pass it get the old behaviour exactly.
+- `config.yaml` template (`write_default_config`) now emits the
+  `branch_prefix:` line with inline guidance so fresh projects
+  see the choice point at init time.
+- **13 new regression tests** covering custom prefix values
+  (feature / fix), nested prefixes, empty-prefix mode, default
+  backwards compat, and invalid-config error paths. Suite is
+  **1071 passing** (+13 from the previous v1.15.0 commit at 1058).
+
 ### Fixed (expand --use-llm always returned non-JSON)
 
 - **`fakoli-state expand --use-llm` was failing for every task**

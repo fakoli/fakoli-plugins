@@ -98,10 +98,28 @@ def claim(
             raise typer.Exit(code=1) from exc
 
         # Git branch creation — non-blocking; warnings go to stderr.
+        # v1.15.0: branch_prefix is host-project-configurable so claims
+        # respect `feature/` / `fix/` conventions instead of forcing
+        # `agent/` everywhere. Falls back silently to the default when
+        # config.yaml is missing (e.g. ad-hoc test runs).
+        branch_prefix = "agent"
+        config_path = state_dir / "config.yaml"
+        if config_path.exists():
+            try:
+                from fakoli_state.config import load_config
+                cfg = load_config(config_path)
+                branch_prefix = cfg.branch_prefix
+            except (OSError, ValueError):
+                # Config-load failure should NOT block a claim — fall back
+                # to the default prefix and let the user fix config.yaml
+                # at their leisure.
+                pass
+
         branch_result = create_branch_for_task(
             task_id,
             task.title,
             cwd=resolved_cwd,
+            branch_prefix=branch_prefix,
         )
         if branch_result.created and branch_result.reason:
             typer.echo(f"Warning (branch): {branch_result.reason}", err=True)

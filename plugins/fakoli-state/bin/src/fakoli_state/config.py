@@ -37,6 +37,28 @@ class Config:
 
     git_ops_mode: Literal["auto", "record_only", "off"] = "auto"
 
+    # v1.15.0 — host-project branch-naming convention.
+    #
+    # The CLI's `claim` command creates a git branch per task. By default
+    # the branch is `agent/<task_id_lower>-<slug>` — the `agent/` prefix
+    # advertises that an agent (not a human) worked the task. But many
+    # host projects encode their CI / PR-template / CODEOWNERS automation
+    # around a `feature/` or `fix/` prefix, and the `agent/` default
+    # silently bypasses those rules.
+    #
+    # Set this in `.fakoli-state/config.yaml` to match the host project:
+    #
+    #     branch_prefix: feature   # → feature/<task>-<slug>
+    #     branch_prefix: fix       # → fix/<task>-<slug>
+    #     branch_prefix: ""        # → <task>-<slug>  (no prefix)
+    #     branch_prefix: agent     # default; preserves pre-v1.15.0 behaviour
+    #
+    # Nested prefixes (e.g. `feature/agent`) are allowed verbatim — git
+    # accepts slashes inside branch names. Validation: any string with no
+    # whitespace and no leading/trailing slash. An empty string is
+    # explicit opt-out and produces an unprefixed `<task>-<slug>` branch.
+    branch_prefix: str = "agent"
+
     sync_github_enabled: bool = False
     sync_github_conflict_strategy: Literal[
         "local_wins", "remote_wins", "prompt", "manual_merge"
@@ -113,6 +135,29 @@ def load_config(path: str | Path) -> Config:
         "git_ops_mode",
     )
 
+    # v1.15.0 — branch_prefix. Validate format: no whitespace, no leading
+    # or trailing slash. An empty string is acceptable (explicit no-prefix
+    # mode). Internal slashes are allowed (nested prefixes like
+    # `feature/agent`). Invalid values raise a config-load error so the
+    # user sees the problem at init time, not when claim runs.
+    branch_prefix_raw = data.get("branch_prefix", "agent")
+    if not isinstance(branch_prefix_raw, str):
+        raise ValueError(
+            f"branch_prefix must be a string, got {type(branch_prefix_raw).__name__} "
+            f"({resolved})"
+        )
+    branch_prefix = branch_prefix_raw
+    if branch_prefix and (
+        branch_prefix.startswith("/")
+        or branch_prefix.endswith("/")
+        or any(c.isspace() for c in branch_prefix)
+    ):
+        raise ValueError(
+            f"branch_prefix {branch_prefix!r} has invalid shape: "
+            "leading/trailing slashes and whitespace are not allowed "
+            f"({resolved}). Use e.g. 'feature' or 'fix' or 'feature/agent'."
+        )
+
     sync_conflict_strategy = _validate_literal(
         data.get("sync_github_conflict_strategy", "prompt"),
         ("local_wins", "remote_wins", "prompt", "manual_merge"),
@@ -129,6 +174,7 @@ def load_config(path: str | Path) -> Config:
         default_lease_minutes=int(str(data.get("default_lease_minutes", 60))),
         default_heartbeat_minutes=int(str(data.get("default_heartbeat_minutes", 5))),
         git_ops_mode=git_ops_mode,  # type: ignore[arg-type]
+        branch_prefix=branch_prefix,
         sync_github_enabled=bool(data.get("sync_github_enabled", False)),
         sync_github_conflict_strategy=sync_conflict_strategy,  # type: ignore[arg-type]
         sync_providers=sync_providers,
@@ -306,6 +352,23 @@ default_heartbeat_minutes: 5
 #   off         — no git integration
 # ---------------------------------------------------------------------------
 git_ops_mode: auto
+
+# ---------------------------------------------------------------------------
+# Branch naming convention (v1.15.0)
+#
+# Prefix applied to branches created by `fakoli-state claim`. Defaults to
+# `agent` (advertises that an agent worked the task). Override to match
+# the host project's convention so PR templates, CODEOWNERS, branch
+# protection rules, and CI hooks fire as expected.
+#
+#   branch_prefix: agent     # default: agent/<task>-<slug>
+#   branch_prefix: feature   # feature/<task>-<slug>
+#   branch_prefix: fix       # fix/<task>-<slug>
+#   branch_prefix: ""        # no prefix: <task>-<slug>
+#
+# Nested prefixes (e.g. `feature/agent`) are also accepted verbatim.
+# ---------------------------------------------------------------------------
+branch_prefix: agent
 
 # ---------------------------------------------------------------------------
 # GitHub sync (optional)

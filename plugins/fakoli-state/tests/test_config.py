@@ -191,6 +191,69 @@ class TestLoadConfigErrors:
 
 
 # ---------------------------------------------------------------------------
+# branch_prefix (v1.15.0)
+# ---------------------------------------------------------------------------
+
+
+class TestBranchPrefix:
+    """v1.15.0: config-driven branch naming so host projects with
+    `feature/` or `fix/` conventions don't get silently-incompatible
+    `agent/` branches from fakoli-state claim."""
+
+    def test_default_branch_prefix_is_agent(self, tmp_path: Path) -> None:
+        """No branch_prefix key in YAML → defaults to 'agent' (preserves
+        pre-v1.15.0 behaviour)."""
+        config_path = _write_config(tmp_path / "config.yaml", _minimal_yaml())
+        cfg = load_config(config_path)
+        assert cfg.branch_prefix == "agent"
+
+    def test_custom_branch_prefix_feature(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + "branch_prefix: feature\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        cfg = load_config(config_path)
+        assert cfg.branch_prefix == "feature"
+
+    def test_nested_branch_prefix_allowed(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + "branch_prefix: feature/agent\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        cfg = load_config(config_path)
+        assert cfg.branch_prefix == "feature/agent"
+
+    def test_empty_branch_prefix_allowed(self, tmp_path: Path) -> None:
+        """Empty string is the explicit no-prefix mode."""
+        yaml_content = _minimal_yaml() + 'branch_prefix: ""\n'
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        cfg = load_config(config_path)
+        assert cfg.branch_prefix == ""
+
+    def test_leading_slash_raises(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + 'branch_prefix: "/feature"\n'
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="branch_prefix"):
+            load_config(config_path)
+
+    def test_trailing_slash_raises(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + 'branch_prefix: "feature/"\n'
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="branch_prefix"):
+            load_config(config_path)
+
+    def test_whitespace_in_prefix_raises(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + 'branch_prefix: "agent prefix"\n'
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="branch_prefix"):
+            load_config(config_path)
+
+    def test_non_string_branch_prefix_raises(self, tmp_path: Path) -> None:
+        """Numeric YAML value (e.g. `branch_prefix: 42`) gets a clear type
+        error rather than crashing later in create_branch_for_task."""
+        yaml_content = _minimal_yaml() + "branch_prefix: 42\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="branch_prefix"):
+            load_config(config_path)
+
+
+# ---------------------------------------------------------------------------
 # write_default_config
 # ---------------------------------------------------------------------------
 
