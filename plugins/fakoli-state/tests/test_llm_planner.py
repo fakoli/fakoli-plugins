@@ -56,16 +56,28 @@ class TestResolvePlannerProvider:
         provider, tier = resolve_planner_provider()
         assert tier == "anthropic"
 
-    def test_custom_chosen_when_only_custom_base_url(
+    def test_custom_chosen_when_only_custom_base_url_fails_loud_without_model(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """CUSTOM_LLM_BASE_URL alone → custom."""
+        """CUSTOM_LLM_BASE_URL alone picks the custom family but MUST fail
+        loud (PlannerProviderUnavailable) because a custom endpoint cannot
+        safely default its model — see critic MUST FIX #2 (PR #65).
+
+        Pairs with ``test_custom_with_only_tier_resolves_to_anthropic_id``
+        below which exercises the happy path where the user provides a
+        tier alongside the base_url.
+        """
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("AWS_REGION", raising=False)
         monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
         monkeypatch.setenv("CUSTOM_LLM_BASE_URL", "http://localhost:8000/v1")
-        provider, tier = resolve_planner_provider()
-        assert tier == "custom"
+
+        with pytest.raises(PlannerProviderUnavailable) as exc_info:
+            resolve_planner_provider()
+
+        msg = str(exc_info.value)
+        # Help text must name the config keys the user can fix.
+        assert "llm_model" in msg or "llm_tier" in msg
 
     def test_raises_when_nothing_configured(
         self, monkeypatch: pytest.MonkeyPatch
@@ -140,6 +152,213 @@ class TestResolvePlannerProvider:
         )
         provider, _ = resolve_planner_provider(cfg)
         assert provider._model == "claude-opus-4-7-20260601"  # type: ignore[attr-defined]
+
+
+class TestResolvePlannerProviderGreptileFixes:
+    """Regression tests for the greptile + critic MUST-FIX findings on PR #65."""
+
+    def test_bedrock_autodetect_requires_boto3_not_just_anthropic_class(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AWS_REGION + anthropic-only-install MUST NOT pick bedrock.
+
+        Greptile #1 (PR #65): the original hasattr(anthropic, "AnthropicBedrock")
+        check is always True because the class ships with the base anthropic
+        install. Only boto3 (the transitive dep of `anthropic[bedrock]`) is
+        the right presence signal. Simulate boto3 missing by patching
+        builtins.__import__ to raise ImportError for boto3.
+        """
+        import builtins
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("CUSTOM_LLM_BASE_URL", raising=False)
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+
+        real_import = builtins.__import__
+
+        def fake_import(name: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+            if name == "boto3":
+                raise ImportError("simulated missing boto3")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
+        # Without boto3 the autodetect should fall through to "no provider",
+        # not pick bedrock and then crash at construction time.
+        with pytest.raises(PlannerProviderUnavailable):
+            resolve_planner_provider()
+
+    def test_missing_custom_base_url_raises_provider_unavailable_not_valueerror(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Greptile #2 (PR #65): a custom-endpoint config without base_url
+        used to propagate ValueError past the catch sites. Now wrapped in
+        PlannerProviderUnavailable so CLI/MCP catch the same exception type
+        they catch for every other resolver failure mode.
+        """
+        from fakoli_state.config import Config
+
+        monkeypatch.delenv("CUSTOM_LLM_BASE_URL", raising=False)
+
+        # Force custom path via explicit config, but DON'T set base_url
+        # (neither config nor env).
+        cfg = Config(
+            project_name="t",
+            project_id="t",
+            llm_provider="custom",
+            llm_model="any-model",
+            # custom_base_url=None (default)
+        )
+
+        # MUST raise PlannerProviderUnavailable, not ValueError.
+        with pytest.raises(PlannerProviderUnavailable) as exc_info:
+            resolve_planner_provider(cfg)
+
+        # Message should be actionable — name the config key the user can fix.
+        msg = str(exc_info.value)
+        assert "custom_base_url" in msg or "CUSTOM_LLM_BASE_URL" in msg
+
+    def test_custom_without_model_or_tier_refuses_to_invent_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """critic MUST FIX #2 (PR #65): when llm_provider=custom is pinned
+        but neither llm_model nor llm_tier is set, the resolver MUST raise
+        PlannerProviderUnavailable with an actionable message instead of
+        silently sending the DEFAULT_TIER's Anthropic id to a non-Anthropic
+        endpoint (the "claude-sonnet-4-6 sent to local vLLM serving
+        Mistral" failure mode).
+        """
+        from fakoli_state.config import Config
+
+        monkeypatch.setenv("CUSTOM_LLM_BASE_URL", "http://localhost:8000/v1")
+
+        cfg = Config(
+            project_name="t",
+            project_id="t",
+            llm_provider="custom",
+            custom_base_url="http://localhost:8000/v1",
+            # llm_model=None, llm_tier=None — the exact misconfig we're
+            # protecting against.
+        )
+
+        with pytest.raises(PlannerProviderUnavailable) as exc_info:
+            resolve_planner_provider(cfg)
+
+        msg = str(exc_info.value)
+        assert "llm_model" in msg
+        assert "llm_tier" in msg
+        # Make sure the error helpfully cites the failure-mode example —
+        # OpenRouter and vLLM are named in the help text.
+        assert "OpenRouter" in msg or "vLLM" in msg
+
+    def test_custom_with_only_tier_resolves_to_anthropic_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When llm_tier is set on a custom endpoint, the resolver maps it
+        to an Anthropic id (the OpenRouter/LiteLLM-proxy convention). This
+        is the *intentional* fallback that v1.17.0 ships — distinct from
+        the no-model-AND-no-tier case above.
+        """
+        from fakoli_state.config import Config
+        from fakoli_state.planning.llm import MODEL_TIERS
+
+        monkeypatch.setenv("CUSTOM_LLM_BASE_URL", "http://localhost:8000/v1")
+        cfg = Config(
+            project_name="t",
+            project_id="t",
+            llm_provider="custom",
+            custom_base_url="http://localhost:8000/v1",
+            llm_tier="opus",
+        )
+        provider, tier = resolve_planner_provider(cfg)
+        assert tier == "custom"
+        # Custom provider got the Opus Anthropic id (not the Bedrock prefix).
+        assert provider._model == MODEL_TIERS["opus"]  # type: ignore[attr-defined]
+
+
+class TestBedrockProvider:
+    """v1.17.0 — Bedrock provider unit tests (critic SHOULD FIX #8, PR #65).
+
+    These tests do NOT hit the AWS API — they exercise the construction-time
+    behavior (tier resolution, explicit-model precedence, install-error
+    message) using an injected stub client.
+    """
+
+    def _stub_client(self):  # type: ignore[no-untyped-def]
+        """Minimal stub passing client= construction; no .messages.create
+        because no test in this class exercises the call path."""
+        class _Stub:
+            pass
+        return _Stub()
+
+    def test_tier_resolves_to_bedrock_inference_profile(self) -> None:
+        """tier="opus" must pick the us.anthropic.* inference-profile id,
+        not the bare claude-opus-4-7 id (which is the direct-API form)."""
+        from fakoli_state.planning.llm import BEDROCK_MODEL_TIERS, BedrockProvider
+
+        provider = BedrockProvider(
+            tier="opus",
+            client=self._stub_client(),  # type: ignore[arg-type]
+        )
+        assert provider._model == BEDROCK_MODEL_TIERS["opus"]  # type: ignore[attr-defined]
+        assert provider._model.startswith("us.anthropic.")  # type: ignore[attr-defined]
+
+    def test_explicit_model_overrides_tier(self) -> None:
+        """model= wins over tier= when both are passed."""
+        from fakoli_state.planning.llm import BedrockProvider
+
+        provider = BedrockProvider(
+            model="eu.anthropic.claude-sonnet-4-6-20260601",
+            tier="opus",  # ignored
+            client=self._stub_client(),  # type: ignore[arg-type]
+        )
+        assert provider._model == "eu.anthropic.claude-sonnet-4-6-20260601"  # type: ignore[attr-defined]
+
+    def test_default_tier_is_sonnet(self) -> None:
+        """No tier or model → DEFAULT_TIER ("sonnet") on the Bedrock table."""
+        from fakoli_state.planning.llm import BEDROCK_MODEL_TIERS, BedrockProvider
+
+        provider = BedrockProvider(client=self._stub_client())  # type: ignore[arg-type]
+        assert provider._model == BEDROCK_MODEL_TIERS["sonnet"]  # type: ignore[attr-defined]
+
+    def test_explicit_bedrock_config_without_extras_surfaces_as_provider_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """critic MUST FIX #1 (PR #65): when llm_provider=bedrock is pinned
+        in config but anthropic[bedrock] is not installed, the resolver MUST
+        surface PlannerProviderUnavailable (the CLI/MCP-catchable exception)
+        — not the underlying LLMProviderError which would slip past every
+        catch site as a raw traceback.
+
+        Simulate by patching builtins.__import__ so the lazy import inside
+        BedrockProvider raises.
+        """
+        import builtins
+
+        from fakoli_state.config import Config
+
+        real_import = builtins.__import__
+
+        def fake_import(name: str, globals=None, locals=None, fromlist=(), level=0):  # type: ignore[no-untyped-def]
+            if name == "anthropic" and fromlist and "AnthropicBedrock" in fromlist:
+                raise ImportError("simulated missing anthropic[bedrock]")
+            return real_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
+        cfg = Config(
+            project_name="t",
+            project_id="t",
+            llm_provider="bedrock",
+            bedrock_region="us-east-1",
+        )
+
+        with pytest.raises(PlannerProviderUnavailable) as exc_info:
+            resolve_planner_provider(cfg)
+
+        msg = str(exc_info.value)
+        # Help text should name the install command.
+        assert "fakoli-state[bedrock]" in msg or "anthropic[bedrock]" in msg
 
 
 class TestResolveModelForTier:

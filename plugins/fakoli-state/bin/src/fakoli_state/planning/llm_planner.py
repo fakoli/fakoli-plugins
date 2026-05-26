@@ -154,12 +154,28 @@ def resolve_planner_provider(
         raise PlannerProviderUnavailable(_no_provider_message())
 
     # Stage 2 — instantiate the chosen family with config-aware knobs.
-    if chosen == "anthropic":
-        return _build_anthropic(config), "anthropic"
-    if chosen == "bedrock":
-        return _build_bedrock(config), "bedrock"
-    if chosen == "custom":
-        return _build_custom(config), "custom"
+    #
+    # Each `_build_*` may raise LLMProviderError when its optional extra is
+    # not installed (e.g. user pinned `llm_provider: bedrock` in config but
+    # never ran `pip install 'fakoli-state[bedrock]'`). Wrap those into
+    # PlannerProviderUnavailable so the CLI / MCP catch sites (which only
+    # know about PlannerProviderUnavailable) surface a clean help message
+    # instead of a raw traceback. (critic MUST FIX #1, PR #65)
+    try:
+        if chosen == "anthropic":
+            return _build_anthropic(config), "anthropic"
+        if chosen == "bedrock":
+            return _build_bedrock(config), "bedrock"
+        if chosen == "custom":
+            return _build_custom(config), "custom"
+    except LLMProviderError as exc:
+        raise PlannerProviderUnavailable(
+            f"Could not build the {chosen!r} provider: {exc}\n\n"
+            f"Either install the missing extra "
+            f"(`pip install 'fakoli-state[{chosen}]'` for bedrock/custom), "
+            f"set `llm_provider:` in .fakoli-state/config.yaml to a "
+            f"different value, or unset it to use env auto-detect."
+        ) from exc
 
     # Unreachable in practice — kept so mypy/pyright see exhaustive branches.
     raise PlannerProviderUnavailable(  # pragma: no cover
@@ -182,10 +198,17 @@ def _choose_provider_family(config: Config | None) -> str | None:
         # Only opt into Bedrock auto-detect if the optional extras are
         # actually installed — avoids a confusing ImportError on a box
         # that happens to have AWS_REGION set for unrelated reasons.
+        #
+        # Check for `boto3` rather than `anthropic.AnthropicBedrock`: the
+        # AnthropicBedrock CLASS ships with the base `anthropic` install
+        # (so `hasattr(anthropic, "AnthropicBedrock")` is always True), but
+        # the boto3 transitive dep that the class needs at construction
+        # time is what the `[bedrock]` extra actually adds. boto3's
+        # presence is therefore the right signal. (greptile MUST FIX, PR #65)
         try:
-            import anthropic  # noqa: F401 — presence check
+            import boto3  # noqa: F401 — presence check
 
-            has_bedrock = hasattr(anthropic, "AnthropicBedrock")
+            has_bedrock = True
         except ImportError:
             has_bedrock = False
         if has_bedrock:
@@ -217,34 +240,72 @@ def _build_bedrock(config: Config | None) -> BedrockProvider:
 
 
 def _build_custom(config: Config | None) -> CustomEndpointProvider:
-    """Construct a CustomEndpointProvider with config-aware base_url + model."""
+    """Construct a CustomEndpointProvider with config-aware base_url + model.
+
+    Wraps ``CustomEndpointProvider``'s setup-time ``ValueError`` (missing
+    base_url or empty model) in :class:`PlannerProviderUnavailable` so the
+    CLI / MCP layer's existing catch sites surface a clean help message
+    instead of a raw traceback. (greptile MUST FIX, PR #65 — the prior
+    version let ValueError propagate unhandled past every catch site.)
+    """
     # For custom endpoints, an explicit model is required (see
     # CustomEndpointProvider docstring — there is no portable default).
     # We accept either llm_model OR llm_tier-mapped via MODEL_TIERS as a
     # convenience: many custom proxies (OpenRouter, LiteLLM) accept
     # Anthropic-style model ids verbatim.
     model, tier = _resolve_model_args(config)
+
+    # Fail loudly when neither model nor tier is set. The PRIOR behaviour
+    # silently defaulted to `claude-sonnet-4-6` on any custom endpoint,
+    # which on a local vLLM serving Mistral-7B (or any non-Anthropic
+    # route) produces a confusing "model not found" failure mode that
+    # looks like a network issue. (critic MUST FIX #2, PR #65)
+    if not model and not tier:
+        raise PlannerProviderUnavailable(
+            "Custom endpoint requires an explicit model id. Set one of:\n"
+            "  - `llm_model:` in .fakoli-state/config.yaml — the route "
+            "name your endpoint serves (e.g. `anthropic/claude-sonnet-4-6` "
+            "on OpenRouter, `Mistral-7B` on local vLLM)\n"
+            "  - `llm_tier:` (opus | sonnet | haiku) — only safe when your "
+            "endpoint is an Anthropic-compatible proxy that accepts "
+            "Anthropic model ids\n"
+            "\n"
+            "Tier defaults are deliberately NOT auto-applied on custom "
+            "endpoints to avoid sending an Anthropic id to a non-Anthropic "
+            "server."
+        )
+
     if not model:
-        # Fall back to the tier-mapped Anthropic id, which most proxies
-        # accept. If the user is on a non-Anthropic-route custom endpoint
-        # they MUST set llm_model explicitly — the provider will raise
-        # ValueError in that case, which surfaces a clear error.
+        # Tier is set (Anthropic-compatible proxy convention). Resolve it
+        # to an Anthropic id, which most such proxies accept verbatim.
         from fakoli_state.planning.llm import resolve_model_for_tier
 
-        from fakoli_state.planning.llm import DEFAULT_TIER
-
-        model = resolve_model_for_tier(tier or DEFAULT_TIER)
+        model = resolve_model_for_tier(tier)
 
     base_url = config.custom_base_url if config else None
     api_key = None
     if config and config.custom_api_key_env:
         api_key = os.environ.get(config.custom_api_key_env)
 
-    return CustomEndpointProvider(
-        model=model,
-        base_url=base_url,
-        api_key=api_key,
-    )
+    try:
+        return CustomEndpointProvider(
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+        )
+    except ValueError as exc:
+        # ValueError is raised by CustomEndpointProvider's __init__ when
+        # base_url is missing (no constructor arg and CUSTOM_LLM_BASE_URL
+        # env unset) or when model is empty. Both are config errors the
+        # user can fix; surface them through the resolver's standard
+        # exception type so the CLI / MCP catch sites work uniformly.
+        raise PlannerProviderUnavailable(
+            "Custom endpoint provider misconfigured: "
+            f"{exc}\n\n"
+            "Set `custom_base_url:` in `.fakoli-state/config.yaml` "
+            "(or CUSTOM_LLM_BASE_URL in env) and `llm_model:` "
+            "(or rely on the Sonnet tier default), then re-run."
+        ) from exc
 
 
 def _resolve_model_args(config: Config | None) -> tuple[str | None, str | None]:

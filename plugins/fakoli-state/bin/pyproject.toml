@@ -16,13 +16,13 @@ keywords = [
     "agent-coordination",
     "claims",
     "evidence-based",
-    "locks",
+    "llm-work-packets",
+    "local-first",
     "mcp",
-    "planning",
     "project-state",
+    "runtime-neutral",
     "sqlite",
-    "tasks",
-    "work-packets",
+    "terraform-for-work",
 ]
 dependencies = [
     "typer>=0.12",

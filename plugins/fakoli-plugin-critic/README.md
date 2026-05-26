@@ -1,5 +1,9 @@
 # fakoli-plugin-critic
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Plugin Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](.claude-plugin/plugin.json)
+[![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
+
 Five specialist critic agents that audit Claude Code plugin surfaces. Extracted from `fakoli-crew` in May 2026 so plugin-development teams can install only the review layer without pulling the eight-agent generalist crew.
 
 ## What's in here
@@ -17,10 +21,9 @@ All five run on Opus by default — plugin auditing rewards deep reasoning over 
 ## Installation
 
 ```bash
+/plugin marketplace add fakoli/fakoli-plugins   # one-time
 /plugin install fakoli-plugin-critic
 ```
-
-Or via the marketplace at `fakoli-plugins`.
 
 ## Usage
 

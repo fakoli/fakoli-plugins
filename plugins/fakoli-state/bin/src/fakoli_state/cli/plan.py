@@ -9,12 +9,11 @@ LLM enrichment is layered on top and may fail open with a stderr warning.
 
 from __future__ import annotations
 
-import os
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
+import yaml
 
 from fakoli_state.cli._helpers import (
     _PRD_FILENAME,
@@ -56,21 +55,20 @@ def _load_config_optional(state_dir: Path) -> Config | None:
         from fakoli_state.config import load_config
 
         return load_config(config_path)
-    except (FileNotFoundError, OSError, ValueError) as exc:
+    except (FileNotFoundError, OSError, ValueError, yaml.YAMLError) as exc:
+        # Catch the four expected failure modes explicitly:
+        #   - FileNotFoundError / OSError — disappeared between the
+        #     exists() check above and the load call (TOCTOU)
+        #   - ValueError — schema validation in load_config (enum mismatch
+        #     on llm_provider / llm_tier / git_ops_mode etc.)
+        #   - yaml.YAMLError — malformed YAML
+        # An unexpected exception type beyond these is allowed to surface
+        # as a real traceback — better diagnostic signal than a silent
+        # fall-through. (critic SHOULD FIX #3, PR #65)
         typer.echo(
             f"Warning: config.yaml load failed "
             f"({type(exc).__name__}: {exc}); proceeding with env-only "
             "LLM resolution. Fix config.yaml and re-run to use config.",
-            err=True,
-        )
-        return None
-    except Exception as exc:  # noqa: BLE001 — last-resort guard, never re-raise
-        # yaml.YAMLError is a subclass of yaml.YAMLError → Exception. Catch
-        # broadly here so a malformed YAML file does not crash plan().
-        typer.echo(
-            f"Warning: config.yaml load raised unexpected "
-            f"{type(exc).__name__}: {exc}; proceeding with env-only "
-            "LLM resolution.",
             err=True,
         )
         return None

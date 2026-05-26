@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Plugin Version](https://img.shields.io/badge/version-1.17.0-blue.svg)](.claude-plugin/plugin.json)
 [![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
-[![Tests](https://img.shields.io/badge/tests-1093%20passing-brightgreen.svg)](tests)
+[![Tests](https://img.shields.io/badge/tests-1103%20passing-brightgreen.svg)](tests)
 
 </div>
 
@@ -47,7 +47,7 @@ Highlights from v1.17.0:
 - **Multi-provider LLM access.** `BedrockProvider` (boto3 chain) and `CustomEndpointProvider` (vLLM / OpenRouter / LiteLLM-proxy / Together / Groq / Azure-OpenAI / self-hosted) ship alongside the existing `AnthropicProvider`. Precedence: explicit config > env auto-detect > fail loudly. Optional extras keep the default install lean.
 - **Tier-aware model defaults.** New `MODEL_TIERS` vocabulary (`opus` / `sonnet` / `haiku`) with per-agent tier mapping that drops typical session cost ~60% versus the prior "everything routes to Opus" pattern. Override always wins.
 - **Plugin-critic extraction.** The five plugin-surface critics (`agent-critic`, `skill-critic`, `hook-critic`, `mcp-critic`, `structure-critic`) move out of `fakoli-crew` 2.3.0 into a dedicated `fakoli-plugin-critic` 0.1.0 plugin so plugin-development teams can install only the review layer.
-- 1093 tests passing (+10 since v1.16.0); SQLite schema unchanged.
+- 1103 tests passing (+20 since v1.16.0); SQLite schema unchanged.
 
 Full release notes in [CHANGELOG.md](CHANGELOG.md).
 

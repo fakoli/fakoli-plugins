@@ -4,6 +4,8 @@ All notable changes to this plugin are documented here. Format: [Keep a Changelo
 
 ## [Unreleased]
 
+_No unreleased changes._
+
 ## [0.1.0] — 2026-05-26
 
 Initial release. Extracted from `fakoli-crew` so plugin-development teams can install only the review layer.
