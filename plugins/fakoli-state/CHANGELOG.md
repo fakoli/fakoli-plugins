@@ -104,6 +104,46 @@ continue to work; the new `--no-llm` flag is opt-in. The
 that need the subagent's structured-output discipline (PRD critique,
 expansion proposals, incremental planning across PRD revisions).
 
+### Added (orphan cleanup on re-parse)
+
+- **New `task.deleted` and `feature.deleted` event types** with handlers
+  in `state/sqlite.py`. The schema's `tasks.parent_task_id ON DELETE
+  SET NULL` and `sync_mappings.task_id ON DELETE CASCADE` were
+  designed for deletion from the start (see `state/schema.py:40`);
+  v1.15.0 finally wires the events. Safety: `task.deleted` refuses
+  to clobber non-safe statuses (claimed, in_progress, needs_review,
+  etc.) unless `force=True`, AND refuses unconditionally when claims
+  or evidence rows still reference the task (FK-protected audit
+  history). `feature.deleted` refuses if any tasks still reference
+  the feature (FK RESTRICT at the SQL layer; the handler
+  pre-checks and surfaces a clearer message naming the blockers).
+- **`fakoli-state plan` now prunes orphans automatically.** When a
+  task or feature exists in state.db but is no longer present in
+  the re-parsed PRD, plan emits the corresponding deletion event.
+  Safe-status orphans (proposed / drafted / ready) prune silently;
+  unsafe-status orphans cause exit 1 with a list of blocking IDs
+  and the `--prune-force` escape hatch. The output line surfaces
+  what was pruned: `Pruned 1 orphan task(s) (T014) removed from
+  prd.md.` Resolves a user-reported bug where the docs claimed
+  "Re-parse replaces, not merges" but the implementation only
+  upserted by ID, silently leaving deleted tasks as orphans.
+- **`plan_tasks` MCP tool mirrors the CLI.** New `prune_force`
+  parameter; response gains `pruned_task_ids` and
+  `pruned_feature_ids` fields so MCP clients can show users what
+  was cleaned up. Unsafe orphans without `prune_force=True` raise
+  `ToolError` with the same shape as the CLI's exit-1 message.
+- **`Backend.list_features()` added to the Protocol** (Phase 2
+  Protocol surface in `state/backend.py`) and implemented in the
+  SQLite backend. Previously only `get_feature(id)` was exposed,
+  but orphan detection needs the full set of feature IDs to
+  compute the diff against the new parse.
+- **7 new regression tests** covering safe-orphan pruning,
+  unsafe-orphan blocking, `--prune-force` / `prune_force=True`
+  overrides, and a sanity check that a clean re-plan emits no
+  pruning message. Suite is **1053 passing** (was 1024 in v1.14.0;
+  +29 tests across the LLM planner + CLI/MCP wiring + orphan
+  cleanup).
+
 ### Provider tier-chain design
 
 `resolve_planner_provider()` walks an ordered chain:

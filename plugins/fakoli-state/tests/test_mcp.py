@@ -2327,3 +2327,224 @@ class TestFindDecisions:
             match="PRD parse failed|parse_prd before find_decisions",
         ):
             _run(run())
+
+
+# ===========================================================================
+# Orphan-prune on re-parse (v1.15.0)
+# ===========================================================================
+
+
+_MCP_TWO_TASK_PRD = """\
+# Project: MCP Orphan Test
+
+## Summary
+
+MCP-side orphan-prune coverage.
+
+## Goals
+
+- Test orphans via MCP.
+
+## Requirements
+
+- R001: First.
+
+## Features
+
+### F001: One feature
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: Keep me
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/a.py
+
+Stays.
+
+**Acceptance criteria:**
+
+- Stays.
+
+**Verification:**
+
+- `pytest a`
+
+### T002: Delete me
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/b.py
+
+Removed on second parse.
+
+**Acceptance criteria:**
+
+- Was there.
+
+**Verification:**
+
+- `pytest b`
+"""
+
+
+_MCP_TWO_TASK_PRD_WITHOUT_T002 = """\
+# Project: MCP Orphan Test
+
+## Summary
+
+MCP-side orphan-prune coverage.
+
+## Goals
+
+- Test orphans via MCP.
+
+## Requirements
+
+- R001: First.
+
+## Features
+
+### F001: One feature
+
+**Requirements:** R001
+
+## Tasks
+
+### T001: Keep me
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/a.py
+
+Stays.
+
+**Acceptance criteria:**
+
+- Stays.
+
+**Verification:**
+
+- `pytest a`
+"""
+
+
+class TestPlanTasksOrphanPrune:
+    """v1.15.0 behavior mirrored in MCP: plan_tasks emits task.deleted for
+    entities removed from prd.md. prune_force=True overrides the safety
+    check on unsafe statuses; without it, unsafe orphans raise ToolError."""
+
+    def _setup_two_tasks(self, tmp_path: Path) -> Path:
+        state_dir = _init_state_dir(tmp_path)
+        (state_dir / "prd.md").write_text(_MCP_TWO_TASK_PRD, encoding="utf-8")
+        return state_dir
+
+    def _list_task_ids(self, tmp_path: Path) -> set[str]:
+        import sqlite3
+        db = tmp_path / ".fakoli-state" / "state.db"
+        with sqlite3.connect(str(db)) as conn:
+            return {r[0] for r in conn.execute("SELECT id FROM tasks")}
+
+    def _set_task_status(self, tmp_path: Path, task_id: str, status: str) -> None:
+        import sqlite3
+        db = tmp_path / ".fakoli-state" / "state.db"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute(
+                "UPDATE tasks SET status = ? WHERE id = ?", (status, task_id)
+            )
+            conn.commit()
+
+    def test_safe_orphan_listed_in_pruned_task_ids(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Removing T002 from prd.md and re-running plan_tasks emits
+        task.deleted; response.pruned_task_ids surfaces the change so MCP
+        clients can show the user what was cleaned up."""
+        state_dir = self._setup_two_tasks(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def setup() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+
+        _run(setup())
+        assert self._list_task_ids(tmp_path) == {"T001", "T002"}
+
+        # Edit prd.md to remove T002 and re-plan.
+        (state_dir / "prd.md").write_text(
+            _MCP_TWO_TASK_PRD_WITHOUT_T002, encoding="utf-8"
+        )
+
+        async def re_plan() -> Any:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                return _data(await c.call_tool("plan_tasks", {}))
+
+        resp = _run(re_plan())
+        assert "T002" in resp["pruned_task_ids"], (
+            f"pruned_task_ids should include T002; got {resp['pruned_task_ids']}"
+        )
+        assert self._list_task_ids(tmp_path) == {"T001"}
+
+    def test_unsafe_orphan_raises_tool_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Orphan in unsafe status (claimed) blocks plan_tasks with a
+        ToolError naming the task ID and prune_force option."""
+        state_dir = self._setup_two_tasks(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def setup() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+
+        _run(setup())
+        self._set_task_status(tmp_path, "T002", "claimed")
+
+        (state_dir / "prd.md").write_text(
+            _MCP_TWO_TASK_PRD_WITHOUT_T002, encoding="utf-8"
+        )
+
+        async def re_plan() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+
+        with pytest.raises(ToolError, match="T002.*claimed|prune_force"):
+            _run(re_plan())
+        assert "T002" in self._list_task_ids(tmp_path)
+
+    def test_prune_force_overrides_unsafe(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """prune_force=True deletes orphans regardless of status."""
+        state_dir = self._setup_two_tasks(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def setup() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+
+        _run(setup())
+        self._set_task_status(tmp_path, "T002", "claimed")
+
+        (state_dir / "prd.md").write_text(
+            _MCP_TWO_TASK_PRD_WITHOUT_T002, encoding="utf-8"
+        )
+
+        async def re_plan() -> Any:
+            async with Client(mcp) as c:
+                await c.call_tool("parse_prd", {})
+                return _data(
+                    await c.call_tool("plan_tasks", {"prune_force": True})
+                )
+
+        resp = _run(re_plan())
+        assert "T002" in resp["pruned_task_ids"]
+        assert self._list_task_ids(tmp_path) == {"T001"}

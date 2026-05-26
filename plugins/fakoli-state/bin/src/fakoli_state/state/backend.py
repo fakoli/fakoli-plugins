@@ -108,6 +108,12 @@ class Backend(Protocol):
         """Return the Feature with the given ID, or None if not found."""
         ...
 
+    def list_features(self) -> list[Feature]:
+        """Return all Feature rows. Used by `plan` for orphan detection
+        on re-parse (v1.15.0): the new parse's feature set is diffed
+        against this to compute which features to delete."""
+        ...
+
     def get_latest_evidence(self, task_id: str) -> Evidence | None:
         """Return the most recently submitted Evidence for task_id, or None.
         Used by `apply` to display the evidence summary."""

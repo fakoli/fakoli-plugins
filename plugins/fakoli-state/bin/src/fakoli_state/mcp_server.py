@@ -1545,12 +1545,19 @@ class PlanTasksResponse(BaseModel):
     # or ``use_llm=False``).
     llm_generated: bool = False
     llm_provider: str | None = None
+    # v1.15.0 fields — orphan-prune signalling. ``pruned_task_ids`` and
+    # ``pruned_feature_ids`` list entities that existed in state.db but
+    # were absent from the new PRD parse and got deleted as part of this
+    # call. Empty lists mean no orphans were pruned (the common case).
+    pruned_task_ids: list[str] = []
+    pruned_feature_ids: list[str] = []
 
 
 @mcp.tool
 def plan_tasks(
     cwd: str | None = None,
     use_llm: bool = True,
+    prune_force: bool = False,
 ) -> PlanTasksResponse:
     """Run the planner pipeline against the current PRD: emit
     feature.created and task.created events with dependency inference and
@@ -1574,6 +1581,11 @@ def plan_tasks(
             feature, invoke the LLM planner to generate a ``## Tasks``
             section and append it to ``prd.md``. When False, skip the
             backstop and return whatever the deterministic parse produced.
+        prune_force: When True, allow deletion of orphan tasks that have
+            advanced past ``ready`` status (claimed / in_progress / etc.).
+            Default False: orphans in those statuses cause the tool to
+            raise ``ToolError`` so the caller can release/complete them
+            first instead of losing claim/evidence history.
     """
     from fakoli_state.clock import SystemClock
     from fakoli_state.planning.inference import infer_all
@@ -1680,6 +1692,102 @@ def plan_tasks(
             )
 
         clock = SystemClock()
+
+        # --------------------------------------------------------------
+        # Orphan-prune (v1.15.0) — mirrors the CLI plan command. See
+        # cli/plan.py for the design rationale: re-parse is destructive
+        # per the docs; before v1.15.0 the implementation silently left
+        # orphan tasks/features in state.db when entities disappeared
+        # from prd.md. The handler in sqlite.py enforces the same safety
+        # check (refuses to delete claimed/in_progress tasks without
+        # force=True), so the user-visible behaviour is consistent across
+        # CLI and MCP.
+        # --------------------------------------------------------------
+        new_task_ids = {t.id for t in result.tasks}
+        new_feature_ids = {f.id for f in result.features}
+
+        existing_tasks_for_prune = backend.list_tasks()
+        existing_features_for_prune = backend.list_features()
+
+        orphan_tasks = [
+            t for t in existing_tasks_for_prune if t.id not in new_task_ids
+        ]
+        orphan_feature_ids = [
+            f.id for f in existing_features_for_prune
+            if f.id not in new_feature_ids
+        ]
+
+        _SAFE_DELETE_STATUSES = frozenset({"proposed", "drafted", "ready"})
+        unsafe_orphans = [
+            t for t in orphan_tasks
+            if t.status.value not in _SAFE_DELETE_STATUSES
+        ]
+        safe_orphans = [
+            t for t in orphan_tasks if t.status.value in _SAFE_DELETE_STATUSES
+        ]
+
+        if unsafe_orphans and not prune_force:
+            blocked = ", ".join(
+                f"{t.id}({t.status.value})" for t in unsafe_orphans
+            )
+            raise ToolError(
+                f"{len(unsafe_orphans)} orphan task(s) removed from prd.md "
+                "have advanced past `ready` status; deleting silently would "
+                f"lose claim/evidence history. Blocked: {blocked}. "
+                "Release the claims (or complete the work) and re-call "
+                "plan_tasks, OR re-call with prune_force=True to delete "
+                "despite the status (audit history is preserved either way)."
+            )
+
+        pruned_task_ids: list[str] = []
+        for t in safe_orphans + (unsafe_orphans if prune_force else []):
+            now = clock.now()
+            try:
+                backend.apply_event(Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=now,
+                    actor="fakoli-state-mcp",
+                    action="task.deleted",
+                    target_kind="task",
+                    target_id=t.id,
+                    payload_json={
+                        "task_id": t.id,
+                        "force": (
+                            prune_force
+                            and t.status.value not in _SAFE_DELETE_STATUSES
+                        ),
+                        "reason": "plan_tasks: removed from prd.md "
+                        "(orphan cleanup)",
+                    },
+                ))
+            except TransactionAborted as exc:
+                raise ToolError(str(exc)) from exc
+            pruned_task_ids.append(t.id)
+
+        # Features must come after tasks — FK RESTRICT on tasks.feature_id
+        # would block the feature delete if a task still references it.
+        pruned_feature_ids: list[str] = []
+        for fid in orphan_feature_ids:
+            now = clock.now()
+            try:
+                backend.apply_event(Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=now,
+                    actor="fakoli-state-mcp",
+                    action="feature.deleted",
+                    target_kind="feature",
+                    target_id=fid,
+                    payload_json={
+                        "feature_id": fid,
+                        "force": False,
+                        "reason": "plan_tasks: removed from prd.md "
+                        "(orphan cleanup)",
+                    },
+                ))
+            except TransactionAborted as exc:
+                raise ToolError(str(exc)) from exc
+            pruned_feature_ids.append(fid)
+
         # Emit feature.created per feature.
         for feature in result.features:
             now = clock.now()
@@ -1757,6 +1865,8 @@ def plan_tasks(
             warnings=warnings,
             llm_generated=llm_generated,
             llm_provider=llm_provider,
+            pruned_task_ids=pruned_task_ids,
+            pruned_feature_ids=pruned_feature_ids,
         )
     finally:
         backend.close()

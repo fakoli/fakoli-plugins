@@ -80,7 +80,12 @@ fakoli-state plan
 
 Reads the parsed PRD from `state.db` and emits `feature.created` and `task.created` events. Dependency inference and conflict-group detection run automatically — tasks that share `likely_files` entries are grouped into the same conflict group.
 
-**The CLI now GUARANTEES tasks (v1.15.0).** Before this version, if the PRD had features+requirements but no `## Tasks` section, `plan` would silently return `0 tasks` and the agent had to remember to dispatch the `fakoli-state:planner` subagent as a workaround. That workaround is no longer needed — the CLI calls the LLM itself when 0 tasks would otherwise be emitted, generates them from features+requirements, appends them to `prd.md`, re-parses, and emits the events. The output line tells you what happened:
+**The CLI now GUARANTEES tasks AND orphan-free state (v1.15.0).** Two integrity guarantees were added together in v1.15.0:
+
+1. If the PRD has features+requirements but no `## Tasks` section, `plan` calls the LLM itself to generate them (instead of silently returning `0 tasks` and forcing the agent to dispatch a separate planner subagent).
+2. If tasks were removed from the PRD between parses, `plan` emits `task.deleted` events automatically so state.db stays in sync (instead of leaving orphans behind). Same for features. Safe statuses (proposed / drafted / ready) prune silently; unsafe statuses (claimed / in_progress / needs_review / …) fail loudly with a clear list and the `--prune-force` escape hatch. Tasks with claims/evidence rows can NEVER be deleted at the SQL layer (the audit history is FK-protected by schema).
+
+The output line tells you what happened:
 
 ```
 Planned 3 features, 19 tasks (19 generated via LLM (anthropic), appended to .fakoli-state/prd.md)

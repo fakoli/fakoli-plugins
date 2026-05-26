@@ -152,6 +152,45 @@ class TaskStatusChangedPayload(BaseModel):
     reason: str | None = None
 
 
+class TaskDeletedPayload(BaseModel):
+    """Payload for 'task.deleted' — orphan cleanup on re-parse (v1.15.0).
+
+    Emitted by ``fakoli-state plan`` when a task that existed in state.db
+    is no longer present in the re-parsed PRD. The handler in sqlite.py
+    deletes the task row + related subtask/dependency entries.
+
+    Safety: by default the handler refuses to delete a task in a non-safe
+    status (claimed / in_progress / needs_review / accepted / rejected /
+    done / blocked) — those carry claim or evidence history that should
+    not silently vanish. The ``force`` flag bypasses the check and is
+    the explicit mechanism behind the CLI's ``--prune-force`` flag.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    force: bool = False
+    reason: str = ""
+
+
+class FeatureDeletedPayload(BaseModel):
+    """Payload for 'feature.deleted' — orphan cleanup on re-parse (v1.15.0).
+
+    Emitted alongside ``task.deleted`` events when a feature is removed
+    from the PRD. The handler refuses to delete a feature that still has
+    referencing tasks in state.db — task deletions must land first.
+    The schema's ``tasks.feature_id ... ON DELETE RESTRICT`` foreign key
+    enforces the same guarantee at the SQL layer as a belt-and-braces
+    backstop.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    feature_id: str
+    force: bool = False
+    reason: str = ""
+
+
 class ClaimCreatedPayload(BaseModel):
     """Payload for 'claim.created'."""
 
@@ -769,8 +808,10 @@ __all__ = [
     "SyncReconciliationStartedPayload",
     "TaskAppliedPayload",
     "TaskCreatedPayload",
+    "TaskDeletedPayload",
     "TaskExpandedPayload",
     "TaskScoredPayload",
     "TaskStatusChangedPayload",
     "TaskSyncedFromRemotePayload",
+    "FeatureDeletedPayload",
 ]

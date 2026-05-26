@@ -100,6 +100,18 @@ def plan(
             "author tasks manually."
         ),
     ),
+    prune_force: bool = typer.Option(  # noqa: B008
+        False,
+        "--prune-force",
+        help=(
+            "Force-delete orphan tasks that have advanced past 'ready' "
+            "status (claimed / in_progress / needs_review / etc.). Without "
+            "this flag, orphans in those statuses cause plan to fail "
+            "loudly so the user can release/complete them first. With "
+            "this flag, the audit trail (events + evidence + reviews) is "
+            "preserved but the task row itself is deleted. Use with care."
+        ),
+    ),
 ) -> None:
     """Generate features and tasks from the parsed PRD.
 
@@ -232,6 +244,113 @@ def plan(
     try:
         clock = SystemClock()
 
+        # --------------------------------------------------------------
+        # Orphan-prune (v1.15.0)
+        #
+        # Re-parse is supposed to be destructive — the docs (and the prd
+        # skill body) say so explicitly. But before v1.15.0 plan emitted
+        # task.created/feature.created for everything in the new parse
+        # WITHOUT emitting task.deleted/feature.deleted for entities that
+        # disappeared from the PRD. Result: removing T014 from prd.md and
+        # re-running `plan` left T014 as an orphan row in state.db.
+        #
+        # The prune logic below computes the diff and emits deletion
+        # events. Safety: task.deleted refuses to clobber statuses past
+        # `ready` without payload.force=True. The CLI surfaces the
+        # blocked list and exits 1 unless `--prune-force` is set.
+        # --------------------------------------------------------------
+        new_task_ids = {t.id for t in parsed.tasks}
+        new_feature_ids = {f.id for f in parsed.features}
+
+        existing_tasks = backend.list_tasks()
+        existing_features = backend.list_features()
+
+        orphan_tasks = [t for t in existing_tasks if t.id not in new_task_ids]
+        orphan_feature_ids = [
+            f.id for f in existing_features if f.id not in new_feature_ids
+        ]
+
+        # _DELETABLE_TASK_STATUSES mirrored from sqlite.py — single source
+        # of truth lives in the handler, but the CLI needs the same set
+        # so it can pre-classify orphans into safe vs unsafe before
+        # asking the backend.
+        _SAFE = frozenset({"proposed", "drafted", "ready"})
+
+        unsafe_orphans = [t for t in orphan_tasks if t.status.value not in _SAFE]
+        safe_orphans = [t for t in orphan_tasks if t.status.value in _SAFE]
+
+        if unsafe_orphans and not prune_force:
+            typer.echo(
+                f"Error: {len(unsafe_orphans)} orphan task(s) were removed "
+                "from prd.md but have advanced past `ready` status. Re-parse "
+                "would lose claim/evidence history if these were deleted "
+                "silently. Address each one, OR re-run with --prune-force "
+                "to delete despite the status:",
+                err=True,
+            )
+            for t in unsafe_orphans:
+                typer.echo(
+                    f"  - {t.id} ({t.status.value}): {t.title}",
+                    err=True,
+                )
+            typer.echo(
+                "\nOptions per task:\n"
+                "  • Release the claim (`fakoli-state release` or "
+                "`fakoli-state release --force`) so status returns to `ready`\n"
+                "  • Complete the work (`fakoli-state apply --approve` for "
+                "needs_review tasks)\n"
+                "  • Re-add the task to prd.md so it's no longer an orphan\n"
+                "  • Run `fakoli-state plan --prune-force` to delete the "
+                "row anyway (events + evidence + reviews are preserved as "
+                "audit history; the task row itself is removed).",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        orphans_to_delete = safe_orphans + (unsafe_orphans if prune_force else [])
+        deleted_task_ids: list[str] = []
+        for t in orphans_to_delete:
+            now = clock.now()
+            delete_event = Event(
+                id=PENDING_EVENT_ID,
+                timestamp=now,
+                actor="fakoli-state-cli",
+                action="task.deleted",
+                target_kind="task",
+                target_id=t.id,
+                payload_json={
+                    "task_id": t.id,
+                    "force": prune_force and t.status.value not in _SAFE,
+                    "reason": "plan: removed from prd.md (orphan cleanup)",
+                },
+            )
+            backend.apply_event(delete_event)
+            deleted_task_ids.append(t.id)
+
+        # Feature deletes must happen AFTER task deletes — the schema's
+        # FK RESTRICT on tasks.feature_id would block the feature delete
+        # otherwise. The handler's own pre-check would surface the same
+        # error with a clearer message, but ordering here avoids the
+        # round-trip.
+        deleted_feature_ids: list[str] = []
+        for fid in orphan_feature_ids:
+            now = clock.now()
+            delete_event = Event(
+                id=PENDING_EVENT_ID,
+                timestamp=now,
+                actor="fakoli-state-cli",
+                action="feature.deleted",
+                target_kind="feature",
+                target_id=fid,
+                payload_json={
+                    "feature_id": fid,
+                    "force": False,
+                    "reason": "plan: removed from prd.md (orphan cleanup)",
+                },
+            )
+            backend.apply_event(delete_event)
+            deleted_feature_ids.append(fid)
+
         # Emit feature.created for each feature.
         for feature in parsed.features:
             now = clock.now()
@@ -345,6 +464,16 @@ def plan(
             typer.echo(
                 f"Detected {len(inference_result.conflict_groups)} conflict group(s)."
             )
+        if deleted_task_ids or deleted_feature_ids:
+            # Surface the prune outcome explicitly — the user removed these
+            # entities from prd.md and should know the state.db is now in
+            # sync, not silently lingering with orphans.
+            bits: list[str] = []
+            if deleted_task_ids:
+                bits.append(f"{len(deleted_task_ids)} orphan task(s) ({', '.join(deleted_task_ids)})")
+            if deleted_feature_ids:
+                bits.append(f"{len(deleted_feature_ids)} orphan feature(s) ({', '.join(deleted_feature_ids)})")
+            typer.echo(f"Pruned {' and '.join(bits)} removed from prd.md.")
     finally:
         backend.close()
 

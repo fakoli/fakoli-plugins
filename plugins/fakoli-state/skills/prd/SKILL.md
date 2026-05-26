@@ -207,11 +207,19 @@ The PRD will change. Here is the safe sequence for updates:
 3. Re-run `fakoli-state prd review` if the changes are material (added/removed requirements, changed acceptance criteria, altered feature scope).
 4. Re-run `fakoli-state prd review --approve` for significant scope changes. Minor editorial corrections (typo fixes, clarified wording, unchanged structure) do not require re-approval.
 
-**Coordinate before re-parsing a live project.** Re-parse replaces Task entities in all statuses — including `claimed` and `in_progress`. Before re-parsing while active claims exist:
+**Coordinate before re-parsing a live project.** Re-parse fully replaces Requirements via `prd parse` (destructive on the `requirements` table). Features and Tasks are pruned by the subsequent `plan` command (v1.15.0): any feature or task that existed in state.db but is no longer present in the new PRD gets a `feature.deleted` / `task.deleted` event emitted automatically.
+
+Safety is built into the deletion path:
+
+- Tasks in `proposed`, `drafted`, or `ready` status delete cleanly — these statuses carry no claim or evidence history worth preserving.
+- Tasks in `claimed`, `in_progress`, `needs_review`, or beyond cause `plan` to **fail loudly** (exit 1) with a clear list of which tasks block the prune and how to resolve. The agent must NOT silently bypass this; surface the list to the user and ask whether to release the affected claims, complete the work, or re-run `plan --prune-force` (which deletes the task row but leaves audit history in `events.jsonl`, `claims`, and `evidence`).
+- Tasks that have any `claims` or `evidence` rows can NEVER be deleted at the SQL layer (schema FK RESTRICT — `--prune-force` does not override). The audit history outlives the task; if you really want the orphan gone, accept that the row remains and the data is reachable via `events.jsonl`.
+
+Before re-parsing while active claims exist:
 
 1. Run `fakoli-state status` to confirm no active claims.
 2. If claims exist, coordinate with the agents holding them. Release the claims first, or wait for them to complete.
-3. Tasks whose IDs survive the re-parse (same `T00N` ID in the file) will have their claim and evidence history preserved via the event log. Tasks that are removed from `prd.md` will lose their state rows on re-parse.
+3. Tasks whose IDs survive the re-parse (same `T00N` ID in the file) have their claim and evidence history preserved via the event log. Tasks removed from `prd.md` are pruned per the safety rules above.
 
 Avoid editing a task's acceptance criteria or scope while that task is `claimed` or `in_progress`. The agent working the task has already been given a work packet derived from the old spec. Release the claim first, update the PRD, re-parse, then let the agent re-claim.
 
