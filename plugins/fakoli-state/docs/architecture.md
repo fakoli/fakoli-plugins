@@ -280,8 +280,8 @@ Three named gates appear in the transition module; each raises
 | claimed → in_progress | Auto on first heartbeat or file change | (implicit) |
 | in_progress ↔ blocked | Agent or human | `fakoli-state hook ... block` |
 | in_progress → needs_review | Coding agent submitting evidence | `fakoli-state submit T012 ...` |
-| needs_review → accepted or rejected | Human reviewer or critic agent | `fakoli-state apply T012 --accept` / `--reject` |
-| accepted → done | Auto on apply --accept | (implicit) |
+| needs_review → accepted or rejected | Human reviewer or critic agent | `fakoli-state apply T012 --approve` / `--reject` |
+| accepted → done | Auto on `apply --approve` | (implicit) |
 | rejected → drafted | Author revises and re-submits | `fakoli-state plan` (re-edit) |
 
 Only `drafted ↔ ready` and the `blocked` toggle are exposed via the
@@ -307,18 +307,25 @@ The replay guarantee is the central audit property of the engine: **replaying
 exactly**. This is what makes the engine safe to back up by copying
 `.fakoli-state/` and what makes a corrupted database recoverable.
 
-To verify the guarantee against your own project:
+A native `fakoli-state replay --from-events events.jsonl` subcommand is
+planned for v2.1 (item P9B-7 — see
+[`roadmap.md` § Snapshot / replay](roadmap.md#theme-snapshot--replay)) and
+**does not ship today**. Until it does, the supported backup and recovery
+flow is to copy `.fakoli-state/` wholesale; the replay guarantee makes
+that safe and minimal:
 
 ```bash
-# Back up current state and start clean.
-cp .fakoli-state/state.db /tmp/state.db.backup && rm .fakoli-state/state.db
+# Back up before destructive work.
+cp -r .fakoli-state /backup/location/fakoli-state-$(date +%Y-%m-%d)
 
-# Replay every event from the JSONL.
-fakoli-state replay --from-events events.jsonl
-
-# Diff the dumps — should be empty.
-diff <(sqlite3 /tmp/state.db.backup .dump) <(sqlite3 .fakoli-state/state.db .dump)
+# Recover from a corrupted state.db by restoring the backup.
+rm -f .fakoli-state/state.db .fakoli-state/state.db-wal .fakoli-state/state.db-shm
+cp /backup/location/fakoli-state-YYYY-MM-DD/state.db .fakoli-state/state.db
 ```
+
+`events.jsonl` is the durable audit log even without replay tooling —
+commit it to git alongside the repo and you have a distributed audit
+trail recoverable from any clone.
 
 Event ids are assigned inside the lock, not before it, to eliminate a
 read-before-lock race surfaced in PR #41 (Critic-3). The `Event.id`
@@ -364,8 +371,9 @@ mechanisms layered together:
    SQLite layer. Reads use WAL snapshots and do not block writers.
 2. **Claim leases with heartbeats.** A `Claim` row carries
    `lease_expires_at` and `last_heartbeat_at`. The CLI's `renew` command
-   (and the MCP `renew_claim` tool) extends the lease. Default lease is 15
-   minutes.
+   (and the MCP `renew_claim` tool) extends the lease. Default lease is 60
+   minutes (configurable via `.fakoli-state/config.yaml`); the in-code
+   default lives at [`claims/manager.py`](../bin/src/fakoli_state/claims/manager.py).
 3. **Stale-claim reaping.** Every mutating CLI command and every mutating
    MCP tool calls
    [`detect_and_release_stale()`](../bin/src/fakoli_state/claims/stale.py)

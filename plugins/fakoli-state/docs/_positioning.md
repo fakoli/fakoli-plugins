@@ -50,7 +50,7 @@ not papered over.
 
 **(Q)** MCP exposes capabilities; plugins encode operating discipline. The
 MCP server ships 13 tools (`claim_task`, `submit_completion_evidence`,
-`get_work_packet`, …) any agent can call, but a tool does not decide *when*
+`generate_work_packet`, …) any agent can call, but a tool does not decide *when*
 to claim, *which* specialist should execute, *what* evidence is required, or
 *how* the critic gate runs. That behaviour lives in skills, subagents, and
 hooks — the plugin layer. fakoli-state is plugin-first and MCP-compatible,
