@@ -1412,6 +1412,92 @@ class TestClaimCommand:
         )
         assert result.exit_code == 0, f"claim --force failed: {result.output}"
 
+    def test_claim_warns_on_undone_dependencies(self, tmp_path: Path) -> None:
+        """v1.16.0: claim emits a stderr warning when task.dependencies are
+        not yet `done`, but proceeds with the claim (soft gate).
+
+        Regression for a user-reported workflow: T002 depended on T001 but
+        the planner missed it; even with the v1.16.0 planner-prompt fix,
+        a user can still claim T002 before T001 is done in a stacked-PR
+        workflow. The warning ensures the user knows what they're doing.
+        """
+        _do_init_and_plan(tmp_path, with_git=False)
+        # Inject a dependency directly into state.db: make T002 depend on T001,
+        # leaving T001 in `ready` (not done). The next claim of T002 should
+        # warn but succeed.
+        import sqlite3
+        db = tmp_path / ".fakoli-state" / "state.db"
+        with sqlite3.connect(str(db)) as conn:
+            # Pick the first two ready tasks for the test setup.
+            rows = conn.execute(
+                "SELECT id FROM tasks WHERE status = 'ready' ORDER BY id LIMIT 2"
+            ).fetchall()
+            if len(rows) < 2:
+                # Not enough tasks in fixture — skip cleanly.
+                import pytest
+                pytest.skip(
+                    "fixture has fewer than 2 ready tasks; cannot test "
+                    "cross-task dependency"
+                )
+            dep_id, target_id = rows[0][0], rows[1][0]
+            conn.execute(
+                "UPDATE tasks SET dependencies = ? WHERE id = ?",
+                (f'["{dep_id}"]', target_id),
+            )
+            conn.commit()
+
+        result = _invoke_cmd(
+            tmp_path, ["claim", target_id, "--actor", "agent-test"]
+        )
+        assert result.exit_code == 0, (
+            f"claim with undone dep should succeed (soft gate); got: "
+            f"{result.output}"
+        )
+        combined = result.output + (
+            result.stderr if hasattr(result, "stderr") and result.stderr else ""
+        )
+        assert "dependency" in combined.lower() or "Warning" in combined, (
+            f"claim should warn about undone deps; combined output: {combined}"
+        )
+        assert dep_id in combined, (
+            f"warning should name the undone dep '{dep_id}'; got: {combined}"
+        )
+
+    def test_claim_force_silences_dependency_warning(
+        self, tmp_path: Path
+    ) -> None:
+        """--force silences the dependency warning. The claim still proceeds;
+        we just verify the warning text is absent."""
+        _do_init_and_plan(tmp_path, with_git=False)
+        import sqlite3
+        db = tmp_path / ".fakoli-state" / "state.db"
+        with sqlite3.connect(str(db)) as conn:
+            rows = conn.execute(
+                "SELECT id FROM tasks WHERE status = 'ready' ORDER BY id LIMIT 2"
+            ).fetchall()
+            if len(rows) < 2:
+                import pytest
+                pytest.skip("fixture has fewer than 2 ready tasks")
+            dep_id, target_id = rows[0][0], rows[1][0]
+            conn.execute(
+                "UPDATE tasks SET dependencies = ? WHERE id = ?",
+                (f'["{dep_id}"]', target_id),
+            )
+            conn.commit()
+
+        result = _invoke_cmd(
+            tmp_path,
+            ["claim", target_id, "--actor", "agent-test", "--force"],
+        )
+        assert result.exit_code == 0
+        combined = result.output + (
+            result.stderr if hasattr(result, "stderr") and result.stderr else ""
+        )
+        # --force suppresses the dep warning specifically.
+        assert "dependency(ies) that are not yet" not in combined, (
+            f"--force should silence the dep warning; got: {combined}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Phase 4 — release command

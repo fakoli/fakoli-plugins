@@ -139,6 +139,7 @@ to disk — the caller owns the file write.
 **Feature:** F002
 **Priority:** medium
 **Likely files:** src/jy2yaml/cli.py, src/jy2yaml/__main__.py
+**Dependencies:** T001, T002
 
 Call `convert()` for each `(input, output)` pair. Write output only when the output file
 does not exist or `--overwrite` was passed. Exit 1 with a descriptive message on any
@@ -378,11 +379,21 @@ IDs must be zero-padded to three digits: `T001`, `T002`, etc. Subtask IDs (`T001
 | `**Feature:**` | `F001` (bare ID) | empty |
 | `**Priority:**` | `low`, `medium`, `high`, or `critical` | `medium` |
 | `**Likely files:**` | comma-separated relative paths | empty list |
+| `**Dependencies:**` | comma-separated TaskIDs (e.g. `T001, T002`) | empty list |
 | `**Acceptance criteria:**` | bulleted list on subsequent lines | empty list |
 | `**Verification:**` | bulleted list of shell commands, each wrapped in backticks | empty list |
 
 A free-form description paragraph may appear after the fields. It is stored in
 `Task.description`.
+
+**`**Dependencies:**` (v1.16.0)** is for SEMANTIC dependencies — Task B truly cannot
+function until Task A is done. Examples: T002 tests `HttpTransport` in 2-process mode
+→ T002 depends on T001 (the task that implements `HttpTransport`); T015 migrates data
+to the new schema → T015 depends on T010 (the task that adds the schema). It is NOT
+for "tasks I share files with" — file overlap is detected automatically as conflict
+groups. The `fakoli-state claim` command warns (but does not refuse) when claiming a
+task whose dependencies aren't yet `done`; pass `--force` to silence the warning if
+you're intentionally working a stacked-PR workflow.
 
 **Full task block**:
 

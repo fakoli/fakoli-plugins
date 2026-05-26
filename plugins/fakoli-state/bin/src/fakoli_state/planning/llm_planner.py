@@ -152,8 +152,8 @@ can consume directly.
 Output ONLY a `## Tasks` section. Nothing before it; nothing after it. No
 explanatory prose, no commentary, no surrounding fences.
 
-The exact structure expected (one `### TXXX: Title` block per task, with all
-four `**Bold:**` fields present and non-empty):
+The exact structure expected (one `### TXXX: Title` block per task, with the
+required `**Bold:**` fields present and non-empty):
 
 ## Tasks
 
@@ -162,6 +162,7 @@ four `**Bold:**` fields present and non-empty):
 **Feature:** F001
 **Priority:** medium
 **Likely files:** path/to/file1.py, path/to/file2.py
+**Dependencies:** T002, T003
 
 <One-paragraph description of intent. Implementation-agnostic. Names what
 must be true when the task is done, NOT which file to edit or which
@@ -181,6 +182,12 @@ library to use. The implementing agent picks the approach.>
 
 … (same shape)
 
+The `**Dependencies:**` field is OPTIONAL — omit it entirely when the task
+has no dependencies. When present, it is a comma-separated list of TaskIDs
+this task semantically depends on (those tasks must reach `done` status
+before this task can be meaningfully claimed). It is NOT for "tasks I share
+files with" — file overlap is detected automatically as conflict groups.
+
 # Rules
 
 - IDs are zero-padded three digits: T001, T002, ..., T019. Do NOT skip numbers.
@@ -198,6 +205,42 @@ library to use. The implementing agent picks the approach.>
 - Verification MUST include at least one shell command. `pytest path/...`,
   `npm test`, `cargo test`, or `python -m <module> --help` are common
   shapes. NEVER leave verification empty.
+
+# Dependencies (CRITICAL — read carefully)
+
+A `**Dependencies:**` field exists for tasks that semantically depend on
+other tasks (NOT just tasks that touch the same files — file overlap is
+detected automatically as conflict groups). Emit `**Dependencies:**` when
+EITHER of these is true:
+
+1. **Infrastructure dependency.** Task A creates infrastructure
+   (an API, a service, a transport, a schema, a CLI command) that Task B
+   needs to function. Example: T001 implements `HttpTransport`; T002
+   tests `HttpTransport` in 2-process mode → T002 depends on T001.
+2. **Phrasal dependency in acceptance criteria.** If a task's acceptance
+   criteria say "in X mode", "using Y", "after Z is complete", or
+   "given the W from <other task>", that's a dependency.
+   - "Test the system in 2-process mode" → depends on the task that
+     implements 2-process mode.
+   - "Migrate existing data to the new schema" → depends on the task
+     that adds the new schema.
+   - "Render the audit log via the new endpoint" → depends on the task
+     that adds the endpoint.
+
+Do NOT emit dependencies for:
+- Tasks that merely touch the same files (handled by conflict groups)
+- Tasks that share a Feature but are independent in scope
+- Tasks where you're guessing — only emit when the dependency is concrete
+  and named in the criteria or implied by infrastructure ordering
+
+Avoid cycles: if Task A depends on B and B depends on A, you've
+mis-identified one — re-read the criteria and pick the correct direction.
+The dependency direction is always "later task depends on earlier task"
+(later in the workflow / infrastructure-consumer depends on
+infrastructure-producer).
+
+Omit the `**Dependencies:**` line entirely when the task has no
+dependencies — do NOT emit an empty `**Dependencies:**` field.
 
 # Sizing
 

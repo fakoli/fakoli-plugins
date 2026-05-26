@@ -532,6 +532,7 @@ def _parse_tasks(
         likely_files: list[str] = []
         acceptance_criteria: list[str] = []
         verification_commands: list[str] = []
+        dependencies: list[str] = []
         description_parts: list[str] = []
 
         i = 0
@@ -569,6 +570,18 @@ def _parse_tasks(
                         )
                 elif key == "likely_files":
                     likely_files = [f.strip() for f in val.split(",") if f.strip()]
+                elif key == "dependencies":
+                    # v1.16.0 — explicit semantic dependencies. Comma-separated
+                    # TaskIDs (e.g. "T001, T002"). Normalised to upper-case.
+                    # Unknown-ID validation happens in a post-loop pass at the
+                    # end of _parse_tasks once every task ID in this section
+                    # has been collected (allows forward refs within the same
+                    # ## Tasks section).
+                    dependencies = [
+                        d.strip().upper()
+                        for d in val.split(",")
+                        if d.strip()
+                    ]
                 elif key == "acceptance_criteria":
                     in_acceptance_criteria = True
                     if val:
@@ -635,10 +648,35 @@ def _parse_tasks(
                 acceptance_criteria=acceptance_criteria,
                 verification=Verification(commands=verification_commands),
                 likely_files=likely_files,
+                dependencies=dependencies,
                 created_at=now,
                 updated_at=now,
             )
         )
+
+    # Post-loop: validate that every **Dependencies:** ID references a
+    # task that actually exists in this PRD. Unknown IDs are surfaced as
+    # warnings (not fatal) — the dep is kept on the task so downstream
+    # tooling can still see the user's intent, but the warning tells the
+    # author they probably mistyped or referenced a task they forgot to
+    # add. Mirrors the existing feature → unknown requirement warning.
+    known_task_ids = {t.id for t in tasks}
+    for task in tasks:
+        for dep_id in task.dependencies:
+            if dep_id not in known_task_ids:
+                errors.append(
+                    ParseError(
+                        section="tasks",
+                        line=start_line,
+                        message=(
+                            f"Task '{task.id}' depends on unknown task "
+                            f"'{dep_id}' — included anyway. Either add a "
+                            f"### {dep_id}: block to ## Tasks, or remove "
+                            f"'{dep_id}' from {task.id}'s **Dependencies:** "
+                            "field."
+                        ),
+                    )
+                )
 
     return tasks
 

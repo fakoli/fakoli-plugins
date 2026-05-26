@@ -468,3 +468,55 @@ A description.
                 requirements=requirements,
                 provider=provider,
             )
+
+
+# ---------------------------------------------------------------------------
+# System prompt — dependency-emission instructions (v1.16.0)
+# ---------------------------------------------------------------------------
+
+
+class TestSystemPromptInstructsDependencyEmission:
+    """v1.16.0: the system prompt MUST instruct the LLM to identify and
+    emit `**Dependencies:**` from acceptance criteria text. Regression for
+    a user-reported bug where T002's chaos-test task obviously depended
+    on T001's HttpTransport implementation but the planner's task graph
+    showed `dependencies=[]` — the prompt didn't tell the model to look
+    for them."""
+
+    def test_prompt_shows_dependencies_in_output_format(self) -> None:
+        """The example template inside the system prompt must include a
+        `**Dependencies:**` line so the model knows the field exists."""
+        assert "**Dependencies:**" in _SYSTEM_PROMPT, (
+            "System prompt must include **Dependencies:** in the example "
+            "task block so the LLM knows the field is part of the contract."
+        )
+
+    def test_prompt_explains_when_to_emit_dependencies(self) -> None:
+        """The prompt must explicitly describe the two trigger conditions
+        for emitting a dependency (infrastructure dep + phrasal dep in
+        criteria) — otherwise the model treats Dependencies as optional
+        in the I-don't-know-when sense."""
+        prompt = _SYSTEM_PROMPT.lower()
+        # Trigger 1: infrastructure dependency
+        assert "infrastructure" in prompt, (
+            "Prompt must name 'infrastructure dependency' so the LLM "
+            "recognises the T001-implements / T002-tests pattern."
+        )
+        # Trigger 2: phrasal criteria match
+        assert "acceptance criteria" in prompt, (
+            "Prompt must reference acceptance criteria as a source of "
+            "dependency signals."
+        )
+
+    def test_prompt_says_omit_field_when_no_dependencies(self) -> None:
+        """The prompt must tell the model to OMIT the field entirely when
+        no deps exist — not emit an empty `**Dependencies:**` line that
+        the parser would treat as an empty list (harmless but noisy)."""
+        assert "omit" in _SYSTEM_PROMPT.lower()
+
+    def test_prompt_warns_against_cycles(self) -> None:
+        """The prompt must explicitly call out cycle avoidance — without
+        this, the model can produce A → B and B → A on closely-coupled
+        tasks (the v1.15.0 planner had no notion of dep ordering)."""
+        prompt = _SYSTEM_PROMPT.lower()
+        assert "cycle" in prompt or "cycles" in prompt
