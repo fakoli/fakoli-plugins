@@ -1,4 +1,4 @@
-"""FastMCP (stdio) server — 13 agent-facing tools for fakoli-state.
+"""FastMCP (stdio) server — 21 agent-facing tools for fakoli-state.
 
 Each tool opens a fresh SqliteBackend against the project's
 .fakoli-state/state.db. The server process cwd is fixed at startup — the
@@ -12,6 +12,13 @@ release_task, renew_claim, submit_progress, submit_completion_evidence,
 update_task_status) and on get_project_summary. Read-only listers
 (list_tasks, get_task, get_next_task, check_conflicts, get_dependency_graph)
 skip reaping for latency.
+
+v1.13.0 adds 8 workflow tools so non-Claude-Code MCP clients can drive the
+full PRD → plan → review → approve → claim → apply lifecycle without
+dropping to the CLI: init_project, get_project_status, parse_prd,
+review_prd, plan_tasks, score_tasks, review_tasks, apply_review_decision.
+None of the workflow tools touch git — branch/worktree creation stays out
+of the MCP surface (some remote agents have no git access).
 
 Tool names match the spec exactly (2026-05-24-fakoli-state-v0.md §MCP Server).
 """
@@ -212,13 +219,16 @@ _ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
 }
 
 
-def _resolve_state_dir() -> Path:
-    """Return the absolute path to .fakoli-state/ in the current working directory.
+def _resolve_state_dir(cwd: str | None = None) -> Path:
+    """Return the absolute path to .fakoli-state/ for the given cwd.
 
     Each MCP tool call resolves state relative to cwd at call time so agents
-    can invoke from any project directory.
+    can invoke from any project directory. The optional ``cwd`` argument lets
+    workflow tools (init_project, parse_prd, etc.) point at a different
+    project root without restarting the MCP server.
     """
-    return Path.cwd().resolve() / _STATE_DIR_NAME
+    base = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+    return base / _STATE_DIR_NAME
 
 
 def _open_backend(state_dir: Path):  # type: ignore[return]
@@ -1034,6 +1044,1000 @@ def update_task_status(
             raise ToolError(str(exc)) from exc
 
         return StatusUpdateResponse(from_status=from_status, to_status=to_status)
+    finally:
+        backend.close()
+
+
+# ===========================================================================
+# v1.13.0 — Workflow tools (init / PRD / plan / review / apply)
+# ===========================================================================
+#
+# Eight tools below complete the PRD → plan → review → approve → claim →
+# apply lifecycle for non-Claude-Code MCP clients. Each one mirrors the
+# corresponding CLI handler and reuses the same shared modules (no logic
+# duplication). None of these tools touch git — branch/worktree creation
+# stays in the CLI for the same reason claim_task omits it (remote agents
+# may have no git access).
+#
+# All workflow tools accept an optional ``cwd`` parameter so a single MCP
+# session can target multiple project roots; the existing 13 tools resolve
+# state from ``Path.cwd()`` only (their session-pinned behavior is
+# preserved). ``cwd`` is documented in each tool's docstring.
+
+_PRD_FILENAME = "prd.md"
+
+
+# ---------------------------------------------------------------------------
+# Tool 14: init_project
+# ---------------------------------------------------------------------------
+
+
+class InitProjectResponse(BaseModel):
+    """Result of init_project."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str
+    project_name: str
+    state_dir: str
+    created: bool
+
+
+@mcp.tool
+def init_project(
+    name: str | None = None,
+    cwd: str | None = None,
+) -> InitProjectResponse:
+    """Scaffold a .fakoli-state/ directory in the target project root.
+
+    Mirrors ``fakoli-state init``. Creates the canonical state layout
+    (config.yaml, state.db, events.jsonl, packets/), seeds the project row,
+    and emits project.created + state.initialized events. Does NOT create
+    a git branch or worktree (consistent with claim_task — remote agents
+    without git access must still be able to bootstrap).
+
+    Args:
+        name: Human-readable project name. Defaults to the basename of cwd.
+        cwd:  Project root. Defaults to Path.cwd().
+
+    Returns:
+        InitProjectResponse with the resolved project_id, project_name,
+        absolute state_dir path, and created=True.
+
+    Raises:
+        ToolError: When .fakoli-state/ already exists (use --force from the
+                   CLI to reinit), when running inside the plugin root, or
+                   when scaffolding fails.
+    """
+    from fakoli_state.cli._helpers import _is_plugin_root, _slug
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.config import write_default_config
+    from fakoli_state.state.backend import PENDING_EVENT_ID
+    from fakoli_state.state.models import Event
+    from fakoli_state.state.sqlite import SqliteBackend
+
+    base = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+
+    if _is_plugin_root(base):
+        raise ToolError(
+            f"Refusing to initialize fakoli-state in {base}: this is the "
+            "plugin root, not a project directory. Pass cwd= a project path.",
+        )
+
+    state_dir = base / _STATE_DIR_NAME
+    if state_dir.exists():
+        raise ToolError(
+            f"{state_dir} already exists. Use the `fakoli-state init --force` "
+            "CLI command to reinitialize (MCP init_project is non-destructive).",
+        )
+
+    project_name = name if name else base.name
+    project_id = _slug(project_name)
+
+    try:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "packets").mkdir(exist_ok=True)
+        (state_dir / "events.jsonl").touch()
+        write_default_config(state_dir / "config.yaml", project_name=project_name)
+    except (OSError, FileExistsError) as exc:
+        raise ToolError(f"Failed to scaffold {state_dir}: {exc}") from exc
+
+    backend = SqliteBackend(
+        db_path=str(state_dir / "state.db"),
+        events_path=str(state_dir / "events.jsonl"),
+        clock=SystemClock(),
+    )
+    try:
+        # initialize() must be inside try so a failure during schema
+        # bootstrap still triggers backend.close() in the finally block.
+        backend.initialize()
+        now = SystemClock().now()
+        backend.apply_event(Event(
+            id=PENDING_EVENT_ID,
+            timestamp=now,
+            actor="fakoli-state-mcp",
+            action="project.created",
+            target_kind="project",
+            target_id=project_id,
+            payload_json={
+                "id": project_id,
+                "name": project_name,
+                "description": "",
+                "created_at": now.isoformat(),
+                "updated_at": now.isoformat(),
+            },
+        ))
+        backend.apply_event(Event(
+            id=PENDING_EVENT_ID,
+            timestamp=now,
+            actor="fakoli-state-mcp",
+            action="state.initialized",
+            target_kind="project",
+            target_id=project_id,
+            payload_json={},
+        ))
+    finally:
+        backend.close()
+
+    return InitProjectResponse(
+        project_id=project_id,
+        project_name=project_name,
+        state_dir=str(state_dir),
+        created=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool 15: get_project_status
+# ---------------------------------------------------------------------------
+
+
+class ProjectStatusResponse(BaseModel):
+    """Result of get_project_status — a structured equivalent of
+    ``fakoli-state status``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    initialized: bool
+    project_id: str | None
+    project_name: str | None
+    state_dir: str
+    prd_status: str | None
+    task_counts: TaskCountsByStatus
+    total_tasks: int
+    ready_queue_depth: int
+    active_claim_count: int
+
+
+@mcp.tool
+def get_project_status(cwd: str | None = None) -> ProjectStatusResponse:
+    """Return PRD status, task counts by state, active claims, and ready
+    queue depth for the target project.
+
+    Mirrors ``fakoli-state status``. Returns initialized=False with empty
+    counts when ``.fakoli-state/`` is absent (no exception — status is the
+    canonical "am I bootstrapped?" probe).
+
+    Args:
+        cwd: Project root. Defaults to Path.cwd().
+    """
+    state_dir = _resolve_state_dir(cwd)
+    empty_counts = TaskCountsByStatus()
+
+    if not state_dir.exists():
+        return ProjectStatusResponse(
+            initialized=False,
+            project_id=None,
+            project_name=None,
+            state_dir=str(state_dir),
+            prd_status=None,
+            task_counts=empty_counts,
+            total_tasks=0,
+            ready_queue_depth=0,
+            active_claim_count=0,
+        )
+
+    backend = _open_backend(state_dir)
+    try:
+        project = backend.get_project()
+        prd = backend.get_prd()
+        all_tasks = backend.list_tasks()
+        active_claims = backend.list_active_claims()
+
+        counts = TaskCountsByStatus()
+        ready_depth = 0
+        for task in all_tasks:
+            status_val = task.status.value
+            if hasattr(counts, status_val):
+                setattr(counts, status_val, getattr(counts, status_val) + 1)
+            if status_val == "ready":
+                ready_depth += 1
+
+        return ProjectStatusResponse(
+            initialized=True,
+            project_id=project.id if project is not None else None,
+            project_name=project.name if project is not None else None,
+            state_dir=str(state_dir),
+            prd_status=prd.status.value if prd is not None else None,
+            task_counts=counts,
+            total_tasks=len(all_tasks),
+            ready_queue_depth=ready_depth,
+            active_claim_count=len(active_claims),
+        )
+    finally:
+        backend.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 16: parse_prd
+# ---------------------------------------------------------------------------
+
+
+class ParseErrorEntry(BaseModel):
+    """One ParseError from the PRD parser."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    section: str
+    line: int
+    message: str
+
+
+class ParsePrdResponse(BaseModel):
+    """Result of parse_prd."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prd_status: str
+    requirement_count: int
+    feature_count: int
+    task_count: int
+    errors: list[ParseErrorEntry]
+    prd_path: str
+
+
+@mcp.tool
+def parse_prd(
+    file: str | None = None,
+    cwd: str | None = None,
+) -> ParsePrdResponse:
+    """Parse .fakoli-state/prd.md (or --file PATH) and emit prd.parsed.
+
+    Mirrors ``fakoli-state prd parse``. Returns counts plus any parse
+    errors. Errors are returned in the response (not raised) so the caller
+    can decide whether to fix them and retry — matching the CLI which exits
+    1 on errors but still surfaces them. ToolError is raised only for
+    operational failures (missing PRD file, unreadable file, project not
+    initialized).
+
+    Args:
+        file: Absolute or cwd-relative path to the PRD markdown. Defaults
+              to ``.fakoli-state/prd.md`` under the resolved cwd.
+        cwd:  Project root. Defaults to Path.cwd().
+    """
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.planning.template import parse_prd as _parse_prd_impl
+    from fakoli_state.state.backend import PENDING_EVENT_ID
+    from fakoli_state.state.models import Event
+
+    state_dir = _resolve_state_dir(cwd)
+    if not state_dir.exists():
+        raise ToolError(
+            f"fakoli-state not initialized in {state_dir.parent}. "
+            "Call init_project first.",
+        )
+
+    if file is not None:
+        prd_path = Path(file)
+        if not prd_path.is_absolute():
+            base = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+            prd_path = (base / prd_path).resolve()
+    else:
+        prd_path = state_dir / _PRD_FILENAME
+
+    if not prd_path.exists():
+        raise ToolError(
+            f"PRD file not found at {prd_path}. "
+            "Author your PRD there or pass file= an explicit path.",
+        )
+
+    try:
+        markdown = prd_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ToolError(f"Cannot read {prd_path}: {exc}") from exc
+
+    result = _parse_prd_impl(markdown, prd_id="prd")
+
+    # Surface errors in the response without short-circuiting the event.
+    # When errors exist we skip emission (mirrors the CLI which exits 1
+    # before applying); otherwise we emit prd.parsed exactly like the CLI.
+    errors_out = [
+        ParseErrorEntry(section=e.section, line=e.line, message=e.message)
+        for e in result.errors
+    ]
+
+    if result.errors:
+        return ParsePrdResponse(
+            prd_status=result.prd.status.value,
+            requirement_count=len(result.requirements),
+            feature_count=len(result.features),
+            task_count=len(result.tasks),
+            errors=errors_out,
+            prd_path=str(prd_path),
+        )
+
+    backend = _open_backend(state_dir)
+    try:
+        clock = SystemClock()
+        now = clock.now()
+        project = backend.get_project()
+        project_id = project.id if project is not None else "project"
+
+        payload: dict[str, Any] = {
+            "project_id": project_id,
+            "status": result.prd.status.value,
+            "summary": result.prd.summary,
+            "goals": result.prd.goals,
+            "non_goals": result.prd.non_goals,
+            "requirements": [
+                {
+                    "id": r.id,
+                    "prd_section": r.prd_section,
+                    "text": r.text,
+                    "source_paragraph": r.source_paragraph,
+                    "derived": r.derived,
+                }
+                for r in result.requirements
+            ],
+            "acceptance_criteria": result.prd.acceptance_criteria,
+            "risks": result.prd.risks,
+            "open_questions": result.prd.open_questions,
+        }
+
+        backend.apply_event(Event(
+            id=PENDING_EVENT_ID,
+            timestamp=now,
+            actor="fakoli-state-mcp",
+            action="prd.parsed",
+            target_kind="prd",
+            target_id=project_id,
+            payload_json=payload,
+        ))
+    finally:
+        backend.close()
+
+    return ParsePrdResponse(
+        prd_status=result.prd.status.value,
+        requirement_count=len(result.requirements),
+        feature_count=len(result.features),
+        task_count=len(result.tasks),
+        errors=errors_out,
+        prd_path=str(prd_path),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool 17: review_prd
+# ---------------------------------------------------------------------------
+
+
+class ReviewPrdResponse(BaseModel):
+    """Result of review_prd."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    from_status: str
+    to_status: str
+    reviewer: str
+
+
+@mcp.tool
+def review_prd(
+    approve: bool = False,
+    reviewer: str = "human",
+    notes: str | None = None,
+    cwd: str | None = None,
+) -> ReviewPrdResponse:
+    """Transition the PRD: draft → reviewed (default) or reviewed →
+    approved (when approve=True).
+
+    Mirrors ``fakoli-state prd review`` / ``prd review --approve``. Emits
+    prd.reviewed or prd.approved.
+
+    Args:
+        approve:  If True, transition reviewed → approved.
+                  If False, transition draft → reviewed.
+        reviewer: Identity recorded in the event payload.
+        notes:    Optional reviewer notes (recorded on prd.reviewed only).
+        cwd:      Project root. Defaults to Path.cwd().
+    """
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
+    from fakoli_state.state.models import Event
+
+    state_dir = _resolve_state_dir(cwd)
+    if not state_dir.exists():
+        raise ToolError(
+            f"fakoli-state not initialized in {state_dir.parent}. "
+            "Call init_project first.",
+        )
+
+    backend = _open_backend(state_dir)
+    try:
+        prd = backend.get_prd()
+        if prd is None:
+            raise ToolError(
+                "No PRD found in state. Run parse_prd first.",
+            )
+        from_status = prd.status.value
+        project = backend.get_project()
+        project_id = project.id if project is not None else "project"
+
+        if approve:
+            if from_status != "reviewed":
+                raise ToolError(
+                    f"PRD must be in 'reviewed' status to approve, "
+                    f"got '{from_status}'. Call review_prd without "
+                    "approve=True first.",
+                )
+            action = "prd.approved"
+            to_status = "approved"
+            payload: dict[str, Any] = {"project_id": project_id, "approver": reviewer}
+        else:
+            if from_status != "draft":
+                raise ToolError(
+                    f"PRD must be in 'draft' status to review, "
+                    f"got '{from_status}'. Pass approve=True to move "
+                    "reviewed → approved.",
+                )
+            action = "prd.reviewed"
+            to_status = "reviewed"
+            payload = {
+                "project_id": project_id,
+                "reviewer": reviewer,
+                "notes": notes,
+            }
+
+        clock = SystemClock()
+        now = clock.now()
+        try:
+            backend.apply_event(Event(
+                id=PENDING_EVENT_ID,
+                timestamp=now,
+                actor=reviewer,
+                action=action,
+                target_kind="prd",
+                target_id=project_id,
+                payload_json=payload,
+            ))
+        except TransactionAborted as exc:
+            raise ToolError(str(exc)) from exc
+
+        return ReviewPrdResponse(
+            from_status=from_status,
+            to_status=to_status,
+            reviewer=reviewer,
+        )
+    finally:
+        backend.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 18: plan_tasks
+# ---------------------------------------------------------------------------
+
+
+class PlanTasksResponse(BaseModel):
+    """Result of plan_tasks."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    feature_count: int
+    task_count: int
+    conflict_group_count: int
+    warnings: list[ParseErrorEntry]
+
+
+@mcp.tool
+def plan_tasks(cwd: str | None = None) -> PlanTasksResponse:
+    """Run the planner pipeline against the current PRD: emit
+    feature.created and task.created events with dependency inference and
+    conflict groups, then promote proposed tasks to drafted.
+
+    Mirrors ``fakoli-state plan`` (deterministic mode — never invokes the
+    LLM; agents that need LLM enrichment must use the CLI). Parse errors
+    from the underlying PRD parse are surfaced as warnings, not raised.
+
+    Args:
+        cwd: Project root. Defaults to Path.cwd().
+    """
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.planning.inference import infer_all
+    from fakoli_state.planning.template import parse_prd as _parse_prd_impl
+    from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
+    from fakoli_state.state.models import Event
+
+    state_dir = _resolve_state_dir(cwd)
+    if not state_dir.exists():
+        raise ToolError(
+            f"fakoli-state not initialized in {state_dir.parent}. "
+            "Call init_project first.",
+        )
+
+    prd_path = state_dir / _PRD_FILENAME
+    if not prd_path.exists():
+        raise ToolError(
+            f"PRD file not found at {prd_path}. "
+            "Author your PRD and call parse_prd first.",
+        )
+
+    try:
+        markdown = prd_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ToolError(f"Cannot read {prd_path}: {exc}") from exc
+
+    result = _parse_prd_impl(markdown, prd_id="prd")
+    warnings = [
+        ParseErrorEntry(section=e.section, line=e.line, message=e.message)
+        for e in result.errors
+    ]
+
+    backend = _open_backend(state_dir)
+    try:
+        # Guard: `parse_prd` must have run first so the backend has a PRD row.
+        # Without this check, an out-of-order call would emit feature/task
+        # events into a backend with no PRD row, leaving downstream tools
+        # (review_prd, apply_review_decision) to fail with "No PRD found"
+        # after the state was already mutated. Fail loudly here instead.
+        if backend.get_prd() is None:
+            raise ToolError(
+                "No PRD found in state. Call parse_prd before plan_tasks so "
+                "the PRD row exists before feature and task events are emitted."
+            )
+
+        clock = SystemClock()
+        # Emit feature.created per feature.
+        for feature in result.features:
+            now = clock.now()
+            try:
+                backend.apply_event(Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=now,
+                    actor="fakoli-state-mcp",
+                    action="feature.created",
+                    target_kind="feature",
+                    target_id=feature.id,
+                    payload_json=feature.model_dump(mode="json"),
+                ))
+            except TransactionAborted as exc:
+                raise ToolError(str(exc)) from exc
+
+        # Emit task.created per task.
+        for task in result.tasks:
+            now = clock.now()
+            try:
+                backend.apply_event(Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=now,
+                    actor="fakoli-state-mcp",
+                    action="task.created",
+                    target_kind="task",
+                    target_id=task.id,
+                    payload_json=task.model_dump(mode="json"),
+                ))
+            except TransactionAborted as exc:
+                raise ToolError(str(exc)) from exc
+
+        inference_result = infer_all(result.tasks)
+
+        for inferred_task in inference_result.tasks:
+            now = clock.now()
+            try:
+                backend.apply_event(Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=now,
+                    actor="fakoli-state-mcp",
+                    action="task.created",
+                    target_kind="task",
+                    target_id=inferred_task.id,
+                    payload_json=inferred_task.model_dump(mode="json"),
+                ))
+            except TransactionAborted as exc:
+                raise ToolError(str(exc)) from exc
+
+            current = backend.get_task(inferred_task.id)
+            if current is not None and current.status.value == "proposed":
+                now = clock.now()
+                try:
+                    backend.apply_event(Event(
+                        id=PENDING_EVENT_ID,
+                        timestamp=now,
+                        actor="fakoli-state-mcp",
+                        action="task.status_changed",
+                        target_kind="task",
+                        target_id=inferred_task.id,
+                        payload_json={
+                            "task_id": inferred_task.id,
+                            "from": "proposed",
+                            "to": "drafted",
+                            "reason": "plan_tasks: initial draft after inference",
+                        },
+                    ))
+                except TransactionAborted as exc:
+                    raise ToolError(str(exc)) from exc
+
+        return PlanTasksResponse(
+            feature_count=len(result.features),
+            task_count=len(result.tasks),
+            conflict_group_count=len(inference_result.conflict_groups),
+            warnings=warnings,
+        )
+    finally:
+        backend.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 19: score_tasks
+# ---------------------------------------------------------------------------
+
+
+class TaskScoreEntry(BaseModel):
+    """One per-task score in the score_tasks response."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    complexity: int
+    parallelizability: int
+    context_load: int
+    blast_radius: int
+    review_risk: int
+    agent_suitability: int
+
+
+class ScoreTasksResponse(BaseModel):
+    """Result of score_tasks."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scored: list[TaskScoreEntry]
+    skipped_already_scored: int
+
+
+@mcp.tool
+def score_tasks(
+    task_id: str | None = None,
+    cwd: str | None = None,
+) -> ScoreTasksResponse:
+    """Run the rule-based scoring engine on one task or all unscored tasks.
+
+    Mirrors ``fakoli-state score [TASK_ID]`` in deterministic mode (no LLM
+    augmentation). Emits a task.scored event per scored task.
+
+    Behavior differs by mode (matches the CLI deliberately):
+    - ``task_id`` is set → that single task is **always** re-scored, even if
+      it already has complete scores. ``skipped_already_scored`` is 0.
+    - ``task_id`` is None → only tasks whose Score is not yet complete are
+      scored. Already-scored tasks count toward ``skipped_already_scored``.
+
+    Args:
+        task_id: Specific task to score (always re-scored). When None, scores
+                 every task whose Score is not yet complete.
+        cwd:     Project root. Defaults to Path.cwd().
+    """
+    from fakoli_state.cli._helpers import _scores_complete
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.planning.scoring import score_task
+    from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
+    from fakoli_state.state.models import Event
+
+    state_dir = _resolve_state_dir(cwd)
+    if not state_dir.exists():
+        raise ToolError(
+            f"fakoli-state not initialized in {state_dir.parent}. "
+            "Call init_project first.",
+        )
+
+    backend = _open_backend(state_dir)
+    try:
+        if task_id is not None:
+            task = backend.get_task(task_id)
+            if task is None:
+                raise ToolError(f"Task '{task_id}' not found.")
+            tasks_to_score = [task]
+            skipped = 0
+        else:
+            all_tasks = backend.list_tasks()
+            tasks_to_score = [t for t in all_tasks if not _scores_complete(t)]
+            skipped = len(all_tasks) - len(tasks_to_score)
+
+        clock = SystemClock()
+        scored: list[TaskScoreEntry] = []
+        for task in tasks_to_score:
+            computed = score_task(task)
+            now = clock.now()
+            payload: dict[str, Any] = {
+                "task_id": task.id,
+                "scores": {
+                    "complexity": computed.complexity,
+                    "parallelizability": computed.parallelizability,
+                    "context_load": computed.context_load,
+                    "blast_radius": computed.blast_radius,
+                    "review_risk": computed.review_risk,
+                    "agent_suitability": computed.agent_suitability,
+                },
+                "explanation": computed.explanation,
+            }
+            try:
+                backend.apply_event(Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=now,
+                    actor="fakoli-state-mcp",
+                    action="task.scored",
+                    target_kind="task",
+                    target_id=task.id,
+                    payload_json=payload,
+                ))
+            except TransactionAborted as exc:
+                raise ToolError(str(exc)) from exc
+
+            scored.append(TaskScoreEntry(
+                task_id=task.id,
+                complexity=computed.complexity,
+                parallelizability=computed.parallelizability,
+                context_load=computed.context_load,
+                blast_radius=computed.blast_radius,
+                review_risk=computed.review_risk,
+                agent_suitability=computed.agent_suitability,
+            ))
+
+        return ScoreTasksResponse(
+            scored=scored,
+            skipped_already_scored=skipped,
+        )
+    finally:
+        backend.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 20: review_tasks
+# ---------------------------------------------------------------------------
+
+
+class BlockedTaskEntry(BaseModel):
+    """One task that failed a review gate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    reason: str
+
+
+class ReviewTasksResponse(BaseModel):
+    """Result of review_tasks."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    promoted_to_reviewed: list[str]
+    promoted_to_ready: list[str]
+    blocked: list[BlockedTaskEntry]
+
+
+@mcp.tool
+def review_tasks(cwd: str | None = None) -> ReviewTasksResponse:
+    """Promote tasks through drafted → reviewed → ready using the gate
+    logic in ``fakoli_state.state.transitions`` (which encapsulates the
+    review gates).
+
+    Mirrors ``fakoli-state review tasks``. Returns the lists of promoted
+    task IDs and any tasks blocked by a gate (with reasons).
+
+    Args:
+        cwd: Project root. Defaults to Path.cwd().
+    """
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
+    from fakoli_state.state.models import Event
+    from fakoli_state.state.transitions import (
+        TransitionError,
+        task_drafted_to_reviewed,
+        task_reviewed_to_ready,
+    )
+
+    state_dir = _resolve_state_dir(cwd)
+    if not state_dir.exists():
+        raise ToolError(
+            f"fakoli-state not initialized in {state_dir.parent}. "
+            "Call init_project first.",
+        )
+
+    backend = _open_backend(state_dir)
+    try:
+        clock = SystemClock()
+        all_tasks = backend.list_tasks()
+
+        drafted = [t for t in all_tasks if t.status.value == "drafted"]
+        already_reviewed_ids = {
+            t.id for t in all_tasks if t.status.value == "reviewed"
+        }
+
+        promoted_to_reviewed: list[str] = []
+        promoted_to_ready: list[str] = []
+        blocked: list[BlockedTaskEntry] = []
+
+        # drafted → reviewed
+        for task in drafted:
+            now = clock.now()
+            try:
+                task_drafted_to_reviewed(task, now)
+            except TransitionError as exc:
+                blocked.append(BlockedTaskEntry(task_id=task.id, reason=exc.message))
+                continue
+            try:
+                backend.apply_event(Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=now,
+                    actor="fakoli-state-mcp",
+                    action="task.status_changed",
+                    target_kind="task",
+                    target_id=task.id,
+                    payload_json={
+                        "task_id": task.id,
+                        "from": "drafted",
+                        "to": "reviewed",
+                        "reason": "review_tasks: gate passed",
+                    },
+                ))
+            except TransactionAborted as exc:
+                raise ToolError(str(exc)) from exc
+            promoted_to_reviewed.append(task.id)
+
+        # reviewed → ready (covers tasks promoted just above plus pre-existing reviewed)
+        candidates = backend.list_tasks()
+        promoted_set = set(promoted_to_reviewed)
+        for task in candidates:
+            if task.status.value != "reviewed":
+                continue
+            if task.id not in promoted_set and task.id not in already_reviewed_ids:
+                continue
+            now = clock.now()
+            try:
+                task_reviewed_to_ready(task, now)
+            except TransitionError as exc:
+                blocked.append(BlockedTaskEntry(task_id=task.id, reason=exc.message))
+                continue
+            try:
+                backend.apply_event(Event(
+                    id=PENDING_EVENT_ID,
+                    timestamp=now,
+                    actor="fakoli-state-mcp",
+                    action="task.status_changed",
+                    target_kind="task",
+                    target_id=task.id,
+                    payload_json={
+                        "task_id": task.id,
+                        "from": "reviewed",
+                        "to": "ready",
+                        "reason": "review_tasks: promoted to ready",
+                    },
+                ))
+            except TransactionAborted as exc:
+                raise ToolError(str(exc)) from exc
+            promoted_to_ready.append(task.id)
+
+        return ReviewTasksResponse(
+            promoted_to_reviewed=promoted_to_reviewed,
+            promoted_to_ready=promoted_to_ready,
+            blocked=blocked,
+        )
+    finally:
+        backend.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 21: apply_review_decision
+# ---------------------------------------------------------------------------
+
+
+class ApplyReviewResponse(BaseModel):
+    """Result of apply_review_decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    decision: str  # "accepted" or "rejected"
+    from_status: str
+    to_status: str
+    reviewer: str
+
+
+@mcp.tool
+def apply_review_decision(
+    task_id: str,
+    approve: bool,
+    reviewer: str = "human",
+    reason: str | None = None,
+    cwd: str | None = None,
+) -> ApplyReviewResponse:
+    """Apply a human review decision: approve (needs_review → accepted →
+    done) or reject (needs_review → rejected/drafted for rework).
+
+    Mirrors ``fakoli-state apply TASK_ID --approve`` and
+    ``--reject --reason TEXT``. Emits a task.applied event; the SQLite
+    backend handles auto-promotion through accepted → done on approval.
+
+    Args:
+        task_id:  Task awaiting review (must be in needs_review status).
+        approve:  True → accept the work. False → reject it.
+        reviewer: Identity recorded in the event payload.
+        reason:   Required when approve=False; recorded as review notes.
+        cwd:      Project root. Defaults to Path.cwd().
+    """
+    from fakoli_state.clock import SystemClock
+    from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
+    from fakoli_state.state.models import Event
+
+    state_dir = _resolve_state_dir(cwd)
+    if not state_dir.exists():
+        raise ToolError(
+            f"fakoli-state not initialized in {state_dir.parent}. "
+            "Call init_project first.",
+        )
+
+    if not approve and not reason:
+        raise ToolError(
+            "Rejection requires reason= (non-empty). "
+            "Pass approve=True to accept, or provide a rejection reason.",
+        )
+
+    backend = _open_backend(state_dir)
+    try:
+        task = backend.get_task(task_id)
+        if task is None:
+            raise ToolError(f"Task '{task_id}' not found.")
+
+        from_status = task.status.value
+        if from_status != "needs_review":
+            raise ToolError(
+                f"Task '{task_id}' has status '{from_status}', "
+                "expected 'needs_review'. Submit completion evidence first.",
+            )
+
+        decision = "accepted" if approve else "rejected"
+        clock = SystemClock()
+        now = clock.now()
+        payload: dict[str, Any] = {
+            "task_id": task_id,
+            "reviewer": reviewer,
+            "decision": decision,
+            "notes": reason,
+        }
+
+        try:
+            backend.apply_event(Event(
+                id=PENDING_EVENT_ID,
+                timestamp=now,
+                actor=reviewer,
+                action="task.applied",
+                target_kind="task",
+                target_id=task_id,
+                payload_json=payload,
+            ))
+        except TransactionAborted as exc:
+            raise ToolError(str(exc)) from exc
+
+        # Read fresh status after the backend's auto-promotion (accepted → done
+        # on approval, needs_review → drafted on rejection, etc.).
+        fresh = backend.get_task(task_id)
+        to_status = fresh.status.value if fresh is not None else decision
+
+        return ApplyReviewResponse(
+            task_id=task_id,
+            decision=decision,
+            from_status=from_status,
+            to_status=to_status,
+            reviewer=reviewer,
+        )
     finally:
         backend.close()
 

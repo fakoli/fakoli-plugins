@@ -6,7 +6,101 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.13+ planned work._
+_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.14+ planned work._
+
+---
+
+## [1.13.0] — 2026-05-26
+
+Two-axis release driven by a single user observation: agents using
+fakoli-state were ending every workflow with a CLI to-do list ("1. Run
+`prd parse`, 2. Run `prd review`, 3. Run `prd review --approve`,
+4. Run `plan`, …") instead of driving the workflow inline. The
+handoff pattern only makes sense when work is leaving the session
+entirely; with one agent and one user in the same conversation, the
+agent should drive each command, surface its output, and present the
+next decision. The fix is at the skill layer (so every future session
+inherits it) AND at the MCP layer (so non-shell MCP clients can drive
+the full workflow without dropping to a Bash tool they may not have).
+
+### Changed
+
+- **Skills now drive the workflow interactively.** `start-prd`, `prd`,
+  `plan`, `claim`, and `finish` rewrote their interactive sections to
+  encode "agent runs each state-engine command itself; surfaces the
+  output inline; asks the user the next decision; runs the next
+  command on the user's word." The closing-with-a-CLI-to-do-list
+  pattern is explicitly named as an anti-pattern in each of these
+  skills. The two approval gates (`prd review --approve` and
+  `apply --approve`) are the only hard handoffs, and even at those
+  the agent asks "ready? yes/no" and runs the command on confirmation
+  — it does not paste the command for the user to type. An explicit
+  escape hatch is preserved: when the user says "just give me the
+  commands," or when the runtime has no execution tool, the CLI list
+  output is correct.
+- README test-count badge 975 → 993; version badges 1.12.1 → 1.13.0.
+
+### Added
+
+- **8 new MCP tools** so the full PRD → plan → review → approve →
+  claim → submit → apply workflow is drivable from any MCP client
+  without a Bash tool: `init_project`, `get_project_status`,
+  `parse_prd`, `review_prd`, `plan_tasks`, `score_tasks`,
+  `review_tasks`, `apply_review_decision`. Total MCP surface is now
+  21 tools (was 13). All new tools call the same shared modules the
+  CLI calls — no logic duplication. Structured response models
+  return well-shaped data; operational failures (missing file,
+  uninitialized project) raise `ToolError` with a clear message,
+  parse-level errors are returned as data so callers can inspect-
+  and-retry without exception handling.
+- **19 new MCP regression tests** in `tests/test_mcp.py` covering
+  happy and error paths for each new tool, including a regression
+  test for the `plan_tasks` ordering guard (must run `parse_prd`
+  first or fail loudly). Suite is 994 passing (was 975 in v1.12.1).
+
+### Fixed (post-greptile review)
+
+- **`plan_tasks` no longer mutates state when called out of order.**
+  Previously, calling `plan_tasks` before `parse_prd` would emit
+  `feature.created` and `task.created` events into a backend with
+  no PRD row — leaving `review_prd` and `apply_review_decision` to
+  fail later with "No PRD found in state" after the state was
+  already partially mutated. The tool now verifies `backend.get_prd()`
+  returns a row before emitting any events and raises `ToolError`
+  with a clear "call parse_prd first" message if not.
+- **`init_project` resource cleanup hardened.** `backend.initialize()`
+  was being called outside the `try/finally` block, so a failure
+  during schema bootstrap would leak the backend connection. Moved
+  inside the try so `backend.close()` always runs.
+- **`score_tasks` docstring clarified** to match the CLI's intentional
+  behavior: an explicit `task_id` always re-scores (whether or not
+  scores are complete); omitting `task_id` only scores tasks whose
+  Score is incomplete. The asymmetry is deliberate and matches
+  `fakoli-state score [TASK_ID]`.
+- New "Workflow tools (v1.13.0)" section in `docs/mcp.md`,
+  organized by lifecycle phase (Bootstrap → PRD → Planning → Review)
+  with parameters, returns, examples, and CLI equivalents for each
+  new tool.
+
+### Migration
+
+No breaking changes. The 13 existing MCP tools, all 23 CLI commands,
+and the on-disk state schema are unchanged. The skill rewrites
+change the agent's interactive behavior only — any CLI script,
+hook, or pre-existing workflow that invokes `fakoli-state` commands
+directly continues to work identically. Plugins that wrap fakoli-state
+(`fakoli-flow`, `fakoli-crew`) are unaffected.
+
+### Notes on `init_project` and helper extraction
+
+The MCP `init_project` tool inlines a small amount of project-seeding
+logic that today lives privately inside `cli/init_status.py`
+(`_apply_init_event`). A future cleanup could lift that helper into
+`state/init.py` so MCP and CLI share a single source. Flagged in the
+codebase; not blocking for v1.13.0. Similarly `_PRD_FILENAME` is
+duplicated between `cli/_helpers.py` and `mcp_server.py` to avoid
+pulling typer into the MCP import graph — worth promoting to a
+shared constants module someday.
 
 ---
 

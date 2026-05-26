@@ -52,27 +52,23 @@ The structured template at `docs/prd-template.md` (relative to the plugin root) 
 
 ### Step 1 — Author or update `.fakoli-state/prd.md`
 
-Before opening the editor, check whether `.fakoli-state/prd.md` already exists. The subsequent `fakoli-state prd parse` step (Step 2) is destructive — it replaces every `Requirement`, `Feature`, and `Task` row in `state.db`. Re-entering this skill on top of a hand-authored PRD without the user's knowledge would silently clobber that work.
+Drive this step inline. Check the filesystem for an existing PRD before suggesting any edit — the subsequent `fakoli-state prd parse` step (Step 2) is destructive and replaces every `Requirement`, `Feature`, and `Task` row in `state.db`.
+
+Run the existence check yourself (Bash, MCP filesystem tool, or whichever read primitive the runtime exposes):
 
 ```bash
 ls .fakoli-state/prd.md 2>/dev/null
 ```
 
-**If the file exists**, do not open the editor or re-parse without confirmation. Show the user a one-line summary of the existing file (first heading and total line count are usually enough) and ask:
+**If the file exists**, do not edit or re-parse without confirmation. Read the file, surface a one-line summary (first heading and total line count are usually enough), and ask:
 
-> `.fakoli-state/prd.md` already exists (`<first-heading>`, `<N>` lines). Open it for editing, save it as a backup first, or cancel? (yes / no / save-as-backup)
+> `.fakoli-state/prd.md` already exists (`<first-heading>`, `<N>` lines). Open it for editing, save the current copy as a backup first, or leave it alone? (edit / save-as-backup / cancel)
 
-- On `yes` — open the file in the editor and continue authoring in place.
-- On `no` — stop. Tell the user the PRD was left untouched; suggest they review the existing file directly or run `/fakoli-state:state-ops` to inspect current PRD status.
-- On `save-as-backup` — copy the existing file to `.fakoli-state/prd.md.bak` first, then open `.fakoli-state/prd.md` in the editor.
+- On `edit` — read the file in full, propose changes inline (show diffs in chat), and apply them once the user confirms. Do not shell out to `$EDITOR` and wait — drive the edits in the conversation.
+- On `cancel` — stop. Confirm the PRD is untouched; offer to run `/fakoli-state:state-ops` to inspect current PRD status.
+- On `save-as-backup` — copy the existing file to `.fakoli-state/prd.md.bak`, then proceed with inline edits as above.
 
-**If the file does not exist**, proceed directly to opening the editor.
-
-Open the PRD in an editor:
-
-```bash
-$EDITOR .fakoli-state/prd.md
-```
+**If the file does not exist**, author it inline. Compose the draft in the conversation (using the structure below), present it to the user for approval, then write it directly to `.fakoli-state/prd.md`. Do not tell the user to open `$EDITOR` themselves.
 
 The canonical structure is defined in `docs/prd-template.md`. Required sections — the parser fails without them:
 
@@ -89,27 +85,29 @@ Optional sections that should be present in any non-trivial PRD:
 - `## Tasks` — hand-authored tasks with `**Acceptance criteria:**` and `**Verification:**` fields
 - `## Risks`, `## Open Questions` — informs the planner's scoring
 
-#### Co-authoring with a human
+#### Co-authoring with the user
 
-When working interactively, resist the urge to dump the full template at once. Proceed one question at a time:
+When co-authoring, resist the urge to dump the full template at once. Drive one topic at a time in the conversation:
 
-1. **What are the goals?** — the bulleted list under `## Goals`. Ask the human to state what success looks like.
-2. **What are the requirements?** — each atomic "the system must" statement becomes an `R00N:` bullet.
-3. **What are the features and tasks?** — group related requirements, then describe the units of work.
+1. **What are the goals?** — ask the user what success looks like; capture each answer as a `## Goals` bullet.
+2. **What are the requirements?** — translate each "the system must" statement into an `R00N:` bullet and read them back for confirmation.
+3. **What are the features and tasks?** — group related requirements, propose the units of work, and confirm groupings before writing.
 
-Separate each topic as its own exchange. Confirm the goals look right before moving to requirements.
+Separate each topic as its own exchange. Confirm the goals look right before moving to requirements. Only write the file once the user has accepted the final draft.
 
 ---
 
 ### Step 2 — Parse the markdown into state
 
+Invoke the parse yourself once the file is written — do not hand the user a command to type. Use Bash (`fakoli-state prd parse`), the MCP `parse_prd` tool when available, or whichever execution primitive the runtime exposes:
+
 ```bash
 fakoli-state prd parse
 ```
 
-This reads `.fakoli-state/prd.md`, validates structure, and writes `Requirement`, `Feature`, and `Task` entities to `state.db`. PRD status becomes `draft`.
+This reads `.fakoli-state/prd.md`, validates structure, and writes `Requirement`, `Feature`, and `Task` entities to `state.db`. PRD status becomes `draft`. Surface the parser output inline in the same message so the user sees the result without a context switch.
 
-**On parse error:** the parser surfaces each `ParseError` with the section name and, where possible, the line number. Existing `state.db` content is preserved — no silent rollback of previous good state. Fix each error in `prd.md`, then re-run `prd parse`.
+**On parse error:** the parser surfaces each `ParseError` with the section name and, where possible, the line number. Existing `state.db` content is preserved — no silent rollback of previous good state. Read the error, propose the fix to `prd.md` inline, apply it after confirmation, and re-run `prd parse` yourself.
 
 Common parse errors:
 
@@ -118,23 +116,21 @@ Common parse errors:
 - `ParseError: duplicate ID R003` — the same requirement ID appears twice; renumber
 - A task block has a `**Feature:** F002` reference but no `### F002:` heading exists in `## Features`
 
-**On success:** the command prints a summary. Verify the counts match expectations:
+**On success:** the command prints a summary. Present the counts to the user and confirm they match expectations:
 
 ```
 parsed 6 requirements, 3 features, 8 tasks
 ```
 
-If the counts are wrong, open `prd.md` and confirm all sections parsed without truncation. Re-run until the counts match intent.
+> Parsed 6 requirements, 3 features, 8 tasks. Counts look right? Ready for me to run `prd review`? (yes / let me check first)
+
+If the counts are wrong, read `prd.md` and confirm all sections survived the parse without truncation. Re-run until the counts match intent.
 
 ---
 
 ### Step 3 — Review the PRD
 
-```bash
-fakoli-state prd review
-```
-
-This is a gate, not a rubber-stamp. Before invoking the command, check the PRD for completeness:
+Run the review yourself once the user is ready. Before invoking it, audit the PRD inline for completeness — surface gaps in the conversation so the user can decide what to fix before the gate fires:
 
 - Are goals concrete statements ("Users can export a CSV with one command") rather than aspirations ("good performance")?
 - Is `## Non-Goals` declared — even as a single item? A missing non-goals section is a red flag in any non-trivial project.
@@ -142,36 +138,46 @@ This is a gate, not a rubber-stamp. Before invoking the command, check the PRD f
 - Does every task have a non-empty `**Acceptance criteria:**` block and at least one `**Verification:**` command?
 - Are open questions either resolved or explicitly parked as known unknowns?
 
-When co-authoring with a human, surface gaps before running the review command:
+Present any gaps directly in chat:
 
-> Before running `prd review`, I noticed the following might need attention:
-> - T003 has no verification commands — add at least one `pytest` or shell command
-> - "## Non-Goals" is absent — even "none declared for v1" is better than silence
-> - R004 says "the system handles errors" — what kind, and how? Make this measurable
+> Before I run `prd review`, three things might need attention:
+> - T003 has no verification commands — want me to add `pytest tests/test_t003.py`?
+> - `## Non-Goals` is absent — even "none declared for v1" is better than silence; add it?
+> - R004 says "the system handles errors" — what kind, and how? Make this measurable.
+>
+> Want me to apply these fixes and re-parse, or run review as-is?
 
-Only invoke `prd review` once these items are addressed or explicitly accepted as-is.
+Once the user accepts or addresses the items, invoke the review:
 
-If the review gate passes, PRD status becomes `reviewed`.
+```bash
+fakoli-state prd review
+```
+
+Surface the output inline. If the review gate passes, PRD status becomes `reviewed`; tell the user and move to Step 4.
 
 ---
 
 ### Step 4 — Approve when ready
 
-```bash
-fakoli-state prd review --approve
-```
+`prd review --approve` is a hard gate. It transitions the PRD from `reviewed` to `approved` and the `fakoli-state claim` gate enforces it — no task can be claimed while the PRD is in `draft` or `reviewed` status. Because approval is permanent in `events.jsonl`, the user MUST explicitly confirm before the agent runs it.
 
-Approval transitions the PRD from `reviewed` to `approved`. This is the gate that `fakoli-state claim` enforces — no task can be claimed while the PRD is in `draft` or `reviewed` status.
+Before asking, read the full PRD back to the user (or show a concise structural summary — sections present, requirement/feature/task counts, any items the review surfaced). Then ask:
 
-**Keep approval a deliberate, separate step.** In a team context, the reviewer and approver should differ: the agent reviews for structural completeness; the human approves the scope. In a solo context, read through the full PRD one more time before approving.
+> The PRD is reviewed. Approving it is permanent and opens the claim gate. Ready to approve? (yes / no / let me re-read first)
 
-After approval:
+- **On `yes`** — invoke `fakoli-state prd review --approve` yourself, surface the output, then run `fakoli-state status` and confirm `prd-status: approved`. Tell the user the project is ready for `/fakoli-state:plan` and ask whether to drive that skill next.
+- **On `no`** — stop. The PRD stays in `reviewed`; the user can come back to it later.
+- **On `let me re-read first`** — wait. When the user signals ready, return to the confirm prompt above.
 
-```bash
-fakoli-state status
-```
+**Keep approval a deliberate, separate step.** In a team context, the reviewer and approver should differ: the agent reviews for structural completeness; the human approves the scope. In a solo context, the read-back-then-confirm pattern above is the substitute for a second pair of eyes.
 
-Confirm `prd-status: approved` in the output. The project is now ready for `/fakoli-state:plan`.
+---
+
+## Anti-pattern to avoid
+
+Ending this skill with a numbered list like "1. Edit `prd.md` 2. Run `prd parse` 3. Run `prd review` 4. Run `prd review --approve` 5. Run `plan`..." That handoff style only makes sense when the work is leaving this session entirely — queued for another agent, scheduled for tomorrow, blocked on stakeholder review. When the agent and user are in the same conversation, drive each command, surface its output, and present the next decision. Do not delegate the typing.
+
+**When to actually hand off CLI commands:** if the user explicitly opts out ("just give me the commands"), or if the runtime lacks the tool needed to execute them (e.g., MCP-only client with no shell and no `parse_prd` tool). In those cases, a CLI list is the right output. Otherwise, drive.
 
 ---
 

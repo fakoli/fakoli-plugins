@@ -3,12 +3,30 @@
 ## What it does
 
 Agents need to read and write canonical project state without each one shelling out to the
-CLI per operation and without fighting over the same SQLite rows. The MCP server exposes 13
+CLI per operation and without fighting over the same SQLite rows. The MCP server exposes 21
 tools over stdio so that any MCP-compatible runtime — Claude Code, Codex, Cursor, OpenHands,
-Copilot, or a local script — can claim tasks, check conflicts, submit evidence, and inspect
-the dependency graph as first-class tool calls. Read-only tools return structured Pydantic
+Copilot, or a local script — can drive the full PRD → plan → review → approve → claim →
+apply workflow as first-class tool calls. Read-only tools return structured Pydantic
 objects; mutating tools run stale-claim reaping before writing, so the state the agent sees
 is always fresh.
+
+The toolset is organized by lifecycle phase:
+
+- **Bootstrap & status** (`init_project`, `get_project_status`, `get_project_summary`)
+- **PRD lifecycle** (`parse_prd`, `review_prd`)
+- **Planning & scoring** (`plan_tasks`, `score_tasks`, `review_tasks`)
+- **Task inspection** (`list_tasks`, `get_task`, `get_next_task`, `get_dependency_graph`,
+  `check_conflicts`)
+- **Claiming & execution** (`claim_task`, `release_task`, `renew_claim`,
+  `generate_work_packet`, `submit_progress`, `submit_completion_evidence`,
+  `update_task_status`)
+- **Review gate** (`apply_review_decision`)
+
+The eight workflow tools added in v1.13.0 — `init_project`, `get_project_status`,
+`parse_prd`, `review_prd`, `plan_tasks`, `score_tasks`, `review_tasks`,
+`apply_review_decision` — deliberately omit git operations (branch / worktree creation),
+matching `claim_task`'s long-standing behavior: remote agents may have no git access, so
+the MCP surface stays git-free. Git side-effects remain CLI-only.
 
 ---
 
@@ -560,6 +578,323 @@ that cannot be resolved yet.
 
 ---
 
+### Workflow tools (v1.13.0)
+
+These eight tools complete the lifecycle so a non-Claude-Code MCP client can run the entire
+PRD-to-done flow without touching the CLI. All eight accept an optional `cwd` argument so a
+single MCP session can target multiple project roots. None of them perform git operations.
+
+---
+
+#### Bootstrap & status
+
+---
+
+### `init_project`
+
+Scaffolds a `.fakoli-state/` directory in the target project root. Creates the canonical
+layout (`config.yaml`, `state.db`, `events.jsonl`, `packets/`), seeds the project row, and
+emits `project.created` + `state.initialized`. Mirrors `fakoli-state init` minus git
+operations.
+
+**Inputs**
+
+| Parameter | Type             | Required | Default        |
+|-----------|------------------|----------|----------------|
+| `name`    | `string \| null` | no       | basename of `cwd` |
+| `cwd`     | `string \| null` | no       | `Path.cwd()`   |
+
+**Output**
+
+```json
+{
+  "project_id": "from-mcp",
+  "project_name": "From MCP",
+  "state_dir": "/abs/path/.fakoli-state",
+  "created": true
+}
+```
+
+**Failure modes**
+
+- `ToolError` — directory is the plugin root (refuses to init inside the plugin).
+- `ToolError` — `.fakoli-state/` already exists (use CLI `init --force` to reinit).
+- `ToolError` — scaffold I/O failure.
+
+**When to call**: the very first MCP call against a fresh project root.
+
+---
+
+### `get_project_status`
+
+Returns PRD status, task counts by state, active claims, ready-queue depth, and
+initialization flag. Mirrors `fakoli-state status`. Returns `initialized: false` with empty
+counts when `.fakoli-state/` is absent — does **not** raise. Use this as the canonical
+"am I bootstrapped?" probe.
+
+**Inputs**
+
+| Parameter | Type             | Required | Default      |
+|-----------|------------------|----------|--------------|
+| `cwd`     | `string \| null` | no       | `Path.cwd()` |
+
+**Output**
+
+```json
+{
+  "initialized": true,
+  "project_id": "proj-test",
+  "project_name": "Status Project",
+  "state_dir": "/abs/path/.fakoli-state",
+  "prd_status": "reviewed",
+  "task_counts": { "proposed": 0, "drafted": 0, "...": "..." },
+  "total_tasks": 3,
+  "ready_queue_depth": 2,
+  "active_claim_count": 1
+}
+```
+
+`get_project_status` differs from `get_project_summary` in two ways: it accepts an explicit
+`cwd`, and it answers gracefully when the project is not initialized.
+
+**Failure modes**
+
+None — always returns a response.
+
+---
+
+#### PRD lifecycle
+
+---
+
+### `parse_prd`
+
+Reads `.fakoli-state/prd.md` (or `file=` path), parses via
+`fakoli_state.planning.template.parse_prd`, and emits `prd.parsed` on success. Parse errors
+are returned in the response (not raised) so the caller can decide whether to fix and retry.
+Mirrors `fakoli-state prd parse`.
+
+**Inputs**
+
+| Parameter | Type             | Required | Default                          |
+|-----------|------------------|----------|----------------------------------|
+| `file`    | `string \| null` | no       | `<cwd>/.fakoli-state/prd.md`     |
+| `cwd`     | `string \| null` | no       | `Path.cwd()`                     |
+
+**Output**
+
+```json
+{
+  "prd_status": "draft",
+  "requirement_count": 2,
+  "feature_count": 1,
+  "task_count": 2,
+  "errors": [],
+  "prd_path": "/abs/path/.fakoli-state/prd.md"
+}
+```
+
+When `errors` is non-empty, no `prd.parsed` event is emitted (matching the CLI which exits 1
+before applying); the caller should fix the PRD and re-call.
+
+**Failure modes**
+
+- `ToolError` — project not initialized.
+- `ToolError` — PRD file not found at the resolved path.
+- `ToolError` — PRD file unreadable.
+
+**When to call**: right after the user (or another agent) writes `prd.md`.
+
+---
+
+### `review_prd`
+
+Transitions the PRD: `draft → reviewed` (default) or `reviewed → approved` (when
+`approve=true`). Emits `prd.reviewed` or `prd.approved`. Mirrors `fakoli-state prd review`
+and `prd review --approve`.
+
+**Inputs**
+
+| Parameter  | Type             | Required | Default   |
+|------------|------------------|----------|-----------|
+| `approve`  | `bool`           | no       | `false`   |
+| `reviewer` | `string`         | no       | `"human"` |
+| `notes`    | `string \| null` | no       | `null`    |
+| `cwd`      | `string \| null` | no       | `Path.cwd()` |
+
+**Output**
+
+```json
+{
+  "from_status": "draft",
+  "to_status": "reviewed",
+  "reviewer": "alice"
+}
+```
+
+**Failure modes**
+
+- `ToolError` — no PRD found (run `parse_prd` first).
+- `ToolError` — wrong starting status for the requested transition.
+- `ToolError` — project not initialized.
+
+---
+
+#### Planning & scoring
+
+---
+
+### `plan_tasks`
+
+Runs the planner pipeline against the current PRD: emits `feature.created` and
+`task.created` events, runs dependency + conflict-group inference, then promotes
+`proposed → drafted`. Mirrors `fakoli-state plan` in deterministic mode (no LLM
+augmentation — agents that need LLM enrichment must use the CLI).
+
+**Inputs**
+
+| Parameter | Type             | Required | Default      |
+|-----------|------------------|----------|--------------|
+| `cwd`     | `string \| null` | no       | `Path.cwd()` |
+
+**Output**
+
+```json
+{
+  "feature_count": 1,
+  "task_count": 2,
+  "conflict_group_count": 0,
+  "warnings": []
+}
+```
+
+`warnings` mirrors the parse errors surfaced as warnings during plan (matching the CLI).
+
+**Failure modes**
+
+- `ToolError` — project not initialized.
+- `ToolError` — PRD file not found.
+
+**When to call**: right after `review_prd` (draft → reviewed) so the deterministic plan
+has the latest PRD content.
+
+---
+
+### `score_tasks`
+
+Runs the rule-based scoring engine on a single task or all unscored tasks. Emits
+`task.scored` per scored task. Mirrors `fakoli-state score [TASK_ID]` in deterministic
+mode.
+
+**Inputs**
+
+| Parameter | Type             | Required | Default      |
+|-----------|------------------|----------|--------------|
+| `task_id` | `string \| null` | no       | `null` (score all unscored) |
+| `cwd`     | `string \| null` | no       | `Path.cwd()` |
+
+**Output**
+
+```json
+{
+  "scored": [
+    {
+      "task_id": "T001",
+      "complexity": 3,
+      "parallelizability": 4,
+      "context_load": 2,
+      "blast_radius": 3,
+      "review_risk": 2,
+      "agent_suitability": 4
+    }
+  ],
+  "skipped_already_scored": 0
+}
+```
+
+**Failure modes**
+
+- `ToolError` — `task_id` provided but not found.
+- `ToolError` — project not initialized.
+
+---
+
+### `review_tasks`
+
+Promotes tasks through `drafted → reviewed → ready` using the gate functions in
+`fakoli_state.state.transitions`. Mirrors `fakoli-state review tasks`. Returns the lists
+of promoted task IDs and any tasks blocked by a gate (with the gate's failure reason).
+
+**Inputs**
+
+| Parameter | Type             | Required | Default      |
+|-----------|------------------|----------|--------------|
+| `cwd`     | `string \| null` | no       | `Path.cwd()` |
+
+**Output**
+
+```json
+{
+  "promoted_to_reviewed": ["T001", "T002"],
+  "promoted_to_ready":    ["T001", "T002"],
+  "blocked": []
+}
+```
+
+A task that fails the `drafted → reviewed` gate (missing acceptance criteria or
+verification commands) appears in `blocked` instead of either promotion list.
+
+**Failure modes**
+
+- `ToolError` — project not initialized.
+
+---
+
+#### Review gate
+
+---
+
+### `apply_review_decision`
+
+Applies a human review decision to a task in `needs_review` status. With `approve=true` the
+task moves through `needs_review → accepted → done` (the backend handles the auto-promotion).
+With `approve=false` (and a non-empty `reason`) the task is rejected — typically returned
+to `drafted` for rework. Mirrors `fakoli-state apply TASK_ID --approve` and `--reject
+--reason TEXT`.
+
+**Inputs**
+
+| Parameter   | Type             | Required | Default   |
+|-------------|------------------|----------|-----------|
+| `task_id`   | `string`         | yes      |           |
+| `approve`   | `bool`           | yes      |           |
+| `reviewer`  | `string`         | no       | `"human"` |
+| `reason`    | `string \| null` | no       | `null` (required when `approve=false`) |
+| `cwd`      | `string \| null` | no       | `Path.cwd()` |
+
+**Output**
+
+```json
+{
+  "task_id": "T001",
+  "decision": "accepted",
+  "from_status": "needs_review",
+  "to_status": "done",
+  "reviewer": "alice"
+}
+```
+
+`to_status` reflects the backend's post-promotion status (typically `done` on approval).
+
+**Failure modes**
+
+- `ToolError` — task not found.
+- `ToolError` — task not in `needs_review` status (submit evidence first).
+- `ToolError` — `approve=false` without a `reason`.
+- `ToolError` — project not initialized.
+
+---
+
 ## Error model
 
 Every failure raises a FastMCP `ToolError`. The message is a human-readable string
@@ -589,7 +924,7 @@ before deciding whether to retry, release, or escalate.
 
 ## Integration with fakoli-crew and fakoli-flow
 
-**fakoli-crew agents** gain access to all 13 MCP tools when fakoli-state is installed
+**fakoli-crew agents** gain access to all 21 MCP tools when fakoli-state is installed
 alongside fakoli-crew. The standard work loop for a crew agent (welder, smith, guido) is:
 
 1. `get_next_task` — find the highest-priority claimable task.

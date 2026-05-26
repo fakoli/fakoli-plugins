@@ -86,59 +86,59 @@ For tasks where the evidence looks complete:
 
 ---
 
-### Step 3 — Pick a disposition
+### Step 3 — Pick a disposition (the hard handoff gate)
 
-#### Accept and ship (the happy path)
+This is the one place in the entire fakoli-state workflow where the agent must wait for explicit user confirmation before executing the next command. `apply --approve` writes a permanent `Review` row to `state.db` and an immutable `task.applied` event to `events.jsonl` — it is the formal "ship it" gate. The agent must not run it on inference.
 
-All verification commands exited 0, evidence is complete, and the diff matches the acceptance criteria:
+After surfacing the evidence summary in Step 2, present the disposition options conversationally and ask the user to pick — then run the chosen command yourself:
 
-```bash
-fakoli-state apply T012 --approve
-```
+> The evidence for **T012** is summarized above. How should this be dispositioned?
+> 1. **Accept and ship** — verification exited 0, evidence is complete, diff matches acceptance criteria.
+> 2. **Reject and reopen** — evidence is incomplete or the implementation does not satisfy acceptance criteria. I will need a reason.
+> 3. **Hold for investigation** — evidence is submitted but more context is needed before deciding. I will keep the task in `needs_review`.
+> 4. **Discard the work entirely** — the task direction was wrong and the implementation should not be merged. I will also need a reason.
+>
+> Reply with the number (or just "accept" / "reject" / "hold" / "discard").
 
-This transitions the task `needs_review → accepted → done` and writes a `Review` row to `state.db` with the approver identity, timestamp, and disposition. A single `task.applied` event is appended to `events.jsonl` carrying the decision; the handler does the Review insertion and the status transition atomically in one transaction.
+Based on the answer, drive the corresponding command yourself rather than asking the user to type it.
 
-After `apply --approve`, merge the branch via the project's normal git workflow — fakoli-state does not auto-merge. See Step 4 for the ship sequence.
+#### On "accept" (1)
 
-#### Reject and reopen
+Confirm one more time before invoking the gate — this is the irreversible-via-audit point:
 
-Evidence is incomplete, verification failed, or the implementation does not satisfy the acceptance criteria:
+> Approving will transition T012 `needs_review → accepted → done` and append a permanent `task.applied` event with you as the approver. Confirm? (yes / no)
 
-```bash
-fakoli-state apply T012 --reject --reason "pytest -x reports 3 failures in test_retry.py"
-```
+On `yes`, invoke `fakoli-state apply T012 --approve` (or the `apply_review_decision` MCP tool when available). Surface the response inline. Then ask whether to drive Step 4 (the ship sequence — git merge) now or later. On `no`, return to the disposition prompt.
 
-`--reason` is required. The string is stored in the `Review` row and logged in `events.jsonl`. The task transitions `needs_review → rejected → drafted`.
+#### On "reject" (2)
 
-From `drafted`, the task can be re-reviewed, re-scoped, and re-promoted via `fakoli-state review tasks`. The original branch and Evidence row are preserved in the audit log. After correcting the underlying issue (re-scoping the acceptance criteria, or letting the agent fix the failures), the task is re-claimable.
+Ask for a concrete reason before invoking:
 
-Do not reject without a concrete reason. "Not done" is not a reason. "pytest -x exits 1 — 3 failures in test_retry.py" is.
+> Reject T012 with which reason? Concrete is required — "pytest -x reports 3 failures in test_retry.py" is good; "not done" is not.
 
-#### Hold for further investigation
+Once the user supplies a reason, invoke `fakoli-state apply T012 --reject --reason "<their reason>"` directly. Surface the response. The task transitions `needs_review → rejected → drafted` and the original branch + Evidence row are preserved in the audit log. Tell the user the task is back at `drafted` and ask whether to re-trigger `review tasks` or leave it for the agent to fix the underlying issue.
 
-Evidence is submitted but the reviewer needs more context before deciding:
+#### On "hold" (3)
 
-- Do not invoke `apply` yet.
-- Keep the task in `needs_review`.
-- Capture the open questions in the task's `implementation_notes` field so the next reviewer has context. Until Phase 6 ships a `decision` CLI subcommand, add notes by re-editing the relevant section of `prd.md`, re-parsing, and coordinating with the next reviewer directly.
+Do not invoke `apply` at all. Capture the open questions inline:
 
-Loop back to Step 2 after gathering context.
+> What context do we need before this can be dispositioned? I will add it to the task notes so the next review has the full picture.
 
-#### Discard the work entirely
+Once the user lists the open questions, append them to the task's `implementation_notes` via the appropriate state-engine path (until Phase 6 ships a `decision` CLI subcommand, edit `prd.md`, re-parse, and coordinate with the next reviewer directly — drive that loop yourself). Then loop back to Step 2.
 
-The task direction was wrong and the implementation should not be merged:
+#### On "discard" (4)
 
-```bash
-fakoli-state apply T012 --reject --reason "discarded — approach superseded by T015"
-```
+Like reject, but with a discard-specific reason — and you also need to clean up the branch.
 
-This transitions the task to `drafted`. Then delete the branch manually:
+> Discard T012 with which reason? (For the audit log — "approach superseded by T015" is typical.)
 
-```bash
-git branch -D agent/t012-add-retry-backoff
-```
+Invoke `fakoli-state apply T012 --reject --reason "discarded — <their reason>"` directly. Then ask whether to delete the branch now:
 
-The audit log retains the `Evidence` row and rejection `Review` row for posterity. The task can be deprioritized, re-scoped, or removed from the PRD at the next planning cycle.
+> The work is discarded. Delete the branch `agent/t012-<slug>` now? (yes / no)
+
+On `yes`, run `git branch -D agent/t012-<slug>` yourself. On `no`, leave the branch intact and tell the user the audit log retains the `Evidence` row and rejection `Review` row regardless.
+
+**The rule:** the agent picks the question, the user picks the answer, the agent runs the command. The handoff is the *decision*, not the *typing*.
 
 ---
 

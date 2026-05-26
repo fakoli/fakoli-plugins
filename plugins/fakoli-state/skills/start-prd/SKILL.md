@@ -177,18 +177,24 @@ ls .fakoli-state/prd.md 2>/dev/null
 
 **If the file does not exist**, write the draft directly to `.fakoli-state/prd.md`.
 
-### Step 5 — Hand off to the `prd` skill
+### Step 5 — Parse the draft and continue into the `prd` skill
 
-After the file is written, tell the user the next two commands:
+After the file is written, drive the parse inline rather than handing the user a list of CLI commands to run. The user just approved the draft content — asking them to also run `fakoli-state prd parse` themselves adds friction without adding value.
 
-> Draft written to `.fakoli-state/prd.md`. Next steps:
->
-> 1. Run `fakoli-state prd parse` to load the draft into `state.db`.
-> 2. Open `.fakoli-state/prd.md` in an editor to refine requirements, then run `fakoli-state prd review` and `fakoli-state prd review --approve` once it is ready.
->
-> See the `prd` skill for the full review and approval workflow.
+Confirm the parse and run it:
 
-Do not invoke `fakoli-state prd parse` automatically. The user should read the draft one more time on disk before parsing — that is the natural moment to catch translation errors from interview answers to PRD bullets.
+> Draft written to `.fakoli-state/prd.md`. Ready to parse it into `state.db`? (yes / no / let me edit first)
+
+- **On `yes`** — invoke `fakoli-state prd parse` (via Bash, the MCP `parse_prd` tool when available, or whichever tool the runtime exposes). Surface the result inline. The user sees the parse output in the same conversation, not after a context switch:
+  > Parsed 6 requirements, 3 features, 8 tasks. Any unexpected counts? The next step is `prd review` — want me to drive that with you now? (yes / not yet)
+- **On `no`** — stop. Confirm the file is on disk at `.fakoli-state/prd.md` and tell the user it is theirs to refine.
+- **On `let me edit first`** — wait. When the user signals they are ready, return to the confirm step above and run the parse.
+
+When the user says yes to continuing into review, hand off to the `prd` skill **by invoking it directly** — do not paste a CLI to-do list. The `prd` skill is designed to drive the `review` → `approve` flow conversationally, with the same one-question-at-a-time discipline this skill uses.
+
+**Anti-pattern to avoid:** ending the skill with a numbered list like "1. Run `prd parse` 2. Run `prd review` 3. Run `prd review --approve` 4. Run `plan`...". That handoff style only makes sense when the work is leaving this session entirely (queued for another agent, scheduled for tomorrow, requires stakeholder review). When the agent and user are in the same conversation, run the next command and present the next decision — do not delegate the typing.
+
+**When to actually hand off CLI commands:** if the user explicitly opts out ("just give me the commands and I'll run them later"), or if the runtime lacks the tool needed to execute them (e.g., MCP-only client with no shell). In those cases, the CLI list is the right output. Otherwise, drive.
 
 ---
 
