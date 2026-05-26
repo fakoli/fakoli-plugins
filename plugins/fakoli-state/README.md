@@ -7,9 +7,9 @@
 > fakoli-state turns rough ideas and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI coding agents can execute in parallel without stepping on each other — the canonical project-state layer that fakoli-flow and fakoli-crew compose around.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.14.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.15.0-blue.svg)](.claude-plugin/plugin.json)
 [![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
-[![Tests](https://img.shields.io/badge/tests-1024%20passing-brightgreen.svg)](tests)
+[![Tests](https://img.shields.io/badge/tests-1046%20passing-brightgreen.svg)](tests)
 
 </div>
 
@@ -31,13 +31,13 @@ fakoli-flow defines how work moves, fakoli-crew defines who does the work, and f
 
 ---
 
-## What ships today (v1.14.0)
+## What ships today (v1.15.0)
 
 | Surface | Count | Notes |
 |---|---|---|
-| CLI commands | **24** | Top-level + `prd`, `review`, `hook`, `sync` sub-apps. v1.14.0 adds `prd find-decisions`. |
-| MCP tools | **22** | FastMCP stdio; works in any MCP-compatible client. v1.14.0 adds `find_decisions`. |
-| Skills | **8 skills** | start-prd, prd, plan, claim, execute, finish, state-ops, resolve-decisions (v1.14.0) |
+| CLI commands | **24** | Top-level + `prd`, `review`, `hook`, `sync` sub-apps. v1.15.0: `plan` now guarantees tasks (auto-generates via LLM when `## Tasks` is empty). |
+| MCP tools | **22** | FastMCP stdio; works in any MCP-compatible client. v1.15.0: `plan_tasks` gains `use_llm` flag + `llm_generated`/`llm_provider` response fields. |
+| Skills | **8 skills** | start-prd, prd, plan (v1.15.0: drops planner-subagent workaround, adds Q&A discipline), claim, execute, finish, state-ops, resolve-decisions |
 | Agents | **6 agents** | planner, critic, sentinel, state-keeper, marketplace-scribe, docs-scribe |
 | Hooks | **4 hooks** | detect-state, check-claim, record-file-change, capture-evidence |
 

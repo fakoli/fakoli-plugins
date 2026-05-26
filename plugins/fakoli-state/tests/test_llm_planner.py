@@ -1,0 +1,470 @@
+"""Tests for fakoli_state.planning.llm_planner — LLM-driven task generation."""
+
+from __future__ import annotations
+
+import datetime
+
+import pytest
+
+from fakoli_state.clock import FrozenClock
+from fakoli_state.planning.llm import LLMResponse, RecordedLLMProvider
+from fakoli_state.planning.llm_planner import (
+    PlannerProviderUnavailable,
+    TaskGenerationError,
+    _build_user_prompt,
+    _SYSTEM_PROMPT,
+    _validate_and_normalize,
+    generate_tasks_markdown,
+    resolve_planner_provider,
+)
+from fakoli_state.planning.template import parse_prd
+from fakoli_state.state.models import PRD, Feature, Requirement, Task
+
+_FROZEN = FrozenClock(datetime.datetime(2026, 5, 26, 12, 0, tzinfo=datetime.UTC))
+
+
+# ---------------------------------------------------------------------------
+# resolve_planner_provider — the tier chain
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePlannerProvider:
+    def test_anthropic_tier_when_api_key_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Tier 2 fires when ANTHROPIC_API_KEY is in the env."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake-not-real")
+        provider, tier = resolve_planner_provider()
+        assert tier == "anthropic"
+        # AnthropicProvider has a .generate method — sanity check the shape.
+        assert hasattr(provider, "generate")
+
+    def test_raises_when_no_provider_available(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Tier 3 — no env var means a loud failure with both setup paths
+        named in the message."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(PlannerProviderUnavailable) as exc_info:
+            resolve_planner_provider()
+        msg = str(exc_info.value)
+        assert "ANTHROPIC_API_KEY" in msg
+        assert "claude-agent-sdk" in msg, (
+            "Error message should also name the future Tier 1 path so "
+            "the user knows both setup options."
+        )
+
+
+# ---------------------------------------------------------------------------
+# _build_user_prompt — assembly from PRD model
+# ---------------------------------------------------------------------------
+
+
+def _feat(feat_id: str, title: str, requirements: list[str]) -> Feature:
+    return Feature(id=feat_id, title=title, description=f"Description of {title}.",
+                   requirements=requirements, tasks=[])
+
+
+def _req(req_id: str, text: str) -> Requirement:
+    return Requirement(id=req_id, prd_section="requirements", text=text)
+
+
+class TestBuildUserPrompt:
+    def test_includes_summary_goals_and_requirements(self) -> None:
+        prd = PRD(
+            summary="A simple CLI for converting JSON to YAML.",
+            goals=["Convert JSON to YAML.", "Preserve key order."],
+            non_goals=["Round-trip YAML→JSON."],
+            requirements=["R001", "R002"],
+        )
+        prompt = _build_user_prompt(
+            prd=prd,
+            features=[_feat("F001", "Conversion", ["R001", "R002"])],
+            requirements=[
+                _req("R001", "Accept JSON file paths"),
+                _req("R002", "Write YAML output"),
+            ],
+            existing_tasks=None,
+        )
+        assert "## Summary" in prompt
+        assert "JSON to YAML" in prompt
+        assert "## Goals" in prompt
+        assert "Preserve key order" in prompt
+        assert "## Non-Goals" in prompt
+        assert "Round-trip YAML→JSON" in prompt
+        assert "## Requirements" in prompt
+        assert "R001" in prompt and "R002" in prompt
+        assert "F001" in prompt and "Conversion" in prompt
+
+    def test_existing_tasks_advances_id_counter(self) -> None:
+        """When existing tasks are passed, the prompt tells the LLM the next
+        ID to use so it doesn't collide."""
+        prd = PRD(summary="x", goals=["g"], requirements=["R001"])
+        existing = _existing_task("T005")
+        prompt = _build_user_prompt(
+            prd=prd,
+            features=[_feat("F001", "Feature", ["R001"])],
+            requirements=[_req("R001", "r")],
+            existing_tasks=[existing],
+        )
+        assert "T005" in prompt
+        assert "T006" in prompt, "Next available ID after T005 should be T006"
+
+    def test_omits_optional_sections_when_empty(self) -> None:
+        prd = PRD(summary="x", goals=["g"], requirements=["R001"])
+        prompt = _build_user_prompt(
+            prd=prd,
+            features=[_feat("F001", "F", ["R001"])],
+            requirements=[_req("R001", "r")],
+            existing_tasks=None,
+        )
+        assert "## Non-Goals" not in prompt
+        assert "## Risks" not in prompt
+        assert "## Open Questions" not in prompt
+
+
+def _existing_task(task_id: str) -> Task:
+    from fakoli_state.state.models import Score, TaskPriority, TaskStatus, Verification
+    now = _FROZEN.now()
+    return Task(
+        id=task_id,
+        feature_id="F001",
+        title=f"Existing {task_id}",
+        description="",
+        status=TaskStatus.drafted,
+        priority=TaskPriority.medium,
+        scores=Score(),
+        acceptance_criteria=["Works"],
+        verification=Verification(commands=["pytest"]),
+        likely_files=[],
+        created_at=now,
+        updated_at=now,
+    )
+
+
+# ---------------------------------------------------------------------------
+# _validate_and_normalize — robust to LLM output quirks
+# ---------------------------------------------------------------------------
+
+
+class TestValidateAndNormalize:
+    def test_clean_response_returns_unchanged(self) -> None:
+        raw = """\
+## Tasks
+
+### T001: First task
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/foo.py
+
+Description.
+
+**Acceptance criteria:**
+
+- Works.
+
+**Verification:**
+
+- `pytest tests/`
+"""
+        text, count = _validate_and_normalize(raw)
+        assert "## Tasks" in text
+        assert count == 1
+
+    def test_strips_markdown_code_fences(self) -> None:
+        """Some models wrap the output in ```markdown ... ``` despite the
+        instruction. Strip the fences so the downstream parser sees clean
+        markdown."""
+        raw = """```markdown
+## Tasks
+
+### T001: A
+
+**Feature:** F001
+**Priority:** high
+**Likely files:** src/x.py
+
+d
+
+**Acceptance criteria:**
+
+- a
+
+**Verification:**
+
+- `pytest`
+```"""
+        text, count = _validate_and_normalize(raw)
+        assert not text.startswith("```")
+        assert count == 1
+
+    def test_adds_missing_tasks_header(self) -> None:
+        """Some models forget the `## Tasks` header and jump straight to
+        `### T001:`. Re-add the header so the parser can find the section."""
+        raw = """\
+### T001: A
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/x.py
+
+d
+
+**Acceptance criteria:**
+
+- a
+
+**Verification:**
+
+- `pytest`
+"""
+        text, count = _validate_and_normalize(raw)
+        assert text.lstrip().lower().startswith("## tasks")
+        assert count == 1
+
+    def test_empty_response_raises(self) -> None:
+        with pytest.raises(TaskGenerationError, match="empty"):
+            _validate_and_normalize("")
+        with pytest.raises(TaskGenerationError, match="empty"):
+            _validate_and_normalize("   \n\n  ")
+
+    def test_no_task_blocks_raises(self) -> None:
+        """Response without any `### TXXX:` blocks fails loudly so the agent
+        can see what the LLM actually wrote."""
+        raw = """## Tasks
+
+Some descriptive prose but no actual task blocks.
+"""
+        with pytest.raises(TaskGenerationError, match="### TXXX"):
+            _validate_and_normalize(raw)
+
+    def test_counts_multiple_tasks(self) -> None:
+        raw = """\
+## Tasks
+
+### T001: One
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** a
+
+d
+
+**Acceptance criteria:**
+
+- a
+
+**Verification:**
+
+- `c`
+
+### T002: Two
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** b
+
+d
+
+**Acceptance criteria:**
+
+- b
+
+**Verification:**
+
+- `c2`
+"""
+        text, count = _validate_and_normalize(raw)
+        assert count == 2
+
+
+# ---------------------------------------------------------------------------
+# generate_tasks_markdown — end-to-end with recorded provider
+# ---------------------------------------------------------------------------
+
+
+def _canned_response(text: str) -> LLMResponse:
+    return LLMResponse(
+        text=text,
+        input_tokens=100,
+        cached_input_tokens=0,
+        output_tokens=50,
+        model="claude-opus-4-7",
+        finish_reason="end_turn",
+    )
+
+
+_CANNED_TASKS_MARKDOWN = """## Tasks
+
+### T001: Implement JSON parser
+
+**Feature:** F001
+**Priority:** high
+**Likely files:** src/jy2yaml/parser.py
+
+Parse JSON files into Python dicts preserving key order.
+
+**Acceptance criteria:**
+
+- A valid JSON file produces a dict with original key order.
+- Invalid JSON raises a clear error including the filename.
+
+**Verification:**
+
+- `pytest tests/test_parser.py -v`
+
+### T002: Implement YAML writer
+
+**Feature:** F001
+**Priority:** high
+**Likely files:** src/jy2yaml/writer.py
+
+Write Python dicts to YAML preserving the dict's iteration order.
+
+**Acceptance criteria:**
+
+- The output YAML re-parses to the same dict.
+- Keys appear in the same order as the input dict.
+
+**Verification:**
+
+- `pytest tests/test_writer.py -v`
+"""
+
+
+class TestGenerateTasksMarkdown:
+    def test_happy_path_with_injected_provider(self) -> None:
+        """End-to-end: build prompt, run via recorded provider, validate output."""
+        prd = PRD(
+            summary="JSON to YAML CLI",
+            goals=["Convert JSON to YAML"],
+            requirements=["R001"],
+        )
+        features = [_feat("F001", "Conversion", ["R001"])]
+        requirements = [_req("R001", "Accept JSON file path")]
+
+        user_prompt = _build_user_prompt(prd, features, requirements, None)
+        key = RecordedLLMProvider.record_key(
+            _SYSTEM_PROMPT, user_prompt, max_tokens=8000, temperature=0.0
+        )
+        provider = RecordedLLMProvider({key: _canned_response(_CANNED_TASKS_MARKDOWN)})
+
+        result = generate_tasks_markdown(
+            prd=prd,
+            features=features,
+            requirements=requirements,
+            provider=provider,
+        )
+        assert result.task_count == 2
+        assert "## Tasks" in result.markdown
+        assert "T001" in result.markdown and "T002" in result.markdown
+        assert result.provider_used == "injected"
+
+    def test_generated_markdown_round_trips_through_parser(self) -> None:
+        """The generated markdown MUST be parseable by the existing
+        planning.template.parse_prd parser. This is the round-trip contract
+        that lets the CLI append generated tasks to prd.md and re-parse
+        without duplicating logic."""
+        prd_markdown = """\
+# Project: Round-Trip Test
+
+## Summary
+
+A test project.
+
+## Goals
+
+- Test the round trip.
+
+## Requirements
+
+- R001: First requirement.
+
+## Features
+
+### F001: Single feature
+
+**Requirements:** R001
+
+A description.
+"""
+        # Generate tasks via the LLM, append to the PRD, re-parse end-to-end.
+        parsed = parse_prd(prd_markdown, clock=_FROZEN)
+        user_prompt = _build_user_prompt(
+            parsed.prd, parsed.features, parsed.requirements, None
+        )
+        key = RecordedLLMProvider.record_key(
+            _SYSTEM_PROMPT, user_prompt, max_tokens=8000, temperature=0.0
+        )
+        provider = RecordedLLMProvider({key: _canned_response(_CANNED_TASKS_MARKDOWN)})
+        result = generate_tasks_markdown(
+            prd=parsed.prd,
+            features=parsed.features,
+            requirements=parsed.requirements,
+            provider=provider,
+        )
+
+        # Append the generated markdown to the PRD and re-parse.
+        full_prd = prd_markdown + "\n" + result.markdown
+        reparsed = parse_prd(full_prd, clock=_FROZEN)
+
+        assert len(reparsed.tasks) == 2
+        assert reparsed.tasks[0].id == "T001"
+        assert reparsed.tasks[1].id == "T002"
+        assert reparsed.tasks[0].feature_id == "F001"
+        assert reparsed.tasks[0].acceptance_criteria
+        assert reparsed.tasks[0].verification.commands
+
+    def test_provider_resolution_when_provider_omitted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When provider=None, resolve_planner_provider() is called and the
+        resulting tier_name is reflected in the response."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake")
+
+        # We can't actually call the real Anthropic API in a test, so we
+        # monkeypatch resolve_planner_provider to return a recorded one
+        # with the right key.
+        prd = PRD(summary="x", goals=["g"], requirements=["R001"])
+        features = [_feat("F001", "F", ["R001"])]
+        requirements = [_req("R001", "r")]
+        user_prompt = _build_user_prompt(prd, features, requirements, None)
+        key = RecordedLLMProvider.record_key(
+            _SYSTEM_PROMPT, user_prompt, max_tokens=8000, temperature=0.0
+        )
+        recorded = RecordedLLMProvider({key: _canned_response(_CANNED_TASKS_MARKDOWN)})
+
+        from fakoli_state.planning import llm_planner as planner_mod
+        monkeypatch.setattr(
+            planner_mod,
+            "resolve_planner_provider",
+            lambda: (recorded, "anthropic"),
+        )
+
+        result = generate_tasks_markdown(
+            prd=prd, features=features, requirements=requirements
+        )
+        assert result.provider_used == "anthropic"
+        assert result.task_count == 2
+
+    def test_validation_error_propagates(self) -> None:
+        """A bad LLM response raises TaskGenerationError, not a silent zero-count
+        success."""
+        prd = PRD(summary="x", goals=["g"], requirements=["R001"])
+        features = [_feat("F001", "F", ["R001"])]
+        requirements = [_req("R001", "r")]
+        user_prompt = _build_user_prompt(prd, features, requirements, None)
+        key = RecordedLLMProvider.record_key(
+            _SYSTEM_PROMPT, user_prompt, max_tokens=8000, temperature=0.0
+        )
+        bad_response = _canned_response("Sorry, I don't know how to plan this.")
+        provider = RecordedLLMProvider({key: bad_response})
+
+        with pytest.raises(TaskGenerationError):
+            generate_tasks_markdown(
+                prd=prd,
+                features=features,
+                requirements=requirements,
+                provider=provider,
+            )

@@ -26,6 +26,7 @@ Tool names match the spec exactly (2026-05-24-fakoli-state-v0.md §MCP Server).
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -1536,23 +1537,51 @@ class PlanTasksResponse(BaseModel):
     task_count: int
     conflict_group_count: int
     warnings: list[ParseErrorEntry]
+    # v1.15.0 fields — LLM task-generation backstop signalling. ``llm_generated``
+    # is True when this call invoked the LLM to draft a ``## Tasks`` section
+    # and appended it to prd.md. ``llm_provider`` is the tier label used
+    # (``anthropic`` today; ``claude-agent-sdk`` reserved for v1.16+), or
+    # None when no LLM call was made (either because tasks already existed
+    # or ``use_llm=False``).
+    llm_generated: bool = False
+    llm_provider: str | None = None
 
 
 @mcp.tool
-def plan_tasks(cwd: str | None = None) -> PlanTasksResponse:
+def plan_tasks(
+    cwd: str | None = None,
+    use_llm: bool = True,
+) -> PlanTasksResponse:
     """Run the planner pipeline against the current PRD: emit
     feature.created and task.created events with dependency inference and
     conflict groups, then promote proposed tasks to drafted.
 
-    Mirrors ``fakoli-state plan`` (deterministic mode — never invokes the
-    LLM; agents that need LLM enrichment must use the CLI). Parse errors
-    from the underlying PRD parse are surfaced as warnings, not raised.
+    Mirrors ``fakoli-state plan``. When the PRD has features+requirements
+    but no ``## Tasks`` section the tool calls the LLM planner (see
+    ``planning.llm_planner``) to draft tasks, appends them to ``prd.md``,
+    and re-parses. Pass ``use_llm=False`` to opt out of this backstop —
+    the tool will then return ``task_count=0`` without mutating the file,
+    leaving the caller to author tasks manually.
+
+    Parse errors from the underlying PRD parse are surfaced as warnings,
+    not raised. LLM failures (no provider configured, bad LLM output) are
+    raised as ``ToolError`` so MCP clients see them rather than a silent
+    zero-count response.
 
     Args:
         cwd: Project root. Defaults to Path.cwd().
+        use_llm: When True (the default) and the PRD has 0 tasks but ≥1
+            feature, invoke the LLM planner to generate a ``## Tasks``
+            section and append it to ``prd.md``. When False, skip the
+            backstop and return whatever the deterministic parse produced.
     """
     from fakoli_state.clock import SystemClock
     from fakoli_state.planning.inference import infer_all
+    from fakoli_state.planning.llm_planner import (
+        PlannerProviderUnavailable,
+        TaskGenerationError,
+        generate_tasks_markdown,
+    )
     from fakoli_state.planning.template import parse_prd as _parse_prd_impl
     from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
     from fakoli_state.state.models import Event
@@ -1581,6 +1610,61 @@ def plan_tasks(cwd: str | None = None) -> PlanTasksResponse:
         ParseErrorEntry(section=e.section, line=e.line, message=e.message)
         for e in result.errors
     ]
+
+    # ------------------------------------------------------------------
+    # LLM task-generation backstop (v1.15+)
+    #
+    # When the PRD has features+requirements but no `## Tasks` section the
+    # deterministic parser yields 0 tasks. Previously plan_tasks returned
+    # task_count=0 silently and downstream tools were left without tasks
+    # to operate on. Now we call the LLM planner, append generated tasks
+    # to prd.md, and re-parse before any events are emitted.
+    # ------------------------------------------------------------------
+    llm_generated = False
+    llm_provider: str | None = None
+    if (
+        use_llm
+        and len(result.tasks) == 0
+        and len(result.features) > 0
+    ):
+        try:
+            gen_result = generate_tasks_markdown(
+                prd=result.prd,
+                features=result.features,
+                requirements=result.requirements,
+            )
+        except PlannerProviderUnavailable as exc:
+            raise ToolError(str(exc)) from exc
+        except TaskGenerationError as exc:
+            raise ToolError(f"LLM task generation failed: {exc}") from exc
+
+        # Idempotency guard: only append `## Tasks` when not already
+        # present, so re-running plan_tasks after a previous append is a
+        # no-op on the file.
+        try:
+            current_markdown = prd_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ToolError(f"Cannot re-read {prd_path}: {exc}") from exc
+
+        if not _has_tasks_section(current_markdown):
+            new_markdown = (
+                current_markdown.rstrip() + "\n\n" + gen_result.markdown + "\n"
+            )
+            try:
+                prd_path.write_text(new_markdown, encoding="utf-8")
+            except OSError as exc:
+                raise ToolError(
+                    f"Cannot write generated tasks to {prd_path}: {exc}"
+                ) from exc
+
+        # Re-parse so the event emission below sees the new tasks.
+        try:
+            markdown = prd_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ToolError(f"Cannot re-read {prd_path}: {exc}") from exc
+        result = _parse_prd_impl(markdown, prd_id="prd")
+        llm_generated = True
+        llm_provider = gen_result.provider_used
 
     backend = _open_backend(state_dir)
     try:
@@ -1671,9 +1755,23 @@ def plan_tasks(cwd: str | None = None) -> PlanTasksResponse:
             task_count=len(result.tasks),
             conflict_group_count=len(inference_result.conflict_groups),
             warnings=warnings,
+            llm_generated=llm_generated,
+            llm_provider=llm_provider,
         )
     finally:
         backend.close()
+
+
+# Case-insensitive `## Tasks` H2 detection — shared idempotency helper for
+# the LLM-backstop append step. See ``fakoli_state.cli.plan._has_tasks_section``
+# for the CLI's twin; we keep them parallel rather than imported across
+# layers to preserve the CLI / MCP boundary.
+_TASKS_HEADING_RE = re.compile(r"^##\s+tasks\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def _has_tasks_section(markdown: str) -> bool:
+    """Return True when ``markdown`` already contains a ``## Tasks`` H2."""
+    return _TASKS_HEADING_RE.search(markdown) is not None
 
 
 # ---------------------------------------------------------------------------

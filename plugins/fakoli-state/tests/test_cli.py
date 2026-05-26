@@ -724,6 +724,289 @@ class TestPlan:
 
 
 # ---------------------------------------------------------------------------
+# plan — LLM task-generation backstop (v1.15+)
+# ---------------------------------------------------------------------------
+
+
+# A PRD with features + requirements but NO `## Tasks` section. Triggers
+# the LLM-backstop path in `plan`. Matches the shape `parse_prd` accepts.
+_PRD_WITHOUT_TASKS = """\
+# Project: LLM Backstop Test
+
+## Summary
+
+A project for exercising the LLM task-generation backstop.
+
+## Goals
+
+- Verify the backstop fires when tasks are absent.
+
+## Requirements
+
+- R001: Accept input.
+- R002: Produce output.
+
+## Features
+
+### F001: Core Feature
+
+The single feature exercised by the test PRD.
+
+**Requirements:** R001, R002
+"""
+
+# Canned LLM response with two tasks the parser can consume. Kept inline
+# here rather than imported from test_llm_planner so each test file is
+# self-contained and individually executable.
+_CANNED_LLM_TASKS = """\
+## Tasks
+
+### T001: Implement input handler
+
+**Feature:** F001
+**Priority:** high
+**Likely files:** src/app/handler.py
+
+Parse the input correctly with validation.
+
+**Acceptance criteria:**
+
+- Valid input is parsed.
+- Invalid input raises with the filename.
+
+**Verification:**
+
+- `pytest tests/test_handler.py -v`
+
+### T002: Implement output writer
+
+**Feature:** F001
+**Priority:** medium
+**Likely files:** src/app/writer.py
+
+Write output to disk atomically.
+
+**Acceptance criteria:**
+
+- Output round-trips back to the input.
+
+**Verification:**
+
+- `pytest tests/test_writer.py -v`
+"""
+
+
+def _build_recorded_llm_provider_for(prd_content: str):  # type: ignore[no-untyped-def]
+    """Build a RecordedLLMProvider keyed to the LLM planner's prompt for
+    ``prd_content``.
+
+    Parses the PRD with ``parse_prd`` to recover the same PRD/Feature/
+    Requirement objects the production code path will pass to the planner,
+    builds the planner's user prompt with the same helper, and records a
+    canned response under that prompt's sha256 key.
+    """
+    from fakoli_state.planning.llm import LLMResponse, RecordedLLMProvider
+    from fakoli_state.planning.llm_planner import (
+        _SYSTEM_PROMPT,
+        _build_user_prompt,
+    )
+    from fakoli_state.planning.template import parse_prd
+
+    parsed = parse_prd(prd_content, prd_id="prd")
+    user_prompt = _build_user_prompt(
+        parsed.prd, parsed.features, parsed.requirements, None
+    )
+    key = RecordedLLMProvider.record_key(
+        _SYSTEM_PROMPT, user_prompt, max_tokens=8000, temperature=0.0
+    )
+    canned = LLMResponse(
+        text=_CANNED_LLM_TASKS,
+        input_tokens=100,
+        cached_input_tokens=0,
+        output_tokens=50,
+        model="claude-opus-4-7",
+        finish_reason="end_turn",
+    )
+    return RecordedLLMProvider({key: canned})
+
+
+class TestPlanLlmBackstop:
+    """v1.15+ behaviour: when prd.md has features+requirements but no
+    `## Tasks` section the CLI calls the LLM planner, appends generated
+    tasks to prd.md, re-parses, and emits task events. See spec
+    `docs/specs/2026-05-25-llm-task-generation-backstop.md`.
+    """
+
+    def _install_recorded_resolver(
+        self,
+        monkeypatch,  # type: ignore[no-untyped-def]
+        provider,  # type: ignore[no-untyped-def]
+    ) -> None:
+        """Replace ``resolve_planner_provider`` so the CLI uses ``provider``
+        without needing ANTHROPIC_API_KEY or any real network call.
+
+        We patch the symbol on the ``llm_planner`` module because the CLI
+        imports ``generate_tasks_markdown`` and that function reads
+        ``resolve_planner_provider`` from the same module at call time
+        (no early binding into cli.plan)."""
+        from fakoli_state.planning import llm_planner
+
+        monkeypatch.setattr(
+            llm_planner,
+            "resolve_planner_provider",
+            lambda: (provider, "anthropic"),
+        )
+
+    def test_happy_path_generates_appends_and_reparses(
+        self,
+        tmp_path: Path,
+        monkeypatch,  # type: ignore[no-untyped-def]
+    ) -> None:
+        """End-to-end: PRD without `## Tasks` → plan calls LLM, appends to
+        prd.md, re-parses, and reports N tasks generated via LLM."""
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _PRD_WITHOUT_TASKS)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+
+        provider = _build_recorded_llm_provider_for(_PRD_WITHOUT_TASKS)
+        self._install_recorded_resolver(monkeypatch, provider)
+
+        result = _invoke_cmd(tmp_path, ["plan"])
+        assert result.exit_code == 0, f"plan failed: {result.output}"
+
+        # The CLI's summary line should announce LLM generation + the path.
+        assert "generated via LLM" in result.output
+        assert "anthropic" in result.output
+        assert ".fakoli-state/prd.md" in result.output or "prd.md" in result.output
+
+        # prd.md was mutated — it now contains a `## Tasks` section.
+        prd_text = (tmp_path / ".fakoli-state" / "prd.md").read_text(
+            encoding="utf-8"
+        )
+        assert "## Tasks" in prd_text
+        assert "### T001" in prd_text and "### T002" in prd_text
+
+        # Tasks landed in the backend.
+        list_result = _invoke_cmd(tmp_path, ["list"])
+        assert "T001" in list_result.output
+        assert "T002" in list_result.output
+
+    def test_no_llm_opt_out_exits_1_with_clear_message(
+        self,
+        tmp_path: Path,
+        monkeypatch,  # type: ignore[no-untyped-def]
+    ) -> None:
+        """`plan --no-llm` on a PRD without `## Tasks` → exit 1 with a
+        clear message naming the opt-out flag and the prd.md path. The
+        backstop is the safety net; opting out with no work to do should
+        fail loudly."""
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _PRD_WITHOUT_TASKS)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+
+        # Resolver should NOT be called when --no-llm is set; install a
+        # raising stub so any accidental invocation surfaces in the test.
+        from fakoli_state.planning import llm_planner
+
+        def _explode() -> None:
+            raise AssertionError(
+                "resolve_planner_provider should not be called with --no-llm"
+            )
+
+        monkeypatch.setattr(llm_planner, "resolve_planner_provider", _explode)
+
+        result = _invoke_cmd(tmp_path, ["plan", "--no-llm"])
+        assert result.exit_code == 1, (
+            f"--no-llm with 0 tasks should exit 1, got "
+            f"{result.exit_code}: {result.output}"
+        )
+        # The message must name --no-llm so the user knows the opt-out
+        # is what got them here.
+        assert "--no-llm" in result.output
+
+        # prd.md must NOT have been mutated.
+        prd_text = (tmp_path / ".fakoli-state" / "prd.md").read_text(
+            encoding="utf-8"
+        )
+        assert "## Tasks" not in prd_text
+
+    def test_provider_unavailable_exits_1_with_full_message(
+        self,
+        tmp_path: Path,
+        monkeypatch,  # type: ignore[no-untyped-def]
+    ) -> None:
+        """When ``resolve_planner_provider`` raises
+        ``PlannerProviderUnavailable`` the CLI must surface the full
+        multi-line message and exit 1 — never a silent zero-count
+        success."""
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _PRD_WITHOUT_TASKS)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+
+        from fakoli_state.planning import llm_planner
+        from fakoli_state.planning.llm_planner import PlannerProviderUnavailable
+
+        sentinel_msg = (
+            "No LLM provider available for task generation. "
+            "Either set ANTHROPIC_API_KEY or install claude-agent-sdk."
+        )
+
+        def _raise() -> None:
+            raise PlannerProviderUnavailable(sentinel_msg)
+
+        monkeypatch.setattr(llm_planner, "resolve_planner_provider", _raise)
+
+        result = _invoke_cmd(tmp_path, ["plan"])
+        assert result.exit_code == 1
+        # The message must appear in output (stderr is captured into output
+        # by CliRunner in mix_stderr mode, which is the default).
+        combined = result.output + (
+            result.stderr if hasattr(result, "stderr") and result.stderr else ""
+        )
+        assert "ANTHROPIC_API_KEY" in combined
+        assert "claude-agent-sdk" in combined
+
+    def test_idempotent_second_run_does_not_re_append(
+        self,
+        tmp_path: Path,
+        monkeypatch,  # type: ignore[no-untyped-def]
+    ) -> None:
+        """Running ``plan`` twice on a PRD that started without tasks must
+        leave prd.md with exactly one `## Tasks` section. The first run
+        appends; the second run sees the header already exists and is a
+        no-op for the file."""
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _PRD_WITHOUT_TASKS)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+
+        provider = _build_recorded_llm_provider_for(_PRD_WITHOUT_TASKS)
+        self._install_recorded_resolver(monkeypatch, provider)
+
+        first = _invoke_cmd(tmp_path, ["plan"])
+        assert first.exit_code == 0, f"first plan failed: {first.output}"
+
+        prd_after_first = (tmp_path / ".fakoli-state" / "prd.md").read_text(
+            encoding="utf-8"
+        )
+        first_tasks_count = prd_after_first.lower().count("## tasks")
+        assert first_tasks_count == 1
+
+        # Re-parse + re-plan. Second run must not re-append.
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+        second = _invoke_cmd(tmp_path, ["plan"])
+        assert second.exit_code == 0, f"second plan failed: {second.output}"
+
+        prd_after_second = (tmp_path / ".fakoli-state" / "prd.md").read_text(
+            encoding="utf-8"
+        )
+        second_tasks_count = prd_after_second.lower().count("## tasks")
+        assert second_tasks_count == 1, (
+            f"## Tasks should appear exactly once after re-run; "
+            f"got {second_tasks_count}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # score command
 # ---------------------------------------------------------------------------
 

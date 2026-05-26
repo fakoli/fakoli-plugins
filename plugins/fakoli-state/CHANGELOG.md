@@ -6,7 +6,123 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.15+ planned work._
+_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.16+ planned work._
+
+---
+
+## [1.15.0] — 2026-05-26
+
+Two-axis release driven by a user observation across two real
+sessions:
+
+1. **`fakoli-state plan` silently returned 0 tasks** when the PRD
+   had features + requirements but no `## Tasks` section. The user
+   had to manually dispatch the `fakoli-state:planner` subagent as
+   a workaround — and the agent had to *remember* to do that. The
+   "agent must remember" pattern was the bug. This release makes the
+   CLI guarantee tasks: when 0 would otherwise be emitted, the CLI
+   calls the LLM itself, generates `### TXXX:` blocks from features
+   + requirements, appends them to `prd.md`, re-parses, and emits
+   the events. No more silent zero-count successes.
+
+2. **Multi-option decisions were presented as prose with bullets**
+   instead of structured Q&A (`AskUserQuestion` / explicit numbered
+   prompts). The agent's strength is turning a decision into a
+   well-shaped question with concrete options — pasting prose
+   forces the user to type free-form intent the agent then has to
+   interpret. Plan, finish, and claim skills now encode the
+   "structured Q&A for any 2+ option decision" rule explicitly, with
+   the anti-pattern named.
+
+### Added
+
+- **New `planning/llm_planner.py` module** with `generate_tasks_markdown()`
+  and `resolve_planner_provider()`. Pure module; emits `## Tasks`
+  markdown that the existing `planning.template.parse_prd` consumes
+  via round-trip. 15 unit tests covering tier-chain resolution,
+  prompt assembly, output validation, and the end-to-end happy path
+  with a recorded LLM provider.
+- **`fakoli-state plan` now guarantees tasks (CLI).** After the
+  initial parse-and-emit, if 0 tasks were emitted but ≥1 features
+  exist, the CLI calls `generate_tasks_markdown()`, idempotently
+  appends the `## Tasks` block to `prd.md` (skips when `## Tasks` is
+  already present so re-runs don't double-append), re-reads + re-parses,
+  emits `task.created` events. Output line explicitly tells the user
+  the file was modified: `Planned N features, M tasks (M generated
+  via LLM (anthropic), appended to .fakoli-state/prd.md)`.
+- **New `--no-llm` flag on `plan` CLI.** Opts out of auto-generation
+  (e.g. on CI without API keys). When passed and 0 tasks are parsed,
+  CLI exits 1 with a clear "author them manually in {prd_path}"
+  message — never silently returns 0.
+- **MCP `plan_tasks` mirrors the CLI.** New `use_llm: bool = True`
+  parameter. Response model gains `llm_generated: bool` and
+  `llm_provider: str | None` fields so MCP clients can tell when an
+  LLM was invoked and which tier was used. `PlannerProviderUnavailable`
+  and `TaskGenerationError` raise `ToolError` with full messages —
+  no silent 0-task responses.
+- **7 new CLI + MCP regression tests** covering happy path,
+  `--no-llm` / `use_llm=False` opt-out, provider-unavailable error
+  surfacing, and the idempotent-second-run case. Suite is 1046
+  passing (was 1024 in v1.14.0; +22 across the planner module +
+  CLI + MCP).
+
+### Changed
+
+- **`plan` skill Step 1 rewritten.** The previous "if 0 tasks,
+  dispatch the planner subagent" workaround is gone — the CLI now
+  guarantees tasks, so the skill body just runs `plan` and surfaces
+  the result. Explicit guidance: when the output shows `(N generated
+  via LLM ...)`, the agent MUST surface that to the user so they
+  know `prd.md` was modified.
+- **`plan` skill gains a new Step 1.5 — "Present post-plan decisions
+  as structured Q&A."** When the generated task list carries
+  decisions the user has to make (scope overruns, structural
+  concerns, expansion candidates), each one becomes a one-turn
+  `AskUserQuestion` (in Claude Code) or explicit numbered prompt
+  (elsewhere). One decision per turn — do NOT batch.
+- **`finish` skill gains a new "Decision-presentation discipline"
+  subsection** with explicit anti-pattern callout naming the
+  prose-with-bullets failure mode and recommending
+  `AskUserQuestion`. Generalizes the v1.13.0 disposition-gate
+  pattern from a one-off to a rule.
+- **`claim` skill anti-pattern subsection extended** with the same
+  Q&A discipline rule for claim-time decisions (which task to claim
+  first, when to release early, when to force-claim).
+- README badges and "What ships today" table updated for v1.15.0:
+  version 1.14.0 → 1.15.0; tests 1024 → 1046 (+22); CLI commands
+  unchanged at 24 (the new `--no-llm` flag is a flag, not a
+  subcommand); MCP tools unchanged at 22.
+
+### Migration
+
+No breaking changes. Schema unchanged. The 22 existing MCP tools
+return the same shape (the two new fields on `PlanTasksResponse`
+have defaults so old callers see no surprises). All 24 CLI commands
+continue to work; the new `--no-llm` flag is opt-in. The
+`fakoli-state:planner` agent file (`agents/planner.md`) is unchanged
+— it's still useful as a reference / for explicit-dispatch use cases
+that need the subagent's structured-output discipline (PRD critique,
+expansion proposals, incremental planning across PRD revisions).
+
+### Provider tier-chain design
+
+`resolve_planner_provider()` walks an ordered chain:
+
+1. **Tier 1 — claude-agent-sdk** (RESERVED for v1.16+). Currently
+   falls through silently. The hook is in place so a future PR can
+   land the wrapper without touching callers. Rationale for deferring:
+   the SDK is async, requires Node.js + Claude Code CLI installed
+   system-wide, and Claude Code's environment already exposes
+   `ANTHROPIC_API_KEY` — so Tier 2 covers the same use case at zero
+   extra setup cost today. Tier 1 becomes worth adding when there's
+   a concrete benefit beyond what Tier 2 already provides (e.g.
+   session-context sharing, per-call billing attribution).
+2. **Tier 2 — anthropic SDK with `ANTHROPIC_API_KEY`** (CURRENT).
+   Direct Anthropic API call via the existing `AnthropicProvider`.
+   Used in both standalone and Claude Code contexts.
+3. **Tier 3 — fail loudly** with a multi-line message naming both
+   the env var path and the future SDK path. Never returns 0 tasks
+   silently.
 
 ---
 

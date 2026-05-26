@@ -233,6 +233,29 @@ When the human is the reviewer and an agent runs this skill:
 
 ---
 
+## Decision-presentation discipline (v1.15.0)
+
+Whenever this skill surfaces a multi-option decision to the user — disposition (accept/reject/hold/discard), reject-with-which-reason, delete-branch-now-or-later, batch-multiple-tasks-or-one-at-a-time — present it as a **structured Q&A turn**, not as prose with bullet points.
+
+**Use `AskUserQuestion` when running inside Claude Code.** It gives the user an explicit pick UI with labeled options instead of free-form text they have to type. The labels become the agent's input on the next turn, so the choice is unambiguous and traceable. For runtimes without `AskUserQuestion`, fall back to explicit numbered prompts (`Reply 1 / 2 / 3 / 4`).
+
+**Anti-pattern to avoid:** ending a turn with prose-with-bullets that *looks* like options but doesn't structure the choice. For example:
+
+> "Two options: Cut T014 (planner's recommendation). Cut T008 + T018 (distributed). My recommendation is the first. What's your call?"
+
+That paragraph asks for a decision but doesn't pin down the answer shape — the user might reply "first," "T014," "let's cut T014," "go with your rec," and the agent now has to interpret intent. Replace it with `AskUserQuestion` (or numbered prompts) so the answer is one of N labels and the agent knows exactly what to do next:
+
+> 1. Cut T014 + trim T002 (planner's recommendation; lands at ~80h)
+> 2. Cut T008 + T018 + trim T007 (distributed; keeps all features intact)
+> 3. Defer T017 (Wasm network policy; affects F005)
+> 4. Keep all tasks and accept the overrun
+>
+> Pick 1 / 2 / 3 / 4 (or describe).
+
+The rule is the same as the v1.14.0 `resolve-decisions` Q&A pattern, applied one layer up: any time the agent could present 2+ options for the user to pick, use structured Q&A. Prose-with-bullets that looks like options but lacks an explicit "pick N" prompt is the failure mode.
+
+---
+
 ## Composition with Other Skills
 
 | Position | Skill |

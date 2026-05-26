@@ -10,6 +10,7 @@ LLM enrichment is layered on top and may fail open with a stderr warning.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -87,6 +88,18 @@ def plan(
             "always produced first; LLM enrichment is additive."
         ),
     ),
+    no_llm: bool = typer.Option(  # noqa: B008
+        False,
+        "--no-llm",
+        help=(
+            "Disable the LLM task-generation backstop. When the PRD has "
+            "features+requirements but no `## Tasks` section, default "
+            "behaviour is to call the LLM to generate tasks and append "
+            "them to prd.md. With --no-llm the CLI fails loudly instead, "
+            "matching the pre-v1.15 behaviour for users who prefer to "
+            "author tasks manually."
+        ),
+    ),
 ) -> None:
     """Generate features and tasks from the parsed PRD.
 
@@ -100,11 +113,23 @@ def plan(
     back to the deterministic description with a stderr warning — they never
     abort plan.
 
+    When the PRD has features+requirements but no ``## Tasks`` section the
+    CLI calls the LLM planner (see ``planning.llm_planner``) to draft tasks,
+    appends them to ``prd.md``, and re-parses. Pass ``--no-llm`` to opt out
+    of this backstop and fail loudly instead.
+
     Idempotent: running plan twice will not duplicate tasks (INSERT OR REPLACE
-    semantics in the SQLite backend handle deduplication by task ID).
+    semantics in the SQLite backend handle deduplication by task ID). The
+    LLM backstop is also idempotent — once a ``## Tasks`` section exists in
+    ``prd.md`` it is never re-appended.
     """
     from fakoli_state.clock import SystemClock
     from fakoli_state.planning.inference import infer_all
+    from fakoli_state.planning.llm_planner import (
+        PlannerProviderUnavailable,
+        TaskGenerationError,
+        generate_tasks_markdown,
+    )
     from fakoli_state.planning.template import parse_prd
     from fakoli_state.state.models import Event
 
@@ -127,22 +152,88 @@ def plan(
         raise typer.Exit(code=1) from exc
 
     provider = _resolve_llm_provider(use_llm)
-    result = parse_prd(markdown, prd_id="prd", provider=provider)
+    parsed = parse_prd(markdown, prd_id="prd", provider=provider)
 
     # Non-fatal parse errors are surfaced as warnings during plan.
-    if result.errors:
-        for err in result.errors:
+    if parsed.errors:
+        for err in parsed.errors:
             typer.echo(
                 f"  Warning [{err.section}:{err.line}]: {err.message}",
                 err=True,
             )
+
+    # ------------------------------------------------------------------
+    # LLM task-generation backstop (v1.15+)
+    #
+    # When the PRD has features+requirements but no `## Tasks` section the
+    # deterministic parser yields 0 tasks. Previously the CLI happily
+    # exited 0 with "Planned N features, 0 tasks" and the user had to
+    # remember to invoke the planner subagent. Now we call the LLM
+    # planner here, append generated tasks to prd.md, and re-parse so
+    # the rest of this command runs over a populated task list.
+    # ------------------------------------------------------------------
+    llm_generated_count = 0
+    llm_tier_used: str | None = None
+    if (
+        not no_llm
+        and len(parsed.tasks) == 0
+        and len(parsed.features) > 0
+    ):
+        try:
+            gen_result = generate_tasks_markdown(
+                prd=parsed.prd,
+                features=parsed.features,
+                requirements=parsed.requirements,
+            )
+        except PlannerProviderUnavailable as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        except TaskGenerationError as exc:
+            typer.echo(f"Error: LLM task generation failed: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        # Idempotency: only append `## Tasks` when the file does not
+        # already contain one. Re-running `plan` on a file we previously
+        # appended to is a no-op for the file — the parsed.tasks check
+        # above is the safeguard, but a defensive markdown re-read +
+        # `## Tasks` substring check ensures concurrent writers can't
+        # double-append.
+        try:
+            current_markdown = prd_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            typer.echo(f"Error: cannot re-read {prd_path}: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        if not _has_tasks_section(current_markdown):
+            new_markdown = (
+                current_markdown.rstrip() + "\n\n" + gen_result.markdown + "\n"
+            )
+            try:
+                prd_path.write_text(new_markdown, encoding="utf-8")
+            except OSError as exc:
+                typer.echo(
+                    f"Error: cannot write generated tasks to {prd_path}: {exc}",
+                    err=True,
+                )
+                raise typer.Exit(code=1) from exc
+
+        # Re-parse so the rest of plan() consumes the freshly-appended tasks.
+        try:
+            markdown = prd_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            typer.echo(f"Error: cannot re-read {prd_path}: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        parsed = parse_prd(markdown, prd_id="prd", provider=provider)
+        llm_generated_count = len(parsed.tasks)
+        llm_tier_used = gen_result.provider_used
 
     backend = _open_backend(state_dir)
     try:
         clock = SystemClock()
 
         # Emit feature.created for each feature.
-        for feature in result.features:
+        for feature in parsed.features:
             now = clock.now()
             feature_data = feature.model_dump(mode="json")
             event = Event(
@@ -157,7 +248,7 @@ def plan(
             backend.apply_event(event)
 
         # Emit task.created for each task (status proposed at creation time).
-        for task in result.tasks:
+        for task in parsed.tasks:
             now = clock.now()
             task_data = task.model_dump(mode="json")
             event = Event(
@@ -173,7 +264,7 @@ def plan(
 
         # Run inference on the parsed tasks (before they are stored with updated
         # deps/conflict groups — we upsert them via task.created events again).
-        inference_result = infer_all(result.tasks)
+        inference_result = infer_all(parsed.tasks)
 
         # Re-upsert tasks with inferred dependencies and conflict groups,
         # then promote proposed → drafted.
@@ -220,16 +311,59 @@ def plan(
         # Echo summary inside the try block so it only runs on full success;
         # otherwise inference_result may be unbound (if apply_event raised
         # before line 173) and the access below would NameError.
-        typer.echo(
-            f"Planned {len(result.features)} features, "
-            f"{len(result.tasks)} tasks."
-        )
+        if llm_generated_count and llm_tier_used:
+            typer.echo(
+                f"Planned {len(parsed.features)} features, "
+                f"{len(parsed.tasks)} tasks "
+                f"({llm_generated_count} generated via LLM ({llm_tier_used}), "
+                f"appended to {prd_path})."
+            )
+        elif (
+            no_llm
+            and len(parsed.tasks) == 0
+            and len(parsed.features) > 0
+        ):
+            # Opt-out path: the user explicitly disabled the backstop AND
+            # the deterministic parse produced zero tasks. There is no
+            # work to do downstream, so fail loudly per spec.
+            typer.echo(
+                f"Planned {len(parsed.features)} features, 0 tasks.",
+            )
+            typer.echo(
+                "Error: 0 tasks generated; pass without --no-llm to "
+                "auto-generate via LLM, or author tasks manually in "
+                f"{prd_path}.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        else:
+            typer.echo(
+                f"Planned {len(parsed.features)} features, "
+                f"{len(parsed.tasks)} tasks."
+            )
         if inference_result.conflict_groups:
             typer.echo(
                 f"Detected {len(inference_result.conflict_groups)} conflict group(s)."
             )
     finally:
         backend.close()
+
+
+# Case-insensitive `## Tasks` heading detection. Match an H2 (`## `) at
+# line start, then `tasks` ignoring case and any trailing whitespace, so
+# `## Tasks`, `## tasks`, and `## TASKS` all count.
+_TASKS_HEADING_RE = re.compile(r"^##\s+tasks\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def _has_tasks_section(markdown: str) -> bool:
+    """Return True when ``markdown`` already contains a ``## Tasks`` H2.
+
+    The idempotency guard for the LLM-backstop append step. The check is
+    intentionally narrow — only an actual ``## Tasks`` heading counts. A
+    ``### Tasks subheading`` or the word "tasks" in prose does NOT trigger
+    a false positive.
+    """
+    return _TASKS_HEADING_RE.search(markdown) is not None
 
 
 # ---------------------------------------------------------------------------
