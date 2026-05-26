@@ -50,7 +50,7 @@ Three properties make this composition safe:
 
 | Capability | fakoli-state alone | + fakoli-flow | + fakoli-flow + fakoli-crew |
 |---|---|---|---|
-| PRD authoring | `brainstorm` skill — six-question interview, writes `prd.md` | `brainstorm` bridges to `/fakoli-flow:brainstorm` (richer guided design, optional visual companion), then translates the spec to PRD template | same; `planner` agent additionally defers architecture questions to `fakoli-crew:guido` |
+| PRD authoring | `start-prd` skill — six-question interview, writes `prd.md` | `start-prd` bridges to `/fakoli-flow:brainstorm` (richer guided design, optional visual companion), then translates the spec to PRD template | same; `planner` agent additionally defers architecture questions to `fakoli-crew:guido` |
 | Planning | `plan` CLI + plugin-owned `planner` agent | `/flow:plan` consumes `fakoli-state plan` output and groups Tasks into dependency-ordered waves | crew specialists assigned per Task `agent_suitability` score |
 | Claiming | `claim` skill (solo loop) | `/flow:execute` calls `fakoli-state next` then `fakoli-state claim` per wave | crew agents (`welder`, `scout`, ...) own the claim; `--actor fakoli-crew:welder` tags the Claim row |
 | Execution | `execute` skill — solo agent, one task at a time | `/flow:execute` orchestrates parallel waves; each wave runs this skill's steps internally | crew specialists take work-packets; `welder` for integration, `scout` for research |
@@ -139,9 +139,9 @@ functional on its own. What still works:
 - **All 13 MCP tools** exposed via the FastMCP stdio server — any
   MCP-compatible client (Claude Code, Codex, Cursor, OpenHands, Copilot)
   can call them.
-- **All 7 skills** (`brainstorm`, `prd`, `plan`, `claim`, `execute`,
+- **All 7 skills** (`start-prd`, `prd`, `plan`, `claim`, `execute`,
   `finish`, `state-ops`). They detect the absence of `fakoli-flow` and run
-  their self-contained bodies — six-question interview in `brainstorm`,
+  their self-contained bodies — six-question interview in `start-prd`,
   solo execution loop in `execute`, solo review loop in `finish`.
 - **All 6 plugin-owned agents** — `critic`, `sentinel`, `planner`,
   `state-keeper`, `marketplace-scribe`, `docs-scribe`. They execute their
@@ -163,7 +163,7 @@ PRD-to-shipped lifecycle without ever installing flow or crew.
    PRD authoring, planning, claiming, execution, evidence, and apply.
 2. **Install fakoli-flow next.** It adds the wave-engine orchestration —
    `/flow:execute` dispatches agents in parallel waves with critic gates
-   between them. The skills in fakoli-state's `brainstorm`, `execute`, and
+   between them. The skills in fakoli-state's `start-prd`, `execute`, and
    `finish` automatically bridge to flow's richer equivalents.
 3. **Install fakoli-crew last.** It adds the specialist subagents that the
    wave-engine dispatches. The six plugin-owned agents in fakoli-state
@@ -205,7 +205,7 @@ This mechanical approach has two advantages over metadata-based detection:
    declared, validated, and wired through tooling.
 
 Every skill that calls a sibling plugin documents its detection check
-explicitly. See [`skills/brainstorm/SKILL.md`](../../skills/brainstorm/SKILL.md)
+explicitly. See [`skills/start-prd/SKILL.md`](../../skills/start-prd/SKILL.md)
 Step 1, [`skills/execute/SKILL.md`](../../skills/execute/SKILL.md)
 "Composition with Other Skills", [`skills/finish/SKILL.md`](../../skills/finish/SKILL.md)
 "Composition with Other Skills", and [`skills/claim/SKILL.md`](../../skills/claim/SKILL.md)

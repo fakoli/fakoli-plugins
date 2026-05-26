@@ -1,9 +1,9 @@
 ---
-name: brainstorm
-description: Turn a rough idea into a structured PRD draft through question-by-question dialogue, then write the result to `.fakoli-state/prd.md` so `fakoli-state prd parse` can consume it. Use this skill when the user has a project intent but does not yet have a PRD — it bridges to `/fakoli-flow:brainstorm` when `claude plugin list` reports the `fakoli-flow` plugin installed, and falls back to a self-contained interview loop otherwise.
+name: start-prd
+description: Bootstrap a `.fakoli-state/prd.md` draft from a rough project idea — interview the user question-by-question and write the result so `fakoli-state prd parse` can consume it. Use this skill when the user has a project intent but does not yet have a PRD (e.g., asks to "start a PRD", "draft requirements", "author a PRD", or "spec out a project"); bridges to `/fakoli-flow:brainstorm` when `claude plugin list` reports the `fakoli-flow` plugin installed, and falls back to a self-contained interview loop otherwise.
 ---
 
-# Brainstorm — Rough Idea to PRD Draft
+# Start a PRD — Rough Idea to PRD Draft
 
 Produce a parseable PRD from an unstructured prompt by interviewing the user one question at a time. This skill writes `.fakoli-state/prd.md` — it does not parse, review, or approve. Those steps belong to the `prd` skill.
 
@@ -14,7 +14,7 @@ Produce a parseable PRD from an unstructured prompt by interviewing the user one
 - The user has an idea ("I want to build a CLI that converts CSV to Parquet") but no PRD yet.
 - `fakoli-state status` reports `prd-status: none` and the user is not ready to write the template by hand.
 - A rough scope was discussed in chat and now needs to be captured as a structured document.
-- The user explicitly asks to "brainstorm" or "spec out" a project before planning.
+- The user explicitly asks to "start a PRD", "draft requirements", "author a PRD", or "spec out" a project before planning.
 
 **Do not use this skill** to parse, review, or approve a PRD that already exists — use the `prd` skill. **Do not use this skill** to score, plan, or expand tasks — use the `plan` skill. **Do not use this skill** when the user already has a complete `prd.md` in hand and just wants it loaded into state.
 
@@ -49,7 +49,7 @@ claude plugin list 2>/dev/null | grep -q "fakoli-flow"
 ```
 
 - **Exit code 0** (`fakoli-flow` plugin present): bridge by invoking `/fakoli-flow:brainstorm` as a sub-skill — proceed with the bridge block below.
-- **Non-zero exit** (plugin absent, or `claude` CLI itself not on `PATH`): fall through to Step 2 (self-contained interview). The fall-through is intentional graceful degradation: missing tooling never blocks the brainstorm flow.
+- **Non-zero exit** (plugin absent, or `claude` CLI itself not on `PATH`): fall through to Step 2 (self-contained interview). The fall-through is intentional graceful degradation: missing tooling never blocks the PRD-drafting flow.
 
 The grep pattern is intentionally unanchored. Actual `claude plugin list` output renders each installed plugin as `  ❯ fakoli-flow@fakoli-plugins` (indented marker line, plugin name suffixed with `@<source>`); a leading `^` anchor would never match. The unanchored substring is safe because `fakoli-flow` is a unique slug within the marketplace.
 
@@ -194,7 +194,7 @@ Do not invoke `fakoli-state prd parse` automatically. The user should read the d
 
 ## LLM Augmentation (Optional)
 
-The brainstorm skill can use an LLM to generate richer follow-up questions when `ANTHROPIC_API_KEY` is set — for example, suggesting domain-specific follow-ups after Question 5 ("you mentioned a payments feature; should we capture PCI compliance as a non-goal or a requirement?"). This augmentation is optional. The skill is fully usable without an LLM and without any API key: Claude (the Code agent running this skill) drives the interview directly using the question template above.
+The start-prd skill can use an LLM to generate richer follow-up questions when `ANTHROPIC_API_KEY` is set — for example, suggesting domain-specific follow-ups after Question 5 ("you mentioned a payments feature; should we capture PCI compliance as a non-goal or a requirement?"). This augmentation is optional. The skill is fully usable without an LLM and without any API key: Claude (the Code agent running this skill) drives the interview directly using the question template above.
 
 If you want to use LLM augmentation explicitly, the user can set `ANTHROPIC_API_KEY` in their environment and the skill will surface follow-up suggestions inline. Without the key, the skill stays in the deterministic six-question loop.
 
@@ -215,7 +215,7 @@ If you want to use LLM augmentation explicitly, the user can set `ANTHROPIC_API_
 
 | Position | Skill |
 |---|---|
-| Before this skill | Usually none — brainstorm is the entry point when no PRD exists |
+| Before this skill | Usually none — start-prd is the entry point when no PRD exists |
 | After Step 4 (file written) | `prd` — parse, review, and approve the draft |
 | After `prd review --approve` | `plan` — generate features, tasks, and scores |
 | If `fakoli-flow` is installed | `/fakoli-flow:brainstorm` runs first (Step 1 bridges to it) |
@@ -229,4 +229,4 @@ If you want to use LLM augmentation explicitly, the user can set `ANTHROPIC_API_
 | Self-contained six-question interview | Phase 7 | available — pure markdown choreography |
 | Bridge to `/fakoli-flow:brainstorm` when `fakoli-flow` is installed | Phase 7 | available — detect via `claude plugin list \| grep -q "fakoli-flow"` (explicit shell check, Phase 9 C3) |
 | LLM-augmented follow-up question generation | Phase 7 | optional — requires `ANTHROPIC_API_KEY`; skill is fully usable without it |
-| `fakoli-state brainstorm` CLI command | Phase 7+ | pending — for now, run this skill via `/fakoli-state:brainstorm` |
+| `fakoli-state start-prd` CLI command | Phase 7+ | pending — for now, run this skill via `/fakoli-state:start-prd` |

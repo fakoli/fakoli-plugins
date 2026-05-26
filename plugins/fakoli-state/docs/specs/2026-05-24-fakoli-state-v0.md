@@ -2,7 +2,7 @@
 
 ## Context
 
-`fakoli-state` is the third pillar of the Fakoli plugin ecosystem (`fakoli-flow` = how work moves, `fakoli-crew` = who does the work, `fakoli-state` = what is true). It's a **Claude Code plugin** that provides a local-first, backend-neutral, LLM-optimized project state layer that humans and multiple coding agents can coordinate around. It turns brainstorms and PRDs into reviewed, lockable, agent-ready work packets.
+`fakoli-state` is the third pillar of the Fakoli plugin ecosystem (`fakoli-flow` = how work moves, `fakoli-crew` = who does the work, `fakoli-state` = what is true). It's a **Claude Code plugin** that provides a local-first, backend-neutral, LLM-optimized project state layer that humans and multiple coding agents can coordinate around. It turns rough ideas and PRDs into reviewed, lockable, agent-ready work packets.
 
 The product is informed by three design documents:
 - `agentic_project_state_design_brief.md` — the original vision (PRD authoring, task decomposition, claims/locks, work packets, evidence-based completion, MCP interface).
@@ -30,7 +30,7 @@ The intended outcome of v0 is a usable open-source plugin that demonstrates both
 
 - Plugin-first packaging following the primer's "maximum use of plugins" reference architecture.
 - Local-first by default; canonical state in SQLite under `.fakoli-state/`, never in an issue tracker.
-- **Skills** for workflow choreography: brainstorm, prd, plan, claim, execute, verify, finish, state-ops.
+- **Skills** for workflow choreography: start-prd, prd, plan, claim, execute, verify, finish, state-ops.
 - **CLI binary** in `bin/fakoli-state` for pure state operations — called by skills, hooks, agents, humans, and external tools.
 - **MCP server** (FastMCP, stdio) wired via `.mcp.json`, exposing 13 agent-facing tools.
 - **Hooks** that enforce claim discipline, record file changes, and capture evidence — rules the model would otherwise forget.
@@ -76,7 +76,7 @@ fakoli-state/
 │   ├── github-sync.md
 │   └── integration-flow-crew.md    # how fakoli-state plugs into fakoli-flow + fakoli-crew
 ├── skills/                         # workflow choreography
-│   ├── brainstorm/SKILL.md         # rough idea → PRD (with optional fakoli-flow:brainstorm bridge)
+│   ├── start-prd/SKILL.md          # rough idea → PRD (with optional fakoli-flow:brainstorm bridge)
 │   ├── prd/SKILL.md                # author/review/approve PRD
 │   ├── plan/SKILL.md               # PRD → features → tasks → scores → expand → ready
 │   ├── claim/SKILL.md              # agent-facing claim flow (called from execute)
@@ -175,7 +175,7 @@ fakoli-state sync [github] [--watch] [--fix]
 fakoli-state replay --from-events events.jsonl
 ```
 
-`brainstorm`, full `review`, `verify`, `compact` from the brief move into **skills**; the CLI keeps only the underlying state ops.
+`start-prd`, full `review`, `verify`, `compact` from the brief move into **skills**; the CLI keeps only the underlying state ops.
 
 **Distribution**: contribute via PR to the fakoli-plugins repo; users install via `/plugin install fakoli-state` from the fakoli marketplace. Python source ships in `bin/src/`; `uv` resolves deps on first invocation. Wrapper scripts shell out to `uv run`.
 
@@ -206,7 +206,7 @@ proposed → drafted → reviewed → ready → claimed → in_progress
 
 ## Data Flows (summary)
 
-1. **PRD authoring** — `/fakoli-state:brainstorm` skill drives dialogue (can bridge to `fakoli-flow:brainstorm`), writes `prd.md` → `fakoli-state prd parse` → `/fakoli-state:prd review` gates draft → reviewed → approved.
+1. **PRD authoring** — `/fakoli-state:start-prd` skill drives dialogue (can bridge to `fakoli-flow:brainstorm`), writes `prd.md` → `fakoli-state prd parse` → `/fakoli-state:prd review` gates draft → reviewed → approved.
 2. **Planning** — `/fakoli-state:plan` skill: optionally dispatches `planner` agent (or `fakoli-crew:guido`); `fakoli-state plan` commits skeleton; `score [--use-llm]` populates dimensions; `expand` for `complexity ≥ 4`; `review tasks` promotes drafted → reviewed → ready.
 3. **Claim and execute** — `/fakoli-state:execute` (or `fakoli-flow:execute`): `next` → `claim T012` (gate: PRD reviewed) → auto-create branch/worktree → `packet T012` → agent works → heartbeat every 5 min via `renew T012` → `submit T012` (auto-releases claim) → `/fakoli-state:finish` drives apply + ship decision.
 4. **Conflict detection** — pre-claim warns (not blocks) on `expected_files` overlap with active claims; `--force` to override; logged. `check-claim.sh` hook ALSO warns on Edit/Write outside claimed scope.
@@ -354,5 +354,5 @@ diff <(sqlite3 /tmp/backup.db .dump) <(sqlite3 .fakoli-state/state.db .dump)  # 
 4. **Claims manager**: `claim`/`release`/`renew`/`next` CLI + git_ops + claim skill + check-claim.sh + record-file-change.sh hooks + tests.
 5. **Context engine**: `packet`/`submit`/`apply` CLI + Review engine apply gate + execute/finish skills + capture-evidence.sh hook + critic + sentinel agents + tests.
 6. **MCP server** (13 tools) + `.mcp.json` + `bin/fakoli-state-mcp` wrapper + tests + docs/mcp.md.
-7. **LLM augmentation**: Anthropic provider + `--use-llm` flags + RecordedLLMProvider tests + brainstorm skill bridges to fakoli-flow:brainstorm.
+7. **LLM augmentation**: Anthropic provider + `--use-llm` flags + RecordedLLMProvider tests + start-prd skill bridges to fakoli-flow:brainstorm.
 8. **GitHub sync** (bidirectional) + `sync` CLI + sync engine + state-keeper agent + tests + docs/github-sync.md + reconciliation + release prep + marketplace.json regen + CHANGELOG for 1.0.0.

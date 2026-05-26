@@ -43,11 +43,11 @@ These are the Phase 10 plugin-audit deferrals — 56 live items the five critics
 
 See [Theme 1](#theme-1--no-fuzzy-detection-rule-across-skills) for batch-fix leverage notes.
 
-- **[P11-SK-S1]** `skills/execute/SKILL.md:8,15,256` — fuzzy detection for `fakoli-flow:execute`. Add Step 0 `claude plugin list 2>/dev/null | grep -q "fakoli-flow"`; branch on exit code. Mirror `brainstorm/SKILL.md:48`. **Note:** the grep pattern must NOT use `^` — `claude plugin list` indents each row with `  ❯ ` so a leading anchor never matches.
+- **[P11-SK-S1]** `skills/execute/SKILL.md:8,15,256` — fuzzy detection for `fakoli-flow:execute`. Add Step 0 `claude plugin list 2>/dev/null | grep -q "fakoli-flow"`; branch on exit code. Mirror `start-prd/SKILL.md:48`. **Note:** the grep pattern must NOT use `^` — `claude plugin list` indents each row with `  ❯ ` so a leading anchor never matches.
 - **[P11-SK-S2]** `skills/finish/SKILL.md:8,245-246` — fuzzy detection for `fakoli-flow:finish`. Add explicit `claude plugin list 2>/dev/null | grep -q "fakoli-flow"` check at top of Step 1.
 - **[P11-SK-S3]** `skills/claim/SKILL.md:15,250` — fuzzy detection for `fakoli-flow` and `fakoli-crew:welder/scout`. Wrap each "when X is installed" section in `claude plugin list 2>/dev/null | grep -q "fakoli-..."` shell check (no `^` anchor) or move prose to `references/composition.md`.
 - **[P11-SK-S4]** `skills/finish/SKILL.md:177-212` — fuzzy detection for sync provider availability. Replace prose with `test -n "$GITHUB_REPOSITORY"`, `gh auth status >/dev/null 2>&1`, `fakoli-state sync github --health`.
-- **[P11-SK-S6]** `skills/brainstorm/SKILL.md:194-197` — fuzzy detection for LLM availability. Add explicit `test -n "$ANTHROPIC_API_KEY"` check; document branches; or move to `references/llm-augmentation.md`.
+- **[P11-SK-S6]** `skills/start-prd/SKILL.md:194-197` — fuzzy detection for LLM availability. Add explicit `test -n "$ANTHROPIC_API_KEY"` check; document branches; or move to `references/llm-augmentation.md`.
 
 ### Theme: Skill hygiene (phase-status drift)
 
@@ -59,15 +59,15 @@ See [Theme 5](#theme-5--phase-status-table-drift-across-skills).
 
 ### Theme: Skill hygiene (workflow discipline)
 
-- **[P11-SK-C2]** `skills/brainstorm/SKILL.md:70-110` — six-question discipline explicit but stopping rule "material" is interpretive. Add concrete stopping rule — max 1 follow-up if under 5 words, never chain more than 8 total.
+- **[P11-SK-C2]** `skills/start-prd/SKILL.md:70-110` — six-question discipline explicit but stopping rule "material" is interpretive. Add concrete stopping rule — max 1 follow-up if under 5 words, never chain more than 8 total.
 - **[P11-SK-C3]** `skills/plan/SKILL.md:107-137` — Step 3 documents Phase 7 limitation as 4-step workflow buried in paragraph. Promote to `### Step 3a — Author subtasks manually` block or extract.
-- **[P11-SK-C4]** `skills/prd/SKILL.md:76-84` — Step 1 lacks explicit one-question-per-message discipline (weaker than brainstorm). Mirror brainstorm.
+- **[P11-SK-C4]** `skills/prd/SKILL.md:76-84` — Step 1 lacks explicit one-question-per-message discipline (weaker than start-prd). Mirror start-prd.
 - **[P11-SK-C5]** `skills/execute/SKILL.md:70-84` — Step 2 abort flow happens after packet fetch; dishonest agent skips it. Move Step 2 ahead of packet fetch.
 - **[P11-SK-C6]** `skills/finish/SKILL.md:109-116` — `--reason` requirement for `apply --reject` buried in prose. Promote to callout at top of section.
 
 ### Theme: Skill hygiene (drive-by NITs)
 
-- **[P11-SK-N1]** `skills/brainstorm/SKILL.md:228` — Phase 7 Notes table cell has `\|` escape that may render literally. Use HTML entity `&#124;`.
+- **[P11-SK-N1]** `skills/start-prd/SKILL.md:228` — Phase 7 Notes table cell has `\|` escape that may render literally. Use HTML entity `&#124;`.
 - **[P11-SK-N2]** `skills/claim/SKILL.md:138-143` — example ISO timestamp drifts vs `execute/SKILL.md:121`. Pick one wall-clock date or use placeholder.
 - **[P11-SK-N3]** `skills/state-ops/SKILL.md:22` — "State-ops is NOT for" sentence repeats 4x in one paragraph. Format as bulleted list.
 - **[P11-SK-N4]** `skills/prd/SKILL.md:200-215` — Phase 3 Limitations section duplicates content at lines 39-46. Delete one table or merge columns.
@@ -197,7 +197,7 @@ Items spanning multiple critics/areas that benefit from cohesive treatment. Thes
 ### Theme 1 — No-fuzzy-detection rule across skills
 
 **Closes:** P11-SK-S1, P11-SK-S2, P11-SK-S3, P11-SK-S4, ~~P11-SK-S5~~, P11-SK-S6 (originally 6 SHOULD FIX items; **5 live** — P11-SK-S5 closed in Phase 10 Fix #6, see [Closed / shipped](#closed--shipped-cross-reference)).
-**Pattern:** every skill that conditionally bridges to fakoli-flow, fakoli-crew, a sync provider, or LLM augmentation uses prose-only "when X is installed" framing without a `claude plugin list 2>/dev/null | grep -q "X"` shell check (no `^` anchor — `claude plugin list` indents each row, so the anchored form never matches). `brainstorm/SKILL.md:48` and `finish/SKILL.md:249-254` are the reference implementations every other skill should mirror.
+**Pattern:** every skill that conditionally bridges to fakoli-flow, fakoli-crew, a sync provider, or LLM augmentation uses prose-only "when X is installed" framing without a `claude plugin list 2>/dev/null | grep -q "X"` shell check (no `^` anchor — `claude plugin list` indents each row, so the anchored form never matches). `start-prd/SKILL.md:48` and `finish/SKILL.md:249-254` are the reference implementations every other skill should mirror.
 **Welder effort:** ~3 lines per site, 5 sites — single welder pass, ~50 minutes.
 
 ### Theme 2 — Non-empty actor validation across MCP mutating tools
@@ -249,7 +249,7 @@ Items that originated in the archived backlogs but have already shipped, kept he
 
 | ID | Title | Closed in |
 |---|---|---|
-| **P11-SK-S5** | `skills/finish/SKILL.md:247-252` — fuzzy detection for `fakoli-crew:sentinel`; no shell check | **Phase 10 Fix #6** — welder closed this as a bonus while fixing the dangling `/fakoli-state:sentinel` slash-command reference at the same lines. Removed the broken snippet AND added the `claude plugin list 2>/dev/null \| grep -q "fakoli-crew"` shell gate (mirroring `brainstorm/SKILL.md:48`), with explicit branches for exit-0 (dispatch fakoli-crew:sentinel) vs non-zero (fall through to plugin-local sentinel agent). The PR-B fix-cycle subsequently dropped the `^` anchor from these patterns once it was discovered that `claude plugin list` indents each row (so `^fakoli-...` never matched). See [`docs/plans/agent-welder-t11-status.md`](plans/agent-welder-t11-status.md) § "Fix 6 approach" for the welder's full decision rationale. |
+| **P11-SK-S5** | `skills/finish/SKILL.md:247-252` — fuzzy detection for `fakoli-crew:sentinel`; no shell check | **Phase 10 Fix #6** — welder closed this as a bonus while fixing the dangling `/fakoli-state:sentinel` slash-command reference at the same lines. Removed the broken snippet AND added the `claude plugin list 2>/dev/null \| grep -q "fakoli-crew"` shell gate (mirroring `start-prd/SKILL.md:48`), with explicit branches for exit-0 (dispatch fakoli-crew:sentinel) vs non-zero (fall through to plugin-local sentinel agent). The PR-B fix-cycle subsequently dropped the `^` anchor from these patterns once it was discovered that `claude plugin list` indents each row (so `^fakoli-...` never matched). See [`docs/plans/agent-welder-t11-status.md`](plans/agent-welder-t11-status.md) § "Fix 6 approach" for the welder's full decision rationale. |
 | P9-1 | Audit-event honesty — `sync.pull.completed` emitted on deferred branches | Phase 9 T5 |
 | P9-2 | `local_moved`-only path set `sync_state="in_sync"` instead of `local_ahead` | Phase 9 T5 |
 | P9-3 | `SyncAuditPayload` single all-optional model accepted nonsense | Phase 9 T3 |
