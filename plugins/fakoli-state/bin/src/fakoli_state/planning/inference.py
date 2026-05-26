@@ -28,6 +28,7 @@ Heuristics
 from __future__ import annotations
 
 import json
+import re
 import sys
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -68,8 +69,14 @@ class SubtaskProposal(NamedTuple):
 _EXPAND_SYSTEM_PROMPT = (
     "You are decomposing a complex software task into 2-5 sub-tasks. "
     "Each sub-task should be independently claimable (no overlapping scope). "
-    'Return JSON list of {"title", "description", "acceptance_criteria", '
-    '"likely_files"} objects ONLY — no prose before or after the JSON.'
+    "Your entire response must be a single JSON array. Start your output "
+    'with the literal character `[` and end with `]`. Each element is an '
+    'object with keys: "title" (string, imperative), "description" '
+    '(string), "acceptance_criteria" (array of strings, each independently '
+    'verifiable), "likely_files" (array of file path strings). '
+    "Do NOT wrap the array in markdown code fences. "
+    "Do NOT include any prose before or after the array. "
+    "Do NOT include explanatory commentary inside the array — only data."
 )
 _EXPAND_MAX_TOKENS = 2000
 _EXPAND_COMPLEXITY_THRESHOLD = 4
@@ -360,22 +367,121 @@ def expand_task(
     return proposals
 
 
+_FENCE_RE = re.compile(
+    # Matches the OPENING fence: ```json | ```jsonl | ``` plus any trailing
+    # whitespace and a newline. Captures nothing — we just need the span to
+    # drop it.
+    r"^```(?:json|jsonl|JSON)?\s*\n",
+    re.MULTILINE,
+)
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """Drop opening ```json fence + closing ``` fence if present.
+
+    Tolerates both fenced (` ```json [...] ``` `) and unfenced output. The
+    fence patterns are anchored: opening fence must start the (stripped)
+    text; closing fence must end it. Mid-response fences are intentionally
+    left alone — they could be part of nested code blocks inside a
+    description field.
+    """
+    stripped = text.strip()
+    m = _FENCE_RE.match(stripped)
+    if m:
+        stripped = stripped[m.end():]
+        # Drop a trailing ``` (optionally surrounded by whitespace) if
+        # present at end-of-string.
+        if stripped.rstrip().endswith("```"):
+            tail_idx = stripped.rstrip().rfind("```")
+            stripped = stripped[:tail_idx].rstrip()
+    return stripped
+
+
+def _extract_first_json_array(text: str) -> str | None:
+    """Return the substring spanning the first balanced JSON array, or None.
+
+    Handles the case where the LLM prepends prose ("Here are 3 sub-tasks:
+    [{...}, ...]") despite the prompt. Bracket-matching is simple but
+    string-aware — quoted strings can contain ``[`` / ``]`` chars that
+    should not affect depth. The matcher is NOT a full JSON parser; it
+    returns the substring for ``json.loads`` to validate.
+    """
+    in_string = False
+    escape = False
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "[":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "]":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start != -1:
+                    return text[start:i + 1]
+    return None
+
+
 def _parse_subtask_response(task_id: str, raw: str) -> list[SubtaskProposal]:
     """Parse the LLM's JSON-list response into ``SubtaskProposal``s.
 
-    Tolerant of leading/trailing whitespace; strict on schema (warns and
-    returns ``[]`` on any structural mismatch).
+    Tolerant of common LLM output quirks:
+    - leading/trailing whitespace
+    - markdown code fences (```json ... ``` or ``` ... ```)
+    - leading/trailing prose around the JSON array (regex-extracts the first
+      bracketed array as fallback)
+
+    Strict on schema once a JSON array is in hand. On any parse failure
+    surfaces a warning that INCLUDES a sample of the raw response (first
+    300 chars) so the user can see what the LLM actually wrote without
+    re-running with extra verbosity.
     """
     text = raw.strip()
     if not text:
+        print(
+            f"warning: LLM expansion of {task_id} returned an empty "
+            "response; ignoring.",
+            file=sys.stderr,
+        )
         return []
 
+    # Strip markdown code fences. Modern Claude models often wrap JSON in
+    # ```json ... ``` despite the prompt saying not to — silently handle
+    # the common case rather than make the user debug a non-JSON warning.
+    text = _strip_markdown_fences(text)
+
+    decoded: object | None = None
     try:
         decoded = json.loads(text)
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
+        # Fallback: regex-extract the first balanced JSON array. Tolerates
+        # prose preambles like "Here are 3 sub-tasks: [...]" without
+        # forcing the user to debug a prompt-tuning issue.
+        extracted = _extract_first_json_array(text)
+        if extracted is not None:
+            try:
+                decoded = json.loads(extracted)
+            except json.JSONDecodeError:
+                decoded = None
+
+    if decoded is None:
+        sample = raw.strip()[:300]
+        if len(raw.strip()) > 300:
+            sample += "…"
         print(
-            f"warning: LLM expansion of {task_id} returned non-JSON "
-            f"({exc}); ignoring.",
+            f"warning: LLM expansion of {task_id} returned non-JSON; "
+            f"ignoring. First 300 chars of response: {sample!r}",
             file=sys.stderr,
         )
         return []

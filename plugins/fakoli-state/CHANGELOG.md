@@ -104,6 +104,33 @@ continue to work; the new `--no-llm` flag is opt-in. The
 that need the subagent's structured-output discipline (PRD critique,
 expansion proposals, incremental planning across PRD revisions).
 
+### Fixed (expand --use-llm always returned non-JSON)
+
+- **`fakoli-state expand --use-llm` was failing for every task**
+  because `planning.inference._parse_subtask_response` called
+  `json.loads(text)` with no tolerance for markdown code fences.
+  Modern Claude models routinely wrap JSON in ` ```json … ``` `
+  fences even when the prompt says not to — the parser saw the
+  leading backtick instead of `[` and emitted
+  `Expecting value: line 1 column 1 (char 0)` for every call.
+- Fix: strip markdown fences (` ```json `, ` ```jsonl `, plain
+  ` ``` `) before parsing; if `json.loads` still fails, fall back
+  to a string-aware bracket-matching extractor that finds the
+  first balanced `[…]` JSON array even when prose precedes or
+  follows it (e.g. "Here are 3 sub-tasks: [...]").
+- The fallback warning was reworded to include a 300-char sample
+  of what the LLM actually returned, so users can debug a real
+  non-JSON failure (model refusing the task, malformed output)
+  without re-running with extra verbosity.
+- The expand system prompt itself was strengthened to make raw
+  JSON output more likely: explicit "Start your output with `[`",
+  "Do NOT wrap in markdown code fences", "Do NOT include any
+  prose." Belt-and-braces alongside the parser fix.
+- 5 new regression tests cover fenced JSON (with and without
+  language tag), JSON-after-prose, empty response, and truly
+  non-JSON. The existing "non-JSON returns empty" test still
+  passes — fence-stripping is purely additive.
+
 ### Added (orphan cleanup on re-parse)
 
 - **New `task.deleted` and `feature.deleted` event types** with handlers

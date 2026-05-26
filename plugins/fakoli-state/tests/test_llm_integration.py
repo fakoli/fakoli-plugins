@@ -624,3 +624,110 @@ class TestExpandTaskWithProvider:
 
         proposals = expand_task(task, provider=provider)
         assert len(proposals) == 5
+
+
+# ---------------------------------------------------------------------------
+# expand_task — LLM-output quirk tolerance (v1.15.0)
+# ---------------------------------------------------------------------------
+
+
+class TestExpandTaskHandlesLlmQuirks:
+    """v1.15.0: ``_parse_subtask_response`` now strips markdown code fences
+    and falls back to regex-extracting the first JSON array when the LLM
+    wraps the response in prose. Before this, every fenced response was
+    treated as non-JSON and silently dropped — the user reported that
+    `fakoli-state expand --use-llm` returned "non-JSON" for every task."""
+
+    def _setup(self, response_text: str):  # type: ignore[no-untyped-def]
+        """Build the recorded-provider machinery for an expand_task call."""
+        from fakoli_state.planning.inference import (
+            _EXPAND_MAX_TOKENS,
+            _EXPAND_SYSTEM_PROMPT,
+        )
+
+        task = _make_task(complexity=5, likely_files=["src/foo.py"])
+        canned = _make_response(response_text)
+        key = RecordedLLMProvider.record_key(
+            _EXPAND_SYSTEM_PROMPT,
+            _expand_user_payload(task),
+            max_tokens=_EXPAND_MAX_TOKENS,
+        )
+        provider = RecordedLLMProvider({key: canned})
+        return task, provider
+
+    _CANNED_PROPOSALS = [
+        {
+            "title": "First subtask",
+            "description": "Do A.",
+            "acceptance_criteria": ["A is done"],
+            "likely_files": ["src/a.py"],
+        },
+        {
+            "title": "Second subtask",
+            "description": "Do B.",
+            "acceptance_criteria": ["B is done"],
+            "likely_files": ["src/b.py"],
+        },
+    ]
+
+    def test_fenced_json_response_parses(self) -> None:
+        """LLM wraps the JSON array in ```json ... ``` fences — the parser
+        strips the fences and parses the inner array. THIS IS THE BUG THE
+        USER REPORTED: previously every fenced response was treated as
+        non-JSON."""
+        fenced = (
+            "```json\n" + json.dumps(self._CANNED_PROPOSALS) + "\n```"
+        )
+        task, provider = self._setup(fenced)
+        proposals = expand_task(task, provider=provider)
+        assert len(proposals) == 2
+        assert proposals[0].title == "First subtask"
+
+    def test_unlabeled_fence_response_parses(self) -> None:
+        """Same as fenced JSON but with bare ``` (no `json` language tag)."""
+        fenced = "```\n" + json.dumps(self._CANNED_PROPOSALS) + "\n```"
+        task, provider = self._setup(fenced)
+        proposals = expand_task(task, provider=provider)
+        assert len(proposals) == 2
+
+    def test_json_with_leading_prose_extracted(self) -> None:
+        """LLM prepends 'Here are 2 sub-tasks:' before the array. The
+        regex-extract-first-array fallback rescues this."""
+        wrapped = (
+            "Here are 2 sub-tasks for this complex refactor:\n\n"
+            + json.dumps(self._CANNED_PROPOSALS)
+        )
+        task, provider = self._setup(wrapped)
+        proposals = expand_task(task, provider=provider)
+        assert len(proposals) == 2
+        assert proposals[0].title == "First subtask"
+
+    def test_empty_response_warns_specifically(
+        self, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """Empty LLM response gets a specific empty-response warning, not
+        the generic non-JSON one."""
+        task, provider = self._setup("")
+        proposals = expand_task(task, provider=provider)
+        assert proposals == []
+        _, err = capfd.readouterr()
+        assert "empty response" in err.lower()
+
+    def test_truly_non_json_response_includes_sample_in_warning(
+        self, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """When the response really cannot be parsed (no fences, no
+        bracketed array, just prose), the warning includes a sample of
+        what the LLM wrote so the user can debug without re-running."""
+        garbage = (
+            "I cannot decompose this task because the requirements are "
+            "ambiguous. Please clarify the acceptance criteria first."
+        )
+        task, provider = self._setup(garbage)
+        proposals = expand_task(task, provider=provider)
+        assert proposals == []
+        _, err = capfd.readouterr()
+        assert "I cannot decompose" in err, (
+            f"warning should quote the LLM response so user can debug; "
+            f"stderr was: {err}"
+        )
