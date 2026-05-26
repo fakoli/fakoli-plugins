@@ -573,6 +573,83 @@ class TestPrdReview:
 
 
 # ---------------------------------------------------------------------------
+# prd find-decisions command (v1.14.0)
+# ---------------------------------------------------------------------------
+
+
+_PRD_WITH_DECISIONS = """\
+# Project: CLI Decisions Test
+
+## Summary
+
+The system must serialize inputs [NEEDS DECISION: which format?].
+
+## Goals
+
+- Ship v1 [NEEDS DECISION].
+
+## Requirements
+
+- R001: System works.
+
+## Open Questions
+
+- What is the SLO target?
+"""
+
+
+class TestPrdFindDecisions:
+    def test_clean_prd_exits_zero_with_zero_total(self, tmp_path: Path) -> None:
+        """A PRD with no markers, no open questions, no missing fields →
+        exit 0 with a summary line that mentions 0 total."""
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _MINIMAL_PRD_CONTENT)
+        result = _invoke_cmd(tmp_path, ["prd", "find-decisions"])
+        assert result.exit_code == 0, f"find-decisions failed: {result.output}"
+        # Summary line names all three kinds with counts.
+        assert "0 total" in result.output
+        assert "NEEDS_DECISION" in result.output
+        assert "open questions" in result.output
+        assert "missing fields" in result.output
+
+    def test_prd_with_markers_and_questions_lists_them(
+        self, tmp_path: Path
+    ) -> None:
+        """A PRD containing two `[NEEDS DECISION]` markers and one open
+        question should print three decision blocks and exit 0."""
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _PRD_WITH_DECISIONS)
+        result = _invoke_cmd(tmp_path, ["prd", "find-decisions"])
+        assert result.exit_code == 0, f"find-decisions failed: {result.output}"
+        # ND ids and OQ id are surfaced verbatim.
+        assert "ND-001" in result.output
+        assert "ND-002" in result.output
+        assert "OQ001" in result.output
+        # Group headers are visible.
+        assert "NEEDS DECISION markers" in result.output
+        assert "Open Questions" in result.output
+        # Summary line has the right counts (2 NDs + 1 OQ).
+        assert "3 total" in result.output
+        assert "2 NEEDS_DECISION" in result.output
+        assert "1 open questions" in result.output
+
+    def test_missing_prd_file_exits_one(self, tmp_path: Path) -> None:
+        """No prd.md present → exit 1 with helpful error."""
+        _do_init(tmp_path)
+        result = _invoke_cmd(tmp_path, ["prd", "find-decisions"])
+        assert result.exit_code == 1
+        combined = result.output + (
+            result.stderr if hasattr(result, "stderr") and result.stderr else ""
+        )
+        assert "prd" in combined.lower() or "not found" in combined.lower()
+
+    def test_without_init_exits_one(self, tmp_path: Path) -> None:
+        """Calling outside an initialized project → exit 1."""
+        result = _invoke_cmd(tmp_path, ["prd", "find-decisions"])
+        assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
 # plan command
 # ---------------------------------------------------------------------------
 

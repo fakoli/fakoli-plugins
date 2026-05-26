@@ -126,6 +126,23 @@ parsed 6 requirements, 3 features, 8 tasks
 
 If the counts are wrong, read `prd.md` and confirm all sections survived the parse without truncation. Re-run until the counts match intent.
 
+**After parse, scan for unresolved decisions before review (soft gate, v1.14.0).** Run `fakoli-state prd find-decisions` (or call the `find_decisions` MCP tool) yourself. If it returns non-empty, do not just list the items — present the summary and ask the user how they want to handle them:
+
+> The parse succeeded, but the PRD has **N unresolved items** that will shape downstream planning:
+> - X `[NEEDS DECISION]` markers
+> - Y `## Open Questions` items
+> - Z missing acceptance-criteria or verification fields on tasks
+>
+> Want me to walk them as Q&A now, or proceed to review without resolving? (resolve now / proceed without / show me the list)
+
+On `resolve now`, bridge to the `resolve-decisions` skill directly — it drives each item as a one-question turn with proposed options and applies answers to `prd.md`. After resolution, return here for Step 3.
+
+On `proceed without`, continue to Step 3 — Open Questions are informational and don't gate review or approval. Note inline that the items remain in `find-decisions` for later.
+
+On `show me the list`, surface a compact one-line-per-item view, then re-ask the same question.
+
+The soft gate by design — `find-decisions` non-empty does NOT block review. The agent's job is to surface the choice, not to force resolution.
+
 ---
 
 ### Step 3 — Review the PRD

@@ -270,6 +270,8 @@ class TestListTools:
             # v1.13.0 workflow tools
             "init_project", "get_project_status", "parse_prd", "review_prd",
             "plan_tasks", "score_tasks", "review_tasks", "apply_review_decision",
+            # v1.14.0 decision resolution
+            "find_decisions",
         }
         assert expected <= names, f"Missing tools: {expected - names}"
 
@@ -1876,4 +1878,190 @@ class TestApplyReviewDecision:
                 })
 
         with pytest.raises(ToolError, match="needs_review|expected"):
+            _run(run())
+
+
+# ===========================================================================
+# Tool 22: find_decisions (v1.14.0)
+# ===========================================================================
+
+
+_PRD_WITH_NEEDS_DECISION = """\
+# Project: Decisions Test
+
+## Summary
+
+The system must serialize inputs [NEEDS DECISION: which format?].
+
+## Goals
+
+- Ship v1 [NEEDS DECISION].
+
+## Requirements
+
+- R001: System works.
+
+## Open Questions
+
+- none identified
+"""
+
+
+_PRD_WITH_OPEN_QUESTIONS = """\
+# Project: Open Questions Test
+
+## Summary
+
+A clean PRD.
+
+## Goals
+
+- Ship.
+
+## Requirements
+
+- R001: System works.
+
+## Open Questions
+
+- What is the SLO target?
+- Should we cache responses?
+"""
+
+
+class TestFindDecisions:
+    def test_clean_prd_returns_total_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A PRD with no markers, no open questions, and well-formed tasks
+        returns total=0 across all kinds."""
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir, _MINIMAL_PRD)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                # parse_prd + plan_tasks so the backend has tasks (with AC
+                # and verification commands from the _MINIMAL_PRD body).
+                await c.call_tool("parse_prd", {})
+                await c.call_tool("plan_tasks", {})
+                return _data(await c.call_tool("find_decisions", {}))
+
+        resp = _run(run())
+        assert resp["total"] == 0
+        assert resp["decisions"] == []
+        assert resp["counts_by_kind"]["needs_decision"] == 0
+        assert resp["counts_by_kind"]["open_question"] == 0
+        assert resp["counts_by_kind"]["missing_field"] == 0
+
+    def test_needs_decision_markers_are_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A PRD with two `[NEEDS DECISION]` markers returns two decisions
+        of kind needs_decision with the right ids and shapes."""
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir, _PRD_WITH_NEEDS_DECISION)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("find_decisions", {}))
+
+        resp = _run(run())
+        nd = [d for d in resp["decisions"] if d["kind"] == "needs_decision"]
+        assert len(nd) == 2
+        assert resp["counts_by_kind"]["needs_decision"] == 2
+        # Sequential IDs starting at ND-001 (detector contract).
+        assert {d["id"] for d in nd} == {"ND-001", "ND-002"}
+        # Every entry has the required flat shape (Pydantic extra=forbid
+        # would have failed the call already, but check populated fields).
+        for entry in nd:
+            assert entry["location"]
+            assert entry["text"]
+            assert entry["suggested_resolution_field"] == "inline rewrite"
+
+    def test_open_questions_become_decisions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Items under `## Open Questions` (skipping placeholders) are
+        surfaced as open_question decisions."""
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir, _PRD_WITH_OPEN_QUESTIONS)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("find_decisions", {}))
+
+        resp = _run(run())
+        oq = [d for d in resp["decisions"] if d["kind"] == "open_question"]
+        assert len(oq) == 2
+        assert resp["counts_by_kind"]["open_question"] == 2
+        assert {d["id"] for d in oq} == {"OQ001", "OQ002"}
+        # Verify both texts surface.
+        texts = " ".join(d["text"] for d in oq)
+        assert "SLO" in texts
+        assert "cache" in texts
+
+    def test_missing_acceptance_criteria_reported_as_missing_field(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A task with empty acceptance_criteria yields an MF-*-AC decision."""
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir, _MINIMAL_PRD)
+        _add_feature(state_dir, feat_id="F999", title="Broken Feature")
+        # Insert a task whose acceptance_criteria are empty.
+        _add_task(
+            state_dir,
+            task_id="T999",
+            feature_id="F999",
+            status="drafted",
+        )
+        import sqlite3 as _sqlite3
+        conn = _sqlite3.connect(str(state_dir / "state.db"))
+        conn.execute(
+            "UPDATE tasks SET acceptance_criteria = '[]' WHERE id = ?",
+            ("T999",),
+        )
+        conn.commit()
+        conn.close()
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("find_decisions", {}))
+
+        resp = _run(run())
+        mf = [d for d in resp["decisions"] if d["kind"] == "missing_field"]
+        # Default _add_task has empty verification commands as well, so we
+        # expect at minimum the AC entry and (default) the V entry.
+        mf_ids = {d["id"] for d in mf}
+        assert "MF-T999-AC" in mf_ids
+
+    def test_error_when_not_initialized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No .fakoli-state/ → ToolError mirroring the other workflow tools."""
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("find_decisions", {})
+
+        with pytest.raises(ToolError, match="not initialized|init_project"):
+            _run(run())
+
+    def test_error_when_no_prd_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """fakoli-state initialized but prd.md missing → ToolError (matches
+        parse_prd behaviour; see find_decisions docstring for rationale)."""
+        _init_state_dir(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("find_decisions", {})
+
+        with pytest.raises(ToolError, match="PRD file not found|prd.md"):
             _run(run())
