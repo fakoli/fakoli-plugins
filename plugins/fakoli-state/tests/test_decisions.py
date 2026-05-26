@@ -221,6 +221,50 @@ x.
         result = find_unresolved_decisions(markdown, prd=None)
         assert [d for d in result if d.kind == DecisionKind.open_question] == []
 
+    def test_oq_ids_are_contiguous_when_placeholders_are_skipped(self) -> None:
+        """Regression for greptile PR #62 finding: previously the OQ counter
+        advanced for every item including 'none identified' placeholders, so
+        a PRD with [placeholder, real, placeholder, real] produced IDs
+        OQ002 and OQ004 instead of OQ001 and OQ002. Non-contiguous IDs
+        confuse the resolver skill which iterates the list sequentially.
+        """
+        markdown = """\
+# Project: Test
+
+## Summary
+
+x.
+
+## Goals
+
+- y.
+
+## Requirements
+
+- R001: z.
+
+## Open Questions
+
+- none identified
+- What is the SLO?
+- n/a
+- Which protocol should we use?
+"""
+        parsed = parse_prd(markdown, clock=_FROZEN)
+        result = find_unresolved_decisions(markdown, prd=parsed.prd)
+        oq_decisions = [d for d in result if d.kind == DecisionKind.open_question]
+        ids = [d.id for d in oq_decisions]
+        # Two real items between two placeholders should produce OQ001 + OQ002,
+        # not OQ002 + OQ004.
+        assert ids == ["OQ001", "OQ002"], (
+            f"Expected contiguous OQ IDs after placeholder filter, got: {ids}"
+        )
+        # The `location` field carries the SOURCE position (so users can
+        # find the item in the file), even though the ID is the contiguous
+        # resolver counter.
+        assert oq_decisions[0].location == "## Open Questions item 2"
+        assert oq_decisions[1].location == "## Open Questions item 4"
+
 
 # ---------------------------------------------------------------------------
 # missing_field (tasks with empty acceptance_criteria or verification)

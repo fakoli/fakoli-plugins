@@ -238,15 +238,22 @@ def find_unresolved_decisions(
         )
 
     # Kind 2: ## Open Questions items.
+    # The OQ ID counter only advances for items that survive the placeholder
+    # filter, so callers see contiguous IDs (OQ001, OQ002, ...) even when
+    # the PRD interleaves real questions with "none identified" placeholders.
+    # Non-contiguous IDs would confuse the resolver skill — it iterates
+    # decisions sequentially and a missing OQ001 could read as "skipped."
     if prd is not None:
-        for oq_idx, item in enumerate(prd.open_questions, start=1):
+        oq_idx = 0
+        for source_position, item in enumerate(prd.open_questions, start=1):
             if _is_none_placeholder(item):
                 continue
+            oq_idx += 1
             out.append(
                 UnresolvedDecision(
                     id=f"OQ{oq_idx:03d}",
                     kind=DecisionKind.open_question,
-                    location=f"## Open Questions item {oq_idx}",
+                    location=f"## Open Questions item {source_position}",
                     text=item,
                     context_paragraph=item,
                     suggested_resolution_field="move to ## Decisions",

@@ -2132,10 +2132,23 @@ def find_decisions(cwd: str | None = None) -> FindDecisionsResponse:
         raise ToolError(f"Cannot read {prd_path}: {exc}") from exc
 
     result = _parse_prd_impl(markdown, prd_id="prd")
-    # Parse errors are surfaced via parse_prd; find_decisions still runs
-    # against whatever the parser produced (PRD model is always present,
-    # just possibly with empty sections). The needs_decision detector
-    # works against the raw markdown anyway and doesn't need a clean parse.
+    # Match the CLI's behavior: if the parse failed, surface the errors
+    # rather than silently returning a deceptive 0-open_questions count
+    # (the PRD model exists but with empty sections). The needs_decision
+    # detector works against raw markdown and would still find inline
+    # markers, but the user almost certainly wants the parse failure
+    # surfaced first so they can fix the structural problem before
+    # interpreting the decision list.
+    if result.errors:
+        error_summary = "; ".join(
+            f"[{e.section}:{e.line}] {e.message}" for e in result.errors[:5]
+        )
+        if len(result.errors) > 5:
+            error_summary += f"; (+{len(result.errors) - 5} more)"
+        raise ToolError(
+            f"PRD parse failed with {len(result.errors)} error(s); "
+            f"fix prd.md and call parse_prd before find_decisions. {error_summary}"
+        )
 
     backend = _open_backend(state_dir)
     try:

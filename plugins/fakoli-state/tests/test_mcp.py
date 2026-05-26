@@ -2065,3 +2065,32 @@ class TestFindDecisions:
 
         with pytest.raises(ToolError, match="PRD file not found|prd.md"):
             _run(run())
+
+    def test_error_when_prd_has_parse_failures(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression for greptile PR #62 finding: previously find_decisions
+        silently proceeded when parse_prd surfaced errors, yielding a
+        deceptive 0-open_questions count even though the PRD was malformed.
+        Now it raises ToolError matching the CLI's exit-1 behaviour so the
+        agent (or MCP client) surfaces the parse failure before drawing
+        any conclusions from the decision list.
+        """
+        state_dir = _init_state_dir(tmp_path)
+        # Write a PRD missing every required section — parse_prd will
+        # surface 4+ errors (## Summary, ## Goals, ## Requirements, etc.).
+        (state_dir / "prd.md").write_text(
+            "# Project: Broken\n\nThis PRD has no required sections.\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                await c.call_tool("find_decisions", {})
+
+        with pytest.raises(
+            ToolError,
+            match="PRD parse failed|parse_prd before find_decisions",
+        ):
+            _run(run())

@@ -92,6 +92,27 @@ no Open Questions, no missing fields) see no change at all.
   detection module accepts `requirements=` and `features=`
   parameters now to avoid a signature break later).
 
+### Fixed (post-greptile review)
+
+- **OQ IDs are now contiguous after placeholder skipping.** Previously
+  the counter advanced for every Open Questions item including
+  `"none identified"` / `"n/a"` / `"tbd"` placeholders, so a PRD with
+  `[placeholder, real, placeholder, real]` produced `OQ002` + `OQ004`
+  instead of `OQ001` + `OQ002`. Non-contiguous IDs would confuse the
+  resolver skill (which iterates decisions sequentially). The
+  contiguous-ID counter only advances for items that survive the
+  placeholder filter; the `location` field still carries the source
+  position so users can find the item in the file.
+- **MCP `find_decisions` now matches the CLI on parse failures.**
+  Previously the MCP tool silently proceeded when `parse_prd` returned
+  errors, yielding a deceptive `0 open_questions` count even though
+  the PRD was malformed. Now it raises `ToolError` with the first
+  few errors summarised in the message, matching the CLI's exit-1
+  behaviour so MCP clients see the parse failure before drawing
+  conclusions from the decision list.
+- Test suite is **1024 passing** (was 1022 — +1 regression test for
+  the OQ contiguous-ID fix, +1 for the MCP parse-failure fix).
+
 ---
 
 ## [1.13.0] — 2026-05-26
