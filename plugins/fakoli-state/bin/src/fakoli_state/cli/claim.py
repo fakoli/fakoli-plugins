@@ -109,11 +109,20 @@ def claim(
                 from fakoli_state.config import load_config
                 cfg = load_config(config_path)
                 branch_prefix = cfg.branch_prefix
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
                 # Config-load failure should NOT block a claim — fall back
                 # to the default prefix and let the user fix config.yaml
-                # at their leisure.
-                pass
+                # at their leisure. BUT surface the failure to stderr so
+                # the user sees why the branch ended up `agent/...` when
+                # they thought they had set `branch_prefix: feature`.
+                # Silent fallbacks on configuration are exactly the bug
+                # class v1.15.0 was supposed to fix (critic SHOULD FIX
+                # from PR #63 review).
+                typer.echo(
+                    f"Warning: config.yaml load failed ({exc.__class__.__name__}: "
+                    f"{exc}); using default branch_prefix='agent'.",
+                    err=True,
+                )
 
         branch_result = create_branch_for_task(
             task_id,

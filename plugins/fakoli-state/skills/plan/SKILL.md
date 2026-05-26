@@ -109,6 +109,8 @@ Catching mis-scoped tasks here costs one loop; catching them after scoring or cl
 
 ### Step 1.5 — Present post-plan decisions as structured Q&A
 
+**One decision per turn. Ask, wait for the answer, apply, then surface the next decision.** Never batch three decisions into one wall-of-questions — that's the same anti-pattern the resolve-decisions skill names at the PRD layer, and it produces the same failure mode here (the user picks one and leaves the rest unresolved, or skips everything because the wall is overwhelming).
+
 When the LLM-generated task list lands, it may carry decisions the user has to make before scoring/claiming starts — for example: scope overruns ("87h estimated, 80h budget"), structural concerns about the PRD ("R010 says ≥32 tools but F003 description says ≥35"), or expansion candidates the LLM flagged. **Surface each decision as a structured Q&A turn, not as prose with bullets.**
 
 For Claude Code runtimes, use the `AskUserQuestion` tool so the user gets a structured pick UI rather than free-form text to type. For other runtimes, fall back to explicit numbered prompts:

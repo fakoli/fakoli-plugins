@@ -35,17 +35,20 @@ fakoli-flow defines how work moves, fakoli-crew defines who does the work, and f
 
 | Surface | Count | Notes |
 |---|---|---|
-| CLI commands | **24** | Top-level + `prd`, `review`, `hook`, `sync` sub-apps. v1.15.0: `plan` now guarantees tasks (auto-generates via LLM when `## Tasks` is empty). |
+| CLI commands | **23** | Top-level + `prd`, `review`, `hook`, `sync` sub-apps. v1.15.0: `plan` now guarantees tasks (auto-generates via LLM when `## Tasks` is empty); `plan` also gains `--no-llm` and `--prune-force` flags. |
 | MCP tools | **22** | FastMCP stdio; works in any MCP-compatible client. v1.15.0: `plan_tasks` gains `use_llm` flag + `llm_generated`/`llm_provider` response fields. |
 | Skills | **8 skills** | start-prd, prd, plan (v1.15.0: drops planner-subagent workaround, adds Q&A discipline), claim, execute, finish, state-ops, resolve-decisions |
 | Agents | **6 agents** | planner, critic, sentinel, state-keeper, marketplace-scribe, docs-scribe |
 | Hooks | **4 hooks** | detect-state, check-claim, record-file-change, capture-evidence |
 
-Highlights from v1.10.0:
+Highlights from v1.15.0:
 
-- Phase 10 plugin-dev audit closed all 8 MUST FIX items surfaced by the fakoli-crew v2.2.0 cross-plugin critic agents (agent-critic, skill-critic, hook-critic, mcp-critic, structure-critic).
-- Iron Rule least-privilege restored on five agent files (`tools:` frontmatter key replaces the silently-ignored `allowed-tools:`).
-- 965 tests passing; SQLite schema unchanged (still v3 from v1.8.0 — no migration required).
+- `fakoli-state plan` GUARANTEES task generation — calls the LLM automatically when the PRD has features + requirements but no `## Tasks` section. No more "Planned N features, 0 tasks" silent failures.
+- `plan` also PRUNES orphan tasks/features automatically on re-parse. New `task.deleted` / `feature.deleted` event types with safety guards (claims/evidence FK-protected; unsafe-status orphans require `--prune-force`).
+- `expand --use-llm` now tolerates fenced JSON + prose-wrapped responses. Three-layer recovery (fence strip → bracket-extract → sample-in-warning) eliminates the "non-JSON for every task" failure mode.
+- `branch_prefix` is now host-project-configurable via `.fakoli-state/config.yaml` — projects with `feature/` or `fix/` conventions get matching branches instead of the silently-incompatible `agent/` default.
+- `execute` skill auto-dispatches to the best-fit fakoli-crew specialist instead of asking the user "how would you like to proceed?"
+- 1071 tests passing (+47 since v1.14.0); SQLite schema unchanged.
 
 Full release notes in [CHANGELOG.md](CHANGELOG.md).
 
@@ -101,9 +104,9 @@ Every mutation appends to `.fakoli-state/events.jsonl`. Replaying the log from s
 
 | Layer | What it does |
 |---|---|
-| Skills | Workflow choreography — 7 skills: start-prd, prd, plan, claim, execute, finish, state-ops. Verification delegates to `fakoli-flow:verify` and `fakoli-crew:sentinel`. |
+| Skills | Workflow choreography — 8 skills: start-prd, prd, plan, claim, execute, finish, state-ops, resolve-decisions. Verification delegates to `fakoli-flow:verify` and `fakoli-crew:sentinel`. |
 | CLI (`fakoli-state`) | Pure state operations — CRUD, scoring, packet generation, sync |
-| MCP server | 13 agent-facing tools exposed via stdio to any MCP-compatible runtime |
+| MCP server | 22 agent-facing tools exposed via stdio to any MCP-compatible runtime |
 | Hooks | Enforce claim discipline, record file changes, capture test evidence |
 | State engine | SQLite backend + append-only JSONL event log (full replay guarantee) |
 | Claims manager | Atomic SQLite transactions; stale lease detection on every operation |
@@ -137,7 +140,7 @@ Source for the wedges: [`docs/_positioning.md`](docs/_positioning.md).
 - [`docs/how-to/getting-started.md`](docs/how-to/getting-started.md) — end-to-end first-project walkthrough *(v1.11.0)*
 - [`docs/cli-reference.md`](docs/cli-reference.md) — every CLI command, flag, and exit code *(v1.11.0)*
 - [`docs/roadmap.md`](docs/roadmap.md) — Phase 11 plans, v2.0 and beyond backlog
-- [`docs/mcp.md`](docs/mcp.md) — 13-tool MCP reference with error envelope contract
+- [`docs/mcp.md`](docs/mcp.md) — 22-tool MCP reference with error envelope contract
 - [`docs/prd-template.md`](docs/prd-template.md) — PRD authoring schema and worked example
 - [`docs/github-sync.md`](docs/github-sync.md) — bidirectional GitHub Issues sync reference
 - [`docs/sync-providers.md`](docs/sync-providers.md) — contributor guide for adding Linear, Monday, Jira providers
@@ -186,7 +189,7 @@ When both fakoli-state and fakoli-crew are installed, all crew agents gain acces
 
 When fakoli-state is absent, fakoli-flow and fakoli-crew continue to work via their existing markdown-status conventions. Integration is opt-in throughout.
 
-MCP exposes capabilities; plugins encode operating discipline. The MCP server ships 13 tools any agent can call, but skills, subagents, and hooks decide *when* to claim, *which* specialist runs, *what* evidence is required, and *how* the critic gate fires. fakoli-state is plugin-first and MCP-compatible, not MCP-only.
+MCP exposes capabilities; plugins encode operating discipline. The MCP server ships 22 tools any agent can call, but skills, subagents, and hooks decide *when* to claim, *which* specialist runs, *what* evidence is required, and *how* the critic gate fires. fakoli-state is plugin-first and MCP-compatible, not MCP-only.
 
 ---
 

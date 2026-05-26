@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -1648,7 +1649,21 @@ def plan_tasks(
         except PlannerProviderUnavailable as exc:
             raise ToolError(str(exc)) from exc
         except TaskGenerationError as exc:
-            raise ToolError(f"LLM task generation failed: {exc}") from exc
+            # mcp-critic SHOULD FIX from PR #63: TaskGenerationError's
+            # message can include up to 500 chars of raw LLM output (see
+            # llm_planner._validate_and_normalize). Re-raising it through
+            # ToolError leaks that to the MCP client. The full exception
+            # is logged for ops, but the client sees a safe summary.
+            print(
+                f"LLM task generation failed for plan_tasks: {exc}",
+                file=sys.stderr,
+            )
+            raise ToolError(
+                "LLM task generation failed: the response did not contain "
+                "any '### TXXX:' blocks. Check the LLM provider's output "
+                "in stderr for the full response; fix prd.md or re-tune "
+                "the prompt and re-run plan_tasks."
+            ) from exc
 
         # Idempotency guard: only append `## Tasks` when not already
         # present, so re-running plan_tasks after a previous append is a
@@ -1658,7 +1673,8 @@ def plan_tasks(
         except OSError as exc:
             raise ToolError(f"Cannot re-read {prd_path}: {exc}") from exc
 
-        if not _has_tasks_section(current_markdown):
+        from fakoli_state.planning._plan_helpers import has_tasks_section
+        if not has_tasks_section(current_markdown):
             new_markdown = (
                 current_markdown.rstrip() + "\n\n" + gen_result.markdown + "\n"
             )
@@ -1694,99 +1710,52 @@ def plan_tasks(
         clock = SystemClock()
 
         # --------------------------------------------------------------
-        # Orphan-prune (v1.15.0) — mirrors the CLI plan command. See
-        # cli/plan.py for the design rationale: re-parse is destructive
-        # per the docs; before v1.15.0 the implementation silently left
-        # orphan tasks/features in state.db when entities disappeared
-        # from prd.md. The handler in sqlite.py enforces the same safety
-        # check (refuses to delete claimed/in_progress tasks without
-        # force=True), so the user-visible behaviour is consistent across
-        # CLI and MCP.
+        # Orphan-prune (v1.15.0). Shares planning._plan_helpers with the
+        # CLI — see that module's docstring for the multi-critic review
+        # finding that drove the extraction (previously this logic was
+        # duplicated, the safe-status set was triplicated, and the CLI
+        # was missing the TransactionAborted catch that the MCP had).
         # --------------------------------------------------------------
-        new_task_ids = {t.id for t in result.tasks}
-        new_feature_ids = {f.id for f in result.features}
+        from fakoli_state.planning._plan_helpers import (
+            classify_orphans,
+            emit_prune_events,
+        )
 
-        existing_tasks_for_prune = backend.list_tasks()
-        existing_features_for_prune = backend.list_features()
+        classification = classify_orphans(
+            backend.list_tasks(),
+            {t.id for t in result.tasks},
+            backend.list_features(),
+            {f.id for f in result.features},
+        )
 
-        orphan_tasks = [
-            t for t in existing_tasks_for_prune if t.id not in new_task_ids
-        ]
-        orphan_feature_ids = [
-            f.id for f in existing_features_for_prune
-            if f.id not in new_feature_ids
-        ]
-
-        _SAFE_DELETE_STATUSES = frozenset({"proposed", "drafted", "ready"})
-        unsafe_orphans = [
-            t for t in orphan_tasks
-            if t.status.value not in _SAFE_DELETE_STATUSES
-        ]
-        safe_orphans = [
-            t for t in orphan_tasks if t.status.value in _SAFE_DELETE_STATUSES
-        ]
-
-        if unsafe_orphans and not prune_force:
+        if classification.unsafe_task_orphans and not prune_force:
             blocked = ", ".join(
-                f"{t.id}({t.status.value})" for t in unsafe_orphans
+                f"{t.id}({t.status.value})"
+                for t in classification.unsafe_task_orphans
             )
             raise ToolError(
-                f"{len(unsafe_orphans)} orphan task(s) removed from prd.md "
-                "have advanced past `ready` status; deleting silently would "
-                f"lose claim/evidence history. Blocked: {blocked}. "
-                "Release the claims (or complete the work) and re-call "
-                "plan_tasks, OR re-call with prune_force=True to delete "
-                "despite the status (audit history is preserved either way)."
+                f"{len(classification.unsafe_task_orphans)} orphan task(s) "
+                "removed from prd.md have advanced past `ready` status; "
+                "deleting silently would lose claim/evidence history. "
+                f"Blocked: {blocked}. Release the claims (or complete the "
+                "work) and re-call plan_tasks, OR re-call with "
+                "prune_force=True to delete despite the status (audit "
+                "history is preserved either way)."
             )
 
-        pruned_task_ids: list[str] = []
-        for t in safe_orphans + (unsafe_orphans if prune_force else []):
-            now = clock.now()
-            try:
-                backend.apply_event(Event(
-                    id=PENDING_EVENT_ID,
-                    timestamp=now,
-                    actor="fakoli-state-mcp",
-                    action="task.deleted",
-                    target_kind="task",
-                    target_id=t.id,
-                    payload_json={
-                        "task_id": t.id,
-                        "force": (
-                            prune_force
-                            and t.status.value not in _SAFE_DELETE_STATUSES
-                        ),
-                        "reason": "plan_tasks: removed from prd.md "
-                        "(orphan cleanup)",
-                    },
-                ))
-            except TransactionAborted as exc:
-                raise ToolError(str(exc)) from exc
-            pruned_task_ids.append(t.id)
+        try:
+            prune_result = emit_prune_events(
+                backend,
+                classification,
+                actor="fakoli-state-mcp",
+                clock=clock,
+                prune_force=prune_force,
+            )
+        except TransactionAborted as exc:
+            raise ToolError(str(exc)) from exc
 
-        # Features must come after tasks — FK RESTRICT on tasks.feature_id
-        # would block the feature delete if a task still references it.
-        pruned_feature_ids: list[str] = []
-        for fid in orphan_feature_ids:
-            now = clock.now()
-            try:
-                backend.apply_event(Event(
-                    id=PENDING_EVENT_ID,
-                    timestamp=now,
-                    actor="fakoli-state-mcp",
-                    action="feature.deleted",
-                    target_kind="feature",
-                    target_id=fid,
-                    payload_json={
-                        "feature_id": fid,
-                        "force": False,
-                        "reason": "plan_tasks: removed from prd.md "
-                        "(orphan cleanup)",
-                    },
-                ))
-            except TransactionAborted as exc:
-                raise ToolError(str(exc)) from exc
-            pruned_feature_ids.append(fid)
+        pruned_task_ids = prune_result.pruned_task_ids
+        pruned_feature_ids = prune_result.pruned_feature_ids
 
         # Emit feature.created per feature.
         for feature in result.features:
@@ -1872,16 +1841,10 @@ def plan_tasks(
         backend.close()
 
 
-# Case-insensitive `## Tasks` H2 detection — shared idempotency helper for
-# the LLM-backstop append step. See ``fakoli_state.cli.plan._has_tasks_section``
-# for the CLI's twin; we keep them parallel rather than imported across
-# layers to preserve the CLI / MCP boundary.
-_TASKS_HEADING_RE = re.compile(r"^##\s+tasks\s*$", re.IGNORECASE | re.MULTILINE)
-
-
-def _has_tasks_section(markdown: str) -> bool:
-    """Return True when ``markdown`` already contains a ``## Tasks`` H2."""
-    return _TASKS_HEADING_RE.search(markdown) is not None
+# `_has_tasks_section` and `_TASKS_HEADING_RE` previously lived here as a
+# twin of cli/plan.py. As of v1.15.0 post-review they live in
+# planning/_plan_helpers.py — see that module's docstring for the
+# multi-critic finding that drove the extraction.
 
 
 # ---------------------------------------------------------------------------

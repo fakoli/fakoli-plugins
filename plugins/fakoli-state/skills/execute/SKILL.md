@@ -110,7 +110,7 @@ claude plugin list 2>/dev/null | grep -q "fakoli-crew"
 
 **If fakoli-crew is installed**: analyze the task and dispatch to the best-fit crew member directly. **Do not** ask the user "want me to do this here, or dispatch?" — that meta-question forces the user to make a routing decision the agent has the context to make. Asking it biases toward the worst answer (self-implement, bypassing the specialist team).
 
-Routing heuristic (apply in order; take the first that fits):
+Routing heuristic (apply in order; take the first row that fits):
 
 | Signal in task | Likely crew member | Rationale |
 |---|---|---|
@@ -123,16 +123,21 @@ Routing heuristic (apply in order; take the first that fits):
 | Acceptance criteria centered on tests + verification of existing behavior | `fakoli-crew:sentinel` | binary PASS/FAIL validation |
 | Multi-file refactor + integration + cross-package wiring (3+ files across 2+ packages) | `fakoli-flow:execute` (if installed, see Step 0) OR pair `guido` for design + `welder` for integration | wave-based orchestration |
 
+**Tie-break rule.** When two rows both match (e.g. a TS task with "Protocol" in the title AND verbs like "wire" — guido row 2 and welder row 3 both fire), prefer the row whose Signal column more narrowly describes the **primary verb** of the task title. "Design" / "Define" / "Specify" / "Author the interface" → guido (row 2). "Integrate" / "Wire" / "Connect" / "Refactor to use" → welder (row 3). If both verbs are present in the title equally, pick guido first (design before integration is the workflow order).
+
 After dispatch, the agent's job is to:
 - Read the work packet
 - Brief the crew specialist with the task ID + acceptance criteria + likely_files + verification commands
 - Surface the specialist's output inline (do not ghost the user — show progress)
 - Run the verification commands yourself (Step 5) once the specialist returns
 
-**Only ask the user when:**
-- The task scope spans multiple specialties with no clear primary (e.g. a TypeScript refactor that ALSO rewrites the README — guido OR herald?)
-- The task is unusual (your routing heuristic returns no fit)
-- The user explicitly said earlier "I want to drive this one myself"
+**Only ask the user when ALL of these conditions are clearly true** (any other situation: dispatch silently):
+
+- (a) Two or more rows in the table above match AND the tie-break rule above does not disambiguate (e.g. the task touches three crews and you cannot identify a clear primary), OR
+- (b) Zero rows match — the task's `likely_files` and verb shape don't fit any row (genuine novelty, not just "I'm not sure"), OR
+- (c) The user explicitly said earlier in this session "I want to drive this one myself" — track the preference for the rest of the session.
+
+"The task is unusual" alone is NOT a reason to ask. If you find yourself reaching for that phrase, recheck rows 1-8 — almost every real engineering task fits one. The bias when in doubt: dispatch, not ask.
 
 In every other case: **route silently and report the routing decision inline** ("Dispatching to fakoli-crew:guido for the HttpTransport interface design; I'll surface the proposal here and run verification afterward.").
 

@@ -216,7 +216,8 @@ def plan(
             typer.echo(f"Error: cannot re-read {prd_path}: {exc}", err=True)
             raise typer.Exit(code=1) from exc
 
-        if not _has_tasks_section(current_markdown):
+        from fakoli_state.planning._plan_helpers import has_tasks_section
+        if not has_tasks_section(current_markdown):
             new_markdown = (
                 current_markdown.rstrip() + "\n\n" + gen_result.markdown + "\n"
             )
@@ -251,44 +252,34 @@ def plan(
         # skill body) say so explicitly. But before v1.15.0 plan emitted
         # task.created/feature.created for everything in the new parse
         # WITHOUT emitting task.deleted/feature.deleted for entities that
-        # disappeared from the PRD. Result: removing T014 from prd.md and
-        # re-running `plan` left T014 as an orphan row in state.db.
-        #
-        # The prune logic below computes the diff and emits deletion
-        # events. Safety: task.deleted refuses to clobber statuses past
-        # `ready` without payload.force=True. The CLI surfaces the
-        # blocked list and exits 1 unless `--prune-force` is set.
+        # disappeared from the PRD. The classification + emission logic
+        # lives in planning._plan_helpers so the CLI and MCP share one
+        # implementation (greptile + critic flagged the previous twin
+        # implementations — the CLI version was missing the
+        # TransactionAborted catch that the MCP version had).
         # --------------------------------------------------------------
-        new_task_ids = {t.id for t in parsed.tasks}
-        new_feature_ids = {f.id for f in parsed.features}
+        from fakoli_state.planning._plan_helpers import (
+            classify_orphans,
+            emit_prune_events,
+        )
 
-        existing_tasks = backend.list_tasks()
-        existing_features = backend.list_features()
+        classification = classify_orphans(
+            backend.list_tasks(),
+            {t.id for t in parsed.tasks},
+            backend.list_features(),
+            {f.id for f in parsed.features},
+        )
 
-        orphan_tasks = [t for t in existing_tasks if t.id not in new_task_ids]
-        orphan_feature_ids = [
-            f.id for f in existing_features if f.id not in new_feature_ids
-        ]
-
-        # _DELETABLE_TASK_STATUSES mirrored from sqlite.py — single source
-        # of truth lives in the handler, but the CLI needs the same set
-        # so it can pre-classify orphans into safe vs unsafe before
-        # asking the backend.
-        _SAFE = frozenset({"proposed", "drafted", "ready"})
-
-        unsafe_orphans = [t for t in orphan_tasks if t.status.value not in _SAFE]
-        safe_orphans = [t for t in orphan_tasks if t.status.value in _SAFE]
-
-        if unsafe_orphans and not prune_force:
+        if classification.unsafe_task_orphans and not prune_force:
             typer.echo(
-                f"Error: {len(unsafe_orphans)} orphan task(s) were removed "
-                "from prd.md but have advanced past `ready` status. Re-parse "
-                "would lose claim/evidence history if these were deleted "
-                "silently. Address each one, OR re-run with --prune-force "
-                "to delete despite the status:",
+                f"Error: {len(classification.unsafe_task_orphans)} orphan "
+                "task(s) were removed from prd.md but have advanced past "
+                "`ready` status. Re-parse would lose claim/evidence history "
+                "if these were deleted silently. Address each one, OR "
+                "re-run with --prune-force to delete despite the status:",
                 err=True,
             )
-            for t in unsafe_orphans:
+            for t in classification.unsafe_task_orphans:
                 typer.echo(
                     f"  - {t.id} ({t.status.value}): {t.title}",
                     err=True,
@@ -307,49 +298,27 @@ def plan(
             )
             raise typer.Exit(code=1)
 
-        orphans_to_delete = safe_orphans + (unsafe_orphans if prune_force else [])
-        deleted_task_ids: list[str] = []
-        for t in orphans_to_delete:
-            now = clock.now()
-            delete_event = Event(
-                id=PENDING_EVENT_ID,
-                timestamp=now,
+        # Surface TransactionAborted as a clean CLI error rather than a
+        # raw Python traceback. The handler's message is user-actionable
+        # as-is (names the blocking IDs and the resolution). Greptile MUST
+        # FIX from PR #63 review — previously this catch was missing and
+        # the most accessible trigger was "user removes a feature heading
+        # from prd.md while keeping its referencing tasks": the feature
+        # becomes an orphan, the handler refuses, the CLI crashed.
+        try:
+            prune_result = emit_prune_events(
+                backend,
+                classification,
                 actor="fakoli-state-cli",
-                action="task.deleted",
-                target_kind="task",
-                target_id=t.id,
-                payload_json={
-                    "task_id": t.id,
-                    "force": prune_force and t.status.value not in _SAFE,
-                    "reason": "plan: removed from prd.md (orphan cleanup)",
-                },
+                clock=clock,
+                prune_force=prune_force,
             )
-            backend.apply_event(delete_event)
-            deleted_task_ids.append(t.id)
+        except TransactionAborted as exc:
+            typer.echo(f"Error: orphan cleanup refused — {exc}", err=True)
+            raise typer.Exit(code=1) from exc
 
-        # Feature deletes must happen AFTER task deletes — the schema's
-        # FK RESTRICT on tasks.feature_id would block the feature delete
-        # otherwise. The handler's own pre-check would surface the same
-        # error with a clearer message, but ordering here avoids the
-        # round-trip.
-        deleted_feature_ids: list[str] = []
-        for fid in orphan_feature_ids:
-            now = clock.now()
-            delete_event = Event(
-                id=PENDING_EVENT_ID,
-                timestamp=now,
-                actor="fakoli-state-cli",
-                action="feature.deleted",
-                target_kind="feature",
-                target_id=fid,
-                payload_json={
-                    "feature_id": fid,
-                    "force": False,
-                    "reason": "plan: removed from prd.md (orphan cleanup)",
-                },
-            )
-            backend.apply_event(delete_event)
-            deleted_feature_ids.append(fid)
+        deleted_task_ids = prune_result.pruned_task_ids
+        deleted_feature_ids = prune_result.pruned_feature_ids
 
         # Emit feature.created for each feature.
         for feature in parsed.features:
@@ -478,21 +447,11 @@ def plan(
         backend.close()
 
 
-# Case-insensitive `## Tasks` heading detection. Match an H2 (`## `) at
-# line start, then `tasks` ignoring case and any trailing whitespace, so
-# `## Tasks`, `## tasks`, and `## TASKS` all count.
-_TASKS_HEADING_RE = re.compile(r"^##\s+tasks\s*$", re.IGNORECASE | re.MULTILINE)
-
-
-def _has_tasks_section(markdown: str) -> bool:
-    """Return True when ``markdown`` already contains a ``## Tasks`` H2.
-
-    The idempotency guard for the LLM-backstop append step. The check is
-    intentionally narrow — only an actual ``## Tasks`` heading counts. A
-    ``### Tasks subheading`` or the word "tasks" in prose does NOT trigger
-    a false positive.
-    """
-    return _TASKS_HEADING_RE.search(markdown) is not None
+# Helpers `_has_tasks_section` and `_TASKS_HEADING_RE` previously lived
+# here in duplicated form alongside the MCP twin in mcp_server.py. As of
+# v1.15.0 post-review they live in planning/_plan_helpers.py and both
+# layers import from there — see that module's docstring for the
+# multi-critic finding that drove the extraction.
 
 
 # ---------------------------------------------------------------------------

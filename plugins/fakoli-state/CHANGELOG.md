@@ -12,240 +12,244 @@ _No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.16+ planned wor
 
 ## [1.15.0] — 2026-05-26
 
-Two-axis release driven by a user observation across two real
-sessions:
+Five-bug release driven by in-the-wild testing on a real project. Every
+bug shares the same anti-pattern at progressively deeper layers: **the
+agent silently failed or asked the user to make a routing/typing
+decision the agent had the context to make**. v1.15.0 closes all five.
 
-1. **`fakoli-state plan` silently returned 0 tasks** when the PRD
-   had features + requirements but no `## Tasks` section. The user
-   had to manually dispatch the `fakoli-state:planner` subagent as
-   a workaround — and the agent had to *remember* to do that. The
-   "agent must remember" pattern was the bug. This release makes the
-   CLI guarantee tasks: when 0 would otherwise be emitted, the CLI
-   calls the LLM itself, generates `### TXXX:` blocks from features
-   + requirements, appends them to `prd.md`, re-parses, and emits
-   the events. No more silent zero-count successes.
+What changed in this release:
 
-2. **Multi-option decisions were presented as prose with bullets**
-   instead of structured Q&A (`AskUserQuestion` / explicit numbered
-   prompts). The agent's strength is turning a decision into a
-   well-shaped question with concrete options — pasting prose
-   forces the user to type free-form intent the agent then has to
-   interpret. Plan, finish, and claim skills now encode the
-   "structured Q&A for any 2+ option decision" rule explicitly, with
-   the anti-pattern named.
+1. **`fakoli-state plan` GUARANTEES task generation** — calls the LLM
+   automatically when the PRD has features + requirements but no
+   `## Tasks` section. The user no longer has to remember to dispatch
+   the `fakoli-state:planner` subagent as a workaround.
+2. **`fakoli-state plan` PRUNES ORPHAN tasks/features on re-parse** —
+   the docs always claimed "Re-parse replaces, not merges" but the
+   implementation only upserted by ID. New `task.deleted` /
+   `feature.deleted` event types with safety guards land the
+   re-parse contract.
+3. **`fakoli-state expand --use-llm` tolerates fenced JSON + prose** —
+   previously every call failed with `Expecting value: line 1 column
+   1 (char 0)` because the parser couldn't handle the markdown
+   fences Claude routinely wraps JSON in.
+4. **`branch_prefix` is host-project-configurable** — host projects
+   with `feature/` / `fix/` conventions no longer get silently-
+   incompatible `agent/` branches.
+5. **`execute` skill auto-dispatches to fakoli-crew** — instead of
+   asking the user "how would you like to proceed?" the skill
+   encodes a routing heuristic that picks the right specialist
+   from the task's signals (likely_files, verb, criteria).
+
+Suite is **1071 passing** (was 1024 in v1.14.0; +47 new tests across
+the LLM planner module, orphan-cleanup handlers, fenced-JSON parser,
+`branch_prefix` validation, and CLI/MCP integration). Schema
+unchanged. No breaking changes for existing callers, with one
+behaviour-change callout in **Migration** below.
 
 ### Added
 
 - **New `planning/llm_planner.py` module** with `generate_tasks_markdown()`
   and `resolve_planner_provider()`. Pure module; emits `## Tasks`
   markdown that the existing `planning.template.parse_prd` consumes
-  via round-trip. 15 unit tests covering tier-chain resolution,
-  prompt assembly, output validation, and the end-to-end happy path
-  with a recorded LLM provider.
-- **`fakoli-state plan` now guarantees tasks (CLI).** After the
-  initial parse-and-emit, if 0 tasks were emitted but ≥1 features
-  exist, the CLI calls `generate_tasks_markdown()`, idempotently
-  appends the `## Tasks` block to `prd.md` (skips when `## Tasks` is
-  already present so re-runs don't double-append), re-reads + re-parses,
-  emits `task.created` events. Output line explicitly tells the user
-  the file was modified: `Planned N features, M tasks (M generated
-  via LLM (anthropic), appended to .fakoli-state/prd.md)`.
+  via round-trip. Tier-chain provider resolver (see "Provider
+  tier-chain design" below). 15 unit tests covering tier resolution,
+  prompt assembly, output validation, and end-to-end with a recorded
+  LLM provider.
+- **`fakoli-state plan` LLM backstop (CLI).** When the deterministic
+  parse yields 0 tasks but ≥1 features, the CLI calls
+  `generate_tasks_markdown()`, idempotently appends the `## Tasks`
+  block to `prd.md` (re-runs are no-ops once the section exists),
+  re-reads + re-parses, emits `task.created` events. The output
+  line explicitly tells the user the file was modified.
 - **New `--no-llm` flag on `plan` CLI.** Opts out of auto-generation
   (e.g. on CI without API keys). When passed and 0 tasks are parsed,
-  CLI exits 1 with a clear "author them manually in {prd_path}"
-  message — never silently returns 0.
+  CLI exits 1 with a clear "author them manually" message — never
+  silently returns 0.
 - **MCP `plan_tasks` mirrors the CLI.** New `use_llm: bool = True`
-  parameter. Response model gains `llm_generated: bool` and
-  `llm_provider: str | None` fields so MCP clients can tell when an
-  LLM was invoked and which tier was used. `PlannerProviderUnavailable`
-  and `TaskGenerationError` raise `ToolError` with full messages —
-  no silent 0-task responses.
-- **7 new CLI + MCP regression tests** covering happy path,
-  `--no-llm` / `use_llm=False` opt-out, provider-unavailable error
-  surfacing, and the idempotent-second-run case. Suite is 1046
-  passing (was 1024 in v1.14.0; +22 across the planner module +
-  CLI + MCP).
+  and `prune_force: bool = False` parameters. Response model gains
+  `llm_generated`, `llm_provider`, `pruned_task_ids`,
+  `pruned_feature_ids` fields (all with defaults so old clients see
+  no breaking change). `PlannerProviderUnavailable` and
+  `TaskGenerationError` raise `ToolError` with safe summaries — no
+  silent 0-task responses, no LLM-output leakage in error messages.
+- **New `task.deleted` and `feature.deleted` event types** with
+  handlers in `state/sqlite.py`. The schema's
+  `tasks.parent_task_id ON DELETE SET NULL` and
+  `sync_mappings.task_id ON DELETE CASCADE` were designed for
+  deletion from the start (see `state/schema.py:40` comment); v1.15.0
+  finally wires the events. Safety: `task.deleted` refuses non-safe
+  statuses (claimed, in_progress, needs_review, etc.) unless
+  `force=True`, AND refuses unconditionally when claims or evidence
+  rows still reference the task (FK-protected audit history that
+  not even `--prune-force` overrides). `feature.deleted` refuses if
+  tasks still reference the feature (FK RESTRICT pre-check).
+- **`fakoli-state plan` auto-prunes orphans on re-parse.** Computes
+  the diff between `state.db` and the new parse, emits the deletion
+  events. Safe-status orphans prune silently; unsafe-status orphans
+  cause exit 1 with a blocked-IDs list and the `--prune-force`
+  escape hatch. Output line surfaces what was pruned.
+- **`Backend.list_features()` Protocol method + SQLite impl** —
+  orphan detection needs the full feature set for the diff.
+- **New `branch_prefix` field in `.fakoli-state/config.yaml`**
+  (default `"agent"`, preserving pre-v1.15.0 behaviour). The CLI's
+  `claim` command reads this and creates branches as
+  `<branch_prefix>/<task-id>-<slug>` — set `branch_prefix: feature`
+  and `claim` produces `feature/t012-...` instead of the
+  silently-incompatible `agent/t012-...`. Nested prefixes
+  (`feature/agent`) preserved verbatim. Empty string (`""`) is
+  explicit no-prefix mode. Validation at config-load time:
+  leading/trailing slashes, whitespace, non-string → `ValueError`
+  with a clear message.
+- **`create_branch_for_task` `branch_prefix=` keyword arg** (default
+  `"agent"` for backwards compat). Pre-v1.15.0 callers see no change.
+- **`config.yaml` template** (`write_default_config`) now emits the
+  `branch_prefix:` line with inline guidance so fresh projects
+  see the choice at init time.
+- **Shared helpers module `planning/_plan_helpers.py`** consolidates
+  the `_has_tasks_section` regex, `SAFE_DELETE_STATUSES` constant,
+  `classify_orphans()`, and `emit_prune_events()`. Both CLI and MCP
+  import from here instead of carrying twin copies (post-review
+  consolidation — see Fixed below).
+- **47 new regression tests** across:
+  - `tests/test_llm_planner.py` (NEW, 15 tests): tier resolution,
+    prompt assembly, fence-stripping, round-trip parse contract
+  - `tests/test_llm_integration.py::TestExpandTaskHandlesLlmQuirks`
+    (5 tests): fenced JSON, prose preamble, empty response, garbage
+  - `tests/test_cli.py` (7 tests): `TestPlanLlmBackstop` +
+    `TestPlanOrphanPrune` (CLI integration)
+  - `tests/test_mcp.py` (6 tests): MCP integration mirrors
+  - `tests/test_config.py` + `tests/test_git_ops.py` (13 tests):
+    `branch_prefix` validation and end-to-end
+  - +1 sanity test added during post-review CHANGELOG consolidation
 
 ### Changed
 
-- **`plan` skill Step 1 rewritten.** The previous "if 0 tasks,
+- **`plan` skill Step 1 rewritten.** The pre-v1.15.0 "if 0 tasks,
   dispatch the planner subagent" workaround is gone — the CLI now
-  guarantees tasks, so the skill body just runs `plan` and surfaces
-  the result. Explicit guidance: when the output shows `(N generated
-  via LLM ...)`, the agent MUST surface that to the user so they
-  know `prd.md` was modified.
-- **`plan` skill gains a new Step 1.5 — "Present post-plan decisions
-  as structured Q&A."** When the generated task list carries
-  decisions the user has to make (scope overruns, structural
-  concerns, expansion candidates), each one becomes a one-turn
-  `AskUserQuestion` (in Claude Code) or explicit numbered prompt
-  (elsewhere). One decision per turn — do NOT batch.
-- **`finish` skill gains a new "Decision-presentation discipline"
-  subsection** with explicit anti-pattern callout naming the
-  prose-with-bullets failure mode and recommending
-  `AskUserQuestion`. Generalizes the v1.13.0 disposition-gate
-  pattern from a one-off to a rule.
+  guarantees tasks, so the skill just runs `plan` and surfaces the
+  result. Agent MUST surface `(N generated via LLM ...)` output to
+  the user so they know `prd.md` was modified.
+- **`plan` skill new Step 1.5 — structured Q&A for post-plan
+  decisions.** Scope overruns, structural concerns, expansion
+  candidates each become a one-turn `AskUserQuestion` (in Claude
+  Code) or numbered prompt elsewhere. **One decision per turn —
+  do NOT batch.** Bolded as the leading sentence per skill-critic
+  review.
+- **`execute` skill Step 3 rewritten — auto-routes to fakoli-crew
+  specialist.** First-match-wins routing table maps task signals to
+  crew members (smith/guido/welder/scout/herald/keeper/sentinel/
+  flow-execute). Tie-break rule disambiguates when two rows match
+  (per skill-critic review). Step split into Step 3 (routing) +
+  Step 3a (implementation discipline). Anti-pattern callout names
+  the "How would you like to proceed?" failure mode.
+- **`finish` skill new "Decision-presentation discipline" subsection.**
+  Generalizes the v1.13.0 disposition-gate pattern (accept / reject /
+  hold / discard) from a one-off to a rule: any 2+ option decision
+  uses `AskUserQuestion` or explicit numbered prompts, never
+  prose-with-bullets.
 - **`claim` skill anti-pattern subsection extended** with the same
-  Q&A discipline rule for claim-time decisions (which task to claim
-  first, when to release early, when to force-claim).
-- README badges and "What ships today" table updated for v1.15.0:
-  version 1.14.0 → 1.15.0; tests 1024 → 1046 (+22); CLI commands
-  unchanged at 24 (the new `--no-llm` flag is a flag, not a
-  subcommand); MCP tools unchanged at 22.
+  Q&A discipline rule for claim-time decisions.
+- **`prd` skill `## Iterating` section** clarified — the
+  destructive-re-parse contract now reads as two distinct bullets
+  (`prd parse` replaces requirements; `plan` prunes orphan
+  features/tasks) so readers cannot conflate which command does
+  which prune (per skill-critic review).
+- README badges + "What ships today" + Architecture table updated
+  for v1.15.0: version 1.14.0 → 1.15.0; test count 1024 → 1071;
+  CLI commands 23 (was previously claimed as 24, but disk shows 23
+  — corrected per structure-critic review); MCP tools 22 (the
+  pre-v1.13.0 "13 tools" prose was stale in three places).
+- README "Highlights from v1.10.0" section replaced with v1.15.0
+  highlights — the previous block was 5 releases stale.
+
+### Fixed
+
+- **`expand --use-llm` was failing for every task** because
+  `planning.inference._parse_subtask_response` called `json.loads`
+  with no tolerance for markdown fences. Modern Claude models
+  routinely wrap JSON in ` ```json … ``` ` despite the prompt. The
+  parser saw the leading backtick instead of `[` and emitted
+  `Expecting value: line 1 column 1 (char 0)`. Three-layer fix:
+  strip fences (` ```json `, ` ```jsonl `, plain ` ``` `) →
+  fall back to string-aware bracket-matching extractor for
+  `Here are 3 sub-tasks: [...]` shapes → warning now includes a
+  300-char sample of the response so debugging doesn't require
+  extra verbosity. System prompt strengthened in parallel.
+- **CLI `plan` orphan-deletion loops now catch `TransactionAborted`**
+  (post-greptile fix). Previously the MCP path caught and re-raised
+  as `ToolError`, but the CLI emitted the raw Python traceback —
+  most accessible trigger was "user removes a feature heading from
+  prd.md while keeping its referencing tasks." Now CLI surfaces the
+  handler's clear message via `typer.echo` + `Exit(1)`.
+- **CLI/MCP duplication consolidated** (post-critic fix). The
+  `_has_tasks_section` helper, `SAFE_DELETE_STATUSES` constant
+  (previously triplicated across `cli/plan.py`, `mcp_server.py`,
+  and `state/sqlite.py`), and the orphan-prune emit loops (~90
+  duplicated lines) now live in `planning/_plan_helpers.py` and
+  both layers import from there. Future changes to safe-statuses
+  no longer require three synchronized edits.
+- **`cli/claim.py` no longer silently swallows config-load errors**
+  (post-critic fix — "exactly the bug class this PR is supposed to
+  fix"). A YAML typo in `branch_prefix: feature` now emits a stderr
+  warning naming the failure before falling back to the default,
+  instead of silently producing an `agent/...` branch the user
+  thought they had configured away.
+- **`planning/llm_planner.py` prompt-injection defense**
+  (post-critic fix). User PRD text (summary, goals, requirements,
+  features) now wraps in a `<prd>...</prd>` XML fence and the
+  system prompt instructs the model to treat anything inside as
+  data, not instructions. PRDs are author-controlled so practical
+  risk is low; this is defense-in-depth.
+- **`mcp_server.py` `TaskGenerationError` safe summary**
+  (post-mcp-critic fix). The exception's message can include up
+  to 500 chars of raw LLM output; re-raising via `ToolError`
+  leaked that to MCP clients. Full exception logged to stderr;
+  client sees a safe, actionable summary.
+- **`state/sqlite.py` `_handle_task_deleted` conflict_groups
+  cleanup** (post-critic fix). Malformed `task_ids` JSON in a
+  conflict_group row was silently `continue`'d, leaving the
+  deleted task ID reachable from subsequent queries. Now logs the
+  corruption to stderr AND resets the malformed row to `"[]"` so
+  state.db ends consistent. Tuple-unpack of cursor rows replaced
+  with explicit `row["id"]` / `row["task_ids"]` access via the
+  `sqlite3.Row` row factory.
 
 ### Migration
 
-No breaking changes. Schema unchanged. The 22 existing MCP tools
-return the same shape (the two new fields on `PlanTasksResponse`
-have defaults so old callers see no surprises). All 24 CLI commands
-continue to work; the new `--no-llm` flag is opt-in. The
-`fakoli-state:planner` agent file (`agents/planner.md`) is unchanged
-— it's still useful as a reference / for explicit-dispatch use cases
-that need the subagent's structured-output discipline (PRD critique,
-expansion proposals, incremental planning across PRD revisions).
+**No breaking changes for existing callers.** Schema unchanged. All
+23 CLI commands and 22 MCP tools continue to work; the new fields
+on `PlanTasksResponse` have defaults so old clients see no surprises.
+New CLI flags (`--no-llm`, `--prune-force`) and MCP parameters
+(`use_llm`, `prune_force`) are opt-in.
 
-### Changed (execute skill auto-dispatches to fakoli-crew, no meta-question)
+**One behaviour callout for MCP and CLI callers (post-mcp-critic
+review).** Pre-1.15.0 callers of `plan_tasks` / `fakoli-state plan`
+on a PRD with features + requirements but no `## Tasks` section
+previously got `task_count=0` and unchanged `prd.md`. As of v1.15.0
+the default behaviour is to **call the LLM and rewrite `prd.md`** —
+the file gets a fresh `## Tasks` section appended. Pass
+`use_llm=False` (MCP) or `--no-llm` (CLI) to preserve the
+pre-1.15.0 "task_count=0, file untouched" behaviour. The CLI
+output line and the new MCP response fields explicitly surface
+when the file was modified.
 
-- **`execute` skill Step 3 now auto-routes to the best-fit
-  fakoli-crew specialist** instead of asking the user "How would
-  you like to proceed?" with a list of options. Same anti-pattern
-  the v1.13.0 / v1.14.0 releases named at adjacent layers — the
-  agent has the context to pick the routing target (likely_files,
-  acceptance criteria, title verbs) and the user has no
-  information the agent lacks. Asking the question biases toward
-  "do it yourself" by framing it as agent-vs-delegate when the
-  real choice is which-specialist.
-- New routing heuristic encoded as a table in the skill body:
-  `.claude-plugin` work → smith; interface/Protocol design →
-  guido; existing-code integration → welder; API research →
-  scout; README / user-facing docs → herald; CI / CLAUDE.md /
-  contributor infra → keeper; verification-centred → sentinel;
-  multi-package wave → fakoli-flow:execute or guido + welder
-  pair. First-match-wins so the heuristic is deterministic.
-- The "ask the user" escape hatch is explicit and narrow:
-  ambiguous scope (multiple specialties no clear primary),
-  unusual task no routing heuristic match, OR user explicitly
-  said "I want to drive this one myself" earlier. Every other
-  case: route silently and report the routing decision inline.
-- Step 3 split into Step 3 (routing) + Step 3a (implementation
-  discipline) so the hooks-and-commits guidance stays attached
-  to the actual edit phase regardless of who did the edits.
-- Step 3a also updated to reference v1.15.0's
-  configurable `branch_prefix` — the example branch name still
-  shows `agent/...` but the prose acknowledges the prefix is
-  project-configured now.
-
-### Changed (branch-naming convention is now host-project-configurable)
-
-- **New `branch_prefix` field in `.fakoli-state/config.yaml`** (default
-  `"agent"`, preserving pre-v1.15.0 behaviour). The CLI's `claim`
-  command reads this and creates branches as
-  `<branch_prefix>/<task-id>-<slug>` — host projects with a
-  `feature/` / `fix/` convention can now set
-  `branch_prefix: feature` and have claim produce
-  `feature/t012-add-retry` instead of the silently-incompatible
-  `agent/t012-add-retry`. The CI / CODEOWNERS / PR-template
-  automation that keys off branch prefix now fires correctly.
-- Nested prefixes (e.g. `branch_prefix: feature/agent`) are
-  preserved verbatim — git accepts the slash. Empty string
-  (`branch_prefix: ""`) is the explicit no-prefix mode and produces
-  unprefixed `t012-add-retry` branches.
-- Validation at config-load time: leading/trailing slashes,
-  whitespace, and non-string values raise `ValueError` with a clear
-  message naming the offending value. Bad config surfaces at
-  `prd parse` or `claim` time, not after the branch was created
-  with a malformed name.
-- `create_branch_for_task` gained a `branch_prefix=` keyword arg
-  (default `"agent"` for backwards compat). Pre-v1.15.0 callers
-  that don't pass it get the old behaviour exactly.
-- `config.yaml` template (`write_default_config`) now emits the
-  `branch_prefix:` line with inline guidance so fresh projects
-  see the choice point at init time.
-- **13 new regression tests** covering custom prefix values
-  (feature / fix), nested prefixes, empty-prefix mode, default
-  backwards compat, and invalid-config error paths. Suite is
-  **1071 passing** (+13 from the previous v1.15.0 commit at 1058).
-
-### Fixed (expand --use-llm always returned non-JSON)
-
-- **`fakoli-state expand --use-llm` was failing for every task**
-  because `planning.inference._parse_subtask_response` called
-  `json.loads(text)` with no tolerance for markdown code fences.
-  Modern Claude models routinely wrap JSON in ` ```json … ``` `
-  fences even when the prompt says not to — the parser saw the
-  leading backtick instead of `[` and emitted
-  `Expecting value: line 1 column 1 (char 0)` for every call.
-- Fix: strip markdown fences (` ```json `, ` ```jsonl `, plain
-  ` ``` `) before parsing; if `json.loads` still fails, fall back
-  to a string-aware bracket-matching extractor that finds the
-  first balanced `[…]` JSON array even when prose precedes or
-  follows it (e.g. "Here are 3 sub-tasks: [...]").
-- The fallback warning was reworded to include a 300-char sample
-  of what the LLM actually returned, so users can debug a real
-  non-JSON failure (model refusing the task, malformed output)
-  without re-running with extra verbosity.
-- The expand system prompt itself was strengthened to make raw
-  JSON output more likely: explicit "Start your output with `[`",
-  "Do NOT wrap in markdown code fences", "Do NOT include any
-  prose." Belt-and-braces alongside the parser fix.
-- 5 new regression tests cover fenced JSON (with and without
-  language tag), JSON-after-prose, empty response, and truly
-  non-JSON. The existing "non-JSON returns empty" test still
-  passes — fence-stripping is purely additive.
-
-### Added (orphan cleanup on re-parse)
-
-- **New `task.deleted` and `feature.deleted` event types** with handlers
-  in `state/sqlite.py`. The schema's `tasks.parent_task_id ON DELETE
-  SET NULL` and `sync_mappings.task_id ON DELETE CASCADE` were
-  designed for deletion from the start (see `state/schema.py:40`);
-  v1.15.0 finally wires the events. Safety: `task.deleted` refuses
-  to clobber non-safe statuses (claimed, in_progress, needs_review,
-  etc.) unless `force=True`, AND refuses unconditionally when claims
-  or evidence rows still reference the task (FK-protected audit
-  history). `feature.deleted` refuses if any tasks still reference
-  the feature (FK RESTRICT at the SQL layer; the handler
-  pre-checks and surfaces a clearer message naming the blockers).
-- **`fakoli-state plan` now prunes orphans automatically.** When a
-  task or feature exists in state.db but is no longer present in
-  the re-parsed PRD, plan emits the corresponding deletion event.
-  Safe-status orphans (proposed / drafted / ready) prune silently;
-  unsafe-status orphans cause exit 1 with a list of blocking IDs
-  and the `--prune-force` escape hatch. The output line surfaces
-  what was pruned: `Pruned 1 orphan task(s) (T014) removed from
-  prd.md.` Resolves a user-reported bug where the docs claimed
-  "Re-parse replaces, not merges" but the implementation only
-  upserted by ID, silently leaving deleted tasks as orphans.
-- **`plan_tasks` MCP tool mirrors the CLI.** New `prune_force`
-  parameter; response gains `pruned_task_ids` and
-  `pruned_feature_ids` fields so MCP clients can show users what
-  was cleaned up. Unsafe orphans without `prune_force=True` raise
-  `ToolError` with the same shape as the CLI's exit-1 message.
-- **`Backend.list_features()` added to the Protocol** (Phase 2
-  Protocol surface in `state/backend.py`) and implemented in the
-  SQLite backend. Previously only `get_feature(id)` was exposed,
-  but orphan detection needs the full set of feature IDs to
-  compute the diff against the new parse.
-- **7 new regression tests** covering safe-orphan pruning,
-  unsafe-orphan blocking, `--prune-force` / `prune_force=True`
-  overrides, and a sanity check that a clean re-plan emits no
-  pruning message. Suite is **1053 passing** (was 1024 in v1.14.0;
-  +29 tests across the LLM planner + CLI/MCP wiring + orphan
-  cleanup).
+The `fakoli-state:planner` agent file (`agents/planner.md`) is
+unchanged. It remains useful as a reference and for explicit-
+dispatch use cases that need the subagent's structured-output
+discipline (PRD critique, expansion proposals, incremental
+planning across PRD revisions).
 
 ### Provider tier-chain design
 
 `resolve_planner_provider()` walks an ordered chain:
 
 1. **Tier 1 — claude-agent-sdk** (RESERVED for v1.16+). Currently
-   falls through silently. The hook is in place so a future PR can
-   land the wrapper without touching callers. Rationale for deferring:
-   the SDK is async, requires Node.js + Claude Code CLI installed
-   system-wide, and Claude Code's environment already exposes
+   falls through silently. Hook is in place so a future PR can land
+   the wrapper without touching callers. Deferred because the SDK
+   is async, requires Node.js + Claude Code CLI installed system-
+   wide, and Claude Code's environment already exposes
    `ANTHROPIC_API_KEY` — so Tier 2 covers the same use case at zero
-   extra setup cost today. Tier 1 becomes worth adding when there's
-   a concrete benefit beyond what Tier 2 already provides (e.g.
-   session-context sharing, per-call billing attribution).
+   extra setup cost today.
 2. **Tier 2 — anthropic SDK with `ANTHROPIC_API_KEY`** (CURRENT).
    Direct Anthropic API call via the existing `AnthropicProvider`.
    Used in both standalone and Claude Code contexts.

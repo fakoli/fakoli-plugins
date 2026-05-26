@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import sqlite3
+import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -1459,13 +1460,34 @@ class SqliteBackend:
             )
 
         # 3. Rewrite conflict_groups.task_ids JSON arrays to remove this task.
+        # Explicit Row indexing (row["id"]) is safer than positional unpack —
+        # the connection's row_factory = sqlite3.Row makes this self-documenting
+        # and survives column-order changes. Critic SHOULD FIX from PR #63.
         groups = conn.execute(
             "SELECT id, task_ids FROM conflict_groups"
         ).fetchall()
-        for group_id, task_ids_json in groups:
+        for row in groups:
+            group_id = row["id"]
+            task_ids_json = row["task_ids"]
             try:
                 task_ids = json.loads(task_ids_json) if task_ids_json else []
             except (TypeError, ValueError):
+                # Malformed JSON in a conflict_group row would otherwise be
+                # silently left alone — meaning a subsequent query reading
+                # that group could still see the deleted task ID. Log the
+                # corruption to stderr so the operator sees it AND rewrite
+                # the row to an empty array so downstream queries are
+                # consistent with what was actually deleted.
+                print(
+                    f"warning: conflict_groups row {group_id!r} has malformed "
+                    f"task_ids JSON ({task_ids_json!r}); resetting to "
+                    "empty array as part of task.deleted cleanup.",
+                    file=sys.stderr,
+                )
+                conn.execute(
+                    "UPDATE conflict_groups SET task_ids = ? WHERE id = ?",
+                    ("[]", group_id),
+                )
                 continue
             if task_id in task_ids:
                 task_ids = [t for t in task_ids if t != task_id]

@@ -207,7 +207,10 @@ The PRD will change. Here is the safe sequence for updates:
 3. Re-run `fakoli-state prd review` if the changes are material (added/removed requirements, changed acceptance criteria, altered feature scope).
 4. Re-run `fakoli-state prd review --approve` for significant scope changes. Minor editorial corrections (typo fixes, clarified wording, unchanged structure) do not require re-approval.
 
-**Coordinate before re-parsing a live project.** Re-parse fully replaces Requirements via `prd parse` (destructive on the `requirements` table). Features and Tasks are pruned by the subsequent `plan` command (v1.15.0): any feature or task that existed in state.db but is no longer present in the new PRD gets a `feature.deleted` / `task.deleted` event emitted automatically.
+**Coordinate before re-parsing a live project.** Which command does which prune is load-bearing — read both lines below carefully:
+
+- **`prd parse`** destructively replaces the `requirements` table. Requirements removed from prd.md vanish from state.db on the next `prd parse`. There is no "force" required and no safety check — Requirements have no claim or evidence to protect.
+- **`plan`** prunes orphan Features and Tasks (v1.15.0). Any feature or task that existed in state.db but is no longer present in the new parse gets a `feature.deleted` / `task.deleted` event emitted by `plan`. NOT by `prd parse` — running `prd parse` alone leaves orphans until `plan` runs.
 
 Safety is built into the deletion path:
 
