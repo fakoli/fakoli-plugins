@@ -53,17 +53,19 @@ Plugins live in directories with a `.claude-plugin/plugin.json` manifest. The ma
 
 ## The Fakoli Ecosystem
 
-Three plugins designed to work together — each useful standalone, all three together the full stack:
+The fakoli trinity — three plugins designed to compose, each useful standalone:
 
 | Plugin | Role | What It Does |
 |--------|------|--------------|
-| [**fakoli-crew**](plugins/fakoli-crew) | Specialist agents | 8 polyglot agents (TypeScript / Python / Rust) — architect, reviewer, researcher, plugin engineer, integration specialist, documenter, infrastructure engineer, QA |
 | [**fakoli-flow**](plugins/fakoli-flow) | Workflow orchestration | Intent-driven pipeline: brainstorm → plan → execute → verify → finish. Wave-based dispatch with mandatory critic gates between every code-writing phase |
-| [**systems-thinking**](plugins/systems-thinking) | Architecture analysis | Multi-agent infrastructure analysis: discovery → extraction → synthesis. Built for decisions that affect the whole system |
+| [**fakoli-crew**](plugins/fakoli-crew) | Specialist agents | 8 polyglot agents (TypeScript / Python / Rust) — architect, reviewer, researcher, plugin engineer, integration specialist, documenter, infrastructure engineer, QA |
+| [**fakoli-state**](plugins/fakoli-state) | Canonical project state | Local-first SQLite state engine for humans and AI coding agents. Lockable, evidence-backed work packets; 23 CLI commands, 13 MCP tools, bidirectional GitHub Issues sync |
 
-**fakoli-crew** provides the workers. **fakoli-flow** orchestrates them. **systems-thinking** analyzes architecture before the workers start.
+**fakoli-flow** defines how work moves. **fakoli-crew** defines who does the work. **fakoli-state** defines what is true. Together they form the canonical fakoli stack: orchestration + specialists + durable state.
 
-Install any combination — each works standalone. All three together give you a complete multi-agent development pipeline: architecture analysis, intent-driven planning, parallel agent execution, and evidence-based verification.
+A separate companion plugin, [**systems-thinking**](plugins/systems-thinking), runs multi-agent infrastructure analysis (discovery → extraction → synthesis) for decisions that affect the whole system — useful before the trinity starts work, but not part of the core stack.
+
+Install any combination — each works standalone. The full trinity gives you a complete multi-agent development pipeline: intent-driven planning, parallel agent execution against canonical state, and evidence-based verification with enforced claim/lock discipline.
 
 ---
 
@@ -97,7 +99,7 @@ Install any combination — each works standalone. All three together give you a
 | [**cli-to-plugin**](plugins/cli-to-plugin) | Convert any CLI with `--help` support into a Claude Code plugin: one skill per command group plus optional LLM-proposed workflow meta-skills. |
 | [**fakoli-crew**](plugins/fakoli-crew) | Summon expert agent archetypes — a Guido-style Python architect, code reviewer, API researcher, plugin engineer, integration specialist, and more — that work independently or as coordinated crews using wave-based orchestration for complex multi-step projects. |
 | [**fakoli-flow**](plugins/fakoli-flow) | Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with a five-stage pipeline (brainstorm → plan → execute → verify → finish), critic gates, and evidence-based verification. Works best alongside fakoli-crew. |
-| [**fakoli-state**](plugins/fakoli-state) | Local-first project state engine — turn brainstorms and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents coordinate on without conflicts. SQLite-backed canonical state, six-dimension task scoring, MCP server, and bidirectional GitHub Issues sync. Scaffolded; phases 2-8 in progress. |
+| [**fakoli-state**](plugins/fakoli-state) | Local-first, runtime-neutral project state engine for humans and AI coding agents. Turn PRDs into lockable, evidence-backed work packets; coordinate multiple agents without conflicts. SQLite-backed canonical state, 23 CLI commands, 13 MCP tools, 7 skills, 6 agents, 4 hooks, bidirectional GitHub Issues sync. v1.11.0 (2026-05-25). |
 | [**marketplace-manager**](plugins/marketplace-manager) | Create and manage plugins without leaving Claude Code — scaffold new plugins from template with `/add-plugin`, validate manifests, regenerate registry indices, and install GitHub Actions workflows. The tool that maintains this marketplace. |
 
 ---
@@ -125,6 +127,18 @@ Install any combination — each works standalone. All three together give you a
 
 # Scaffold a new plugin
 /add-plugin my-new-plugin
+
+# Turn a PRD into claimable, evidence-backed work packets
+fakoli-state init --name "My Project"
+# (author .fakoli-state/prd.md by hand — see plugins/fakoli-state/docs/prd-template.md)
+fakoli-state prd parse                                # PRD → requirements + tasks
+fakoli-state prd review                               # gate: draft → reviewed
+fakoli-state prd review --approve                     # gate: reviewed → approved
+fakoli-state plan && fakoli-state score && fakoli-state review tasks   # generate + score + ready
+fakoli-state claim T001                               # lockable claim with lease + heartbeat
+fakoli-state submit T001 \
+  --commands "pytest" --files-changed src/foo.py      # record evidence (gate input)
+fakoli-state apply T001 --approve                     # promote to done with audit trail
 ```
 
 ---
