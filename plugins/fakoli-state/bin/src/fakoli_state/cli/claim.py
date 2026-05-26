@@ -28,7 +28,13 @@ def claim(
     force: bool = typer.Option(  # noqa: B008
         False,
         "--force",
-        help="Override conflict warnings.",
+        help=(
+            "Override file-conflict warnings (overlapping likely_files with "
+            "an active claim) AND silence v1.16.0 dependency warnings "
+            "(undone task.dependencies). The claim itself proceeds either "
+            "way for the dependency check; --force only silences the "
+            "noise."
+        ),
     ),
     actor: str | None = typer.Option(  # noqa: B008
         None,

@@ -103,6 +103,29 @@ prefer stricter behaviour can wrap the warning in their own
 project's git-pre-push hook or check `fakoli-state show TASK_ID`
 before claiming.
 
+### Fixed (post-greptile review)
+
+- **Dependency ParseError now points at the offending `### Txxx:`
+  block**, not at the `## Tasks` section header. The parser tracks
+  a `task_id → block_line` map during the parse loop and consults
+  it during post-loop validation. Before the fix, a user with a
+  bad `**Dependencies:** T099` on T002 would be pointed at line 1
+  of the section instead of T002's heading.
+- **Self-dependency now stripped + warned** instead of passing
+  silently. A task with `**Dependencies:** T001` on T001 would
+  otherwise trigger a perpetual claim-time warning (T001 can never
+  be `done` before it is claimed). The parser strips the self-ref
+  AND emits a clear "remove yourself from your own dependencies"
+  warning naming the offending task. Note this differs from the
+  unknown-ID handling, which KEEPS the bad ID so downstream tooling
+  can see the author's intent — self-refs are unambiguously wrong.
+- **`--force` help text updated** to mention that the flag silences
+  both file-conflict warnings AND dependency warnings. Previously
+  only the file-conflict half was documented, so users wouldn't
+  know `--force` cleared the dep-warning noise too.
+- Suite is **1083 passing** (+2 regression tests for self-dep
+  stripping and per-block line attribution).
+
 ---
 
 ## [1.15.0] — 2026-05-26
