@@ -16,26 +16,36 @@ the CLI calls :func:`generate_tasks_markdown`, which calls an LLM to draft
 that ``planning.template.parse_prd`` can consume — round-tripping through the
 same data format avoids duplicating any parsing logic.
 
-Provider tier chain
--------------------
-:func:`resolve_planner_provider` walks an ordered chain:
+Provider precedence (v1.17.0)
+-----------------------------
+:func:`resolve_planner_provider` picks **exactly one** provider per call,
+in this order:
 
-1. **Tier 1 — claude-agent-sdk** (RESERVED for v1.16+). When the calling
-   process is itself a Claude Code session, the SDK can re-use that
-   session's context without spawning a separate Anthropic API call. The
-   tier currently fails through silently because (a) the SDK is async +
-   requires Node.js + Claude Code CLI installed system-wide, and (b) inside
-   a Claude Code session ``ANTHROPIC_API_KEY`` is already set in the env,
-   so Tier 2 covers the same use case at zero extra setup cost. The hook
-   is here so the implementation can land cleanly later without touching
-   callers.
+1. **Explicit config** — ``Config.llm_provider`` resolves to one of
+   ``anthropic`` / ``bedrock`` / ``custom``. Always wins when set.
+2. **Env auto-detect** — when config is silent, choose by which credential
+   is present:
+   - ``ANTHROPIC_API_KEY`` → ``anthropic`` (cheapest path; works inside
+     Claude Code, Cursor, Codex, or any shell with the key).
+   - ``AWS_REGION`` / ``AWS_DEFAULT_REGION`` (and the ``anthropic[bedrock]``
+     extras are importable) → ``bedrock``. ``ANTHROPIC_API_KEY`` takes
+     precedence because direct API is cheaper per token; users who want
+     Bedrock pinning even when their key is set MUST set ``llm_provider:
+     bedrock`` in config.
+   - ``CUSTOM_LLM_BASE_URL`` → ``custom``. Same pinning rule applies.
+3. **Fail loudly** with a multi-line message naming every supported path.
+   We do NOT silent-fall-through to a different provider mid-process —
+   that breaks billing predictability and surprises ops teams during
+   incidents (community consensus, May 2026).
 
-2. **Tier 2 — anthropic + ANTHROPIC_API_KEY** (CURRENT). Direct Anthropic
-   API call via the existing :class:`fakoli_state.planning.llm.AnthropicProvider`.
-   Used in both standalone and Claude Code contexts.
+Tier resolution
+---------------
+After the provider is chosen, the model id comes from:
 
-3. **Tier 3 — fail loudly** with a clear message naming both the env var
-   and the future SDK path. Never returns 0 tasks silently.
+1. ``Config.llm_model`` explicit → wins, passed through verbatim.
+2. ``Config.llm_tier`` (``opus``/``sonnet``/``haiku``) → resolved via
+   :data:`MODEL_TIERS` (or :data:`BEDROCK_MODEL_TIERS` for Bedrock).
+3. :data:`DEFAULT_TIER` (Sonnet) → safe community default.
 """
 
 from __future__ import annotations
@@ -47,11 +57,14 @@ from typing import TYPE_CHECKING
 
 from fakoli_state.planning.llm import (
     AnthropicProvider,
+    BedrockProvider,
+    CustomEndpointProvider,
     LLMProvider,
     LLMProviderError,
 )
 
 if TYPE_CHECKING:
+    from fakoli_state.config import Config
     from fakoli_state.state.models import PRD, Feature, Requirement, Task
 
 __all__ = [
@@ -107,32 +120,225 @@ class TaskGenerationResult:
 # ---------------------------------------------------------------------------
 
 
-def resolve_planner_provider() -> tuple[LLMProvider, str]:
-    """Walk the LLM-provider tier chain and return the first one available.
+def resolve_planner_provider(
+    config: Config | None = None,
+) -> tuple[LLMProvider, str]:
+    """Pick exactly one LLM provider for the current process.
+
+    Precedence (highest first):
+
+    1. ``config.llm_provider`` explicit (``anthropic``/``bedrock``/``custom``).
+    2. Env auto-detect: ``ANTHROPIC_API_KEY`` → anthropic;
+       ``AWS_REGION``+bedrock-extras → bedrock; ``CUSTOM_LLM_BASE_URL`` →
+       custom.
+    3. Raise :class:`PlannerProviderUnavailable` with a help message.
+
+    The model id resolves from ``config.llm_model`` (explicit) →
+    ``config.llm_tier`` (opus/sonnet/haiku) → ``DEFAULT_TIER`` (sonnet).
+
+    Args:
+        config: Optional :class:`fakoli_state.config.Config`. When ``None``,
+            env auto-detect runs against the bare env vars with no overrides
+            — useful for tests and the legacy zero-arg call sites.
 
     Returns:
-        ``(provider, tier_name)`` — caller passes the provider to
-        :func:`generate_tasks_markdown` and the tier name into the
-        :class:`TaskGenerationResult` for CLI output.
+        ``(provider, tier_name)`` — tier_name is the resolved provider
+        slug for CLI output (``"anthropic"`` / ``"bedrock"`` / ``"custom"``).
 
     Raises:
         PlannerProviderUnavailable: No tier produced a usable provider.
     """
-    # Tier 1 — claude-agent-sdk (RESERVED for v1.16+, falls through silently).
-    # The hook is left here so a future PR can wire the import + wrapper
-    # without touching call sites. See module docstring for rationale.
+    # Stage 1 — pick which PROVIDER family to instantiate.
+    chosen = _choose_provider_family(config)
+    if chosen is None:
+        raise PlannerProviderUnavailable(_no_provider_message())
 
-    # Tier 2 — anthropic SDK with ANTHROPIC_API_KEY.
+    # Stage 2 — instantiate the chosen family with config-aware knobs.
+    #
+    # Each `_build_*` may raise LLMProviderError when its optional extra is
+    # not installed (e.g. user pinned `llm_provider: bedrock` in config but
+    # never ran `pip install 'fakoli-state[bedrock]'`). Wrap those into
+    # PlannerProviderUnavailable so the CLI / MCP catch sites (which only
+    # know about PlannerProviderUnavailable) surface a clean help message
+    # instead of a raw traceback. (critic MUST FIX #1, PR #65)
+    try:
+        if chosen == "anthropic":
+            return _build_anthropic(config), "anthropic"
+        if chosen == "bedrock":
+            return _build_bedrock(config), "bedrock"
+        if chosen == "custom":
+            return _build_custom(config), "custom"
+    except LLMProviderError as exc:
+        raise PlannerProviderUnavailable(
+            f"Could not build the {chosen!r} provider: {exc}\n\n"
+            f"Either install the missing extra "
+            f"(`pip install 'fakoli-state[{chosen}]'` for bedrock/custom), "
+            f"set `llm_provider:` in .fakoli-state/config.yaml to a "
+            f"different value, or unset it to use env auto-detect."
+        ) from exc
+
+    # Unreachable in practice — kept so mypy/pyright see exhaustive branches.
+    raise PlannerProviderUnavailable(  # pragma: no cover
+        f"Unknown provider family {chosen!r} returned by resolver."
+    )
+
+
+def _choose_provider_family(config: Config | None) -> str | None:
+    """Pick the provider family slug or return None for the fail path."""
+    if config is not None and config.llm_provider is not None:
+        return config.llm_provider
+
+    # Env auto-detect. ANTHROPIC_API_KEY wins when set even if AWS_REGION
+    # is also set, because direct API is cheaper per token. Users who want
+    # to force Bedrock when both are present must set llm_provider in config.
     if os.environ.get("ANTHROPIC_API_KEY"):
-        return AnthropicProvider(), "anthropic"
+        return "anthropic"
 
-    # Tier 3 — fail loudly.
-    raise PlannerProviderUnavailable(
-        "No LLM provider available for task generation. Either:\n"
-        "  1. Set ANTHROPIC_API_KEY in your environment (cheapest path; "
-        "works inside Claude Code, Cursor, Codex, or any shell).\n"
-        "  2. (v1.16+) Install claude-agent-sdk and Claude Code CLI to "
-        "re-use the calling session's context.\n"
+    if os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"):
+        # Only opt into Bedrock auto-detect if the optional extras are
+        # actually installed — avoids a confusing ImportError on a box
+        # that happens to have AWS_REGION set for unrelated reasons.
+        #
+        # Check for `boto3` rather than `anthropic.AnthropicBedrock`: the
+        # AnthropicBedrock CLASS ships with the base `anthropic` install
+        # (so `hasattr(anthropic, "AnthropicBedrock")` is always True), but
+        # the boto3 transitive dep that the class needs at construction
+        # time is what the `[bedrock]` extra actually adds. boto3's
+        # presence is therefore the right signal. (greptile MUST FIX, PR #65)
+        try:
+            import boto3  # noqa: F401 — presence check
+
+            has_bedrock = True
+        except ImportError:
+            has_bedrock = False
+        if has_bedrock:
+            return "bedrock"
+
+    if os.environ.get("CUSTOM_LLM_BASE_URL"):
+        return "custom"
+
+    return None
+
+
+def _build_anthropic(config: Config | None) -> AnthropicProvider:
+    """Construct an AnthropicProvider with config-aware model/tier."""
+    model, tier = _resolve_model_args(config)
+    return AnthropicProvider(model=model, tier=tier)
+
+
+def _build_bedrock(config: Config | None) -> BedrockProvider:
+    """Construct a BedrockProvider with config-aware AWS knobs + model/tier."""
+    model, tier = _resolve_model_args(config)
+    region = config.bedrock_region if config else None
+    profile = config.bedrock_profile if config else None
+    return BedrockProvider(
+        model=model,
+        tier=tier,
+        aws_region=region,
+        aws_profile=profile,
+    )
+
+
+def _build_custom(config: Config | None) -> CustomEndpointProvider:
+    """Construct a CustomEndpointProvider with config-aware base_url + model.
+
+    Wraps ``CustomEndpointProvider``'s setup-time ``ValueError`` (missing
+    base_url or empty model) in :class:`PlannerProviderUnavailable` so the
+    CLI / MCP layer's existing catch sites surface a clean help message
+    instead of a raw traceback. (greptile MUST FIX, PR #65 — the prior
+    version let ValueError propagate unhandled past every catch site.)
+    """
+    # For custom endpoints, an explicit model is required (see
+    # CustomEndpointProvider docstring — there is no portable default).
+    # We accept either llm_model OR llm_tier-mapped via MODEL_TIERS as a
+    # convenience: many custom proxies (OpenRouter, LiteLLM) accept
+    # Anthropic-style model ids verbatim.
+    model, tier = _resolve_model_args(config)
+
+    # Fail loudly when neither model nor tier is set. The PRIOR behaviour
+    # silently defaulted to `claude-sonnet-4-6` on any custom endpoint,
+    # which on a local vLLM serving Mistral-7B (or any non-Anthropic
+    # route) produces a confusing "model not found" failure mode that
+    # looks like a network issue. (critic MUST FIX #2, PR #65)
+    if not model and not tier:
+        raise PlannerProviderUnavailable(
+            "Custom endpoint requires an explicit model id. Set one of:\n"
+            "  - `llm_model:` in .fakoli-state/config.yaml — the route "
+            "name your endpoint serves (e.g. `anthropic/claude-sonnet-4-6` "
+            "on OpenRouter, `Mistral-7B` on local vLLM)\n"
+            "  - `llm_tier:` (opus | sonnet | haiku) — only safe when your "
+            "endpoint is an Anthropic-compatible proxy that accepts "
+            "Anthropic model ids\n"
+            "\n"
+            "Tier defaults are deliberately NOT auto-applied on custom "
+            "endpoints to avoid sending an Anthropic id to a non-Anthropic "
+            "server."
+        )
+
+    if not model:
+        # Tier is set (Anthropic-compatible proxy convention). Resolve it
+        # to an Anthropic id, which most such proxies accept verbatim.
+        from fakoli_state.planning.llm import resolve_model_for_tier
+
+        model = resolve_model_for_tier(tier)
+
+    base_url = config.custom_base_url if config else None
+    api_key = None
+    if config and config.custom_api_key_env:
+        api_key = os.environ.get(config.custom_api_key_env)
+
+    try:
+        return CustomEndpointProvider(
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+        )
+    except ValueError as exc:
+        # ValueError is raised by CustomEndpointProvider's __init__ when
+        # base_url is missing (no constructor arg and CUSTOM_LLM_BASE_URL
+        # env unset) or when model is empty. Both are config errors the
+        # user can fix; surface them through the resolver's standard
+        # exception type so the CLI / MCP catch sites work uniformly.
+        raise PlannerProviderUnavailable(
+            "Custom endpoint provider misconfigured: "
+            f"{exc}\n\n"
+            "Set `custom_base_url:` in `.fakoli-state/config.yaml` "
+            "(or CUSTOM_LLM_BASE_URL in env) and `llm_model:` "
+            "(or rely on the Sonnet tier default), then re-run."
+        ) from exc
+
+
+def _resolve_model_args(config: Config | None) -> tuple[str | None, str | None]:
+    """Return ``(model, tier)`` from config — passes None when unset.
+
+    The provider's own ``__init__`` handles tier→model mapping and the
+    DEFAULT_TIER fallback. We deliberately do NOT pre-resolve here so the
+    provider's namespace (Bedrock IDs vs direct API IDs) wins.
+    """
+    if config is None:
+        return None, None
+    return config.llm_model, config.llm_tier
+
+
+def _no_provider_message() -> str:
+    """Multi-line help text for the PlannerProviderUnavailable fail path."""
+    return (
+        "No LLM provider configured or auto-detected. Choose one:\n"
+        "\n"
+        "  1. Direct Anthropic API (cheapest):\n"
+        "     export ANTHROPIC_API_KEY=sk-...\n"
+        "\n"
+        "  2. Amazon Bedrock:\n"
+        "     pip install 'fakoli-state[bedrock]'\n"
+        "     export AWS_REGION=us-east-1   # plus boto3 creds\n"
+        "     # or set llm_provider: bedrock in .fakoli-state/config.yaml\n"
+        "\n"
+        "  3. Custom OpenAI-compatible endpoint (vLLM, OpenRouter, …):\n"
+        "     pip install 'fakoli-state[custom]'\n"
+        "     export CUSTOM_LLM_BASE_URL=http://localhost:8000/v1\n"
+        "     export CUSTOM_LLM_API_KEY=...     # if your endpoint needs one\n"
+        "     # or set llm_provider: custom in .fakoli-state/config.yaml\n"
+        "\n"
         "Then re-run `fakoli-state plan`."
     )
 
@@ -401,6 +607,7 @@ def generate_tasks_markdown(
     requirements: list[Requirement],
     existing_tasks: list[Task] | None = None,
     provider: LLMProvider | None = None,
+    config: Config | None = None,
     max_tokens: int = 8000,
 ) -> TaskGenerationResult:
     """Generate a ``## Tasks`` markdown section via LLM.
@@ -416,7 +623,12 @@ def generate_tasks_markdown(
             continue the ID sequence from the next available number.
             Use for incremental planning after a PRD revision.
         provider: Optional :class:`LLMProvider` override (for tests).
-            When ``None``, :func:`resolve_planner_provider` picks one.
+            When ``None``, :func:`resolve_planner_provider` picks one based
+            on ``config``.
+        config: Optional :class:`fakoli_state.config.Config`. Threaded into
+            :func:`resolve_planner_provider` so the project's explicit
+            ``llm_provider`` / ``llm_tier`` / Bedrock+custom knobs are
+            honored. Ignored when ``provider`` is supplied.
         max_tokens: Per-completion ceiling. Default 8000 supports ~20
             tasks with full acceptance criteria + verification.
 
@@ -429,15 +641,19 @@ def generate_tasks_markdown(
         TaskGenerationError: LLM returned an empty or unparseable response.
         LLMProviderError: The underlying LLM call failed (network, auth).
     """
+    # Resolve provider + tier label up front. Explicit reassignment (rather
+    # than reusing the `provider` parameter name) keeps Pyright's narrowing
+    # happy — assigning into the parameter directly inside the if-branch
+    # sometimes confuses the type checker on the later attribute access.
     if provider is None:
-        provider, tier_name = resolve_planner_provider()
+        active_provider, tier_name = resolve_planner_provider(config)
     else:
-        tier_name = "injected"
+        active_provider, tier_name = provider, "injected"
 
     user_prompt = _build_user_prompt(prd, features, requirements, existing_tasks)
 
     try:
-        response = provider.generate(
+        response = active_provider.generate(
             system=_SYSTEM_PROMPT,
             user=user_prompt,
             max_tokens=max_tokens,

@@ -29,7 +29,7 @@ Companion runner: `bash tests/test_critics.sh --list` prints a one-line summary 
 
 ```
 Agent(
-  subagent_type="fakoli-crew:agent-critic",
+  subagent_type="fakoli-plugin-critic:agent-critic",
   prompt="Review the agent file at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-agent.md. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to docs/plans/agent-agent-critic-smoke-status.md."
 )
 ```
@@ -61,7 +61,7 @@ Agent(
 
 ```
 Agent(
-  subagent_type="fakoli-crew:skill-critic",
+  subagent_type="fakoli-plugin-critic:skill-critic",
   prompt="Review the skill at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-skill/SKILL.md. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to docs/plans/agent-skill-critic-smoke-status.md."
 )
 ```
@@ -93,7 +93,7 @@ Agent(
 
 ```
 Agent(
-  subagent_type="fakoli-crew:hook-critic",
+  subagent_type="fakoli-plugin-critic:hook-critic",
   prompt="Review the hook layer in plugins/fakoli-crew/tests/fixtures/audit-targets/. Read bad-hooks.json (the manifest) and bad-hook.sh (the dispatched script). Perform the standard contract-detection rule (Steps 1-3 in your system prompt) before flagging set -e. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to docs/plans/agent-hook-critic-smoke-status.md."
 )
 ```
@@ -126,7 +126,7 @@ Note: the fixture intentionally uses `${CLAUDE_PLUGIN_ROOT}` for the `command` p
 
 ```
 Agent(
-  subagent_type="fakoli-crew:mcp-critic",
+  subagent_type="fakoli-plugin-critic:mcp-critic",
   prompt="Review the MCP manifest at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-mcp.json. Treat this as a standalone .mcp.json (there is no companion server implementation source — the fixture is manifest-only). Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to docs/plans/agent-mcp-critic-smoke-status.md."
 )
 ```
@@ -161,7 +161,7 @@ The fixture keeps `name`, `author`, `repository`, `license`, and `keywords` vali
 
 ```
 Agent(
-  subagent_type="fakoli-crew:structure-critic",
+  subagent_type="fakoli-plugin-critic:structure-critic",
   prompt="Review the plugin manifest at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-plugin.json. Treat it as a standalone plugin.json (no surrounding marketplace.json, registry/index.json, CHANGELOG, README, or pyproject.toml — the fixture is manifest-only by design). Apply the Manifest Required Fields checklist. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to docs/plans/agent-structure-critic-smoke-status.md."
 )
 ```

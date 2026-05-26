@@ -64,8 +64,8 @@
     },
     {
       "name": "fakoli-crew",
-      "version": "2.2.0",
-      "description": "Thirteen specialist AI agents for software engineering — 8 generalist roles (polyglot architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) and 5 cross-plugin critics (agent-critic, skill-critic, hook-critic, mcp-critic, structure-critic) — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
+      "version": "2.3.0",
+      "description": "Eight specialist AI agents for software engineering — generalist roles (polyglot architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) with TDD enforcement, systematic debugging, and verification gates. Plugin-surface critics (agent/skill/hook/mcp/structure) moved to fakoli-plugin-critic in 2.3.0.",
       "source": "./plugins/fakoli-crew"
     },
     {
@@ -82,7 +82,7 @@
     },
     {
       "name": "fakoli-state",
-      "version": "1.16.0",
+      "version": "1.17.0",
       "description": "Local-first, runtime-neutral project state for humans and AI coding agents — turn PRDs into lockable, evidence-backed work packets.",
       "source": "./plugins/fakoli-state"
     },
@@ -91,6 +91,12 @@
       "version": "1.0.1",
       "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
       "source": "./plugins/fakoli-flow"
+    },
+    {
+      "name": "fakoli-plugin-critic",
+      "version": "0.1.0",
+      "description": "Five specialist critic agents for Claude Code plugin development — agent-critic (frontmatter/color/tools), skill-critic (lazy-loading/no-fuzzy-detection), hook-critic (contract-aware/${CLAUDE_PLUGIN_ROOT}), mcp-critic (schema/actor-validation), structure-critic (manifest/CHANGELOG/version-sync). Audit any plugin (your own or any other) with MUST FIX / SHOULD FIX / CONSIDER / NIT verdicts.",
+      "source": "./plugins/fakoli-plugin-critic"
     },
     {
       "name": "nano-banana-pro",

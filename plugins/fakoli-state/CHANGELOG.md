@@ -6,7 +6,63 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.17+ planned work._
+_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.18+ planned work._
+
+---
+
+## [1.17.0] — 2026-05-26
+
+Major capability release: **multi-provider LLM access** (direct Anthropic API, Amazon Bedrock, OpenAI-compatible custom endpoints) plus **tier-aware default model selection** that drops typical session cost by ~60% versus the prior "everything routes through Opus" pattern. The five plugin-surface critics extract to a new dedicated `fakoli-plugin-critic` plugin (`fakoli-crew` 2.3.0+ no longer ships them).
+
+### Added
+
+- `planning/llm.BedrockProvider` — Anthropic-on-Bedrock via `anthropic.AnthropicBedrock`. Boto3 credential chain (env vars / profile / IAM role) just works. Optional dep: `pip install 'fakoli-state[bedrock]'`.
+- `planning/llm.CustomEndpointProvider` — any OpenAI-compatible `/v1/chat/completions` endpoint via the `openai` SDK with `base_url=`. Targets vLLM, LiteLLM proxy, OpenRouter, Together, Groq, Azure OpenAI, local llama.cpp. Optional dep: `pip install 'fakoli-state[custom]'`.
+- `planning/llm.MODEL_TIERS`, `BEDROCK_MODEL_TIERS`, `DEFAULT_TIER`, `resolve_model_for_tier()` — tier vocabulary (`opus` / `sonnet` / `haiku`) and the helper that maps a logical tier to the right model id for each provider's namespace.
+- `Config` fields: `llm_provider` (anthropic/bedrock/custom), `llm_tier` (opus/sonnet/haiku), `bedrock_region`, `bedrock_profile`, `custom_base_url`, `custom_api_key_env`. All optional; env auto-detect kicks in when blank.
+- `docs/llm-providers.md` — provider setup guide with worked examples for direct API, Bedrock (env / profile / IAM), and three custom-endpoint shapes (vLLM, OpenRouter, LiteLLM proxy).
+- `docs/model-strategy.md` — tier rationale, per-agent assignments, override precedence, May 2026 cost figures, and the rationale for *not* shipping a dynamic complexity router by default.
+- `[bedrock]` / `[custom]` / `[all-providers]` optional extras in `pyproject.toml` so the default install stays lean (no boto3, no openai) for users on the Anthropic-API-only path.
+- Test coverage: `TestResolvePlannerProvider` (8 new tests covering env auto-detect precedence, config overrides, tier threading); `TestResolveModelForTier` (3 tests for direct-API + Bedrock tier tables + error on unknown tier); `TestCustomEndpointProvider` (2 tests for required-model and required-base_url validation).
+
+### Changed
+
+- `planning/llm_planner.resolve_planner_provider()` — gained an optional `config: Config | None` parameter. New precedence: explicit `config.llm_provider` > env auto-detect (`ANTHROPIC_API_KEY` > `AWS_REGION`+bedrock-extras > `CUSTOM_LLM_BASE_URL`) > fail loudly. Single provider per process; no silent fallback across providers.
+- `generate_tasks_markdown()` — gained an optional `config:` parameter, threaded through to the resolver so projects' explicit provider+tier+credential knobs apply.
+- `cli/plan._resolve_llm_provider()` — delegates to `resolve_planner_provider(config)` so `--use-llm` augmentation honors the same multi-provider precedence as the no-tasks LLM backstop. Single source of truth for provider selection across the CLI.
+- `cli/plan._load_config_optional()` — new helper that soft-loads `.fakoli-state/config.yaml` and emits a stderr warning naming the exception class on load failure. Mirrors `cli/claim.py`'s existing pattern.
+- `AnthropicProvider` — gained `tier=` kwarg (Opus / Sonnet / Haiku), resolves via `MODEL_TIERS`. Existing `model=` arg still wins when both are passed; backward compatible for every existing caller.
+- Default model tier across the codebase shifts from "Sonnet (hardcoded constant)" to `DEFAULT_TIER = "sonnet"` (community consensus per anthropics/claude-code#27665). Functional behaviour unchanged on the default path; the change is documentation + config plumbing.
+- Agent frontmatter — `model:` set explicitly across all 6 fakoli-state agents (was `opus` uniformly; now `opus` for reasoning/synthesis, `sonnet` for structured generation, `haiku` for mechanical/read-only):
+  - `planner` → opus | `critic` → opus | `docs-scribe` → sonnet | `marketplace-scribe` → sonnet | `sentinel` → haiku | `state-keeper` → haiku
+- `config.yaml` template — gains commented `llm_*`, `bedrock_*`, `custom_*` blocks with tier-mapping reference so new projects see the multi-provider shape at init time.
+
+### Fixed
+
+- `cli/plan._resolve_llm_provider()` previously hardcoded an `ANTHROPIC_API_KEY` env check, diverging from the resolver's own logic and forcing users on Bedrock or custom endpoints to skip `--use-llm` entirely even when their non-Anthropic provider was correctly configured. Now both paths share the resolver.
+
+### Fixed
+
+- **greptile MUST FIX #1.** `_choose_provider_family` was using `hasattr(anthropic, "AnthropicBedrock")` to detect whether the Bedrock extras were installed. The `AnthropicBedrock` class ships with the base `anthropic` install — only `boto3` (the transitive dep added by the `[bedrock]` extra) actually gates it. Switched to `try: import boto3` so AWS_REGION-set boxes without the extras correctly fall through to "no provider available" instead of picking Bedrock and crashing at construction.
+- **greptile MUST FIX #2 + critic MUST FIX #1.** When the operator pinned `llm_provider: bedrock` (or `custom`) in config without installing the extras, the underlying `LLMProviderError` propagated past the resolver's `PlannerProviderUnavailable` contract — users saw a raw traceback where curated help text was promised. The resolver now wraps every per-family `_build_*` call's `LLMProviderError` into `PlannerProviderUnavailable` with an install-command suggestion.
+- **critic MUST FIX #2.** `_build_custom` silently defaulted to `claude-sonnet-4-6` when the operator had `llm_provider: custom` but no `llm_model` / `llm_tier`. On a local vLLM serving Mistral-7B (or any non-Anthropic OpenRouter route) this produced a confusing "model not found" failure that looked like a network issue. The resolver now refuses to invent a model and raises `PlannerProviderUnavailable` with an actionable message naming the config keys.
+- **structure-critic MUST FIX.** `bin/src/fakoli_state/__init__.py` `__version__` was stale at `1.16.0` — every other source of truth had bumped to `1.17.0`. Now in sync, plus a new `tests/test_version_sync.py` regression that asserts `pyproject.toml`, `__init__.py`, and `plugin.json` agree at the start of every test run.
+
+### Changed (post-review polish)
+
+- `mcp_server.py` `plan_tasks` soft-load — narrowed the broad `except Exception` to `(FileNotFoundError, OSError, ValueError)` first, then a labeled last-resort guard for `yaml.YAMLError` and friends. Mirrors `cli/plan.py:_load_config_optional`'s pattern (mcp-critic SHOULD FIX).
+- `cli/plan.py:_load_config_optional` — caught `yaml.YAMLError` explicitly; dropped the misleading "yaml.YAMLError is a subclass of yaml.YAMLError" comment (critic SHOULD FIX #3).
+- `cli/plan.py` — removed unused `os` and `re` imports left over from the refactor (critic SHOULD FIX #6).
+- `mcp_server.PlanTasksResponse.llm_provider` field comment and `plan_tasks` docstring — updated to document the v1.17.0 multi-provider story (`anthropic` / `bedrock` / `custom` rather than the stale "anthropic today, claude-agent-sdk reserved for v1.16+"); added a note that the MCP server inherits env from the host process (mcp-critic SHOULD FIX).
+- `bin/pyproject.toml` `keywords` — synced with `plugin.json` keywords (was drifted: 10 keys differ pre-PR). Cosmetic alignment for marketplace search (structure-critic SHOULD FIX).
+- `fakoli-plugin-critic` agent files — sed sweep of "fakoli-crew critic severity rubric" → "fakoli-plugin-critic severity rubric" and similar namespace-stale prose left over from the extraction. Agent system prompts now read as part of `fakoli-plugin-critic`, not `fakoli-crew` (structure-critic SHOULD FIX #4).
+- `fakoli-plugin-critic/README.md` — added standard shields.io badges (license, version, marketplace) to match sibling plugins; install snippet shows the `marketplace add` prerequisite (structure-critic SHOULD FIX #5, #10).
+- `fakoli-plugin-critic/CHANGELOG.md` — added an `_No unreleased changes._` placeholder under `[Unreleased]` (structure-critic CONSIDER #7).
+- `fakoli-plugin-critic/docs/` — removed (was an empty directory).
+
+### Tests
+
+1103 passing (was 1083 baseline). Diff: +20 net (8 new `TestResolvePlannerProvider` + 3 `TestResolveModelForTier` + 2 `TestCustomEndpointProvider` + 4 `TestResolvePlannerProviderGreptileFixes` (greptile + critic regression) + 4 `TestBedrockProvider` (closes the BedrockProvider test gap critic SHOULD FIX #8 flagged) + 2 `test_version_sync.py` (structure-critic regression); 4 existing tests updated for the new resolver signature and the MUST FIX #2 contract change.
 
 ---
 

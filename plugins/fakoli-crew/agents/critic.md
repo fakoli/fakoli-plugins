@@ -38,7 +38,7 @@ description: >
   </commentary>
   </example>
 
-model: inherit
+model: opus
 color: red
 tools:
   - Read

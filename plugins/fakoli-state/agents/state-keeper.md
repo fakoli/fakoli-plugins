@@ -40,7 +40,7 @@ description: >
   </commentary>
   </example>
 
-model: opus
+model: haiku
 color: teal
 tools:
   - Read

@@ -1538,12 +1538,17 @@ class PlanTasksResponse(BaseModel):
     task_count: int
     conflict_group_count: int
     warnings: list[ParseErrorEntry]
-    # v1.15.0 fields — LLM task-generation backstop signalling. ``llm_generated``
-    # is True when this call invoked the LLM to draft a ``## Tasks`` section
-    # and appended it to prd.md. ``llm_provider`` is the tier label used
-    # (``anthropic`` today; ``claude-agent-sdk`` reserved for v1.16+), or
-    # None when no LLM call was made (either because tasks already existed
-    # or ``use_llm=False``).
+    # v1.17.0 fields — LLM task-generation backstop signalling.
+    # ``llm_generated`` is True when this call invoked the LLM to draft a
+    # ``## Tasks`` section and appended it to prd.md. ``llm_provider`` is
+    # the resolved provider slug — one of ``anthropic`` / ``bedrock`` /
+    # ``custom``, or ``"injected"`` when a test passes its own provider
+    # — or None when no LLM call was made (tasks already existed or
+    # ``use_llm=False``). The provider is chosen by
+    # :func:`fakoli_state.planning.llm_planner.resolve_planner_provider`
+    # from the project's ``.fakoli-state/config.yaml`` ``llm_provider`` /
+    # ``llm_tier`` / ``bedrock_*`` / ``custom_*`` fields; env auto-detect
+    # is the fallback when config is silent. (mcp-critic SHOULD FIX, PR #65)
     llm_generated: bool = False
     llm_provider: str | None = None
     # v1.15.0 fields — orphan-prune signalling. ``pruned_task_ids`` and
@@ -1570,6 +1575,17 @@ def plan_tasks(
     and re-parses. Pass ``use_llm=False`` to opt out of this backstop —
     the tool will then return ``task_count=0`` without mutating the file,
     leaving the caller to author tasks manually.
+
+    **LLM provider resolution (v1.17.0).** The provider is chosen from the
+    project's ``.fakoli-state/config.yaml`` (``llm_provider`` /
+    ``llm_tier`` / ``bedrock_*`` / ``custom_*`` fields) when present; when
+    config is absent or unreadable the tool falls back to env auto-detect
+    (``ANTHROPIC_API_KEY`` → anthropic; ``AWS_REGION`` + ``boto3`` →
+    bedrock; ``CUSTOM_LLM_BASE_URL`` → custom). The MCP server inherits
+    its env from the Claude Code host process, so provider credentials
+    (AWS profile, custom-endpoint API key) must be set in the shell that
+    launches Claude Code, not in ``.fakoli-state/config.yaml``. See
+    ``docs/llm-providers.md`` for the full setup matrix.
 
     Parse errors from the underlying PRD parse are surfaced as warnings,
     not raised. LLM failures (no provider configured, bad LLM output) are
@@ -1618,6 +1634,41 @@ def plan_tasks(
     except OSError as exc:
         raise ToolError(f"Cannot read {prd_path}: {exc}") from exc
 
+    # v1.17.0 — load config so the LLM-planner backstop honors the
+    # project's llm_provider / llm_tier / bedrock / custom-endpoint knobs.
+    # Soft-load: a missing or malformed config falls back to env-only
+    # resolution rather than blocking the tool.
+    #
+    # Mirrors cli/plan.py's _load_config_optional pattern: narrow handler
+    # for expected error types first, then a labeled last-resort guard for
+    # everything else (yaml.YAMLError and friends). That split lets ops
+    # distinguish "your YAML is broken" from "the config module itself
+    # blew up" in the debug log. (mcp-critic SHOULD FIX, PR #65)
+    config = None
+    config_path = state_dir / "config.yaml"
+    if config_path.exists():
+        try:
+            from fakoli_state.config import load_config as _load_config
+
+            config = _load_config(config_path)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(
+                f"plan_tasks: config.yaml load failed "
+                f"({type(exc).__name__}: {exc}); falling back to env-only "
+                "LLM resolution.",
+                file=sys.stderr,
+            )
+        except Exception as exc:  # noqa: BLE001 — last-resort guard, never re-raise
+            # yaml.YAMLError and any other unexpected error: warn and
+            # fall back. Distinct prefix so the debug log distinguishes
+            # this from the narrow-handler path above.
+            print(
+                f"plan_tasks: unexpected config.yaml load error "
+                f"({type(exc).__name__}: {exc}); falling back to env-only "
+                "LLM resolution.",
+                file=sys.stderr,
+            )
+
     result = _parse_prd_impl(markdown, prd_id="prd")
     warnings = [
         ParseErrorEntry(section=e.section, line=e.line, message=e.message)
@@ -1645,6 +1696,7 @@ def plan_tasks(
                 prd=result.prd,
                 features=result.features,
                 requirements=result.requirements,
+                config=config,
             )
         except PlannerProviderUnavailable as exc:
             raise ToolError(str(exc)) from exc

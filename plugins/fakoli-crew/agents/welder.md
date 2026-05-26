@@ -39,7 +39,7 @@ description: >
   know the shape changed.
   </commentary>
   </example>
-model: inherit
+model: sonnet
 color: yellow
 tools:
   - Read

@@ -1,0 +1,22 @@
+{
+  "name": "fakoli-plugin-critic",
+  "version": "0.1.0",
+  "description": "Five specialist critic agents for Claude Code plugin development — agent-critic (frontmatter/color/tools), skill-critic (lazy-loading/no-fuzzy-detection), hook-critic (contract-aware/${CLAUDE_PLUGIN_ROOT}), mcp-critic (schema/actor-validation), structure-critic (manifest/CHANGELOG/version-sync). Audit any plugin (your own or any other) with MUST FIX / SHOULD FIX / CONSIDER / NIT verdicts.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "plugin-development",
+    "code-review",
+    "agents",
+    "critics",
+    "mcp",
+    "hooks",
+    "skills",
+    "audit",
+    "claude-code"
+  ]
+}

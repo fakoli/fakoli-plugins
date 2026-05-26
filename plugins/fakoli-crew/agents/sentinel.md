@@ -42,7 +42,7 @@ description: >
   a clear merge/no-merge signal without ambiguity.
   </commentary>
   </example>
-model: inherit
+model: haiku
 color: orange
 tools:
   - Read

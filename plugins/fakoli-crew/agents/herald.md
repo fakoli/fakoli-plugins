@@ -40,7 +40,7 @@ description: >
   an outdated or invented version of it.
   </commentary>
   </example>
-model: inherit
+model: sonnet
 color: pink
 tools:
   - Read

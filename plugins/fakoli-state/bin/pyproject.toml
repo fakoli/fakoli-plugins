@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fakoli-state"
-version = "1.16.0"
+version = "1.17.0"
 description = "Local-first project state engine: turn rough ideas and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts."
 readme = "../README.md"
 requires-python = ">=3.11"
@@ -16,13 +16,13 @@ keywords = [
     "agent-coordination",
     "claims",
     "evidence-based",
-    "locks",
+    "llm-work-packets",
+    "local-first",
     "mcp",
-    "planning",
     "project-state",
+    "runtime-neutral",
     "sqlite",
-    "tasks",
-    "work-packets",
+    "terraform-for-work",
 ]
 dependencies = [
     "typer>=0.12",
@@ -31,6 +31,26 @@ dependencies = [
     "anthropic>=0.30",
     "PyYAML>=6.0",
     "httpx>=0.27",
+]
+
+# Optional extras enable additional LLM providers (v1.17.0). The default
+# install only depends on `anthropic` for the direct API path. Users who
+# want Amazon Bedrock or an OpenAI-compatible custom endpoint opt in by
+# installing the corresponding extra:
+#
+#     pip install 'fakoli-state[bedrock]'   # adds anthropic[bedrock] (boto3)
+#     pip install 'fakoli-state[custom]'    # adds openai for /v1/chat/completions
+#     pip install 'fakoli-state[bedrock,custom]'  # both
+#     pip install 'fakoli-state[all-providers]'   # convenience alias
+#
+# Keeping these optional avoids pulling boto3 (~70MB of transitive deps)
+# and the openai SDK onto every install — most users only need direct API.
+[project.optional-dependencies]
+bedrock = ["anthropic[bedrock]>=0.30"]
+custom = ["openai>=1.0"]
+all-providers = [
+    "anthropic[bedrock]>=0.30",
+    "openai>=1.0",
 ]
 
 [project.scripts]

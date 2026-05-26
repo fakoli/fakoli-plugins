@@ -851,10 +851,13 @@ class TestPlanLlmBackstop:
         (no early binding into cli.plan)."""
         from fakoli_state.planning import llm_planner
 
+        # v1.17.0 — resolve_planner_provider gained a `config` parameter
+        # (Config | None). The CLI passes the loaded config; the test stub
+        # accepts and ignores it.
         monkeypatch.setattr(
             llm_planner,
             "resolve_planner_provider",
-            lambda: (provider, "anthropic"),
+            lambda config=None: (provider, "anthropic"),
         )
 
     def test_happy_path_generates_appends_and_reparses(
@@ -908,7 +911,7 @@ class TestPlanLlmBackstop:
         # raising stub so any accidental invocation surfaces in the test.
         from fakoli_state.planning import llm_planner
 
-        def _explode() -> None:
+        def _explode(config=None) -> None:  # type: ignore[no-untyped-def]
             raise AssertionError(
                 "resolve_planner_provider should not be called with --no-llm"
             )
@@ -951,7 +954,7 @@ class TestPlanLlmBackstop:
             "Either set ANTHROPIC_API_KEY or install claude-agent-sdk."
         )
 
-        def _raise() -> None:
+        def _raise(config=None) -> None:  # type: ignore[no-untyped-def]
             raise PlannerProviderUnavailable(sentinel_msg)
 
         monkeypatch.setattr(llm_planner, "resolve_planner_provider", _raise)
@@ -2413,7 +2416,7 @@ class TestUseLlmRecordedProvider:
 
         plan_module = importlib.import_module("fakoli_state.cli.plan")
 
-        def fake_resolve(use_llm: bool):  # type: ignore[no-untyped-def]
+        def fake_resolve(use_llm: bool, config=None):  # type: ignore[no-untyped-def]
             return provider_factory() if use_llm else None
 
         monkeypatch.setattr(plan_module, "_resolve_llm_provider", fake_resolve)
@@ -2675,7 +2678,7 @@ This is a refactor that touches architecture across many modules.
         # provider, install_provider's fake would raise (it asserts use_llm).
         sentinel_raised = []
 
-        def fake_resolve(use_llm: bool):  # type: ignore[no-untyped-def]
+        def fake_resolve(use_llm: bool, config=None):  # type: ignore[no-untyped-def]
             if use_llm:
                 sentinel_raised.append("called")
             return None
