@@ -140,15 +140,15 @@ def submit(
         "--commit-sha",
         help="Commit SHA associated with this submission.",
     ),
-    known_limitations: str | None = typer.Option(  # noqa: B008
-        None,
-        "--known-limitations",
-        help="Known limitations or caveats.",
-    ),
     screenshots: str | None = typer.Option(  # noqa: B008
         None,
         "--screenshots",
         help="Comma-separated paths to screenshot files (for tasks with screenshot evidence requirements).",
+    ),
+    known_limitations: str | None = typer.Option(  # noqa: B008
+        None,
+        "--known-limitations",
+        help="Known limitations or caveats.",
     ),
     actor: str | None = typer.Option(  # noqa: B008
         None,
