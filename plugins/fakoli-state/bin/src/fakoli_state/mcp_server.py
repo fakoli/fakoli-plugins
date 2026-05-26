@@ -1618,6 +1618,25 @@ def plan_tasks(
     except OSError as exc:
         raise ToolError(f"Cannot read {prd_path}: {exc}") from exc
 
+    # v1.17.0 — load config so the LLM-planner backstop honors the
+    # project's llm_provider / llm_tier / bedrock / custom-endpoint knobs.
+    # Soft-load: a missing or malformed config falls back to env-only
+    # resolution rather than blocking the tool.
+    config = None
+    config_path = state_dir / "config.yaml"
+    if config_path.exists():
+        try:
+            from fakoli_state.config import load_config as _load_config
+
+            config = _load_config(config_path)
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"plan_tasks: config.yaml load failed "
+                f"({type(exc).__name__}: {exc}); falling back to env-only "
+                "LLM resolution.",
+                file=sys.stderr,
+            )
+
     result = _parse_prd_impl(markdown, prd_id="prd")
     warnings = [
         ParseErrorEntry(section=e.section, line=e.line, message=e.message)
@@ -1645,6 +1664,7 @@ def plan_tasks(
                 prd=result.prd,
                 features=result.features,
                 requirements=result.requirements,
+                config=config,
             )
         except PlannerProviderUnavailable as exc:
             raise ToolError(str(exc)) from exc

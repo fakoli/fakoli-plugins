@@ -26,38 +26,88 @@ from fakoli_state.cli._helpers import (
 from fakoli_state.state.backend import PENDING_EVENT_ID
 
 if TYPE_CHECKING:
+    from fakoli_state.config import Config
     from fakoli_state.planning.inference import SubtaskProposal
     from fakoli_state.planning.llm import LLMProvider
 
 
 # ---------------------------------------------------------------------------
-# Shared --use-llm helper
+# Shared helpers — config load + LLM provider resolution
 # ---------------------------------------------------------------------------
 
 
-def _resolve_llm_provider(use_llm: bool) -> LLMProvider | None:
+def _load_config_optional(state_dir: Path) -> Config | None:
+    """Load ``.fakoli-state/config.yaml`` if it exists; return None on miss/error.
+
+    Mirrors the soft-load pattern in cli/claim.py: an unreadable or absent
+    config never blocks a CLI command — we fall back to env-only resolution
+    so ad-hoc scratch projects (and CI without a checked-in config) keep
+    working. A bad config emits a stderr warning so the user notices the
+    problem without seeing a hard error.
+
+    v1.17.0: load failures used to be silent; we now emit a warning naming
+    the exception class + message so misconfigs surface during plan rather
+    than during the next CLI invocation.
+    """
+    config_path = state_dir / "config.yaml"
+    if not config_path.exists():
+        return None
+    try:
+        from fakoli_state.config import load_config
+
+        return load_config(config_path)
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        typer.echo(
+            f"Warning: config.yaml load failed "
+            f"({type(exc).__name__}: {exc}); proceeding with env-only "
+            "LLM resolution. Fix config.yaml and re-run to use config.",
+            err=True,
+        )
+        return None
+    except Exception as exc:  # noqa: BLE001 — last-resort guard, never re-raise
+        # yaml.YAMLError is a subclass of yaml.YAMLError → Exception. Catch
+        # broadly here so a malformed YAML file does not crash plan().
+        typer.echo(
+            f"Warning: config.yaml load raised unexpected "
+            f"{type(exc).__name__}: {exc}; proceeding with env-only "
+            "LLM resolution.",
+            err=True,
+        )
+        return None
+
+
+def _resolve_llm_provider(
+    use_llm: bool,
+    config: Config | None = None,
+) -> LLMProvider | None:
     """Return an LLM provider when ``--use-llm`` is set, else None.
 
-    Exits with code 1 if ``--use-llm`` is set but ``ANTHROPIC_API_KEY`` is
-    not present in the environment.  Imports the provider lazily so the
-    optional dependency does not load on the deterministic path.
+    v1.17.0: delegates to :func:`planning.llm_planner.resolve_planner_provider`
+    so the same multi-provider precedence (Anthropic API / Bedrock / custom
+    OpenAI-compatible) applies to ``--use-llm`` augmentation as to the
+    LLM-planner backstop. Single source of truth for provider selection;
+    no more divergent env-var checks per call site.
+
+    Exits with code 1 if ``--use-llm`` is set but no provider can be
+    resolved — the error message from ``resolve_planner_provider`` lists
+    every supported path.
     """
     if not use_llm:
         return None
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        typer.echo(
-            "Error: --use-llm requires ANTHROPIC_API_KEY in environment. "
-            "Set it or omit --use-llm.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    # Local import: keeps the anthropic SDK out of the import graph for
+    # Local import: keeps the provider SDKs out of the import graph for
     # deterministic-only invocations.
-    from fakoli_state.planning.llm import AnthropicProvider
+    from fakoli_state.planning.llm_planner import (
+        PlannerProviderUnavailable,
+        resolve_planner_provider,
+    )
 
-    return AnthropicProvider()
+    try:
+        provider, _tier = resolve_planner_provider(config)
+    except PlannerProviderUnavailable as exc:
+        typer.echo(f"Error: --use-llm cannot resolve a provider.\n{exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    return provider
 
 # review sub-app — registered in __init__.py as app.add_typer(review_app, name="review")
 review_app = typer.Typer(
@@ -163,7 +213,13 @@ def plan(
         typer.echo(f"Error: cannot read {prd_path}: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    provider = _resolve_llm_provider(use_llm)
+    # v1.17.0: load config once and pass it to every LLM call site so the
+    # project's llm_provider / llm_tier / bedrock_* / custom_* knobs apply
+    # uniformly to both the --use-llm augmentation path and the no-tasks
+    # backstop below.
+    config = _load_config_optional(state_dir)
+
+    provider = _resolve_llm_provider(use_llm, config)
     parsed = parse_prd(markdown, prd_id="prd", provider=provider)
 
     # Non-fatal parse errors are surfaced as warnings during plan.
@@ -196,6 +252,7 @@ def plan(
                 prd=parsed.prd,
                 features=parsed.features,
                 requirements=parsed.requirements,
+                config=config,
             )
         except PlannerProviderUnavailable as exc:
             typer.echo(f"Error: {exc}", err=True)
@@ -497,7 +554,8 @@ def score(
     state_dir = _resolve_state_dir(cwd)
     _require_state_dir(state_dir)
 
-    provider = _resolve_llm_provider(use_llm)
+    config = _load_config_optional(state_dir)
+    provider = _resolve_llm_provider(use_llm, config)
 
     backend = _open_backend(state_dir)
     try:
@@ -728,7 +786,8 @@ def expand(
     state_dir = _resolve_state_dir(cwd)
     _require_state_dir(state_dir)
 
-    provider = _resolve_llm_provider(use_llm)
+    config = _load_config_optional(state_dir)
+    provider = _resolve_llm_provider(use_llm, config)
 
     backend = _open_backend(state_dir)
     try:

@@ -29,29 +29,177 @@ _FROZEN = FrozenClock(datetime.datetime(2026, 5, 26, 12, 0, tzinfo=datetime.UTC)
 
 
 class TestResolvePlannerProvider:
-    def test_anthropic_tier_when_api_key_set(
+    """v1.17.0 — multi-provider precedence + env auto-detect + config wins."""
+
+    # --- env auto-detect path (no config supplied) ---------------------
+
+    def test_anthropic_chosen_when_api_key_set(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Tier 2 fires when ANTHROPIC_API_KEY is in the env."""
+        """ANTHROPIC_API_KEY alone in env → anthropic."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake-not-real")
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+        monkeypatch.delenv("CUSTOM_LLM_BASE_URL", raising=False)
         provider, tier = resolve_planner_provider()
         assert tier == "anthropic"
-        # AnthropicProvider has a .generate method — sanity check the shape.
         assert hasattr(provider, "generate")
 
-    def test_raises_when_no_provider_available(
+    def test_anthropic_wins_over_aws_when_both_set(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Tier 3 — no env var means a loud failure with both setup paths
-        named in the message."""
+        """When both ANTHROPIC_API_KEY and AWS_REGION are set, direct API
+        wins because it's cheaper per token. Users who want Bedrock pinning
+        must set llm_provider in config."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake")
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+        provider, tier = resolve_planner_provider()
+        assert tier == "anthropic"
+
+    def test_custom_chosen_when_only_custom_base_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CUSTOM_LLM_BASE_URL alone → custom."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+        monkeypatch.setenv("CUSTOM_LLM_BASE_URL", "http://localhost:8000/v1")
+        provider, tier = resolve_planner_provider()
+        assert tier == "custom"
+
+    def test_raises_when_nothing_configured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No config + no env vars → fail loudly with a help message that
+        names every supported provider path."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+        monkeypatch.delenv("CUSTOM_LLM_BASE_URL", raising=False)
         with pytest.raises(PlannerProviderUnavailable) as exc_info:
             resolve_planner_provider()
         msg = str(exc_info.value)
         assert "ANTHROPIC_API_KEY" in msg
-        assert "claude-agent-sdk" in msg, (
-            "Error message should also name the future Tier 1 path so "
-            "the user knows both setup options."
+        assert "Bedrock" in msg or "bedrock" in msg
+        assert "CUSTOM_LLM_BASE_URL" in msg
+
+    # --- explicit config precedence over env ---------------------------
+
+    def test_config_provider_wins_over_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Config.llm_provider="custom" wins even when ANTHROPIC_API_KEY is
+        the only env variable set. (We construct a custom provider so the
+        test does not need the openai SDK on the env path.)"""
+        from fakoli_state.config import Config
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake")
+        monkeypatch.setenv("CUSTOM_LLM_BASE_URL", "http://localhost:8000/v1")
+        cfg = Config(
+            project_name="t",
+            project_id="t",
+            llm_provider="custom",
+            llm_model="gpt-4o-mini",  # explicit model for custom
+        )
+        provider, tier = resolve_planner_provider(cfg)
+        assert tier == "custom"
+
+    def test_config_tier_threads_to_anthropic_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Config.llm_tier="opus" → AnthropicProvider built with the Opus id."""
+        from fakoli_state.config import Config
+        from fakoli_state.planning.llm import MODEL_TIERS
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake")
+        cfg = Config(
+            project_name="t",
+            project_id="t",
+            llm_provider="anthropic",
+            llm_tier="opus",
+        )
+        provider, tier = resolve_planner_provider(cfg)
+        assert tier == "anthropic"
+        # The provider should have built with the Opus model id from
+        # the direct-API tier table.
+        assert provider._model == MODEL_TIERS["opus"]  # type: ignore[attr-defined]
+
+    def test_config_explicit_model_overrides_tier(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Config.llm_model wins over llm_tier when both are set."""
+        from fakoli_state.config import Config
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake")
+        cfg = Config(
+            project_name="t",
+            project_id="t",
+            llm_provider="anthropic",
+            llm_tier="haiku",
+            llm_model="claude-opus-4-7-20260601",
+        )
+        provider, _ = resolve_planner_provider(cfg)
+        assert provider._model == "claude-opus-4-7-20260601"  # type: ignore[attr-defined]
+
+
+class TestResolveModelForTier:
+    """v1.17.0 — tier ↔ model-id mapping helper."""
+
+    def test_direct_api_table(self) -> None:
+        from fakoli_state.planning.llm import resolve_model_for_tier
+
+        assert resolve_model_for_tier("opus") == "claude-opus-4-7"
+        assert resolve_model_for_tier("sonnet") == "claude-sonnet-4-6"
+        assert resolve_model_for_tier("haiku") == "claude-haiku-4-5"
+
+    def test_bedrock_table_has_us_prefix(self) -> None:
+        from fakoli_state.planning.llm import resolve_model_for_tier
+
+        assert resolve_model_for_tier("opus", bedrock=True).startswith(
+            "us.anthropic."
+        )
+        assert resolve_model_for_tier("sonnet", bedrock=True).startswith(
+            "us.anthropic."
+        )
+
+    def test_unknown_tier_raises_valueerror(self) -> None:
+        import pytest as _pytest
+
+        from fakoli_state.planning.llm import resolve_model_for_tier
+
+        with _pytest.raises(ValueError) as exc_info:
+            resolve_model_for_tier("supernova")
+        assert "supernova" in str(exc_info.value)
+        # Error message should name the valid tiers so the user can fix it.
+        assert "opus" in str(exc_info.value)
+
+
+class TestCustomEndpointProvider:
+    """v1.17.0 — OpenAI-compatible endpoint provider."""
+
+    def test_requires_explicit_model(self) -> None:
+        """No portable default model → ValueError when model is empty."""
+        import pytest as _pytest
+
+        from fakoli_state.planning.llm import CustomEndpointProvider
+
+        with _pytest.raises(ValueError) as exc_info:
+            CustomEndpointProvider(model="", base_url="http://localhost:8000/v1")
+        assert "model" in str(exc_info.value).lower()
+
+    def test_missing_base_url_and_env_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No base_url arg AND no CUSTOM_LLM_BASE_URL env → ValueError."""
+        import pytest as _pytest
+
+        from fakoli_state.planning.llm import CustomEndpointProvider
+
+        monkeypatch.delenv("CUSTOM_LLM_BASE_URL", raising=False)
+        with _pytest.raises(ValueError) as exc_info:
+            CustomEndpointProvider(model="any-model")
+        assert "base_url" in str(exc_info.value) or "CUSTOM_LLM_BASE_URL" in str(
+            exc_info.value
         )
 
 
@@ -439,7 +587,7 @@ A description.
         monkeypatch.setattr(
             planner_mod,
             "resolve_planner_provider",
-            lambda: (recorded, "anthropic"),
+            lambda config=None: (recorded, "anthropic"),
         )
 
         result = generate_tasks_markdown(

@@ -1833,10 +1833,12 @@ class TestPlanTasksLlmBackstop:
         provider without needing ANTHROPIC_API_KEY or a real API call."""
         from fakoli_state.planning import llm_planner
 
+        # v1.17.0 — resolve_planner_provider gained a `config` parameter.
+        # The MCP tool passes the loaded config; the stub accepts and ignores.
         monkeypatch.setattr(
             llm_planner,
             "resolve_planner_provider",
-            lambda: (provider, "anthropic"),
+            lambda config=None: (provider, "anthropic"),
         )
 
     def test_happy_path_generates_appends_and_reports_llm_flags(
@@ -1888,7 +1890,7 @@ class TestPlanTasksLlmBackstop:
         # stub so an accidental call surfaces as a test failure.
         from fakoli_state.planning import llm_planner
 
-        def _explode() -> None:
+        def _explode(config=None) -> None:  # type: ignore[no-untyped-def]
             raise AssertionError(
                 "resolve_planner_provider should not be called with use_llm=False"
             )
@@ -1931,7 +1933,7 @@ class TestPlanTasksLlmBackstop:
             "Set ANTHROPIC_API_KEY or install claude-agent-sdk."
         )
 
-        def _raise() -> None:
+        def _raise(config=None) -> None:  # type: ignore[no-untyped-def]
             raise PlannerProviderUnavailable(sentinel_msg)
 
         monkeypatch.setattr(llm_planner, "resolve_planner_provider", _raise)

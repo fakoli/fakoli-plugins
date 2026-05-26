@@ -62,7 +62,7 @@ description: >
   </commentary>
   </example>
 
-model: opus
+model: sonnet
 color: cyan
 tools:
   - Read

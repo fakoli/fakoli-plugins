@@ -29,8 +29,54 @@ class Config:
     project_name: str
     project_id: str
 
-    llm_provider: str | None = None
+    # ---------------------------------------------------------------------
+    # LLM provider selection (v1.17.0).
+    #
+    # Precedence applied by ``planning.llm_planner.resolve_planner_provider``:
+    #
+    # 1. ``llm_provider`` explicit in this config → wins.
+    # 2. Env auto-detect when ``llm_provider`` is None:
+    #    - ANTHROPIC_API_KEY  → "anthropic"  (direct API, cheapest path)
+    #    - AWS_REGION (or AWS_DEFAULT_REGION) with no ANTHROPIC_API_KEY
+    #      AND ``anthropic[bedrock]`` installed → "bedrock"
+    #    - CUSTOM_LLM_BASE_URL → "custom"
+    # 3. Fail loudly.
+    #
+    # We do NOT silent-fail across providers when one is misconfigured —
+    # community consensus (research/2026) is that silent fallback breaks
+    # cost predictability and surprises ops teams during incidents. Pick
+    # one per process; re-launch to switch.
+    # ---------------------------------------------------------------------
+    llm_provider: Literal["anthropic", "bedrock", "custom"] | None = None
+
+    # Explicit model id (overrides ``llm_tier``). Pass when you need a
+    # specific Anthropic-API id (``claude-opus-4-7-20260124``), a Bedrock
+    # inference-profile id (``us.anthropic.claude-opus-4-7``), or a
+    # custom-endpoint route name (``anthropic/claude-sonnet-4-6`` on
+    # OpenRouter). Leave blank to use ``llm_tier``.
     llm_model: str | None = None
+
+    # Logical tier (``opus``/``sonnet``/``haiku``) used when ``llm_model``
+    # is blank. Defaults to None → providers fall back to their own
+    # ``DEFAULT_TIER`` (``sonnet``). Set this in config so a project's
+    # default tier is stable across provider switches.
+    llm_tier: Literal["opus", "sonnet", "haiku"] | None = None
+
+    # Bedrock-specific knobs. Only consulted when ``llm_provider`` resolves
+    # to ``bedrock``. ``aws_region`` falls through to AWS_REGION /
+    # AWS_DEFAULT_REGION env vars and finally to a clear SDK error — we
+    # do NOT pick a silent default like ``us-east-1`` because that would
+    # hide latency / billing surprises.
+    bedrock_region: str | None = None
+    bedrock_profile: str | None = None
+
+    # Custom-endpoint knobs. Only consulted when ``llm_provider`` resolves
+    # to ``custom``. ``base_url`` is REQUIRED for the custom path (either
+    # here or via CUSTOM_LLM_BASE_URL env). ``api_key_env`` names the env
+    # var to read the bearer token from — defaults to ``CUSTOM_LLM_API_KEY``,
+    # which the resolver also tries before falling back to ``OPENAI_API_KEY``.
+    custom_base_url: str | None = None
+    custom_api_key_env: str | None = None
 
     default_lease_minutes: int = 60
     default_heartbeat_minutes: int = 5
@@ -166,11 +212,42 @@ def load_config(path: str | Path) -> Config:
 
     sync_providers = _parse_sync_providers(data.get("sync"), resolved)
 
+    # v1.17.0 — LLM provider / tier validation. Enum-typed fields rejected
+    # at load time so misconfigs surface during `init`, not during plan.
+    llm_provider_raw = _str_or_none(data.get("llm_provider"))
+    if llm_provider_raw is not None:
+        llm_provider_value: Literal["anthropic", "bedrock", "custom"] | None = (
+            _validate_literal(  # type: ignore[assignment]
+                llm_provider_raw,
+                ("anthropic", "bedrock", "custom"),
+                "llm_provider",
+            )
+        )
+    else:
+        llm_provider_value = None
+
+    llm_tier_raw = _str_or_none(data.get("llm_tier"))
+    if llm_tier_raw is not None:
+        llm_tier_value: Literal["opus", "sonnet", "haiku"] | None = (
+            _validate_literal(  # type: ignore[assignment]
+                llm_tier_raw,
+                ("opus", "sonnet", "haiku"),
+                "llm_tier",
+            )
+        )
+    else:
+        llm_tier_value = None
+
     return Config(
         project_name=str(data["project_name"]),
         project_id=str(data["project_id"]),
-        llm_provider=_str_or_none(data.get("llm_provider")),
+        llm_provider=llm_provider_value,
         llm_model=_str_or_none(data.get("llm_model")),
+        llm_tier=llm_tier_value,
+        bedrock_region=_str_or_none(data.get("bedrock_region")),
+        bedrock_profile=_str_or_none(data.get("bedrock_profile")),
+        custom_base_url=_str_or_none(data.get("custom_base_url")),
+        custom_api_key_env=_str_or_none(data.get("custom_api_key_env")),
         default_lease_minutes=int(str(data.get("default_lease_minutes", 60))),
         default_heartbeat_minutes=int(str(data.get("default_heartbeat_minutes", 5))),
         git_ops_mode=git_ops_mode,  # type: ignore[arg-type]
@@ -335,9 +412,39 @@ events_path: events.jsonl
 
 # ---------------------------------------------------------------------------
 # LLM integration (optional — leave blank to use CLI without LLM features)
+#
+# `llm_provider` picks ONE of: anthropic | bedrock | custom. When blank,
+# fakoli-state auto-detects from the environment:
+#   ANTHROPIC_API_KEY → anthropic    (direct API; cheapest path)
+#   AWS_REGION + anthropic[bedrock] installed → bedrock
+#   CUSTOM_LLM_BASE_URL → custom     (any OpenAI-compatible /v1 endpoint)
+#
+# `llm_tier` (opus | sonnet | haiku) sets the default tier across the
+# project; per-call overrides win. `llm_model` is an explicit model-id
+# override that bypasses tier resolution entirely.
+#
+# Tier-mapping defaults (refreshed 2026-05-26):
+#   opus   → claude-opus-4-7        (us.anthropic.claude-opus-4-7   on Bedrock)
+#   sonnet → claude-sonnet-4-6      (us.anthropic.claude-sonnet-4-6 on Bedrock)
+#   haiku  → claude-haiku-4-5       (us.anthropic.claude-haiku-4-5  on Bedrock)
+#
+# See docs/llm-providers.md for the full setup guide.
 # ---------------------------------------------------------------------------
-llm_provider:   # e.g. "anthropic"
-llm_model:      # e.g. "claude-sonnet-4-6"
+llm_provider:                       # anthropic | bedrock | custom (blank = auto)
+llm_tier:                           # opus | sonnet | haiku (blank = sonnet)
+llm_model:                          # explicit model id (overrides tier)
+
+# Bedrock-only knobs (ignored unless llm_provider resolves to "bedrock").
+# Region falls back to AWS_REGION / AWS_DEFAULT_REGION env vars.
+bedrock_region:                     # e.g. "us-east-1"
+bedrock_profile:                    # named profile from ~/.aws/credentials
+
+# Custom-endpoint knobs (ignored unless llm_provider resolves to "custom").
+# `base_url` is REQUIRED for the custom path (either here or via env var
+# CUSTOM_LLM_BASE_URL). `api_key_env` names the env var to read for the
+# bearer token; defaults to CUSTOM_LLM_API_KEY then OPENAI_API_KEY.
+custom_base_url:                    # e.g. "http://localhost:8000/v1"
+custom_api_key_env:                 # e.g. "OPENROUTER_API_KEY"
 
 # ---------------------------------------------------------------------------
 # Claim / lease settings

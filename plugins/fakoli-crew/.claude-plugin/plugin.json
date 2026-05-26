@@ -1,7 +1,7 @@
 {
   "name": "fakoli-crew",
-  "version": "2.2.0",
-  "description": "Thirteen specialist AI agents for software engineering — 8 generalist roles (polyglot architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) and 5 cross-plugin critics (agent-critic, skill-critic, hook-critic, mcp-critic, structure-critic) — with TDD enforcement, systematic debugging, and verification gates. Work independently or as coordinated crews for complex projects.",
+  "version": "2.3.0",
+  "description": "Eight specialist AI agents for software engineering — generalist roles (polyglot architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) with TDD enforcement, systematic debugging, and verification gates. Plugin-surface critics (agent/skill/hook/mcp/structure) moved to fakoli-plugin-critic in 2.3.0.",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"

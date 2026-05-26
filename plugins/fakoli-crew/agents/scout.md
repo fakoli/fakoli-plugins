@@ -37,7 +37,7 @@ description: >
   </commentary>
   </example>
 
-model: inherit
+model: sonnet
 color: cyan
 tools:
   - Read

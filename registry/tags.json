@@ -1,9 +1,21 @@
 {
-  "generatedAt": "2026-05-26T01:24:20Z",
-  "totalTags": 96,
+  "generatedAt": "2026-05-26T08:11:08Z",
+  "totalTags": 102,
   "tags": [
     {
+      "tag": "agents",
+      "count": 3
+    },
+    {
       "tag": "automation",
+      "count": 3
+    },
+    {
+      "tag": "code-review",
+      "count": 3
+    },
+    {
+      "tag": "mcp",
       "count": 3
     },
     {
@@ -11,23 +23,11 @@
       "count": 3
     },
     {
-      "tag": "agents",
-      "count": 2
-    },
-    {
       "tag": "architecture",
       "count": 2
     },
     {
-      "tag": "code-review",
-      "count": 2
-    },
-    {
       "tag": "google",
-      "count": 2
-    },
-    {
-      "tag": "mcp",
       "count": 2
     },
     {
@@ -59,6 +59,10 @@
       "count": 1
     },
     {
+      "tag": "audit",
+      "count": 1
+    },
+    {
       "tag": "brainstorming",
       "count": 1
     },
@@ -79,6 +83,10 @@
       "count": 1
     },
     {
+      "tag": "claude-code",
+      "count": 1
+    },
+    {
       "tag": "cli",
       "count": 1
     },
@@ -96,6 +104,10 @@
     },
     {
       "tag": "crew",
+      "count": 1
+    },
+    {
+      "tag": "critics",
       "count": 1
     },
     {
@@ -175,6 +187,10 @@
       "count": 1
     },
     {
+      "tag": "hooks",
+      "count": 1
+    },
+    {
       "tag": "hr-coordinator",
       "count": 1
     },
@@ -251,6 +267,10 @@
       "count": 1
     },
     {
+      "tag": "plugin-development",
+      "count": 1
+    },
+    {
       "tag": "plugin-management",
       "count": 1
     },
@@ -320,6 +340,10 @@
     },
     {
       "tag": "sheets",
+      "count": 1
+    },
+    {
+      "tag": "skills",
       "count": 1
     },
     {

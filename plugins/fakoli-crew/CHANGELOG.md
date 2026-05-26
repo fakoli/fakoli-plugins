@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.3.0 (2026-05-26)
+
+Minor release. Five plugin-surface critic agents move to a dedicated plugin so plugin-development teams can install only the review layer; everything else in fakoli-crew is unchanged.
+
+### Removed — five plugin-surface critics moved to `fakoli-plugin-critic`
+
+- `agents/agent-critic.md` — now at `fakoli-plugin-critic/agents/agent-critic.md`.
+- `agents/skill-critic.md` — now at `fakoli-plugin-critic/agents/skill-critic.md`.
+- `agents/hook-critic.md` — now at `fakoli-plugin-critic/agents/hook-critic.md`.
+- `agents/mcp-critic.md` — now at `fakoli-plugin-critic/agents/mcp-critic.md`.
+- `agents/structure-critic.md` — now at `fakoli-plugin-critic/agents/structure-critic.md`.
+
+Agent system prompts are byte-for-byte unchanged in the extraction — only the namespace moved. Recipes that dispatched via `fakoli-crew:<critic>` must update the prefix to `fakoli-plugin-critic:<critic>` AND install the new plugin. The remaining 8 generalist agents (guido, critic, scout, smith, welder, herald, keeper, sentinel) are not affected.
+
+### Changed
+
+- `plugin.json` description switched from "thirteen specialist AI agents" to "eight specialist AI agents" with a note pointing at `fakoli-plugin-critic` for the moved critics.
+- `README.md` agent table collapses from 13 rows to 8; a migration callout above the table explains the move.
+- `tests/RECIPES.md` + `tests/test_critics.sh` updated to dispatch the five critics via the new namespace.
+
+### Why
+
+Plugin-development teams that only want the audit layer were previously forced to install the 8-agent generalist crew alongside. Splitting the layers lets each plugin be installed independently — `fakoli-crew` for engineering work, `fakoli-plugin-critic` for plugin-surface audits, both together for full coverage. The five critics are tightly coupled to plugin internals (manifest schema, hook contract, MCP server shape, etc.) and not used outside plugin-dev contexts, so the split is a clean cleavage.
+
 ## 2.2.0 (2026-05-26)
 
 Minor release: adds 5 new cross-plugin specialist critic agents and the

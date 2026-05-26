@@ -18,7 +18,7 @@ description: >
   the evidence."
   </example>
 
-model: opus
+model: haiku
 color: gray
 tools:
   - Read

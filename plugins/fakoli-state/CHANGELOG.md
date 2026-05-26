@@ -6,7 +6,44 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.17+ planned work._
+_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.18+ planned work._
+
+---
+
+## [1.17.0] — 2026-05-26
+
+Major capability release: **multi-provider LLM access** (direct Anthropic API, Amazon Bedrock, OpenAI-compatible custom endpoints) plus **tier-aware default model selection** that drops typical session cost by ~60% versus the prior "everything routes through Opus" pattern. The five plugin-surface critics extract to a new dedicated `fakoli-plugin-critic` plugin (`fakoli-crew` 2.3.0+ no longer ships them).
+
+### Added
+
+- `planning/llm.BedrockProvider` — Anthropic-on-Bedrock via `anthropic.AnthropicBedrock`. Boto3 credential chain (env vars / profile / IAM role) just works. Optional dep: `pip install 'fakoli-state[bedrock]'`.
+- `planning/llm.CustomEndpointProvider` — any OpenAI-compatible `/v1/chat/completions` endpoint via the `openai` SDK with `base_url=`. Targets vLLM, LiteLLM proxy, OpenRouter, Together, Groq, Azure OpenAI, local llama.cpp. Optional dep: `pip install 'fakoli-state[custom]'`.
+- `planning/llm.MODEL_TIERS`, `BEDROCK_MODEL_TIERS`, `DEFAULT_TIER`, `resolve_model_for_tier()` — tier vocabulary (`opus` / `sonnet` / `haiku`) and the helper that maps a logical tier to the right model id for each provider's namespace.
+- `Config` fields: `llm_provider` (anthropic/bedrock/custom), `llm_tier` (opus/sonnet/haiku), `bedrock_region`, `bedrock_profile`, `custom_base_url`, `custom_api_key_env`. All optional; env auto-detect kicks in when blank.
+- `docs/llm-providers.md` — provider setup guide with worked examples for direct API, Bedrock (env / profile / IAM), and three custom-endpoint shapes (vLLM, OpenRouter, LiteLLM proxy).
+- `docs/model-strategy.md` — tier rationale, per-agent assignments, override precedence, May 2026 cost figures, and the rationale for *not* shipping a dynamic complexity router by default.
+- `[bedrock]` / `[custom]` / `[all-providers]` optional extras in `pyproject.toml` so the default install stays lean (no boto3, no openai) for users on the Anthropic-API-only path.
+- Test coverage: `TestResolvePlannerProvider` (8 new tests covering env auto-detect precedence, config overrides, tier threading); `TestResolveModelForTier` (3 tests for direct-API + Bedrock tier tables + error on unknown tier); `TestCustomEndpointProvider` (2 tests for required-model and required-base_url validation).
+
+### Changed
+
+- `planning/llm_planner.resolve_planner_provider()` — gained an optional `config: Config | None` parameter. New precedence: explicit `config.llm_provider` > env auto-detect (`ANTHROPIC_API_KEY` > `AWS_REGION`+bedrock-extras > `CUSTOM_LLM_BASE_URL`) > fail loudly. Single provider per process; no silent fallback across providers.
+- `generate_tasks_markdown()` — gained an optional `config:` parameter, threaded through to the resolver so projects' explicit provider+tier+credential knobs apply.
+- `cli/plan._resolve_llm_provider()` — delegates to `resolve_planner_provider(config)` so `--use-llm` augmentation honors the same multi-provider precedence as the no-tasks LLM backstop. Single source of truth for provider selection across the CLI.
+- `cli/plan._load_config_optional()` — new helper that soft-loads `.fakoli-state/config.yaml` and emits a stderr warning naming the exception class on load failure. Mirrors `cli/claim.py`'s existing pattern.
+- `AnthropicProvider` — gained `tier=` kwarg (Opus / Sonnet / Haiku), resolves via `MODEL_TIERS`. Existing `model=` arg still wins when both are passed; backward compatible for every existing caller.
+- Default model tier across the codebase shifts from "Sonnet (hardcoded constant)" to `DEFAULT_TIER = "sonnet"` (community consensus per anthropics/claude-code#27665). Functional behaviour unchanged on the default path; the change is documentation + config plumbing.
+- Agent frontmatter — `model:` set explicitly across all 6 fakoli-state agents (was `opus` uniformly; now `opus` for reasoning/synthesis, `sonnet` for structured generation, `haiku` for mechanical/read-only):
+  - `planner` → opus | `critic` → opus | `docs-scribe` → sonnet | `marketplace-scribe` → sonnet | `sentinel` → haiku | `state-keeper` → haiku
+- `config.yaml` template — gains commented `llm_*`, `bedrock_*`, `custom_*` blocks with tier-mapping reference so new projects see the multi-provider shape at init time.
+
+### Fixed
+
+- `cli/plan._resolve_llm_provider()` previously hardcoded an `ANTHROPIC_API_KEY` env check, diverging from the resolver's own logic and forcing users on Bedrock or custom endpoints to skip `--use-llm` entirely even when their non-Anthropic provider was correctly configured. Now both paths share the resolver.
+
+### Tests
+
+1093 passing (was 1083). Diff: +10 net (8 new TestResolvePlannerProvider + 3 TestResolveModelForTier + 2 TestCustomEndpointProvider; 3 existing tests updated to pass `config=None` to the new resolver signature).
 
 ---
 
