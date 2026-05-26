@@ -53,9 +53,30 @@ the full workflow without dropping to a Bash tool they may not have).
   uninitialized project) raise `ToolError` with a clear message,
   parse-level errors are returned as data so callers can inspect-
   and-retry without exception handling.
-- **18 new MCP regression tests** in `tests/test_mcp.py` covering
-  happy and error paths for each new tool. Suite is 993 passing
-  (was 975 in v1.12.1).
+- **19 new MCP regression tests** in `tests/test_mcp.py` covering
+  happy and error paths for each new tool, including a regression
+  test for the `plan_tasks` ordering guard (must run `parse_prd`
+  first or fail loudly). Suite is 994 passing (was 975 in v1.12.1).
+
+### Fixed (post-greptile review)
+
+- **`plan_tasks` no longer mutates state when called out of order.**
+  Previously, calling `plan_tasks` before `parse_prd` would emit
+  `feature.created` and `task.created` events into a backend with
+  no PRD row — leaving `review_prd` and `apply_review_decision` to
+  fail later with "No PRD found in state" after the state was
+  already partially mutated. The tool now verifies `backend.get_prd()`
+  returns a row before emitting any events and raises `ToolError`
+  with a clear "call parse_prd first" message if not.
+- **`init_project` resource cleanup hardened.** `backend.initialize()`
+  was being called outside the `try/finally` block, so a failure
+  during schema bootstrap would leak the backend connection. Moved
+  inside the try so `backend.close()` always runs.
+- **`score_tasks` docstring clarified** to match the CLI's intentional
+  behavior: an explicit `task_id` always re-scores (whether or not
+  scores are complete); omitting `task_id` only scores tasks whose
+  Score is incomplete. The asymmetry is deliberate and matches
+  `fakoli-state score [TASK_ID]`.
 - New "Workflow tools (v1.13.0)" section in `docs/mcp.md`,
   organized by lifecycle phase (Bootstrap → PRD → Planning → Review)
   with parameters, returns, examples, and CLI equivalents for each

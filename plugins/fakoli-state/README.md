@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Plugin Version](https://img.shields.io/badge/version-1.13.0-blue.svg)](.claude-plugin/plugin.json)
 [![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
-[![Tests](https://img.shields.io/badge/tests-993%20passing-brightgreen.svg)](tests)
+[![Tests](https://img.shields.io/badge/tests-994%20passing-brightgreen.svg)](tests)
 
 </div>
 

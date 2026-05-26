@@ -1147,8 +1147,10 @@ def init_project(
         events_path=str(state_dir / "events.jsonl"),
         clock=SystemClock(),
     )
-    backend.initialize()
     try:
+        # initialize() must be inside try so a failure during schema
+        # bootstrap still triggers backend.close() in the finally block.
+        backend.initialize()
         now = SystemClock().now()
         backend.apply_event(Event(
             id=PENDING_EVENT_ID,
@@ -1582,6 +1584,17 @@ def plan_tasks(cwd: str | None = None) -> PlanTasksResponse:
 
     backend = _open_backend(state_dir)
     try:
+        # Guard: `parse_prd` must have run first so the backend has a PRD row.
+        # Without this check, an out-of-order call would emit feature/task
+        # events into a backend with no PRD row, leaving downstream tools
+        # (review_prd, apply_review_decision) to fail with "No PRD found"
+        # after the state was already mutated. Fail loudly here instead.
+        if backend.get_prd() is None:
+            raise ToolError(
+                "No PRD found in state. Call parse_prd before plan_tasks so "
+                "the PRD row exists before feature and task events are emitted."
+            )
+
         clock = SystemClock()
         # Emit feature.created per feature.
         for feature in result.features:
@@ -1701,9 +1714,15 @@ def score_tasks(
     Mirrors ``fakoli-state score [TASK_ID]`` in deterministic mode (no LLM
     augmentation). Emits a task.scored event per scored task.
 
+    Behavior differs by mode (matches the CLI deliberately):
+    - ``task_id`` is set → that single task is **always** re-scored, even if
+      it already has complete scores. ``skipped_already_scored`` is 0.
+    - ``task_id`` is None → only tasks whose Score is not yet complete are
+      scored. Already-scored tasks count toward ``skipped_already_scored``.
+
     Args:
-        task_id: Specific task to score. When None, scores every task
-                 whose Score is not yet complete.
+        task_id: Specific task to score (always re-scored). When None, scores
+                 every task whose Score is not yet complete.
         cwd:     Project root. Defaults to Path.cwd().
     """
     from fakoli_state.cli._helpers import _scores_complete

@@ -1688,6 +1688,29 @@ class TestPlanTasks:
         with pytest.raises(ToolError, match="PRD file not found|prd.md"):
             _run(run())
 
+    def test_error_when_prd_file_present_but_not_parsed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """plan_tasks called with prd.md on disk but parse_prd never run.
+
+        Regression for greptile PR #61 finding: previously plan_tasks would
+        emit feature.created and task.created events into a backend with no
+        PRD row, leaving review_prd and apply_review_decision to fail with
+        'No PRD found in state' after the state was already mutated. Now
+        plan_tasks must verify get_prd() is non-None first.
+        """
+        state_dir = _init_state_dir(tmp_path)
+        _write_prd_file(state_dir)
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> None:
+            async with Client(mcp) as c:
+                # NOTE: deliberately skipping parse_prd to trigger the guard.
+                await c.call_tool("plan_tasks", {})
+
+        with pytest.raises(ToolError, match="No PRD found in state"):
+            _run(run())
+
 
 # ===========================================================================
 # Tool 19: score_tasks
