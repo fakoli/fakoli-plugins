@@ -1,6 +1,6 @@
 # fakoli-state roadmap
 
-**Last updated:** 2026-05-26 (after Phase 9 → Phase 10 ship + backlog hygiene)
+**Last updated:** 2026-05-31 (added the integrity-first 90-day priority track)
 **Source of truth:** this file. Archived phase backlogs at [`phase-9-backlog.md`](phase-9-backlog.md) and [`phase-11-backlog.md`](phase-11-backlog.md) are kept for historical audit only — do not add new items there.
 **Companion:** [`tech-debt-backlog.md`](tech-debt-backlog.md) for non-roadmap debt (12 OPEN CL/TQ/PS items from PR #41 critics; tracked by origin PR, closed across phases). Items there are not duplicated here unless a roadmap item naturally touches the same file.
 
@@ -17,6 +17,145 @@
 
 **Status legend** (carried over from origin files):
 `OPEN` = unscheduled within target; `TARGETED-VN.M` = scheduled for that release; `SPEC-FIRST` = needs a design doc before implementation; `Phase 11` = Phase 10 audit defer, picks up in the next planning pass.
+
+---
+
+## Priority track: integrity-first (90-day plan)
+
+This track sits above the version buckets below. It is the committed direction
+for the next quarter and it is sequenced by credibility risk, not by how
+demonstrable each item is. The version buckets (`next`, `v2.0`, `v2.1`) remain
+the backlog; this track is what actually gets built first.
+
+### The reframe this track serves
+
+The strategic position is that fakoli-state is the durable, governed state and
+audit layer that sits underneath an in-session dynamic-workflow runtime (for
+example, Claude Code's Dynamic Workflows). That runtime is single-driver and
+in-session: it keeps intermediate results in script variables and discards them
+when the session ends. fakoli-state is what remembers, provably, what every
+agent actually did.
+
+One honesty constraint shapes the whole track. There is no state interface to
+slide "underneath" a session-only runtime today. "Underneath" is earned at the
+granularity of the step, through three integration postures:
+
+1. **Beside (ships today).** A workflow script voluntarily shells out to the
+   `fakoli-state` CLI or MCP tools (`next`, `claim`, `submit`, `apply`). No
+   enforcement.
+2. **Governed step (the realistic "underneath").** A thin wrapper a workflow
+   step calls instead of raw tool calls: claim, run, capture typed proof,
+   submit, apply (gate enforced here). The runtime still drives; every step
+   that matters passes through a recorded, gated transition.
+3. **Projection (the inversion of their context-economy primitive).** The
+   runtime keeps intermediate results out of context in script variables.
+   fakoli-state persists those variables as `Evidence` / `Decision` rows, so the
+   audit trail is the durable tail of state the runtime throws away.
+
+Two new types make the postures real and back the items below:
+
+- **`ProofArtifact`** replaces free-text `required_evidence` with typed,
+  verifiable proofs (`CommandProof{command, exit_code, output_sha256}`,
+  `DiffProof`, `LinkProof`, `AssertionProof`). The gate stops asking "does this
+  word appear" and starts asking "does a passing CommandProof exist." See SL-3.
+- **`OutputContract`** replaces file-level conflict detection with
+  interface-level declarations (symbols, modules, endpoints, tables), plus an
+  after-the-fact reconciliation that compares the declared contract to the
+  actual `DiffProof`. See SL-5.
+
+### Why this ordering (the argument against doing it differently)
+
+The reframe rests entirely on "durable governed state" being trustworthy.
+Today the replay guarantee is unproven in CI and the evidence gate was, until
+1.17.1, gameable and self-inconsistent. You cannot position as the trust layer
+with an untrusted trust layer. So Wave 1 makes the existing claims true, Wave 2
+makes governance non-gameable, and Wave 3 builds the integration story on top of
+a substrate that has earned it. The temptation to ship the positioning-friendly
+items (SL-4, SL-5) first, or to clear the long tidy `P11-*` audit backlog first,
+is the temptation to widen the product instead of making its central claim true.
+Resist both.
+
+### Wave 1 (Days 1-30): make the claims true
+
+Theme: integrity. At the end of this wave every sentence in the positioning is
+backed by a passing CI job.
+
+- **[SL-0]** Unify the evidence gate with the `apply` preview. **SHIPPED in
+  1.17.1 (PR #66).** `transitions._evidence_complete` now delegates to
+  `review.gates.evidence_complete`; a parametrized agreement test locks the
+  enforcing gate to the preview gate. Prerequisite for SL-3.
+- **[SL-1]** Prove replay in CI. **TARGETED, highest leverage.** Ship
+  `fakoli-state replay --from-events events.jsonl` into a scratch database (the
+  long-planned P9B-7 / v2.1 item, pulled forward because the audit positioning
+  depends on it). Add a CI job that, for a non-trivial fixture project, asserts
+  the replayed canonical state is equivalent to the original. Acceptance: a green
+  `replay-equivalence` check on every PR. This converts the most-repeated and
+  least-proven claim into a verified invariant.
+- **[SL-2]** Measure the critic false-pass rate. **TARGETED.** Build a
+  fault-injection harness: a corpus of known-bad diffs (off-by-one, dropped null
+  check, assertion-free test, deleted assertion) fed to the critic agent;
+  measure how many it waves through. Acceptance: a reproducible script plus a
+  committed baseline false-pass number in `docs/`. You cannot improve the critic
+  until you can score it.
+
+### Wave 2 (Days 31-60): make governance non-gameable
+
+Theme: typed proof. The substrate stops trusting strings.
+
+- **[SL-3]** Ship `ProofArtifact` (typed evidence). **SPEC-FIRST.** Implement the
+  typed artifact model; migrate `Verification.required_evidence`
+  ([`state/models.py:233`](../bin/src/fakoli_state/state/models.py)); rewrite the
+  unified gate ([`review/gates.py`](../bin/src/fakoli_state/review/gates.py)) to
+  evaluate typed predicates; make
+  [`hooks/capture-evidence.sh`](../hooks/capture-evidence.sh) emit `CommandProof`
+  with real exit codes and output hashes. Acceptance: the substring path is
+  deleted (not deprecated) and a migration converts existing string
+  requirements. Depends on SL-0.
+- **[SL-6]** Score spec assumptions, not just tasks. **TARGETED.** Extend the
+  six-dimension `Score`
+  ([`state/models.py`](../bin/src/fakoli_state/state/models.py), `Score` value
+  object) to PRD requirements and surface the highest-blast-radius,
+  lowest-confidence assumptions before planning. Acceptance: `fakoli-state plan`
+  reports the top assumptions ranked by `blast_radius * uncertainty`, and the
+  planner agent must address them before tasks become claimable. This is where
+  the human-in-the-loop-at-spec thesis becomes a feature.
+
+### Wave 3 (Days 61-90): earn the reframe
+
+Theme: "underneath," for real. Only now, on a proven substrate.
+
+- **[SL-4]** Promote status-file coordination to canonical state. **TARGETED.**
+  Today fakoli-flow / fakoli-crew coordinate by writing and grep-parsing markdown
+  at `docs/plans/agent-<name>-status.md` (see
+  [`fakoli-flow/references/status-protocol.md`](../../fakoli-flow/references/status-protocol.md)).
+  Replace that with state `Event`s; the wave engine reads `fakoli-state` instead
+  of parsing prose. Acceptance: the wave engine has zero markdown-parsing code
+  paths for status. This is the concrete delivery of "fakoli-flow sits on top of
+  fakoli-state."
+- **[SL-5]** Contract-level conflict with after-the-fact reconciliation.
+  **SPEC-FIRST.** Add `OutputContract` to `Task`; key `ConflictGroup`
+  ([`state/models.py:539`](../bin/src/fakoli_state/state/models.py)) on contract
+  overlap rather than `expected_files` overlap; add a post-`apply` drift check
+  comparing declared contract to actual `DiffProof`. The reconciliation step is
+  what lifts conflict detection out of the advisory-only class (the same
+  gameability class as the old substring gate: both depend on an honest up-front
+  declaration). Acceptance: a test where two tasks touch the same file but
+  declare non-overlapping contracts and run in parallel, plus a test where the
+  declared contract and the actual diff diverge and a drift `Event` fires.
+  Depends on SL-3 (`DiffProof`).
+- **[SL-7]** Workflow adapter spike (postures 2 and 3). **SPEC-FIRST, spike not
+  product.** Build `fakoli-state workflow-step` (the governed-step wrapper) and
+  one worked example wiring a dynamic-workflow script to persist its
+  script-variable intermediate results as `Evidence` / `Decision` rows.
+  Acceptance: a recorded run where a workflow script's discarded intermediate
+  state is queryable in `events.jsonl` after the session ends.
+
+### What this track explicitly defers
+
+The multi-provider sync expansion (P9B-1 Linear, P9B-2 Monday, the v2.1 Jira /
+GitHub Projects providers) and the 56-item `P11-*` audit batch stay in the
+version buckets below. Adding a third sync provider makes the product wider; it
+does not make the central claim more true. None of it belongs in these 90 days.
 
 ---
 
