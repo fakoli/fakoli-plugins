@@ -6,7 +6,15 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ## [Unreleased]
 
-_No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.18+ planned work._
+_No unreleased changes._
+
+---
+
+## [1.18.0] — 2026-05-31
+
+### Added
+
+- `docs/roadmap.md` — **integrity-first 90-day priority track.** A committed direction that sits above the version buckets, sequenced by credibility risk: Wave 1 (days 1-30) makes existing claims true (prove replay in CI, measure the critic false-pass rate, plus the already-shipped evidence-gate unification), Wave 2 (days 31-60) makes governance non-gameable (typed `ProofArtifact` evidence, scoring spec assumptions), Wave 3 (days 61-90) earns the "state layer underneath a dynamic-workflow runtime" reframe (promote status-file coordination to canonical state, contract-level conflict detection, a workflow-adapter spike). Documents the three integration postures (beside / governed step / projection) and the two new types (`ProofArtifact`, `OutputContract`) the track introduces.
 
 ---
 
