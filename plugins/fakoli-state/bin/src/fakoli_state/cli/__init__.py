@@ -15,6 +15,7 @@ from fakoli_state.cli.init_status import init, status
 from fakoli_state.cli.packet_apply import apply, packet, submit
 from fakoli_state.cli.plan import expand, list_tasks, plan, review_app, score, show
 from fakoli_state.cli.prd import prd_app
+from fakoli_state.cli.replay import replay
 from fakoli_state.cli.sync import sync_app
 
 # ---------------------------------------------------------------------------
@@ -79,6 +80,7 @@ app.command()(next)
 app.command()(packet)
 app.command()(submit)
 app.command()(apply)
+app.command()(replay)
 
 # ---------------------------------------------------------------------------
 # Module entry point

@@ -1,0 +1,10 @@
+--- a/tests/test_pricing.py
++++ b/tests/test_pricing.py
+@@ -0,0 +1,7 @@
++from pricing import apply_discount
++
++
++def test_apply_discount():
++    # Exercises the function but never checks the result — always "passes",
++    # even if apply_discount returns the wrong number.
++    apply_discount(100, 0.2)

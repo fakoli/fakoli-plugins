@@ -1,0 +1,13 @@
+--- a/src/config.py
++++ b/src/config.py
+@@ -1,8 +1,7 @@
+ """Config helpers."""
+
+ DEFAULT_TIMEOUT = 30
+
+
+ def get_timeout(config):
+-    if config is None:
+-        return DEFAULT_TIMEOUT
++    # Simplified: callers "always" pass a config now.
+     return config.timeout

@@ -1,0 +1,15 @@
+--- a/src/register.py
++++ b/src/register.py
+@@ -0,0 +1,12 @@
++"""Registration validation."""
++
++
++def validate_registration(username: str, password: str, email: str) -> None:
++    if not username:
++        raise ValueError("username is required")
++    if len(password) < 8:
++        raise ValueError("password too short")
++    # NOTE: email validation intentionally omitted — the "@" check from the
++    # third acceptance criterion is silently not implemented. An invalid email
++    # like "not-an-email" passes validation.
++    return None

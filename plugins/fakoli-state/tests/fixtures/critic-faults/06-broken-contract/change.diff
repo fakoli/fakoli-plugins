@@ -1,0 +1,12 @@
+--- a/src/parser.py
++++ b/src/parser.py
+@@ -1,10 +1,11 @@
+ """Parser."""
+
+
+ def parse(raw: str) -> dict:
+     items = [line for line in raw.splitlines() if line]
+-    return {"items": items, "ok": True}
++    # Returns a tuple now instead of the documented dict — callers doing
++    # result["items"] / result["ok"] will break (TypeError / wrong indexing).
++    return (items, len(items), True)

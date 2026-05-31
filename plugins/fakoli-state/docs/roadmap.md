@@ -84,19 +84,28 @@ backed by a passing CI job.
   1.17.1 (PR #66).** `transitions._evidence_complete` delegates to
   `review.gates.evidence_complete`; a parametrized agreement test locks the
   enforcing gate to the preview gate. Prerequisite for SL-3.
-- **[SL-1]** Prove replay in CI. **TARGETED, highest leverage.** Ship
-  `fakoli-state replay --from-events events.jsonl` into a scratch database (the
-  long-planned P9B-7 / v2.1 item, pulled forward because the audit positioning
-  depends on it). Add a CI job that, for a non-trivial fixture project, asserts
-  the replayed canonical state is equivalent to the original. Acceptance: a green
-  `replay-equivalence` check on every PR. This converts the most-repeated and
+- **[SL-1]** Prove replay in CI. **SHIPPED in 1.19.0.** Ships
+  `fakoli-state replay --from-events events.jsonl --into <scratch> [--against
+  state.db]` (the long-planned P9B-7 / v2.1 item, pulled forward because the
+  audit positioning depends on it), safety-guarded against overwriting the
+  active `.fakoli-state`. `tests/test_replay_equivalence.py` drives the real CLI
+  lifecycle (init → plan → score → claim → submit → apply, plus an injected
+  aborted-transaction tombstone) and asserts the replayed canonical state is
+  byte-for-byte equivalent to the live one — a non-trivial fixture, not the prior
+  3-event synthetic case. `.github/workflows/fakoli-state-tests.yml` runs a green
+  `replay-equivalence` check (marker `replay`) on every PR — also the first
+  PR-triggered pytest job for the plugin. This converts the most-repeated and
   least-proven claim into a verified invariant.
-- **[SL-2]** Measure the critic false-pass rate. **TARGETED.** Build a
-  fault-injection harness: a corpus of known-bad diffs (off-by-one, dropped null
-  check, assertion-free test, deleted assertion) fed to the critic agent;
-  measure how many it waves through. Acceptance: a reproducible script plus a
-  committed baseline false-pass number in `docs/`. You cannot improve the critic
-  until you can score it.
+- **[SL-2]** Measure the critic false-pass rate. **SHIPPED in 1.19.0.** A
+  fault-injection corpus of known-bad changes (off-by-one, dropped null check,
+  assertion-free test, deleted assertion, missing requirement, broken contract)
+  at `tests/fixtures/critic-faults/`, a reproducible printer/scorer
+  (`tests/critic_faultset/run.sh`), and a committed baseline in
+  [`critic-baseline.md`](critic-baseline.md): **0.0% (0/6)** false-pass for the
+  fallback critic rubric, with methodology and caveats (single run, fallback
+  rubric, smoke-test corpus). You cannot improve the critic until you can score
+  it. Follow-on: re-measure against `fakoli-crew:critic` and widen the corpus
+  with subtler faults.
 
 ### Wave 2 (Days 31-60): make governance non-gameable
 

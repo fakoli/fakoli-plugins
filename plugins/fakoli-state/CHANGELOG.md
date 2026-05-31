@@ -10,6 +10,46 @@ _No unreleased changes._
 
 ---
 
+## [1.19.0] — 2026-05-31
+
+Wave 1 of the integrity-first track ([`docs/roadmap.md`](docs/roadmap.md)) —
+making the replay and critic-gate claims true and measurable.
+
+### Added
+
+- **`fakoli-state replay` (SL-1).** New CLI command that rebuilds canonical
+  state from an `events.jsonl` log into a scratch directory and, with
+  `--against`, asserts byte-for-byte equivalence to a reference `state.db`. It
+  exposes the audit-guarantee primitive (`SqliteBackend.replay_from_empty`) as a
+  scriptable, safety-guarded surface (refuses to overwrite the active
+  `.fakoli-state`; exit codes 0/1/2 for pass/usage-error/divergence). See
+  [`docs/cli-reference.md` § Audit](docs/cli-reference.md#replay).
+- **Replay-equivalence proof in CI (SL-1).** `tests/test_replay_equivalence.py`
+  drives the real CLI lifecycle (init → plan → score → claim → submit → apply,
+  plus an injected aborted-transaction tombstone) and asserts the replayed
+  `state.db` matches the live one — proving the guarantee on a realistic event
+  stream, not just the prior 3-event synthetic fixture. Marked `replay`.
+- **First PR-triggered test workflow.** `.github/workflows/fakoli-state-tests.yml`
+  runs the deterministic `replay-equivalence` check (blocking) on every PR
+  touching the plugin, and surfaces the broader unit suite (non-blocking until
+  pre-existing environment-sensitive failures are triaged). Before this, the
+  suite ran only nightly.
+- **Critic false-pass harness + baseline (SL-2).** A fault-injection corpus of
+  6 known-bad changes (`tests/fixtures/critic-faults/`), a reproducible
+  printer/scorer (`tests/critic_faultset/run.sh`), and a committed baseline
+  ([`docs/critic-baseline.md`](docs/critic-baseline.md)) — measured false-pass
+  rate **0.0% (0/6)** for the fallback critic rubric, with methodology and
+  caveats. You cannot improve the critic until you can score it.
+
+### Changed
+
+- Version sources realigned to `1.19.0` across `pyproject.toml`, `__init__.py`,
+  and `plugin.json` (the `1.18.0` docs release left `pyproject`/`__init__` at
+  `1.17.0`; the new PR test workflow would now catch such drift via
+  `test_version_sync.py`).
+
+---
+
 ## [1.18.0] — 2026-05-31
 
 ### Added

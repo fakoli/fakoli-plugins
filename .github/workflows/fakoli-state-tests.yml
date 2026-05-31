@@ -1,0 +1,73 @@
+name: fakoli-state tests
+
+# PR-triggered unit tests for the fakoli-state plugin. Before this workflow the
+# 1000+ test suite ran only nightly (fakoli-state-live-github.yml); nothing
+# exercised it on pull requests.
+#
+# The headline check is `replay-equivalence` (SL-1, docs/roadmap.md): it proves
+# the audit guarantee — that canonical state replayed from events.jsonl is
+# byte-for-byte equivalent to the live state — on every PR. That step is
+# deterministic (no secrets, no git identity, no optional deps) and BLOCKS the PR.
+#
+# The broader unit suite runs as a separate, non-blocking step so the full suite
+# is visible on every PR while a handful of pre-existing environment-sensitive
+# failures are triaged. Promote it to blocking (drop `continue-on-error`) once
+# the suite is green on a clean runner.
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/fakoli-state/**'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/fakoli-state/**'
+  workflow_dispatch:
+
+concurrency:
+  group: fakoli-state-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: fakoli-state unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/fakoli-state/bin
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+
+      - name: Install fakoli-state deps (with all optional providers)
+        run: uv sync --extra all-providers
+
+      # The audit guarantee — deterministic, blocks the PR on any divergence.
+      - name: replay-equivalence
+        run: uv run pytest -q -m replay
+
+      # Configure a git identity so the git-backed tests can commit on the runner.
+      - name: Configure git identity for git-backed tests
+        run: |
+          git config --global user.email "ci@fakoli.test"
+          git config --global user.name "fakoli-state CI"
+
+      # Full unit suite (excludes live_github via pyproject addopts, and the
+      # replay marker which already ran above). Non-blocking until the
+      # pre-existing environment-sensitive failures are triaged.
+      - name: unit suite (non-blocking)
+        continue-on-error: true
+        run: uv run pytest -q -m 'not replay'

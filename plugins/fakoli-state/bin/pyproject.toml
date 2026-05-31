@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fakoli-state"
-version = "1.17.0"
+version = "1.19.0"
 description = "Local-first project state engine: turn rough ideas and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI agents can coordinate on without conflicts."
 readme = "../README.md"
 requires-python = ">=3.11"
@@ -105,4 +105,5 @@ testpaths = ["../tests"]
 addopts = "-m 'not live_github'"
 markers = [
     "live_github: tests that hit the real GitHub API (require FAKOLI_STATE_TEST_GH_TOKEN env)",
+    "replay: replay-equivalence tests proving the audit guarantee (SL-1); surfaced as a named CI step",
 ]

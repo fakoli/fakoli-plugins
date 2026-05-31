@@ -33,6 +33,8 @@
 - Submit and apply
   - [`fakoli-state submit`](#submit)
   - [`fakoli-state apply`](#apply)
+- Audit
+  - [`fakoli-state replay`](#replay)
 - Sync
   - [`fakoli-state sync`](#sync)
   - [`fakoli-state sync github`](#sync-github)
@@ -712,6 +714,47 @@ fakoli-state apply T001 --reject --reason "missing tests for edge case X"
 
 **See also:** [`fakoli-state submit`](#submit) for the prior step;
 [`fakoli-state show`](#show) to inspect the submitted evidence.
+
+---
+
+## Audit
+
+### `fakoli-state replay` { #replay }
+
+Reconstruct canonical state from the append-only event log and, optionally,
+assert it is byte-for-byte equivalent to a reference database. This exposes the
+audit-guarantee primitive (replay determinism) as a scriptable surface — it is
+what the `replay-equivalence` CI check runs on every PR (SL-1,
+[`roadmap.md`](roadmap.md)).
+
+```bash
+# Rebuild state.db from an event log into a scratch directory.
+fakoli-state replay --from-events .fakoli-state/events.jsonl --into /tmp/scratch
+
+# Rebuild AND assert equivalence to the live database.
+fakoli-state replay --from-events .fakoli-state/events.jsonl \
+  --into /tmp/scratch --against .fakoli-state/state.db
+```
+
+**Options:**
+
+- `--from-events PATH` (required) — the `events.jsonl` audit log to replay.
+- `--into DIR` (required) — scratch directory to rebuild `state.db` into.
+- `--against PATH` — reference `state.db` to compare the replayed database
+  against (full SQLite dump).
+- `--force` — allow `--into` to point at a directory that already contains a
+  `state.db`.
+
+**Safety:** replay *deletes and rebuilds* `state.db` in `--into`. The command
+refuses to run if `--into` resolves to the project's active `.fakoli-state`
+directory, so it can never destroy live state.
+
+**Exit codes:** `0` replay succeeded (and matched `--against` if given);
+`1` unsafe target or usage error; `2` replayed state diverged from `--against`
+(a diff summary is printed).
+
+**See also:** the `replay` unit marker
+(`pytest -m replay`) and `.github/workflows/fakoli-state-tests.yml`.
 
 ---
 
