@@ -80,8 +80,9 @@ Resist both.
 Theme: integrity. At the end of this wave every sentence in the positioning is
 backed by a passing CI job.
 
-- **[SL-0]** Unify the evidence gate with the `apply` preview. **SHIPPED in
-  1.17.1 (PR #66).** `transitions._evidence_complete` now delegates to
+- **[SL-0]** Unify the evidence gate with the `apply` preview. **In review as
+  PR #66, targeted 1.17.1** (status reflects PR #66, not yet merged to `main`).
+  `transitions._evidence_complete` is changed to delegate to
   `review.gates.evidence_complete`; a parametrized agreement test locks the
   enforcing gate to the preview gate. Prerequisite for SL-3.
 - **[SL-1]** Prove replay in CI. **TARGETED, highest leverage.** Ship
