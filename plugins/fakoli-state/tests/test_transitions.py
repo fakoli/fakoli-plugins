@@ -8,7 +8,7 @@ Special tests:
 - PRD → ready → claimed requires reviewed PRD
 - drafted → reviewed requires acceptance_criteria
 - Transitions return new instance (model_copy semantics)
-- Evidence complete substring membership
+- Evidence gate delegates to review.gates.evidence_complete (single source of truth)
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from fakoli_state.state.models import (
     TaskStatus,
     Verification,
 )
+from fakoli_state.review.gates import evidence_complete
 from fakoli_state.state.transitions import (
     TransitionError,
     prd_draft_to_reviewed,
@@ -113,6 +114,8 @@ def _make_evidence(
     output_excerpt: str | None = None,
     pr_url: str | None = None,
     commit_sha: str | None = None,
+    screenshots: list[str] | None = None,
+    known_limitations: str | None = None,
 ) -> Evidence:
     return Evidence(
         id="EV001",
@@ -123,6 +126,8 @@ def _make_evidence(
         output_excerpt=output_excerpt,
         pr_url=pr_url,
         commit_sha=commit_sha,
+        screenshots=screenshots or [],
+        known_limitations=known_limitations,
         submitted_at=_T0,
         submitted_by="agent-x",
     )
@@ -471,18 +476,23 @@ class TestTaskNeedsReviewToAccepted:
         assert exc_info.value.code == "wrong_status"
 
     def test_evidence_gate_failure(self) -> None:
-        """Missing required evidence raises TransitionError from evidence_gate."""
+        """Missing required evidence raises TransitionError from evidence_gate.
+
+        'performance benchmark' is a generic (non-test, non-PR) requirement, so
+        the gate looks for it in output_excerpt / known_limitations. Neither is
+        provided, so the gate fails — even though a pytest command was run.
+        """
         task = _make_task(
             status=TaskStatus.needs_review,
-            verification=Verification(required_evidence=["test coverage report"]),
+            verification=Verification(required_evidence=["performance benchmark"]),
         )
-        evidence = _make_evidence(commands_run=["pytest"])  # no coverage report!
+        evidence = _make_evidence(commands_run=["pytest"])  # no benchmark reported!
         with pytest.raises(TransitionError) as exc_info:
             task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
         err = exc_info.value
         assert err.code == "gate_failed"
         assert err.gate_name == "evidence_gate"
-        assert "test coverage report" in err.message
+        assert "performance benchmark" in err.message
 
 
 # ---------------------------------------------------------------------------
@@ -585,33 +595,71 @@ class TestTransitionImmutability:
 
 
 # ---------------------------------------------------------------------------
-# Evidence gate — substring membership
+# Evidence gate — delegation to review.gates.evidence_complete
 # ---------------------------------------------------------------------------
+#
+# The needs_review → accepted gate is the single enforcement point for evidence.
+# It delegates to fakoli_state.review.gates.evidence_complete — the SAME
+# predicate the `apply` command uses to preview the gate verdict for the
+# reviewer. These tests prove the wiring and lock the enforcing gate to the
+# preview gate so the two can never diverge again. Exhaustive coverage of the
+# matching rules themselves lives in tests/test_review.py.
+#
+# Note: the gate routes by intent (test runner / PR url / screenshots / files
+# changed / free-text fallback), NOT by raw substring against every Evidence
+# field. Writing a required string into an unrelated structured field (e.g. a
+# commit SHA) no longer satisfies the gate.
 
 
-class TestEvidenceSubstringMembership:
-    def test_required_evidence_substring_in_commands_run(self) -> None:
-        """required_evidence item found as substring of commands_run entry → passes."""
+class TestEvidenceGateDelegation:
+    def test_empty_required_evidence_passes(self) -> None:
+        """No required_evidence → gate always passes."""
         task = _make_task(
             status=TaskStatus.needs_review,
-            verification=Verification(required_evidence=["pytest"]),
+            verification=Verification(required_evidence=[]),
+        )
+        evidence = _make_evidence()
+        result = task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
+        assert result.status == TaskStatus.accepted
+
+    def test_test_requirement_satisfied_by_real_test_runner(self) -> None:
+        """A 'test output' requirement is satisfied by a genuine test command."""
+        task = _make_task(
+            status=TaskStatus.needs_review,
+            verification=Verification(required_evidence=["test output"]),
         )
         evidence = _make_evidence(commands_run=["pytest -x --cov=fakoli_state"])
         result = task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
         assert result.status == TaskStatus.accepted
 
-    def test_required_evidence_substring_in_files_changed(self) -> None:
-        """required_evidence item found as substring of files_changed entry → passes."""
+    def test_collect_only_does_not_satisfy_test_requirement(self) -> None:
+        """`pytest --collect-only` runs zero tests and must NOT satisfy the gate.
+
+        This is the anti-gaming property that the old raw-substring gate lacked:
+        the literal token 'pytest' appeared in the command, so substring matching
+        passed it. Intent-based routing rejects it.
+        """
         task = _make_task(
             status=TaskStatus.needs_review,
-            verification=Verification(required_evidence=["src/foo"]),
+            verification=Verification(required_evidence=["test output"]),
         )
-        evidence = _make_evidence(files_changed=["src/foo.py", "tests/test_foo.py"])
+        evidence = _make_evidence(commands_run=["pytest --collect-only"])
+        with pytest.raises(TransitionError) as exc_info:
+            task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
+        assert exc_info.value.gate_name == "evidence_gate"
+
+    def test_pr_requirement_satisfied_by_pr_url(self) -> None:
+        """A 'PR link' requirement is satisfied when pr_url is set."""
+        task = _make_task(
+            status=TaskStatus.needs_review,
+            verification=Verification(required_evidence=["PR link"]),
+        )
+        evidence = _make_evidence(pr_url="https://github.com/repo/pull/42")
         result = task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
         assert result.status == TaskStatus.accepted
 
-    def test_required_evidence_substring_in_output_excerpt(self) -> None:
-        """required_evidence item found as substring of output_excerpt → passes."""
+    def test_generic_requirement_matched_in_output_excerpt(self) -> None:
+        """A free-text requirement is matched against output_excerpt."""
         task = _make_task(
             status=TaskStatus.needs_review,
             verification=Verification(required_evidence=["10 passed"]),
@@ -620,59 +668,89 @@ class TestEvidenceSubstringMembership:
         result = task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
         assert result.status == TaskStatus.accepted
 
-    def test_required_evidence_not_found_fails(self) -> None:
-        """required_evidence item NOT in any corpus field → evidence_gate fails."""
+    def test_generic_requirement_not_found_fails(self) -> None:
+        """A free-text requirement absent from the evidence corpus fails the gate."""
         task = _make_task(
             status=TaskStatus.needs_review,
             verification=Verification(required_evidence=["coverage.xml"]),
         )
-        evidence = _make_evidence(
-            commands_run=["pytest -x"],
-            output_excerpt="10 passed",
-        )
+        evidence = _make_evidence(commands_run=["pytest -x"], output_excerpt="10 passed")
         with pytest.raises(TransitionError) as exc_info:
             task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
         assert exc_info.value.gate_name == "evidence_gate"
-
-    def test_evidence_gate_passes_with_empty_required_evidence(self) -> None:
-        """No required_evidence → gate always passes."""
-        task = _make_task(
-            status=TaskStatus.needs_review,
-            verification=Verification(required_evidence=[]),
-        )
-        evidence = _make_evidence()  # also empty
-        result = task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
-        assert result.status == TaskStatus.accepted
-
-    def test_required_evidence_substring_in_pr_url(self) -> None:
-        """required_evidence item found as substring of pr_url → passes."""
-        task = _make_task(
-            status=TaskStatus.needs_review,
-            verification=Verification(required_evidence=["github.com/pr"]),
-        )
-        evidence = _make_evidence(pr_url="https://github.com/pr/42")
-        result = task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
-        assert result.status == TaskStatus.accepted
-
-    def test_required_evidence_substring_in_commit_sha(self) -> None:
-        """required_evidence item found as substring of commit_sha → passes."""
-        task = _make_task(
-            status=TaskStatus.needs_review,
-            verification=Verification(required_evidence=["abc123"]),
-        )
-        evidence = _make_evidence(commit_sha="abc123def456")
-        result = task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
-        assert result.status == TaskStatus.accepted
 
     def test_multiple_required_evidence_all_must_match(self) -> None:
         """All items in required_evidence must be present — partial match is not enough."""
         task = _make_task(
             status=TaskStatus.needs_review,
-            verification=Verification(required_evidence=["pytest", "coverage"]),
+            verification=Verification(required_evidence=["test output", "coverage report"]),
         )
-        evidence = _make_evidence(commands_run=["pytest -x"])  # has pytest but not coverage
+        # test output is satisfied (real runner) but 'coverage report' is not reported.
+        evidence = _make_evidence(commands_run=["pytest -x"])
         with pytest.raises(TransitionError) as exc_info:
             task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
         err = exc_info.value
         assert err.gate_name == "evidence_gate"
-        assert "coverage" in err.message
+        assert "coverage report" in err.message
+
+    def test_commit_sha_substring_no_longer_satisfies_generic_requirement(self) -> None:
+        """Regression guard: a generic requirement is NOT satisfied by a bare
+        commit_sha field. The removed raw-substring gate would have passed this;
+        intent-based routing does not consider structured-only fields for
+        free-text requirements.
+        """
+        task = _make_task(
+            status=TaskStatus.needs_review,
+            verification=Verification(required_evidence=["abc123"]),
+        )
+        evidence = _make_evidence(commit_sha="abc123def456")
+        with pytest.raises(TransitionError) as exc_info:
+            task_needs_review_to_accepted(task, reviewer="alice", evidence=evidence, now=_T1)
+        assert exc_info.value.gate_name == "evidence_gate"
+
+    @pytest.mark.parametrize(
+        "required, evidence_kwargs",
+        [
+            ([], {}),
+            (["test output"], {"commands_run": ["pytest -x"]}),
+            (["test output"], {"commands_run": ["pytest --collect-only"]}),
+            (["test output"], {"commands_run": ["echo done"]}),
+            (["PR link"], {"pr_url": "https://github.com/repo/pull/7"}),
+            (["PR link"], {"pr_url": None}),
+            (["screenshots"], {"screenshots": ["a.png"]}),
+            (["screenshots"], {"screenshots": []}),
+            (["files changed"], {"files_changed": ["src/a.py"]}),
+            (["files changed"], {"files_changed": []}),
+            (["benchmark"], {"output_excerpt": "benchmark: 1.2s"}),
+            (["benchmark"], {"known_limitations": "no benchmark run"}),
+            (["benchmark"], {"commit_sha": "abc123"}),
+            (["test output", "PR link"], {"commands_run": ["pytest"], "pr_url": "u"}),
+        ],
+    )
+    def test_transition_gate_agrees_with_review_gate(
+        self, required: list[str], evidence_kwargs: dict
+    ) -> None:
+        """Lock: the enforcing transition gate accepts iff evidence_complete passes.
+
+        This is the regression guard against the two gates ever diverging again
+        (the bug this change fixes: the transition enforced raw substring while
+        `apply` previewed evidence_complete).
+        """
+        task = _make_task(
+            status=TaskStatus.needs_review,
+            verification=Verification(required_evidence=required),
+        )
+        evidence = _make_evidence(**evidence_kwargs)
+        gate_passes, _missing = evidence_complete(task, evidence)
+
+        if gate_passes:
+            result = task_needs_review_to_accepted(
+                task, reviewer="alice", evidence=evidence, now=_T1
+            )
+            assert result.status == TaskStatus.accepted
+        else:
+            with pytest.raises(TransitionError) as exc_info:
+                task_needs_review_to_accepted(
+                    task, reviewer="alice", evidence=evidence, now=_T1
+                )
+            assert exc_info.value.gate_name == "evidence_gate"
