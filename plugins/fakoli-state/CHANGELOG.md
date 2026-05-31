@@ -10,6 +10,14 @@ _No unreleased changes. See [roadmap.md](docs/roadmap.md) for v1.18+ planned wor
 
 ---
 
+## [1.17.1] — 2026-05-31
+
+### Fixed
+
+- **Evidence gate divergence (correctness).** The `needs_review → accepted` transition enforced a different evidence check than the one `fakoli-state apply` previews to the reviewer. The transition used a raw, case-sensitive substring match against a flattened corpus of every `Evidence` field, while `apply` (`cli/packet_apply.py`) used the intent-based `review.gates.evidence_complete`. The two could disagree in both directions: a task could preview as INCOMPLETE yet be accepted, or preview as complete yet be rejected. The substring gate was also trivially gameable — writing a required literal (e.g. `"test output"`) into any field passed it, and `pytest --collect-only` satisfied a "tests pass" requirement. `transitions._evidence_complete` now delegates to `review.gates.evidence_complete`, making it the single source of truth. A parametrized agreement test locks the enforcing gate to the preview gate so they can never diverge again.
+
+---
+
 ## [1.17.0] — 2026-05-26
 
 Major capability release: **multi-provider LLM access** (direct Anthropic API, Amazon Bedrock, OpenAI-compatible custom endpoints) plus **tier-aware default model selection** that drops typical session cost by ~60% versus the prior "everything routes through Opus" pattern. The five plugin-surface critics extract to a new dedicated `fakoli-plugin-critic` plugin (`fakoli-crew` 2.3.0+ no longer ships them).
