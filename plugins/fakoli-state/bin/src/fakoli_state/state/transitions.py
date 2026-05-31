@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime
 
+from fakoli_state.review.gates import evidence_complete
 from fakoli_state.state.models import (
     PRD,
     Claim,
@@ -161,40 +162,34 @@ def _can_review_task(task: Task) -> None:
 
 
 def _evidence_complete(task: Task, evidence: Evidence) -> None:
-    """Gate: all required_evidence items must be present in the evidence record.
+    """Gate: evidence must satisfy task.verification.required_evidence.
 
-    'Present' means the item appears as a substring of at least one of:
-    commands_run, output_excerpt, files_changed, pr_url, commit_sha, screenshots.
+    Single source of truth: this gate delegates to
+    :func:`fakoli_state.review.gates.evidence_complete`, the same predicate the
+    ``apply`` command uses to preview the gate verdict for the reviewer. The
+    enforcing transition and the advisory preview can therefore never diverge.
+
+    This previously used a raw, case-sensitive substring match against a
+    flattened corpus of every Evidence field (commands_run, files_changed,
+    output_excerpt, pr_url, commit_sha, screenshots). That logic both
+    disagreed with the review gate ``apply`` shows the reviewer and was
+    trivially satisfiable by free text — writing the literal required string
+    into any field passed the gate. ``evidence_complete`` instead routes by
+    intent (test requirements check for a real test runner and reject
+    ``--collect-only``; PR requirements check ``pr_url`` with word-boundary
+    matching; etc.).
 
     Raises TransitionError with gate_name='evidence_gate' on failure.
     """
-    if not task.verification.required_evidence:
-        return  # nothing required; gate passes automatically
-
-    evidence_corpus = set(evidence.commands_run)
-    evidence_corpus.update(evidence.files_changed)
-    evidence_corpus.update(evidence.screenshots)
-    if evidence.output_excerpt:
-        evidence_corpus.add(evidence.output_excerpt)
-    if evidence.pr_url:
-        evidence_corpus.add(evidence.pr_url)
-    if evidence.commit_sha:
-        evidence_corpus.add(evidence.commit_sha)
-
-    missing = [
-        req
-        for req in task.verification.required_evidence
-        if not any(req in item for item in evidence_corpus)
-    ]
-
-    if missing:
+    passed, missing = evidence_complete(task, evidence)
+    if not passed:
         raise TransitionError(
             code="gate_failed",
             gate_name="evidence_gate",
             current_status=task.status.value,
             message=(
                 f"Task '{task.id}' cannot be accepted: "
-                f"required evidence not found: {missing!r}. "
+                f"required evidence not satisfied: {missing!r}. "
                 "Submit evidence that covers all required_evidence items."
             ),
         )
