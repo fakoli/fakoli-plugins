@@ -506,8 +506,9 @@ class TestEnumCoverage:
         }
 
     def test_claim_type_values(self) -> None:
-        assert "task" in ClaimType
-        assert "file_scope" in ClaimType
+        values = {c.value for c in ClaimType}
+        assert "task" in values
+        assert "file_scope" in values
 
     def test_claim_status_values(self) -> None:
         assert ClaimStatus.active == "active"
