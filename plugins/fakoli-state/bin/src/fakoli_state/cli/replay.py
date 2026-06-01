@@ -55,7 +55,8 @@ def replay(
         )
         raise typer.Exit(code=1)
     try:
-        from_events_abs.open(encoding="utf-8").close()
+        with from_events_abs.open(encoding="utf-8"):
+            pass
     except OSError as exc:
         typer.echo(
             f"Error: cannot read --from-events file {from_events_abs}: {exc}",

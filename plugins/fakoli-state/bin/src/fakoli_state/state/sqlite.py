@@ -2756,12 +2756,15 @@ class SqliteBackend:
         raw_decision = d.get("decision")
         if raw_decision in _TASK_OUTCOME_TO_REVIEW_DECISION:
             d["decision"] = _TASK_OUTCOME_TO_REVIEW_DECISION[raw_decision]
-        elif raw_decision not in {v.value for v in ReviewDecision}:
+        elif raw_decision is not None and raw_decision not in {v.value for v in ReviewDecision}:
             _valid = sorted(_TASK_OUTCOME_TO_REVIEW_DECISION) + [v.value for v in ReviewDecision]
             raise ValueError(
                 f"_row_to_review: unexpected decision value {raw_decision!r}. "
                 f"Expected one of {_valid}."
             )
+        # A NULL decision column (raw_decision is None) is left as-is for
+        # Review.model_validate to reject with a schema-level error, rather than
+        # the misleading "unexpected value" mapping error above.
         return Review.model_validate(d)
 
     @staticmethod
