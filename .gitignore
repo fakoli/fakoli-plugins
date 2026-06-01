@@ -71,3 +71,7 @@ htmlcov/
 # Lock files (keep if you want consistency)
 # package-lock.json
 # yarn.lock
+
+# Crew/flow agent status files — coordination scratch for the wave engine,
+# useful for debugging a run but not a repo artifact. Plan files are kept.
+**/docs/plans/agent-*-status.md

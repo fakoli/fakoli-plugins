@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://fakoli.dev/schemas/principles.schema.json",
+  "title": "Fakoli Style Principles Ledger",
+  "description": "Governed ledger of the Fakoli Style operating-model principles. Each entry declares a principle, the failure it prevents, and an honest lifecycle status (proven, asserted, aspirational) with status-appropriate evidence.",
+  "type": "object",
+  "required": ["version", "principles"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Semantic version of the ledger document shape.",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "principles": {
+      "type": "array",
+      "description": "The principle entries. Sortable by credibility_risk then status without ambiguity (every entry carries both).",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/principle" }
+    }
+  },
+  "$defs": {
+    "embodiment": {
+      "type": "object",
+      "description": "A concrete place where the principle is mechanized in the codebase.",
+      "required": ["plugin", "ref", "mechanism"],
+      "additionalProperties": false,
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The plugin that embodies the principle."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "An existing repo-relative file path that mechanizes the principle."
+        },
+        "mechanism": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One line naming the mechanism at that ref."
+        }
+      }
+    },
+    "principle": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "principle",
+        "why",
+        "status",
+        "credibility_risk"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^P[0-9]+$",
+          "description": "Stable identifier, e.g. P1."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short lesson name."
+        },
+        "principle": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One-sentence declarative rule."
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One sentence naming the specific failure the rule prevents."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["proven", "asserted", "aspirational"],
+          "description": "Lifecycle status. proven: machine-verified. asserted: claimed with a pointer but not yet machine-verified. aspirational: not yet built."
+        },
+        "credibility_risk": {
+          "type": "string",
+          "enum": ["high", "med", "low"],
+          "description": "How load-bearing the claim is to the project's credibility if it turns out false."
+        },
+        "proof": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Pointer to evidence. For proven/asserted, a repo file path optionally suffixed with ::Class::method. Absent on aspirational entries."
+        },
+        "embodied_in": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/embodiment" },
+          "description": "Where the principle is mechanized. Required and non-empty for proven/asserted."
+        },
+        "open_work": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The work that would raise the status. Required for aspirational."
+        }
+      },
+      "allOf": [
+        {
+          "description": "proven and asserted entries must carry a proof pointer and a non-empty embodied_in array.",
+          "if": {
+            "properties": { "status": { "enum": ["proven", "asserted"] } }
+          },
+          "then": {
+            "required": ["proof", "embodied_in"],
+            "properties": {
+              "embodied_in": { "minItems": 1 }
+            }
+          }
+        },
+        {
+          "description": "aspirational entries must declare open_work and must not assert a proof pointer or embodiment.",
+          "if": {
+            "properties": { "status": { "const": "aspirational" } }
+          },
+          "then": {
+            "required": ["open_work"],
+            "not": {
+              "anyOf": [
+                { "required": ["proof"] },
+                { "required": ["embodied_in"] }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

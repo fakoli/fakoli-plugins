@@ -1,0 +1,102 @@
+{
+  "version": "1.0.0",
+  "principles": [
+    {
+      "id": "P2",
+      "name": "Verifiable proof beats pattern-matching",
+      "principle": "Gates accept typed, verifiable evidence, never free-text that happens to contain the right substring.",
+      "why": "A substring gate is trivially satisfiable by writing the required string into any field, so it passes work that was never done.",
+      "status": "aspirational",
+      "credibility_risk": "high",
+      "open_work": "SL-3 (typed ProofArtifact evidence replacing the substring gate)"
+    },
+    {
+      "id": "P3",
+      "name": "Measure your own gates (false-pass rate)",
+      "principle": "A gate is only trusted once its false-pass rate is measured against injected faults and the baseline is committed.",
+      "why": "An unmeasured gate can wave through broken work indefinitely because nobody knows how often it lets failures pass.",
+      "status": "aspirational",
+      "credibility_risk": "high",
+      "open_work": "SL-2 (fault-injection harness + committed baseline)"
+    },
+    {
+      "id": "P4",
+      "name": "Prove invariants in CI, don't assert them",
+      "principle": "Critical invariants are checked by an executable test in CI, not asserted in prose or a comment.",
+      "why": "An invariant that is only asserted drifts silently the first time someone changes one of its two sides without anyone noticing.",
+      "status": "aspirational",
+      "credibility_risk": "high",
+      "open_work": "SL-1 (replay equivalence check in CI)"
+    },
+    {
+      "id": "P7",
+      "name": "Coordinate through canonical state, not status files",
+      "principle": "Agents coordinate by reading and writing canonical Events, not by parsing each other's free-form status files.",
+      "why": "Status files have no schema and no ordering guarantees, so coordination built on them races and silently disagrees.",
+      "status": "aspirational",
+      "credibility_risk": "high",
+      "open_work": "SL-4 (promote status-file coordination to canonical Events)"
+    },
+    {
+      "id": "P9",
+      "name": "Score spec assumptions, not just tasks",
+      "principle": "Risk scoring ranks the spec's assumptions by blast radius and uncertainty, not just its enumerated tasks.",
+      "why": "Scoring only tasks leaves the most dangerous wrong assumptions unranked, so the plan optimizes effort while ignoring the real risk.",
+      "status": "aspirational",
+      "credibility_risk": "high",
+      "open_work": "SL-6 (score assumptions by blast_radius x uncertainty)"
+    },
+    {
+      "id": "P6",
+      "name": "Close the loop on failure, not just success",
+      "principle": "A failed wave is recorded as a first-class learnable event, the same way a successful one is.",
+      "why": "If only successes are captured, every failure is forgotten and the system relearns the same mistake on the next run.",
+      "status": "aspirational",
+      "credibility_risk": "med",
+      "open_work": "make a failed wave a first-class learnable event (substrate: events.jsonl)"
+    },
+    {
+      "id": "P8",
+      "name": "Conflicts live at the contract level, not the file level",
+      "principle": "Conflicts between agents are detected against declared output contracts and a post-apply drift check, not against raw file overlap.",
+      "why": "File-level conflict detection both misses semantic clashes in non-overlapping files and flags harmless coincidental edits as conflicts.",
+      "status": "aspirational",
+      "credibility_risk": "med",
+      "open_work": "SL-5 (OutputContract + post-apply drift check)"
+    },
+    {
+      "id": "P5",
+      "name": "Sequence by credibility risk, not demonstrability",
+      "principle": "Work is sequenced so the most load-bearing yet least-proven claims are addressed first, not the easiest ones to demo.",
+      "why": "Sequencing by demonstrability ships the impressive parts while the claims that would sink the project's credibility stay unproven.",
+      "status": "asserted",
+      "credibility_risk": "med",
+      "proof": "plugins/fakoli-state/docs/roadmap.md",
+      "embodied_in": [
+        {
+          "plugin": "fakoli-state",
+          "ref": "plugins/fakoli-state/docs/roadmap.md",
+          "mechanism": "integrity-first track orders SL-1..SL-6 by credibility risk ahead of demonstrability"
+        }
+      ],
+      "open_work": "encode the ordering as an automated check"
+    },
+    {
+      "id": "P1",
+      "name": "Advisory and enforcing share one code path",
+      "principle": "The advisory preview and the enforcing transition call the exact same gate predicate, never two parallel implementations.",
+      "why": "Two implementations of the same gate drift apart, so the preview a reviewer trusts stops matching the check that actually enforces.",
+      "status": "proven",
+      "credibility_risk": "med",
+      "proof": "plugins/fakoli-state/tests/test_transitions.py::TestEvidenceGateDelegation::test_transition_gate_agrees_with_review_gate",
+      "embodied_in": [
+        {
+          "plugin": "fakoli-state",
+          "ref": "plugins/fakoli-state/bin/src/fakoli_state/state/transitions.py",
+          "mechanism": "transitions._evidence_complete delegates to review.gates.evidence_complete (single source of truth)"
+        }
+      ],
+      "open_work": "extend the agreement-test pattern to fakoli-flow's preview/enforce paths"
+    }
+  ]
+}
