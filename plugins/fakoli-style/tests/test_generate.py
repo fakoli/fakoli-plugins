@@ -101,4 +101,6 @@ def test_committed_doc_matches_committed_data() -> None:
     expected = generate.render(generate.load_ledger(data_path))
     committed = doc_path.read_text(encoding="utf-8")
 
-    assert committed == expected
+    # Match the validator's staleness check: compare on normalized content so
+    # CRLF / trailing-whitespace differences do not cause a confusing failure.
+    assert generate.normalize_for_comparison(committed) == generate.normalize_for_comparison(expected)

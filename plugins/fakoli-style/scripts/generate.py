@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["jsonschema>=4.0"]
+# dependencies = []
 # ///
 """generate.py — Project data/principles.json into docs/fakoli-style.md.
 
