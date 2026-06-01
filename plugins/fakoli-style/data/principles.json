@@ -26,7 +26,7 @@
       "why": "An invariant that is only asserted drifts silently the first time someone changes one of its two sides without anyone noticing.",
       "status": "proven",
       "credibility_risk": "high",
-      "open_work": "Latent follow-up: a rejected non-PENDING event leaves a poison canonical line that aborts full replay (tracked in tech-debt-backlog); extend equivalence to fault-injected logs.",
+      "open_work": "SL1-RR-1 (latent, not live-reachable): the JSONL-first non-PENDING apply path can persist a poison canonical line that aborts full replay, but every live caller uses PENDING_EVENT_ID so no caller arms it in main today. Fix needs a spec: adopt Option A (append JSONL only after COMMIT on all paths, making 'log holds only committed events' the invariant) plus a poison-line regression fixture for the equivalence test. Tracked in tech-debt-backlog.",
       "proof": "plugins/fakoli-state/tests/test_replay_equivalence.py::test_normal_and_replay_match_each_other_and_the_golden",
       "embodied_in": [
         {
