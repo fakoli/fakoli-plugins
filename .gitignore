@@ -80,3 +80,6 @@ htmlcov/
 
 # Fakoli scratch directory — run-time state, never a repo artifact.
 .fakoli/
+
+# Live fakoli-state store (never tracked in the marketplace repo)
+.fakoli-state/
