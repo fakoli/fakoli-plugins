@@ -101,6 +101,8 @@ Install any combination — each works standalone. The full trinity gives you a 
 | [**fakoli-flow**](plugins/fakoli-flow) | Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with a five-stage pipeline (brainstorm → plan → execute → verify → finish), critic gates, and evidence-based verification. Works best alongside fakoli-crew. |
 | [**fakoli-state**](plugins/fakoli-state) | Local-first, runtime-neutral project state engine for humans and AI coding agents. Turn PRDs into lockable, evidence-backed work packets; coordinate multiple agents without conflicts. SQLite-backed canonical state, 23 CLI commands, 13 MCP tools, 7 skills, 6 agents, 4 hooks, bidirectional GitHub Issues sync. v1.11.0 (2026-05-25). |
 | [**marketplace-manager**](plugins/marketplace-manager) | Create and manage plugins without leaving Claude Code — scaffold new plugins from template with `/add-plugin`, validate manifests, regenerate registry indices, and install GitHub Actions workflows. The tool that maintains this marketplace. |
+| [**fakoli-style**](plugins/fakoli-style) | Governed ledger of the Fakoli operating-model principles — tracks proven, asserted, and aspirational lifecycle statuses and generates a Markdown report from a single canonical source. |
+| [**fakoli-plugin-critic**](plugins/fakoli-plugin-critic) | Five specialist critic agents for Claude Code plugin development — agent-critic (frontmatter/color/tools), skill-critic (lazy-loading/no-fuzzy-detection), hook-critic (contract-aware/${CLAUDE_PLUGIN_ROOT}), mcp-critic (schema/actor-validation), structure-critic (manifest/CHANGELOG/version-sync). Audit any plugin with MUST FIX / SHOULD FIX / CONSIDER / NIT verdicts. |
 
 ---
 
@@ -215,7 +217,7 @@ The schema lives in `schemas/plugin.schema.json`. Run `./scripts/validate.sh` lo
 fakoli-plugins/
 ├── .claude-plugin/          # Marketplace-level manifest
 ├── .github/workflows/       # CI: validate, update-index, pr-check, schema-drift
-├── plugins/                 # All active plugins (9)
+├── plugins/                 # All active plugins (13)
 ├── archive/                 # Archived / deprecated plugins
 ├── registry/                # Auto-generated plugin index (do not edit manually)
 ├── schemas/                 # JSON Schema definitions for manifests

@@ -1,0 +1,14 @@
+# Changelog
+
+All notable changes to fakoli-style are documented here.
+
+## [1.0.0] - 2026-05-31
+
+Initial release.
+
+- `data/principles.json`: versioned ledger of Fakoli operating-model principles with `proven`, `asserted`, and `aspirational` lifecycle statuses.
+- `schema/principles.schema.json`: JSON Schema (draft-07) governing the ledger shape and lifecycle rules.
+- `scripts/generate.py`: deterministic projection of the ledger into `docs/fakoli-style.md`; supports `--check` mode for staleness detection.
+- `scripts/validate.py`: full validation: schema, duplicate IDs, proof-path existence, proven-requires-test enforcement, embodiment-path existence, and staleness diff.
+- `skills/style-ops/SKILL.md`: skill definition documenting the four management verbs: add, set-status, validate, report.
+- Nine principles recorded across three statuses: one proven (P1), one asserted (P5), seven aspirational (P2, P3, P4, P6, P7, P8, P9).
