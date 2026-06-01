@@ -145,11 +145,8 @@ will break those calls. Options:
 Recommend option 2 as the safest. Awaiting orchestrator decision.
 ```
 
-## Archiving Status Files
+## Status Files Are Ephemeral (Not Archived)
 
-After a session is fully complete and merged, keeper moves status files to:
-```
-archive/YYYY-MM/runs/
-```
+Status files are run-local scratch under `.fakoli/runs/<run-id>/` (gitignored). They have no value once a run completes and must NOT be moved into a tracked directory such as `archive/` — doing so would re-commit scratch and violate P10 (tool scratch lives outside version control). Let them be discarded with the run directory. Only durable plan and spec docs under `docs/plans/` and `docs/specs/` are version-controlled.
 
-Active run directories under `.fakoli/runs/<run-id>/` contain only in-progress or recent sessions. The orchestrator is responsible for pointing agents at the correct run directory.
+Active run directories under `.fakoli/runs/<run-id>/` contain in-progress or recent sessions. The orchestrator is responsible for pointing agents at the correct run directory.

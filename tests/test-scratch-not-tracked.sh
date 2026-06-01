@@ -7,8 +7,8 @@
 #      (git check-ignore exits 0 for .fakoli/runs/x/agent-y-status.md).
 #   2. No file under .fakoli/ is tracked by git
 #      (git ls-files .fakoli/ returns nothing).
-#   3. No agent*-status.md scratch is tracked anywhere under docs/plans/
-#      (guards the legacy cleanup from regressing).
+#   3. No agent*-status.md scratch is tracked anywhere in the repo
+#      (guards the legacy cleanup and catches scratch archived into tracked dirs).
 #
 # Usage: ./tests/test-scratch-not-tracked.sh
 #
@@ -56,13 +56,15 @@ else
          "Tracked: $TRACKED — remove with 'git rm -r --cached .fakoli/'"
 fi
 
-# ── Check 3: no agent status scratch tracked under docs/plans/ ───────────────
-LEGACY=$(git -C "$ROOT_DIR" ls-files '**/docs/plans/agent*-status.md' 'docs/plans/agent*-status.md' 2>/dev/null)
+# ── Check 3: no agent status scratch tracked ANYWHERE in the repo ────────────
+# Repo-wide (not just docs/plans/) so archiving scratch into a tracked dir
+# such as archive/ is also caught.
+LEGACY=$(git -C "$ROOT_DIR" ls-files '**/agent*-status.md' 'agent*-status.md' 2>/dev/null)
 
 if [[ -z "$LEGACY" ]]; then
-    pass "no agent*-status.md tracked under docs/plans/"
+    pass "no agent*-status.md tracked anywhere in the repo"
 else
-    fail "agent status scratch is tracked under docs/plans/" \
+    fail "agent status scratch is tracked" \
          "Tracked: $LEGACY — untrack with 'git rm --cached' (gitignored scratch)."
 fi
 

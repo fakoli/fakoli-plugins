@@ -121,24 +121,37 @@ Quick-mode log example:
 [verify] Sentinel status: /abs/project/.fakoli/runs/verify-quick-202606011545/agent-sentinel-status.md
 ```
 
-**Dispatch.** Fill the prompt according to the mode — use the plan-file block when a plan exists, the quick-mode block when it does not. Never paste a `docs/plans/<filename>` that does not exist.
+**Dispatch.** Use exactly ONE of the two dispatches below — the plan-file dispatch when a plan exists, the quick-mode dispatch when it does not. Do not combine them, and never paste a `docs/plans/<filename>` that does not exist.
+
+Plan-file mode (a plan exists):
 
 ```
 Agent(
   subagent_type="fakoli-crew:sentinel",
   prompt="Run verification and report PASS or FAIL per item with cited evidence. Do not claim PASS without a command output from this session to cite.
 
-# Plan-file mode (a plan exists):
 Acceptance criteria:
 <paste criteria from plan>
 Plan file: docs/plans/<filename>
 For each criterion, run the exact verify command from the plan.
+Language: <detected language>
 
-# Quick mode (no plan file) — use INSTEAD of the block above:
+Write your scorecard to: <sentinel-status>
+Status: COMPLETE (all pass) or NEEDS_REVIEW (any fail).
+"
+)
+```
+
+Quick mode (no plan file):
+
+```
+Agent(
+  subagent_type="fakoli-crew:sentinel",
+  prompt="Run verification and report PASS or FAIL per item with cited evidence. Do not claim PASS without a command output from this session to cite.
+
 Plan file: (none — quick session)
 Task description: <original task the user gave to /flow:quick>
 Verify the modified files against this task description; derive a concrete verify command per claim (build / test / typecheck). Do not invent acceptance criteria the user did not state.
-
 Language: <detected language>
 
 Write your scorecard to: <sentinel-status>

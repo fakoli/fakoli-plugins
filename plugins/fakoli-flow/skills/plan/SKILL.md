@@ -76,6 +76,13 @@ First, derive a scratch path for this planning session. Use a `plan-` prefixed r
 <scout-status> = <project-root>/.fakoli/runs/<plan-run-id>/agent-scout-status.md
 ```
 
+Log the resolved path before dispatch:
+
+```
+[plan] Run ID: plan-<spec-basename>-202606011545
+[plan] Scout status: /abs/project/.fakoli/runs/plan-<spec-basename>-202606011545/agent-scout-status.md
+```
+
 Then dispatch:
 
 ```
