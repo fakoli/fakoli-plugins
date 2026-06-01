@@ -28,6 +28,20 @@ Items deferred from PR-level critic + Greptile reviews. Each entry links the ori
 
 ---
 
+## SL-1 (replay integrity) follow-ups
+
+### SL1-RR-1 · A poison canonical line aborts a full replay
+
+**From**: SL-1 Wave 3 critic, surfaced by the replay-equivalence fixture work. **Status**: OPEN.
+
+On the non-PENDING apply path, `apply_event` appends the canonical event line to `events.jsonl` **before** the SQLite mutation. If the mutation is then rejected (a handler raises), the canonical line is already persisted — so `replay_from_empty` re-applies it on every future replay and re-fails, aborting the entire replay. A single rejected non-PENDING event therefore poisons full replay of the log.
+
+SL-1 proves replay equivalence for well-formed logs (the fixture's `error.transaction_aborted` line is the clean `_append_abort_event` shape, which replay skips by action name with no poison predecessor). It does **not** cover this poison-line case.
+
+**Fix (needs its own spec — do not hack in):** either write the canonical event line only after the mutation commits, or make `replay_from_empty` tolerate a line that fails the same way it originally did. Both change a core event-application ordering invariant. Also tracked in fakoli-style principle **P4** `open_work`.
+
+---
+
 ## Phase 8 / Phase 9 closures (sync + LLM cleanups)
 
 These items came out of PR #49 (Phase 8) critic + Greptile reviews and the

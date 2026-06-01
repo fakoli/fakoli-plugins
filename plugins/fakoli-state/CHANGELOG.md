@@ -10,6 +10,26 @@ _No unreleased changes._
 
 ---
 
+## [1.19.0] — 2026-06-01
+
+### Added
+
+- **Replay proven in CI (SL-1).** New `serialize_state(backend)` produces a deterministic, total snapshot of canonical state; `test_replay_equivalence` asserts `serialize_state(normal apply path) == serialize_state(replay_from_empty) == a committed golden`, plus cross-db and same-handle idempotence. A new `.github/workflows/fakoli-state.yml` runs the full suite (incl. this check) on every PR — the replay guarantee is now an enforced invariant, not an assertion.
+- `fakoli-state replay --from-events <jsonl> --into <db>` CLI wrapping the existing `replay_from_empty` engine; guards the live `state.db` and missing-file inputs.
+- Backend read methods `list_claims` / `list_reviews` / `list_evidence` / `list_requirements` returning full canonical collections (not active-only), deterministically ordered.
+
+### Fixed
+
+- Review-decision read mapping: a rejected `task.applied` returns the task to `drafted` for rework, so `list_reviews()` now reports `needs_changes` (not a terminal `reject`).
+- Pre-existing `test_claim_type_values` failure on Python 3.11 (`str in EnumType` raised `TypeError`).
+- Version drift across `pyproject.toml` / `__init__.py` / `plugin.json`, now all `1.19.0`.
+
+### Known issues
+
+- Latent replay-robustness gap: a rejected non-PENDING event leaves a poison canonical line in `events.jsonl` that `replay_from_empty` re-applies and re-fails on, aborting a full replay. Tracked in [`tech-debt-backlog.md`](docs/tech-debt-backlog.md) (SL1-RR-1) and the fakoli-style P4 `open_work`.
+
+---
+
 ## [1.18.2] — 2026-06-01
 
 ### Added
