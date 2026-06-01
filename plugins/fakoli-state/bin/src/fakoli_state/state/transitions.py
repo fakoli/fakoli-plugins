@@ -169,6 +169,9 @@ def _evidence_complete(task: Task, evidence: Evidence) -> None:
     ``apply`` command uses to preview the gate verdict for the reviewer. The
     enforcing transition and the advisory preview can therefore never diverge.
 
+    Operating-model principle: this is fakoli-style **P1** (advisory and enforcing
+    share one code path). See ``plugins/fakoli-style/docs/fakoli-style.md``.
+
     This previously used a raw, case-sensitive substring match against a
     flattened corpus of every Evidence field (commands_run, files_changed,
     output_excerpt, pr_url, commit_sha, screenshots). That logic both

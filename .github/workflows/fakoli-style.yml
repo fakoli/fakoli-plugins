@@ -1,0 +1,44 @@
+name: fakoli-style tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/fakoli-style/**'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/fakoli-style/**'
+
+concurrency:
+  group: fakoli-style-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+
+      # Enforces the ledger's own invariants (P1, P4 applied reflexively):
+      # JSON Schema validity, the proven/asserted/aspirational lifecycle rule,
+      # resolvable proof + embodiment pointers, and that docs/fakoli-style.md is
+      # not stale relative to data/principles.json. Runs from repo root.
+      - name: Validate ledger (schema + lifecycle + staleness)
+        run: uv run plugins/fakoli-style/scripts/validate.py
+
+      - name: Run pytest
+        run: |
+          uv run --with pytest --with jsonschema pytest \
+            plugins/fakoli-style/tests/ -q

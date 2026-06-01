@@ -2,6 +2,13 @@
 
 All notable changes to fakoli-style are documented here.
 
+## [1.1.1] - 2026-06-01
+
+### Added
+- CI enforcement: `.github/workflows/fakoli-style.yml` runs the ledger validator (`scripts/validate.py`) and the pytest suite on every change to `plugins/fakoli-style/**`. The schema, lifecycle, and doc-staleness invariants are now proven in CI rather than only locally runnable — the plugin obeying its own P1 (advisory and enforcing share one code path) and P4 (prove invariants in CI).
+
+---
+
 ## [1.1.0] - 2026-06-01
 
 ### Added

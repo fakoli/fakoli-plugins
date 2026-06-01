@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 (2026-06-01)
+
+### Added
+- `references/status-protocol.md` now back-references fakoli-style **P10** (tool scratch lives outside version control), linking the `.fakoli/runs/` scratch root to its operating-model principle. Docs-only.
+
+---
+
 ## 1.1.0 (2026-06-01)
 
 ### Changed
