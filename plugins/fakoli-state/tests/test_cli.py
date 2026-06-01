@@ -2925,3 +2925,96 @@ class TestPlanOrphanPrune:
         assert "Pruned" not in plan_result.output, (
             f"clean re-plan should not mention pruning; got: {plan_result.output}"
         )
+
+
+# ---------------------------------------------------------------------------
+# replay command
+# ---------------------------------------------------------------------------
+
+
+class TestReplayCommand:
+    """Tests for `fakoli-state replay --from-events <events.jsonl> --into <db>`."""
+
+    def _init_project(self, tmp_path: Path) -> Path:
+        """Run fakoli-state init in tmp_path and return the .fakoli-state dir."""
+        _do_init(tmp_path, name="Replay Test Project")
+        return tmp_path / ".fakoli-state"
+
+    def test_replay_happy_path_into_scratch_db(self, tmp_path: Path) -> None:
+        """Successful replay into a temp path exits 0 and creates the target db."""
+        state_dir = self._init_project(tmp_path)
+        events_path = state_dir / "events.jsonl"
+
+        scratch_db = tmp_path / "scratch" / "replay.db"
+
+        result = runner.invoke(
+            app,
+            [
+                "replay",
+                "--from-events", str(events_path),
+                "--into", str(scratch_db),
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"replay failed: {result.output}"
+        assert scratch_db.exists(), "scratch db not created after replay"
+        # Output should confirm the events source and destination.
+        assert str(events_path) in result.output or "events" in result.output.lower()
+        assert str(scratch_db) in result.output or "canonical" in result.output.lower()
+
+    def test_replay_refuses_live_state_db(self, tmp_path: Path) -> None:
+        """replay refuses to target the live state.db and exits non-zero."""
+        state_dir = self._init_project(tmp_path)
+        events_path = state_dir / "events.jsonl"
+        live_db = state_dir / "state.db"
+
+        original_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            result = runner.invoke(
+                app,
+                [
+                    "replay",
+                    "--from-events", str(events_path),
+                    "--into", str(live_db),
+                ],
+                catch_exceptions=False,
+            )
+        finally:
+            os.chdir(original_cwd)
+
+        assert result.exit_code != 0, (
+            "replay should refuse to target live state.db; got exit 0"
+        )
+        combined = result.output + (
+            result.stderr if hasattr(result, "stderr") and result.stderr else ""
+        )
+        # The live-DB guard message is:
+        #   "Error: --into targets the live state database at <path>. ..."
+        assert "--into targets the live state database" in combined, (
+            f"error message should contain the specific live-DB-guard text; got: {combined}"
+        )
+
+    def test_replay_missing_from_events_exits_nonzero(self, tmp_path: Path) -> None:
+        """A missing --from-events file exits non-zero with a clear message."""
+        missing = tmp_path / "does_not_exist.jsonl"
+        scratch_db = tmp_path / "replay.db"
+
+        result = runner.invoke(
+            app,
+            [
+                "replay",
+                "--from-events", str(missing),
+                "--into", str(scratch_db),
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0, (
+            "replay should exit non-zero when --from-events is missing"
+        )
+        combined = result.output + (
+            result.stderr if hasattr(result, "stderr") and result.stderr else ""
+        )
+        assert "not found" in combined.lower() or str(missing) in combined, (
+            f"error should name the missing file; got: {combined}"
+        )

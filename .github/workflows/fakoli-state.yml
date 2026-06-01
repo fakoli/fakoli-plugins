@@ -1,0 +1,50 @@
+name: fakoli-state tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/fakoli-state/**'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/fakoli-state/**'
+
+concurrency:
+  group: fakoli-state-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+
+      # Runs the full fakoli-state unit suite on every change to the plugin.
+      # `--extra all-providers` installs the optional openai + boto3 provider
+      # SDKs the LLM-planner tests require; live-github tests are excluded by
+      # the `addopts = -m 'not live_github'` in bin/pyproject.toml. This suite
+      # includes the replay-equivalence check (test_replay_equivalence.py) that
+      # proves deterministic replay — the SL-1 invariant, now guarded in CI.
+      # TERM=dumb + unsetting FORCE_COLOR force plain (non-ANSI) Typer/Rich
+      # --help rendering. CI runners set FORCE_COLOR, which makes Rich interleave
+      # ANSI codes into help output and break the pre-existing `--flag in help`
+      # substring assertions (they pass locally where output is plain). The full
+      # suite passes identically with color off; nothing depends on color being on.
+      - name: Run fakoli-state suite (incl. replay-equivalence)
+        env:
+          TERM: dumb
+        run: |
+          env -u FORCE_COLOR uv run --project plugins/fakoli-state/bin --extra all-providers \
+            --with pytest pytest plugins/fakoli-state/tests/ -q

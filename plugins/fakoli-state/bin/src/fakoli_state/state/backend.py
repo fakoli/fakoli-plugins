@@ -19,6 +19,8 @@ if TYPE_CHECKING:
         Evidence,
         Feature,
         Project,
+        Requirement,
+        Review,
         SyncMapping,
         Task,
     )
@@ -121,6 +123,43 @@ class Backend(Protocol):
 
     def list_active_claims(self) -> list[Claim]:
         """Return all claims with a non-expired lease and non-terminal status."""
+        ...
+
+    def list_claims(self) -> list[Claim]:
+        """Return ALL claims regardless of status, sorted by id ASC.
+
+        Used by serialize_state and other snapshot paths that need the full
+        claim history — not just the currently active subset returned by
+        list_active_claims().  Includes active, released, stale, and
+        force_released claims.
+        """
+        ...
+
+    def list_reviews(self) -> list[Review]:
+        """Return all Review rows sorted by id ASC.
+
+        Used by serialize_state to capture the full review history.
+        Includes approval reviews inserted by prd.approved as well as task
+        reviews inserted by task.applied.
+        """
+        ...
+
+    def list_evidence(self) -> list[Evidence]:
+        """Return all Evidence rows sorted by id ASC.
+
+        Used by serialize_state to capture every evidence submission for
+        every task.  The ordering by id (E%06d-style primary key) guarantees
+        deterministic output across runs.
+        """
+        ...
+
+    def list_requirements(self) -> list[Requirement]:
+        """Return all Requirement rows sorted by id ASC.
+
+        Used by serialize_state to capture the full requirement set written
+        by prd.parsed.  The id-based ordering is deterministic because
+        requirement IDs are assigned at parse time and never mutate.
+        """
         ...
 
     def list_events(

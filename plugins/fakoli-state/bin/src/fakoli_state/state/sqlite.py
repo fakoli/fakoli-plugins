@@ -42,6 +42,8 @@ from fakoli_state.state.models import (
     Feature,
     Project,
     Requirement,
+    Review,
+    ReviewDecision,
     Score,
     SyncMapping,
     Task,
@@ -79,6 +81,16 @@ if TYPE_CHECKING:
     from fakoli_state.state.models import Evidence
 
 logger = logging.getLogger(__name__)
+
+# Maps the raw ``task.applied`` outcome strings stored in the reviews table to
+# their canonical ReviewDecision equivalents.  ``"rejected"`` maps to
+# ``needs_changes`` because a rejected task immediately auto-promotes back to
+# ``drafted`` for rework (see _handle_task_applied) — it is NOT the terminal
+# ``reject`` decision that would permanently close the review.
+_TASK_OUTCOME_TO_REVIEW_DECISION: dict[str, str] = {
+    "accepted": ReviewDecision.approve,
+    "rejected": ReviewDecision.needs_changes,
+}
 
 
 class SqliteBackend:
@@ -478,6 +490,72 @@ class SqliteBackend:
         ).fetchall()
         return [self._row_to_claim(row) for row in rows]
 
+    def list_claims(self) -> list[Claim]:
+        """Return ALL claims regardless of status, sorted by id ASC.
+
+        Includes active, released, stale, and force_released claims.
+        The id-based ordering is deterministic because claim IDs follow
+        the same C-prefixed format (e.g. 'C001') assigned at claim creation
+        and never mutate.
+        """
+        conn = self._require_conn()
+        rows = conn.execute(
+            # ORDER BY id ASC: lexical order matches numeric only while the
+            # zero-padded claim/event id suffix stays within its digit width.
+            "SELECT * FROM claims ORDER BY id ASC"
+        ).fetchall()
+        return [self._row_to_claim(row) for row in rows]
+
+    def list_reviews(self) -> list[Review]:
+        """Return all Review rows sorted by id ASC.
+
+        Covers both prd.approved reviews (id = RV-E{n}) and task.applied
+        reviews (id = RV-E{n}).  The id-based ordering is deterministic
+        because review IDs are derived deterministically from event IDs
+        inside their handlers.
+        """
+        conn = self._require_conn()
+        rows = conn.execute(
+            # ORDER BY id ASC: lexical order matches numeric only while the
+            # zero-padded event/id suffix stays within its digit width.
+            "SELECT id, target_kind, target_id, reviewed_by, decision, notes, created_at "
+            "FROM reviews ORDER BY id ASC"
+        ).fetchall()
+        return [self._row_to_review(row) for row in rows]
+
+    def list_evidence(self) -> list[Evidence]:
+        """Return all Evidence rows sorted by id ASC.
+
+        The id-based ordering is deterministic because evidence IDs are
+        assigned by callers before emitting evidence.submitted events and
+        are stable across replay.
+        """
+        conn = self._require_conn()
+        rows = conn.execute(
+            # ORDER BY id ASC: lexical order matches numeric only while the
+            # zero-padded event/id suffix stays within its digit width.
+            "SELECT id, task_id, claim_id, commands_run, output_excerpt, "
+            "files_changed, pr_url, commit_sha, screenshots, "
+            "known_limitations, submitted_at, submitted_by "
+            "FROM evidence ORDER BY id ASC"
+        ).fetchall()
+        return [self._row_to_evidence(row) for row in rows]
+
+    def list_requirements(self) -> list[Requirement]:
+        """Return all Requirement rows sorted by id ASC.
+
+        The id-based ordering is deterministic because requirement IDs are
+        assigned at prd.parsed time and never mutate.  prd.parsed is
+        destructive — it deletes and re-inserts all rows — so the result
+        always reflects the current parse, in stable id order.
+        """
+        conn = self._require_conn()
+        rows = conn.execute(
+            "SELECT id, prd_section, text, source_paragraph, derived "
+            "FROM requirements ORDER BY id ASC"
+        ).fetchall()
+        return [self._row_to_requirement(row) for row in rows]
+
     def get_prd(self) -> PRD | None:
         """Return the current PRD, or None if not yet created."""
         conn = self._require_conn()
@@ -559,8 +637,6 @@ class SqliteBackend:
 
     def get_latest_evidence(self, task_id: str) -> Evidence | None:
         """Return the most recently submitted Evidence for task_id, or None."""
-        import datetime
-
         conn = self._require_conn()
         try:
             row = conn.execute(
@@ -577,27 +653,7 @@ class SqliteBackend:
             return None
         if row is None:
             return None
-
-        from fakoli_state.state.models import Evidence
-
-        submitted_at = datetime.datetime.fromisoformat(row[10])
-        if submitted_at.tzinfo is None:
-            submitted_at = submitted_at.replace(tzinfo=datetime.UTC)
-
-        return Evidence(
-            id=row[0],
-            task_id=row[1],
-            claim_id=row[2],
-            commands_run=json.loads(row[3] or "[]"),
-            output_excerpt=row[4],
-            files_changed=json.loads(row[5] or "[]"),
-            pr_url=row[6],
-            commit_sha=row[7],
-            screenshots=json.loads(row[8] or "[]"),
-            known_limitations=row[9],
-            submitted_at=submitted_at,
-            submitted_by=row[11],
-        )
+        return self._row_to_evidence(row)
 
     # ------------------------------------------------------------------
     # Phase 8 — sync mapping query helpers
@@ -2673,6 +2729,76 @@ class SqliteBackend:
             d["expected_files"] = json.loads(d["expected_files"])
         return Claim.model_validate(d)
 
+    @staticmethod
+    def _row_to_review(row: Any) -> Review:
+        """Deserialise a reviews row into a Review model instance.
+
+        The reviews table stores two decision vocabularies:
+        - prd.approved writes ``"approve"`` (ReviewDecision canonical value).
+        - task.applied writes the raw outcome string (``"accepted"`` or
+          ``"rejected"``), which predates the ReviewDecision enum.
+
+        To allow the Review model's enum to validate correctly we map
+        task-outcome values to their ReviewDecision equivalents using the
+        module-level ``_TASK_OUTCOME_TO_REVIEW_DECISION`` constant:
+          ``"accepted"`` → ``ReviewDecision.approve``   (``"approve"``)
+          ``"rejected"`` → ``ReviewDecision.needs_changes`` (``"needs_changes"``)
+
+        ``"rejected"`` maps to ``needs_changes`` (NOT ``reject``) because a
+        rejected task auto-promotes to ``drafted`` for rework; it is not a
+        terminal closure.  See _TASK_OUTCOME_TO_REVIEW_DECISION and
+        _handle_task_applied for the full rationale.
+
+        All other decision values (``"approve"``, ``"reject"``,
+        ``"needs_changes"``) are passed through unchanged.
+        """
+        d = dict(row)
+        raw_decision = d.get("decision")
+        if raw_decision in _TASK_OUTCOME_TO_REVIEW_DECISION:
+            d["decision"] = _TASK_OUTCOME_TO_REVIEW_DECISION[raw_decision]
+        elif raw_decision is not None and raw_decision not in {v.value for v in ReviewDecision}:
+            _valid = sorted(_TASK_OUTCOME_TO_REVIEW_DECISION) + [v.value for v in ReviewDecision]
+            raise ValueError(
+                f"_row_to_review: unexpected decision value {raw_decision!r}. "
+                f"Expected one of {_valid}."
+            )
+        # A NULL decision column (raw_decision is None) is left as-is for
+        # Review.model_validate to reject with a schema-level error, rather than
+        # the misleading "unexpected value" mapping error above.
+        return Review.model_validate(d)
+
+    @staticmethod
+    def _row_to_evidence(row: Any) -> Evidence:
+        """Deserialise an evidence row (positional tuple) into an Evidence model instance.
+
+        Row column order must match the SELECT used in list_evidence and
+        get_latest_evidence:
+          0:id  1:task_id  2:claim_id  3:commands_run  4:output_excerpt
+          5:files_changed  6:pr_url  7:commit_sha  8:screenshots
+          9:known_limitations  10:submitted_at  11:submitted_by
+        """
+        import datetime
+
+        from fakoli_state.state.models import Evidence as _Evidence
+
+        submitted_at = datetime.datetime.fromisoformat(row[10])
+        if submitted_at.tzinfo is None:
+            submitted_at = submitted_at.replace(tzinfo=datetime.UTC)
+        return _Evidence(
+            id=row[0],
+            task_id=row[1],
+            claim_id=row[2],
+            commands_run=json.loads(row[3] or "[]"),
+            output_excerpt=row[4],
+            files_changed=json.loads(row[5] or "[]"),
+            pr_url=row[6],
+            commit_sha=row[7],
+            screenshots=json.loads(row[8] or "[]"),
+            known_limitations=row[9],
+            submitted_at=submitted_at,
+            submitted_by=row[11],
+        )
+
     def _row_to_prd(self, row: Any) -> PRD:
         """Deserialise a prds row into a PRD model instance."""
         d = dict(row)
@@ -2693,6 +2819,24 @@ class SqliteBackend:
     def _row_to_project(self, row: Any) -> Project:
         """Deserialise a projects row into a Project model instance."""
         return Project.model_validate(dict(row))
+
+    @staticmethod
+    def _row_to_requirement(row: Any) -> Requirement:
+        """Deserialise a requirements row into a Requirement model instance.
+
+        Row column order must match the SELECT used in list_requirements:
+          0:id  1:prd_section  2:text  3:source_paragraph  4:derived
+
+        The ``derived`` column is stored as an integer (0/1) — bool() is
+        applied so the Requirement model receives a proper Python bool.
+        """
+        return Requirement(
+            id=row[0],
+            prd_section=row[1],
+            text=row[2],
+            source_paragraph=row[3],
+            derived=bool(row[4]),
+        )
 
     @staticmethod
     def _row_to_sync_mapping(row: Any) -> SyncMapping:

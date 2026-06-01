@@ -24,9 +24,27 @@
       "name": "Prove invariants in CI, don't assert them",
       "principle": "Critical invariants are checked by an executable test in CI, not asserted in prose or a comment.",
       "why": "An invariant that is only asserted drifts silently the first time someone changes one of its two sides without anyone noticing.",
-      "status": "aspirational",
+      "status": "proven",
       "credibility_risk": "high",
-      "open_work": "SL-1 (replay equivalence check in CI)"
+      "open_work": "Latent follow-up: a rejected non-PENDING event leaves a poison canonical line that aborts full replay (tracked in tech-debt-backlog); extend equivalence to fault-injected logs.",
+      "proof": "plugins/fakoli-state/tests/test_replay_equivalence.py::test_normal_and_replay_match_each_other_and_the_golden",
+      "embodied_in": [
+        {
+          "plugin": "fakoli-state",
+          "ref": "plugins/fakoli-state/tests/test_replay_equivalence.py",
+          "mechanism": "asserts serialize_state(normal apply path) == serialize_state(replay_from_empty) == committed golden snapshot"
+        },
+        {
+          "plugin": "fakoli-state",
+          "ref": ".github/workflows/fakoli-state.yml",
+          "mechanism": "runs the replay-equivalence test on every PR touching the plugin"
+        },
+        {
+          "plugin": "fakoli-state",
+          "ref": "plugins/fakoli-state/bin/src/fakoli_state/state/snapshot.py",
+          "mechanism": "serialize_state defines the canonical state compared for equivalence"
+        }
+      ]
     },
     {
       "id": "P7",

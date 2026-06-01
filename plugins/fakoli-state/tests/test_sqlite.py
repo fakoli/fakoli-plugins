@@ -3856,6 +3856,73 @@ class TestPhase5EvidenceAndApplyHandlers:
         finally:
             b.close()
 
+    def test_list_reviews_rejected_maps_to_needs_changes(self, tmp_path: Path) -> None:
+        """list_reviews() maps task.applied decision='rejected' to ReviewDecision.needs_changes.
+
+        Pins _TASK_OUTCOME_TO_REVIEW_DECISION so the mapping cannot silently
+        regress.  A rejected task auto-promotes back to drafted for rework —
+        it is NOT the terminal ReviewDecision.reject closure.
+        """
+        from fakoli_state.state.models import ReviewDecision
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+            b.apply_event(_make_event(
+                "task.applied",
+                _make_applied_payload(decision="rejected", reviewer="bob", notes="Fix it."),
+                event_id="E000012", target_kind="task", target_id="T001",
+            ))
+
+            reviews = b.list_reviews()
+            task_reviews = [r for r in reviews if r.target_kind.value == "task"]
+            assert len(task_reviews) == 1, (
+                f"expected 1 task review from list_reviews(), got {len(task_reviews)}"
+            )
+            assert task_reviews[0].decision == ReviewDecision.needs_changes, (
+                f"rejected task.applied should map to needs_changes via list_reviews(); "
+                f"got {task_reviews[0].decision!r}"
+            )
+        finally:
+            b.close()
+
+    def test_list_reviews_accepted_maps_to_approve(self, tmp_path: Path) -> None:
+        """list_reviews() maps task.applied decision='accepted' to ReviewDecision.approve.
+
+        Companion to test_list_reviews_rejected_maps_to_needs_changes — pins
+        both directions of _TASK_OUTCOME_TO_REVIEW_DECISION.
+        """
+        from fakoli_state.state.models import ReviewDecision
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.apply_event(_make_event(
+                "evidence.submitted", _make_evidence_payload(),
+                event_id="E000011", target_kind="task", target_id="T001",
+            ))
+            b.apply_event(_make_event(
+                "task.applied",
+                _make_applied_payload(decision="accepted", reviewer="alice"),
+                event_id="E000012", target_kind="task", target_id="T001",
+            ))
+
+            reviews = b.list_reviews()
+            task_reviews = [r for r in reviews if r.target_kind.value == "task"]
+            assert len(task_reviews) == 1, (
+                f"expected 1 task review from list_reviews(), got {len(task_reviews)}"
+            )
+            assert task_reviews[0].decision == ReviewDecision.approve, (
+                f"accepted task.applied should map to approve via list_reviews(); "
+                f"got {task_reviews[0].decision!r}"
+            )
+        finally:
+            b.close()
+
 
 # ---------------------------------------------------------------------------
 # Phase 5 — THE CRITICAL TEST: replay includes Phase 5 events
@@ -6415,5 +6482,479 @@ class TestSyncDispatcherUsesConcreteSubclasses:
                 f"got actions={actions}. Check ACTION_TO_PAYLOAD wiring "
                 f"in state/sqlite.py:_get_action_handlers."
             )
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# list_claims / list_reviews / list_evidence — full-snapshot read methods
+# ---------------------------------------------------------------------------
+
+
+def _setup_full_snapshot_backend(b: SqliteBackend) -> None:
+    """Build a backend with released + stale claims, a review, and evidence.
+
+    Event chain:
+      - project + PRD + feature + task T001 (reaches 'ready')
+      - claim C001 created (active)
+      - claim C001 released  → status='released', task='ready'
+      - task T001 re-claimed via C002 (active)
+      - evidence EV001 submitted  → task='needs_review', claim C002='released'
+      - task T001 applied (accepted)  → task='done', review row inserted
+      - task T002 created (reaches 'ready')
+      - claim C003 created (active), then marked stale
+    """
+    # ---- project bootstrap (uses event IDs E000001–E000002) ----
+    _setup_claimable_task(b, task_id="T001")
+
+    # ---- C001 active → released ----
+    b.apply_event(_make_event(
+        "claim.created",
+        _make_claim_payload(claim_id="C001", task_id="T001"),
+        event_id="E000010", target_kind="claim", target_id="C001",
+    ))
+    b.apply_event(_make_event(
+        "claim.released",
+        {"claim_id": "C001", "released_by": "agent-alpha",
+         "release_reason": "dropped", "force": False},
+        event_id="E000011", target_kind="claim", target_id="C001",
+    ))
+
+    # ---- T001 re-ready via C002 ----
+    # task was returned to 'ready' by the release handler; re-claim it
+    b.apply_event(_make_event(
+        "claim.created",
+        _make_claim_payload(claim_id="C002", task_id="T001"),
+        event_id="E000012", target_kind="claim", target_id="C002",
+    ))
+
+    # ---- evidence + apply ----
+    b.apply_event(_make_event(
+        "evidence.submitted",
+        _make_evidence_payload(task_id="T001", claim_id="C002", evidence_id="EV001"),
+        event_id="E000013", target_kind="task", target_id="T001",
+    ))
+    b.apply_event(_make_event(
+        "task.applied",
+        _make_applied_payload(task_id="T001", reviewer="alice", decision="accepted"),
+        event_id="E000014", target_kind="task", target_id="T001",
+    ))
+
+    # ---- T002 with a stale claim ----
+    # Reuse _setup_claimable_task logic but inline since project already exists.
+    # Insert F001 task T002 directly via feature.created + task.created + transitions.
+    b.apply_event(_make_event(
+        "task.created",
+        _make_task_payload(task_id="T002", feature_id="F001"),
+        event_id="E000015", target_kind="task", target_id="T002",
+    ))
+    for from_s, to_s, eid in [
+        ("proposed", "drafted", "E000016"),
+        ("drafted", "reviewed", "E000017"),
+        ("reviewed", "ready", "E000018"),
+    ]:
+        b.apply_event(_make_event(
+            "task.status_changed",
+            {"task_id": "T002", "from": from_s, "to": to_s},
+            event_id=eid, target_kind="task", target_id="T002",
+        ))
+
+    b.apply_event(_make_event(
+        "claim.created",
+        _make_claim_payload(claim_id="C003", task_id="T002"),
+        event_id="E000019", target_kind="claim", target_id="C003",
+    ))
+    b.apply_event(_make_event(
+        "claim.stale",
+        {"claim_id": "C003", "detected_at": _T0.isoformat(),
+         "reason": "lease_expired"},
+        event_id="E000020", target_kind="claim", target_id="C003",
+    ))
+
+
+class TestListClaimsReviewsEvidence:
+    """Unit tests for list_claims(), list_reviews(), and list_evidence()."""
+
+    # ------------------------------------------------------------------
+    # list_claims()
+    # ------------------------------------------------------------------
+
+    def test_list_claims_returns_empty_when_no_claims(self, tmp_path: Path) -> None:
+        """list_claims() returns [] when the claims table is empty."""
+        b = _make_backend(tmp_path)
+        try:
+            assert b.list_claims() == []
+        finally:
+            b.close()
+
+    def test_list_claims_returns_all_statuses(self, tmp_path: Path) -> None:
+        """list_claims() returns active, released, and stale claims in id order."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            claims = b.list_claims()
+            # C001 released, C002 released (auto by evidence.submitted), C003 stale
+            claim_ids = [c.id for c in claims]
+            assert "C001" in claim_ids
+            assert "C002" in claim_ids
+            assert "C003" in claim_ids
+
+        finally:
+            b.close()
+
+    def test_list_claims_sorted_by_id(self, tmp_path: Path) -> None:
+        """list_claims() returns rows in ascending id order."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            claims = b.list_claims()
+            ids = [c.id for c in claims]
+            assert ids == sorted(ids), (
+                f"list_claims() result is not sorted by id: {ids}"
+            )
+        finally:
+            b.close()
+
+    def test_list_claims_includes_released_claims(self, tmp_path: Path) -> None:
+        """list_claims() includes claims with status='released'."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            claims = b.list_claims()
+            statuses = {c.id: c.status.value for c in claims}
+            assert statuses.get("C001") == "released", (
+                f"C001 should be 'released', got {statuses.get('C001')!r}"
+            )
+        finally:
+            b.close()
+
+    def test_list_claims_includes_stale_claims(self, tmp_path: Path) -> None:
+        """list_claims() includes claims with status='stale'."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            claims = b.list_claims()
+            statuses = {c.id: c.status.value for c in claims}
+            assert statuses.get("C003") == "stale", (
+                f"C003 should be 'stale', got {statuses.get('C003')!r}"
+            )
+        finally:
+            b.close()
+
+    def test_list_claims_returns_valid_claim_objects(self, tmp_path: Path) -> None:
+        """list_claims() returns fully deserialized Claim objects (not dicts)."""
+        from fakoli_state.state.models import Claim
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            claims = b.list_claims()
+            assert len(claims) >= 1
+            for claim in claims:
+                assert isinstance(claim, Claim)
+                # expected_files should be a list, not raw JSON string
+                assert isinstance(claim.expected_files, list)
+        finally:
+            b.close()
+
+    def test_list_claims_superset_of_list_active_claims(self, tmp_path: Path) -> None:
+        """Every claim in list_active_claims() also appears in list_claims()."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            all_ids = {c.id for c in b.list_claims()}
+            active_ids = {c.id for c in b.list_active_claims()}
+            assert active_ids.issubset(all_ids), (
+                f"list_active_claims returned ids not in list_claims: "
+                f"{active_ids - all_ids}"
+            )
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # list_reviews()
+    # ------------------------------------------------------------------
+
+    def test_list_reviews_returns_empty_when_no_reviews(self, tmp_path: Path) -> None:
+        """list_reviews() returns [] when the reviews table is empty."""
+        b = _make_backend(tmp_path)
+        try:
+            assert b.list_reviews() == []
+        finally:
+            b.close()
+
+    def test_list_reviews_returns_review_from_task_applied(self, tmp_path: Path) -> None:
+        """list_reviews() returns the Review row inserted by task.applied."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            reviews = b.list_reviews()
+            assert len(reviews) >= 1, (
+                "Expected at least one review after task.applied; got 0"
+            )
+        finally:
+            b.close()
+
+    def test_list_reviews_sorted_by_id(self, tmp_path: Path) -> None:
+        """list_reviews() returns rows in ascending id order."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            reviews = b.list_reviews()
+            ids = [r.id for r in reviews]
+            assert ids == sorted(ids), (
+                f"list_reviews() result is not sorted by id: {ids}"
+            )
+        finally:
+            b.close()
+
+    def test_list_reviews_returns_valid_review_objects(self, tmp_path: Path) -> None:
+        """list_reviews() returns fully deserialized Review objects (not dicts)."""
+        from fakoli_state.state.models import Review
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            reviews = b.list_reviews()
+            assert len(reviews) >= 1
+            for review in reviews:
+                assert isinstance(review, Review)
+                assert review.decision is not None
+                assert review.reviewed_by is not None
+        finally:
+            b.close()
+
+    def test_list_reviews_captures_prd_approved_review(self, tmp_path: Path) -> None:
+        """list_reviews() includes the Review row created by prd.approved."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.apply_event(_make_event(
+                "prd.parsed", _make_prd_parsed_payload(), event_id="E000003",
+            ))
+            b.apply_event(_make_event(
+                "prd.reviewed",
+                {"project_id": "proj-1", "reviewer": "alice"},
+                event_id="E000004",
+            ))
+            b.apply_event(_make_event(
+                "prd.approved",
+                {"project_id": "proj-1", "approver": "bob"},
+                event_id="E000005",
+            ))
+            reviews = b.list_reviews()
+            assert len(reviews) == 1
+            assert reviews[0].decision.value == "approve"
+            assert reviews[0].reviewed_by == "bob"
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # list_evidence()
+    # ------------------------------------------------------------------
+
+    def test_list_evidence_returns_empty_when_no_evidence(self, tmp_path: Path) -> None:
+        """list_evidence() returns [] when the evidence table is empty."""
+        b = _make_backend(tmp_path)
+        try:
+            assert b.list_evidence() == []
+        finally:
+            b.close()
+
+    def test_list_evidence_returns_submitted_evidence(self, tmp_path: Path) -> None:
+        """list_evidence() returns the evidence row inserted by evidence.submitted."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            evidence = b.list_evidence()
+            assert len(evidence) >= 1, (
+                "Expected at least one evidence row after evidence.submitted; got 0"
+            )
+            evids = [e.id for e in evidence]
+            assert "EV001" in evids
+        finally:
+            b.close()
+
+    def test_list_evidence_sorted_by_id(self, tmp_path: Path) -> None:
+        """list_evidence() returns rows in ascending id order."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            evidence = b.list_evidence()
+            ids = [e.id for e in evidence]
+            assert ids == sorted(ids), (
+                f"list_evidence() result is not sorted by id: {ids}"
+            )
+        finally:
+            b.close()
+
+    def test_list_evidence_returns_valid_evidence_objects(self, tmp_path: Path) -> None:
+        """list_evidence() returns fully deserialized Evidence objects (not dicts)."""
+        from fakoli_state.state.models import Evidence
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            evidence = b.list_evidence()
+            assert len(evidence) >= 1
+            for ev in evidence:
+                assert isinstance(ev, Evidence)
+                assert isinstance(ev.commands_run, list)
+                assert isinstance(ev.files_changed, list)
+                assert isinstance(ev.screenshots, list)
+                assert ev.submitted_at.tzinfo is not None, (
+                    "submitted_at must be timezone-aware UTC"
+                )
+        finally:
+            b.close()
+
+    def test_list_evidence_fields_match_submitted_payload(self, tmp_path: Path) -> None:
+        """list_evidence() returns evidence with fields matching the submitted payload."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_full_snapshot_backend(b)
+            evidence = b.list_evidence()
+            ev = next((e for e in evidence if e.id == "EV001"), None)
+            assert ev is not None, "EV001 not found in list_evidence() output"
+            assert ev.task_id == "T001"
+            assert ev.claim_id == "C002"
+            assert ev.submitted_by == "agent-alpha"
+            assert "pytest tests/ -v" in ev.commands_run
+            assert "src/auth.py" in ev.files_changed
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# list_requirements — read method
+# ---------------------------------------------------------------------------
+
+
+class TestListRequirements:
+    """Tests for SqliteBackend.list_requirements()."""
+
+    def test_list_requirements_returns_empty_before_prd_parsed(
+        self, tmp_path: Path
+    ) -> None:
+        """list_requirements() returns [] when no prd.parsed event has been applied."""
+        b = _make_backend(tmp_path)
+        try:
+            assert b.list_requirements() == []
+        finally:
+            b.close()
+
+    def test_list_requirements_returns_rows_after_prd_parsed(
+        self, tmp_path: Path
+    ) -> None:
+        """list_requirements() returns Requirement objects populated by prd.parsed."""
+        from fakoli_state.state.models import Requirement
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            payload = _make_prd_parsed_payload(
+                requirements=[
+                    {
+                        "id": "R001",
+                        "prd_section": "functional",
+                        "text": "System must authenticate users.",
+                        "source_paragraph": None,
+                        "derived": False,
+                    },
+                    {
+                        "id": "R002",
+                        "prd_section": "non-functional",
+                        "text": "Response time under 200ms.",
+                        "source_paragraph": "para-1",
+                        "derived": True,
+                    },
+                ]
+            )
+            b.apply_event(_make_event("prd.parsed", payload, event_id="E000003"))
+
+            reqs = b.list_requirements()
+            assert len(reqs) == 2
+            for rq in reqs:
+                assert isinstance(rq, Requirement)
+        finally:
+            b.close()
+
+    def test_list_requirements_sorted_by_id_asc(self, tmp_path: Path) -> None:
+        """list_requirements() returns rows in id ASC order."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            # Insert in reverse lexical order to verify sort is applied.
+            payload = _make_prd_parsed_payload(
+                requirements=[
+                    {
+                        "id": "R003",
+                        "prd_section": "s",
+                        "text": "Req 3.",
+                        "source_paragraph": None,
+                        "derived": False,
+                    },
+                    {
+                        "id": "R001",
+                        "prd_section": "s",
+                        "text": "Req 1.",
+                        "source_paragraph": None,
+                        "derived": False,
+                    },
+                    {
+                        "id": "R002",
+                        "prd_section": "s",
+                        "text": "Req 2.",
+                        "source_paragraph": None,
+                        "derived": False,
+                    },
+                ]
+            )
+            b.apply_event(_make_event("prd.parsed", payload, event_id="E000003"))
+
+            reqs = b.list_requirements()
+            ids = [r.id for r in reqs]
+            assert ids == sorted(ids), (
+                f"list_requirements() result is not sorted by id: {ids}"
+            )
+        finally:
+            b.close()
+
+    def test_list_requirements_fields_match_payload(self, tmp_path: Path) -> None:
+        """list_requirements() returns requirements with fields matching the parsed payload."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            payload = _make_prd_parsed_payload(
+                requirements=[
+                    {
+                        "id": "R001",
+                        "prd_section": "auth",
+                        "text": "Users must log in.",
+                        "source_paragraph": "para-intro",
+                        "derived": False,
+                    },
+                    {
+                        "id": "R002",
+                        "prd_section": "perf",
+                        "text": "Latency under 100ms.",
+                        "source_paragraph": None,
+                        "derived": True,
+                    },
+                ]
+            )
+            b.apply_event(_make_event("prd.parsed", payload, event_id="E000003"))
+
+            reqs = {r.id: r for r in b.list_requirements()}
+
+            assert reqs["R001"].prd_section == "auth"
+            assert reqs["R001"].text == "Users must log in."
+            assert reqs["R001"].source_paragraph == "para-intro"
+            assert reqs["R001"].derived is False
+
+            assert reqs["R002"].prd_section == "perf"
+            assert reqs["R002"].text == "Latency under 100ms."
+            assert reqs["R002"].source_paragraph is None
+            assert reqs["R002"].derived is True
         finally:
             b.close()

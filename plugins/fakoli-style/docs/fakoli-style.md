@@ -12,9 +12,9 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 | --- | --- | --- | --- |
 | P2 | Verifiable proof beats pattern-matching | aspirational |  |
 | P3 | Measure your own gates (false-pass rate) | aspirational |  |
-| P4 | Prove invariants in CI, don't assert them | aspirational |  |
 | P7 | Coordinate through canonical state, not status files | aspirational |  |
 | P9 | Score spec assumptions, not just tasks | aspirational |  |
+| P4 | Prove invariants in CI, don't assert them | proven | `plugins/fakoli-state/tests/test_replay_equivalence.py`<br>`.github/workflows/fakoli-state.yml`<br>`plugins/fakoli-state/bin/src/fakoli_state/state/snapshot.py` |
 | P6 | Close the loop on failure, not just success | aspirational |  |
 | P8 | Conflicts live at the contract level, not the file level | aspirational |  |
 | P11 | Derived indexes live outside the replay boundary | aspirational |  |
@@ -46,17 +46,6 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 
 **Open work.** SL-2 (fault-injection harness + committed baseline)
 
-### P4 — Prove invariants in CI, don't assert them
-
-**Status:** aspirational  
-**Credibility risk:** high
-
-**Principle.** Critical invariants are checked by an executable test in CI, not asserted in prose or a comment.
-
-**Why.** An invariant that is only asserted drifts silently the first time someone changes one of its two sides without anyone noticing.
-
-**Open work.** SL-1 (replay equivalence check in CI)
-
 ### P7 — Coordinate through canonical state, not status files
 
 **Status:** aspirational  
@@ -78,6 +67,25 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 **Why.** Scoring only tasks leaves the most dangerous wrong assumptions unranked, so the plan optimizes effort while ignoring the real risk.
 
 **Open work.** SL-6 (score assumptions by blast_radius x uncertainty)
+
+### P4 — Prove invariants in CI, don't assert them
+
+**Status:** proven  
+**Credibility risk:** high
+
+**Principle.** Critical invariants are checked by an executable test in CI, not asserted in prose or a comment.
+
+**Why.** An invariant that is only asserted drifts silently the first time someone changes one of its two sides without anyone noticing.
+
+**Proof.** `plugins/fakoli-state/tests/test_replay_equivalence.py::test_normal_and_replay_match_each_other_and_the_golden`
+
+**Embodied in:**
+
+- `plugins/fakoli-state/tests/test_replay_equivalence.py` (fakoli-state) — asserts serialize_state(normal apply path) == serialize_state(replay_from_empty) == committed golden snapshot
+- `.github/workflows/fakoli-state.yml` (fakoli-state) — runs the replay-equivalence test on every PR touching the plugin
+- `plugins/fakoli-state/bin/src/fakoli_state/state/snapshot.py` (fakoli-state) — serialize_state defines the canonical state compared for equivalence
+
+**Open work.** Latent follow-up: a rejected non-PENDING event leaves a poison canonical line that aborts full replay (tracked in tech-debt-backlog); extend equivalence to fault-injected logs.
 
 ### P6 — Close the loop on failure, not just success
 

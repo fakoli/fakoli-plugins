@@ -2,6 +2,13 @@
 
 All notable changes to fakoli-style are documented here.
 
+## [1.1.3] - 2026-06-01
+
+### Changed
+- Principle **P4** (prove invariants in CI) moves `aspirational → proven`: SL-1 landed a CI-enforced replay-equivalence test (`fakoli-state/tests/test_replay_equivalence.py`) backed by `serialize_state` and the new `fakoli-state.yml` workflow. `open_work` now tracks the latent poison-line replay-robustness follow-up surfaced during SL-1.
+
+---
+
 ## [1.1.2] - 2026-06-01
 
 ### Added
