@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0 (2026-06-01)
+
+### Changed
+- Status files now write to a gitignored per-run scratch root `.fakoli/runs/<run-id>/` (orchestrator-injected absolute path) instead of `docs/plans/`.
+
+---
+
 ## 1.0.1 (2026-05-24)
 
 Evaluation-audit patch release. No skill semantics or workflow logic changed — all fixes are documentation, frontmatter, and structural.

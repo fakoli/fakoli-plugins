@@ -177,4 +177,4 @@ If a check you expected to PASS actually fails:
 - Never truncate error output — paste it verbatim.
 - Always name the fix owner for each failure (guido, smith, welder, herald, keeper).
 - If you cannot run a check (missing tool, no config), mark it `N/A` — not `PASS`.
-- Write your status to `docs/plans/agent-sentinel-status.md` when done.
+- Write your status to the path the orchestrator provides in your dispatch prompt.

@@ -68,7 +68,7 @@ Start
 
 ## Step-by-Step Rules
 
-### Step 1: Load the Plan
+### Step 1: Load the Plan and Derive the Run ID
 
 Read the plan file fully. Extract:
 - Plan header (Goal, Language, Crew)
@@ -76,6 +76,27 @@ Read the plan file fully. Extract:
 - Build a dependency graph in memory
 
 If the plan file does not exist or cannot be found, ask the user for the path. Do not proceed without it.
+
+**Derive the run ID immediately after loading the plan.** The run ID is the single
+source of truth for all status-file paths in this execution:
+
+```
+<run-id> = <plan-basename-without-extension>-<YYYYMMDDHHmm UTC>
+```
+
+Example: plan file `docs/plans/2026-06-01-retry-mechanism.md` loaded at 14:30 UTC
+on 2026-06-01 → `run-id = 2026-06-01-retry-mechanism-202606011430`.
+
+**Default scratch root:** `.fakoli/runs/<run-id>/` (relative to the project root).
+Log the resolved absolute path once:
+
+```
+[execute] Run ID: 2026-06-01-retry-mechanism-202606011430
+[execute] Scratch root: /abs/project/.fakoli/runs/2026-06-01-retry-mechanism-202606011430/
+```
+
+All status-file references in this run use the absolute scratch root path. Every
+agent dispatch prompt receives the absolute path for its own status file.
 
 ### Step 2: Detect Available Agents
 
@@ -178,9 +199,10 @@ Construct the prompt for each agent from its plan task. Include:
 1. **Task name and intent** (from plan)
 2. **Acceptance criteria** (from plan, verbatim)
 3. **Scope** — exact file paths (from plan)
-4. **Upstream context** — decisions and notes from prior wave status files (extracted from `docs/plans/agent-*-status.md`)
+4. **Upstream context** — decisions and notes from prior wave status files (extracted from the run scratch directory)
 5. **Verify command** (from plan)
-6. **Status file instruction** — tell the agent to write its result to `docs/plans/agent-<name>-status.md`
+6. **Status file instruction** — tell the agent to write its result to the absolute path
+   `<scratch-root>/agent-<name>-status.md` where `<scratch-root>` is the run's scratch root
 
 For a complete, ready-to-copy example of a dispatch prompt with all six fields filled in (plus annotation of what makes a prompt effective), see `references/example-dispatch-prompt.md`.
 
@@ -188,16 +210,18 @@ For a complete, ready-to-copy example of a dispatch prompt with all six fields f
 
 ## Status File Protocol
 
-Agents write status files at `docs/plans/agent-<name>-status.md`. The wave engine reads these after each wave to confirm completion, surface escalations, and extract files-modified + decisions for the next wave.
+Agents write status files to the run scratch directory: `<scratch-root>/agent-<name>-status.md`.
+`<scratch-root>` is the absolute path logged at Step 1 (default: `.fakoli/runs/<run-id>/`).
+The wave engine reads these after each wave to confirm completion, surface escalations, and extract files-modified + decisions for the next wave.
 
 For the full format specification — status values, reading rules, writing rules, and worked examples for welder and critic — see `references/status-protocol.md`. The summary that follows covers only the operational protocol the execute skill enforces.
 
 ### Reading Status Files After Each Wave
 
-After dispatching a wave, wait for all `docs/plans/agent-*-status.md` files to show a terminal status (COMPLETE, NEEDS_REVIEW, or BLOCKED).
+After dispatching a wave, wait for all `<scratch-root>/agent-*-status.md` files to show a terminal status (COMPLETE, NEEDS_REVIEW, or BLOCKED).
 
 **Polling protocol:**
-1. Read all `docs/plans/agent-*-status.md` files.
+1. Read all `<scratch-root>/agent-*-status.md` files.
 2. If any shows `IN_PROGRESS`: wait 10 seconds and re-read.
 3. If still `IN_PROGRESS` after 5 minutes: surface to user as a timeout — "Agent `<name>` has been IN_PROGRESS for 5 minutes. Check for errors or re-dispatch."
 
@@ -250,7 +274,7 @@ Run this between wave completion and the critic gate. If verification fails, fix
 
 ### Step 1: Collect Modified Files
 
-Read all `docs/plans/agent-*-status.md` files from the completed wave. Extract every file listed in "Files Modified". Deduplicate.
+Read all `<scratch-root>/agent-*-status.md` files from the completed wave. Extract every file listed in "Files Modified". Deduplicate.
 
 ### Step 2: Dispatch Critic
 
@@ -273,14 +297,16 @@ Agent(
     - CONSIDER: suggestions for improvement
     - NIT: minor style issues
 
-    Write your review to: docs/plans/agent-critic-status.md
+    Write your review to: <scratch-root>/agent-critic-status.md
   """
 )
 ```
 
+Replace `<scratch-root>` with the absolute path logged at the start of this run.
+
 ### Step 3: Evaluate Findings
 
-Read `docs/plans/agent-critic-status.md`.
+Read `<scratch-root>/agent-critic-status.md`.
 
 | Verdict | Action |
 |---|---|
@@ -339,11 +365,13 @@ Agent(
     Python:     ruff check . && mypy . && pytest
     Rust:       cargo check && cargo test
 
-    Write your scorecard to: docs/plans/agent-sentinel-status.md
+    Write your scorecard to: <scratch-root>/agent-sentinel-status.md
     Status: COMPLETE (all pass) or NEEDS_REVIEW (any fail).
   """
 )
 ```
+
+Replace `<scratch-root>` with the absolute path logged at the start of this run.
 
 Read the sentinel's scorecard. If any criterion fails: do not declare the execution complete. Surface the failure to the user.
 

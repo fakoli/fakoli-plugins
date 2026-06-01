@@ -83,20 +83,66 @@ Multiple plans found for today:
 Which plan should I verify against?
 ```
 
-**After `/flow:quick` (no plan file):** Quick mode does not create a plan file. If verify is invoked after a quick session, ask the user for the original task description and verify the modified files against it. Use the same evidence gate — every PASS still requires a command output to cite.
+**After `/flow:quick` (no plan file):** Quick mode does not create a plan file. If verify is invoked after a quick session, ask the user for the original task description and verify the modified files against it. Use the same evidence gate — every PASS still requires a command output to cite. Because there is no plan file, use `verify-quick-<YYYYMMDDHHmm UTC>` as the run-id (e.g. `verify-quick-202606011545`) so the sentinel always gets a concrete, absolute status path.
 
-**Dispatch:**
+**Derive a scratch path for this verify session.** Use a `verify-` prefixed run ID so the
+sentinel has an isolated, gitignored location to write its status file:
+
+```
+# When a plan file exists:
+<verify-run-id>     = verify-<plan-basename-without-extension>-<YYYYMMDDHHmm UTC>
+
+# When there is no plan file (quick mode):
+<verify-run-id>     = verify-quick-<YYYYMMDDHHmm UTC>
+
+<verify-scratch>    = <project-root>/.fakoli/runs/<verify-run-id>/
+<sentinel-status>   = <verify-scratch>/agent-sentinel-status.md   (absolute path)
+```
+
+Example (plan file): plan file `docs/plans/2026-06-01-retry-mechanism.md`, verify invoked at 15:45 UTC →
+`verify-run-id = verify-2026-06-01-retry-mechanism-202606011545`
+
+Example (quick mode): no plan file, verify invoked at 15:45 UTC →
+`verify-run-id = verify-quick-202606011545`
+
+Log the resolved paths before dispatch:
+
+```
+[verify] Run ID: verify-2026-06-01-retry-mechanism-202606011545
+[verify] Scratch root: /abs/project/.fakoli/runs/verify-2026-06-01-retry-mechanism-202606011545/
+[verify] Sentinel status: /abs/project/.fakoli/runs/verify-2026-06-01-retry-mechanism-202606011545/agent-sentinel-status.md
+```
+
+Quick-mode log example:
+
+```
+[verify] Run ID: verify-quick-202606011545
+[verify] Scratch root: /abs/project/.fakoli/runs/verify-quick-202606011545/
+[verify] Sentinel status: /abs/project/.fakoli/runs/verify-quick-202606011545/agent-sentinel-status.md
+```
+
+**Dispatch.** Fill the prompt according to the mode — use the plan-file block when a plan exists, the quick-mode block when it does not. Never paste a `docs/plans/<filename>` that does not exist.
 
 ```
 Agent(
   subagent_type="fakoli-crew:sentinel",
-  prompt="Run verification against the following acceptance criteria. For every criterion, run the exact verify command from the plan, read the full output, and report PASS or FAIL with evidence. Do not claim PASS without a command output from this session to cite.
+  prompt="Run verification and report PASS or FAIL per item with cited evidence. Do not claim PASS without a command output from this session to cite.
 
+# Plan-file mode (a plan exists):
 Acceptance criteria:
 <paste criteria from plan>
-
 Plan file: docs/plans/<filename>
+For each criterion, run the exact verify command from the plan.
+
+# Quick mode (no plan file) — use INSTEAD of the block above:
+Plan file: (none — quick session)
+Task description: <original task the user gave to /flow:quick>
+Verify the modified files against this task description; derive a concrete verify command per claim (build / test / typecheck). Do not invent acceptance criteria the user did not state.
+
 Language: <detected language>
+
+Write your scorecard to: <sentinel-status>
+Status: COMPLETE (all pass) or NEEDS_REVIEW (any fail).
 "
 )
 ```
@@ -193,7 +239,7 @@ Do not proceed past this skill if any of these are true:
 - Typecheck output contains any error lines
 - Any test failed
 - An acceptance criterion produced no verifiable output
-- The plan file cannot be found (cannot verify criteria without it)
+- The plan file cannot be found AND this is not a quick-mode session (in quick mode, verify against the user's task description instead)
 
 State the problem explicitly. Return control to the user.
 

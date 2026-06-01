@@ -22,7 +22,7 @@ The agent returns:
 
 ## Status File Protocol
 
-Every agent writes a status file at `docs/plans/agent-<name>-status.md`. This is the inter-agent communication channel.
+Every agent writes a status file to the path the orchestrator provides in its dispatch prompt. The default scratch root is `.fakoli/runs/<run-id>/agent-<name>-status.md` (gitignored). This is the inter-agent communication channel.
 
 ### Format
 

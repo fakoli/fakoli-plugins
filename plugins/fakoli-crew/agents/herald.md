@@ -103,4 +103,4 @@ search result and has three competitors open in other tabs.
 - Never list commands alphabetically without grouping them by category first.
 - Never skip the Quick Start section.
 - Always read the source before writing the docs — do not invent capabilities.
-- Write your status to `docs/plans/agent-herald-status.md` when done.
+- Write your status to the path the orchestrator provides in your dispatch prompt.

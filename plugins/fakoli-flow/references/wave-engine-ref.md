@@ -84,8 +84,9 @@ The critic gate runs after every wave that writes code. It is non-negotiable.
 
 ### Step-by-Step
 
-1. **Collect modified files.** Read all `docs/plans/agent-*-status.md` files from the
+1. **Collect modified files.** Read all `<scratch-root>/agent-*-status.md` files from the
    completed wave. Extract the "Files Modified" section from each.
+   (`<scratch-root>` is the run scratch directory logged at the start of `/flow:execute`.)
 
 2. **Dispatch critic.**
    ```
@@ -148,8 +149,11 @@ Rust, `pyproject.toml` → Python, `tsconfig.json` / `package.json` → TypeScri
 
 ## Status File Location
 
-Agents write their results to `docs/plans/agent-<name>-status.md`. The wave engine reads
-these to confirm completion, detect blockers, extract modified files for the critic, and
-pass decisions to the next wave's dispatch prompts.
+Agents write their results to the run scratch directory: `<scratch-root>/agent-<name>-status.md`.
+The orchestrator derives `<scratch-root>` at the start of `/flow:execute` (default:
+`.fakoli/runs/<run-id>/` where `<run-id>` = plan basename + UTC timestamp) and injects
+the absolute path into every dispatch prompt. The wave engine reads status files from
+that same directory to confirm completion, detect blockers, extract modified files for
+the critic, and pass decisions to the next wave's dispatch prompts.
 
 See `references/status-protocol.md` for the full format specification.

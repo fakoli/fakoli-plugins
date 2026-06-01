@@ -23,7 +23,7 @@ Upstream context (from Wave 1 scout):
 
 Verify: bun test packages/orchestrator/src/retry.test.ts
 
-When done, write your status to: docs/plans/agent-welder-status.md
+When done, write your status to: /abs/project/.fakoli/runs/2026-06-01-retry-mechanism-202606011430/agent-welder-status.md
 Use the standard format: Status, Wave, Timestamp, Files Modified, Files Read, Decisions, Notes for Specific Agents.
 ```
 
@@ -33,6 +33,6 @@ Use the standard format: Status, Wave, Timestamp, Files Modified, Files Read, De
 - **Scope is a list of exact file paths**, not a directory or a vague description. This is what file ownership enforces — no two agents in the same wave touch the same path.
 - **Upstream context is verbatim from prior status files**, not a paraphrase. The wave engine extracts "Decisions" sections from completed agents and pastes them into the next wave's prompt.
 - **The verify command is exactly what the agent should run before declaring COMPLETE.** It usually matches the `Verify:` field in the plan task.
-- **The status-file instruction names the exact path and lists the required sections**, so the agent does not have to infer the protocol from prior context.
+- **The status-file instruction names the exact absolute path and lists the required sections**, so the agent does not have to infer the protocol from prior context. The orchestrator derives the absolute path from the run ID (plan basename + UTC timestamp) and injects it; the agent writes where told.
 
 For the full status-file format the agent will write back, see `references/status-protocol.md`.

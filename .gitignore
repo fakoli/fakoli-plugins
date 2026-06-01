@@ -74,4 +74,9 @@ htmlcov/
 
 # Crew/flow agent status files — coordination scratch for the wave engine,
 # useful for debugging a run but not a repo artifact. Plan files are kept.
-**/docs/plans/agent-*-status.md
+# Pattern is agent*-status.md (no hyphen required) to also catch legacy
+# agentN-status.md naming, not just agent-<role>-status.md.
+**/docs/plans/agent*-status.md
+
+# Fakoli scratch directory — run-time state, never a repo artifact.
+.fakoli/

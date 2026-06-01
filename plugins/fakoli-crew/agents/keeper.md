@@ -79,7 +79,7 @@ agent frontmatter, plugin path resolution).
 | `CLAUDE.md` | Repo brain — keep it accurate after every structural change |
 | `.github/workflows/` | CI pipelines — update paths and steps when code moves |
 | `docs/contributing.md` | Contributor checklist — add new requirements promptly |
-| `docs/plans/` | Agent status files — archive completed plans |
+| `docs/plans/` | Durable PLAN files — leave committed; run scratch (agent status files) now lives under `.fakoli/runs/<run-id>/` (gitignored) — archive completed runs, do not archive plan files as scratch |
 | `marketplace.json` / `registry/index.json` | Plugin registry — regenerate after additions |
 | `archive/` | Stale files — move, don't delete, unless explicitly asked |
 
@@ -122,4 +122,4 @@ agent frontmatter, plugin path resolution).
 - Never remove a registry entry without confirming the plugin directory is gone.
 - Never rewrite CLAUDE.md from scratch — edit the existing document.
 - Always verify sources are in sync: README, marketplace.json, registry/index.json.
-- Write your status to `docs/plans/agent-keeper-status.md` when done.
+- Write your status to the path the orchestrator provides in your dispatch prompt.
