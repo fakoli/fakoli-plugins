@@ -6,9 +6,18 @@ critic gate, and pass decisions to the next wave's dispatch prompts.
 
 ## File Location
 
+The orchestrator injects the absolute path into your dispatch prompt. Write to
+exactly the path you are given.
+
+**Default root:** `.fakoli/runs/<run-id>/`
+
 ```
-docs/plans/agent-<name>-status.md
+.fakoli/runs/<run-id>/agent-<name>-status.md
 ```
+
+`<run-id>` is derived once by the orchestrator at the start of `/flow:execute`:
+plan filename (without `.md`) plus a short UTC timestamp (`YYYYMMDDHHmm`).
+Example: `2026-06-01-retry-mechanism-202606011430`.
 
 `<name>` is the agent's role name (e.g., `welder`, `critic`, `sentinel`, `scout`,
 `guido`, `smith`, `herald`). When multiple agents of the same role run in one wave,
@@ -84,8 +93,9 @@ The wave engine reads status files after every agent completes:
 
 Agents writing a status file must:
 
-1. **Write to the correct path.** Always `docs/plans/agent-<role>-status.md` relative to
-   the project root. Use an absolute path if the project root is ambiguous.
+1. **Write to the path the orchestrator gave you.** The dispatch prompt contains the
+   absolute path for this run (e.g., `/abs/path/.fakoli/runs/<run-id>/agent-<role>-status.md`).
+   Do not invent a path; use only what was injected.
 
 2. **Set status at the start.** Write `IN_PROGRESS` immediately when the task begins, so
    the wave engine knows the agent is active.

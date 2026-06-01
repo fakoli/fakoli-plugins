@@ -97,6 +97,28 @@
         }
       ],
       "open_work": "extend the agreement-test pattern to fakoli-flow's preview/enforce paths"
+    },
+    {
+      "id": "P10",
+      "name": "Tool scratch lives outside version control",
+      "principle": "Run-local process artifacts are gitignored; only intent (specs and plans) is committed.",
+      "why": "Committing scratch clutters history and PR diffs with mechanics that have no value after the run.",
+      "status": "proven",
+      "proof": "tests/test-scratch-not-tracked.sh",
+      "embodied_in": [
+        {
+          "plugin": "repo",
+          "ref": ".gitignore",
+          "mechanism": "gitignores .fakoli/ so run scratch cannot be committed"
+        },
+        {
+          "plugin": "fakoli-flow",
+          "ref": "plugins/fakoli-flow/references/status-protocol.md",
+          "mechanism": "status files write to .fakoli/runs/<run-id>/, not docs/plans/"
+        }
+      ],
+      "open_work": "Status scratch is now proven untracked under both .fakoli/ and docs/plans/. Extend the check to non-status scratch (server PID/logs, screenshots) if those ever risk being committed.",
+      "credibility_risk": "med"
     }
   ]
 }

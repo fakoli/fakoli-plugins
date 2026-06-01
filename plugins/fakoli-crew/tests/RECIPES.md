@@ -30,11 +30,11 @@ Companion runner: `bash tests/test_critics.sh --list` prints a one-line summary 
 ```
 Agent(
   subagent_type="fakoli-plugin-critic:agent-critic",
-  prompt="Review the agent file at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-agent.md. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to docs/plans/agent-agent-critic-smoke-status.md."
+  prompt="Review the agent file at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-agent.md. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to .fakoli/runs/smoke/agent-agent-critic-smoke-status.md."
 )
 ```
 
-**Pass criteria** (read `docs/plans/agent-agent-critic-smoke-status.md` after dispatch):
+**Pass criteria** (read `.fakoli/runs/smoke/agent-agent-critic-smoke-status.md` after dispatch):
 - At least 1 **MUST FIX** finding mentioning the missing `name:` field.
 - At least 1 **MUST FIX** finding mentioning `allowed-tools:` as an agent-frontmatter antipattern, with the fix to rename to `tools:`.
 - **VERDICT: FAIL** at the bottom of the report (any MUST FIX → FAIL by definition).
@@ -62,11 +62,11 @@ Agent(
 ```
 Agent(
   subagent_type="fakoli-plugin-critic:skill-critic",
-  prompt="Review the skill at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-skill/SKILL.md. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to docs/plans/agent-skill-critic-smoke-status.md."
+  prompt="Review the skill at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-skill/SKILL.md. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to .fakoli/runs/smoke/agent-skill-critic-smoke-status.md."
 )
 ```
 
-**Pass criteria** (read `docs/plans/agent-skill-critic-smoke-status.md` after dispatch):
+**Pass criteria** (read `.fakoli/runs/smoke/agent-skill-critic-smoke-status.md` after dispatch):
 - At least 1 finding at **MUST FIX** or **SHOULD FIX** severity flagging the vague description (must reference the description being a vague capability claim, not naming concrete trigger phrases).
 - At least 1 **SHOULD FIX** finding flagging the absence of numbered steps / decision flow on a multi-step skill.
 - **VERDICT: FAIL** if either finding is MUST FIX; otherwise PASS with two SHOULD FIX items called out is acceptable.
@@ -94,11 +94,11 @@ Agent(
 ```
 Agent(
   subagent_type="fakoli-plugin-critic:hook-critic",
-  prompt="Review the hook layer in plugins/fakoli-crew/tests/fixtures/audit-targets/. Read bad-hooks.json (the manifest) and bad-hook.sh (the dispatched script). Perform the standard contract-detection rule (Steps 1-3 in your system prompt) before flagging set -e. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to docs/plans/agent-hook-critic-smoke-status.md."
+  prompt="Review the hook layer in plugins/fakoli-crew/tests/fixtures/audit-targets/. Read bad-hooks.json (the manifest) and bad-hook.sh (the dispatched script). Perform the standard contract-detection rule (Steps 1-3 in your system prompt) before flagging set -e. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to .fakoli/runs/smoke/agent-hook-critic-smoke-status.md."
 )
 ```
 
-**Pass criteria** (read `docs/plans/agent-hook-critic-smoke-status.md` after dispatch):
+**Pass criteria** (read `.fakoli/runs/smoke/agent-hook-critic-smoke-status.md` after dispatch):
 - The report's header explicitly names the **Detected contract: non-blocking** (with a citation to either the `bad-hook.sh` leading comment block or the `bad-hooks.json` `_contract` field — the critic MUST state which detection step produced the conclusion).
 - At least 1 **MUST FIX** finding flagging `set -e` as a contract violation, naming the unconditional `exit 0` at the bottom that will never run.
 - At least 1 **SHOULD FIX** (or higher) finding flagging the missing `${CLAUDE_PLUGIN_ROOT}` on the `./hooks/state.txt` path.
@@ -127,11 +127,11 @@ Note: the fixture intentionally uses `${CLAUDE_PLUGIN_ROOT}` for the `command` p
 ```
 Agent(
   subagent_type="fakoli-plugin-critic:mcp-critic",
-  prompt="Review the MCP manifest at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-mcp.json. Treat this as a standalone .mcp.json (there is no companion server implementation source — the fixture is manifest-only). Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to docs/plans/agent-mcp-critic-smoke-status.md."
+  prompt="Review the MCP manifest at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-mcp.json. Treat this as a standalone .mcp.json (there is no companion server implementation source — the fixture is manifest-only). Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to .fakoli/runs/smoke/agent-mcp-critic-smoke-status.md."
 )
 ```
 
-**Pass criteria** (read `docs/plans/agent-mcp-critic-smoke-status.md` after dispatch):
+**Pass criteria** (read `.fakoli/runs/smoke/agent-mcp-critic-smoke-status.md` after dispatch):
 - At least 1 **MUST FIX** finding flagging the missing `args` field on the `bad-server` stdio entry, with the suggested fix to add `"args": []` (or a populated array if the wrapper takes arguments).
 - The finding cites the Manifest Schema rule from the critic's checklist.
 - **VERDICT: FAIL**.
@@ -162,11 +162,11 @@ The fixture keeps `name`, `author`, `repository`, `license`, and `keywords` vali
 ```
 Agent(
   subagent_type="fakoli-plugin-critic:structure-critic",
-  prompt="Review the plugin manifest at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-plugin.json. Treat it as a standalone plugin.json (no surrounding marketplace.json, registry/index.json, CHANGELOG, README, or pyproject.toml — the fixture is manifest-only by design). Apply the Manifest Required Fields checklist. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to docs/plans/agent-structure-critic-smoke-status.md."
+  prompt="Review the plugin manifest at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-plugin.json. Treat it as a standalone plugin.json (no surrounding marketplace.json, registry/index.json, CHANGELOG, README, or pyproject.toml — the fixture is manifest-only by design). Apply the Manifest Required Fields checklist. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to .fakoli/runs/smoke/agent-structure-critic-smoke-status.md."
 )
 ```
 
-**Pass criteria** (read `docs/plans/agent-structure-critic-smoke-status.md` after dispatch):
+**Pass criteria** (read `.fakoli/runs/smoke/agent-structure-critic-smoke-status.md` after dispatch):
 - At least 1 **MUST FIX** finding flagging the missing `version` field, with the suggested fix to add a semver `"version": "0.1.0"` (or whatever the author intends).
 - At least 1 finding (MUST FIX or SHOULD FIX) flagging the placeholder 6-char `description: "tiny."` as not accurately describing the plugin.
 - **VERDICT: FAIL** (any MUST FIX → FAIL).

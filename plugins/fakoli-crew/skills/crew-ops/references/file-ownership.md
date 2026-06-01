@@ -29,7 +29,7 @@ their required changes to the primary via a status file.
 | `registry.json` | keeper | sentinel |
 | `.github/workflows/*.yml` | keeper | sentinel |
 | `docs/contributing.md` | keeper | herald |
-| `docs/plans/agent-*.md` | (each agent owns their own) | sentinel |
+| `<run-dir>/agent-*.md` (orchestrator-provided path) | (each agent owns their own) | sentinel |
 | `tests/**/*.test.ts` | guido | sentinel |
 | `archive/**` | keeper | — |
 
@@ -83,7 +83,7 @@ src/client.ts (existing) → welder (primary)
 README.md            → herald (primary)
 CLAUDE.md            → keeper (primary)
 marketplace.json     → keeper (primary)
-docs/plans/*.md      → each agent owns their own
+<run-dir>/agent-*.md  → each agent owns their own (path from orchestrator)
 ```
 
 ### Marketplace Overhaul Session

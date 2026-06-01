@@ -82,7 +82,7 @@ collect_plugins() {
             if [[ -f "$dir/.claude-plugin/plugin.json" ]]; then
                 plugin_dirs+=("$dir")
             fi
-        done < <(find "$ROOT_DIR/plugins" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+        done < <(find "$ROOT_DIR/plugins" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | LC_ALL=C sort -z)
     fi
 
     # Find plugins in external_plugins/
@@ -91,7 +91,7 @@ collect_plugins() {
             if [[ -f "$dir/.claude-plugin/plugin.json" ]]; then
                 plugin_dirs+=("$dir")
             fi
-        done < <(find "$ROOT_DIR/external_plugins" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+        done < <(find "$ROOT_DIR/external_plugins" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | LC_ALL=C sort -z)
     fi
 
     if [[ ${#plugin_dirs[@]} -gt 0 ]]; then

@@ -116,9 +116,9 @@ Wave 4 — Final Verification: sentinel produces evidence-based scorecard
 Wave 5 — Infrastructure:     keeper syncs CLAUDE.md, CI, registry
 ```
 
-Each agent writes a status file to `docs/plans/agent-<name>-status.md` with its
-decisions, files modified, and notes for downstream agents. This is how agents
-coordinate without a shared conversation.
+Each agent writes a status file to the path the orchestrator provides in its dispatch
+prompt. The default scratch root is `.fakoli/runs/<run-id>/agent-<name>-status.md`
+(gitignored). Agents coordinate through these files without a shared conversation.
 
 ## Commands
 

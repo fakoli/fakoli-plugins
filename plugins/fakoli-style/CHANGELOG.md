@@ -2,6 +2,13 @@
 
 All notable changes to fakoli-style are documented here.
 
+## [1.1.0] - 2026-06-01
+
+### Added
+- Principle P10 (proven): tool scratch lives outside version control. Proven by `tests/test-scratch-not-tracked.sh`; embodied in the root `.gitignore` and `fakoli-flow/references/status-protocol.md`.
+
+---
+
 ## [1.0.0] - 2026-05-31
 
 Initial release.

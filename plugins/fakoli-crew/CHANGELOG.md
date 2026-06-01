@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.4.0 (2026-06-01)
+
+### Changed
+- Agents write status files to the orchestrator-provided path (default `.fakoli/runs/<run-id>/`), no longer hardcoded `docs/plans/`.
+
+---
+
 ## 2.3.0 (2026-05-26)
 
 Minor release. Five plugin-surface critic agents move to a dedicated plugin so plugin-development teams can install only the review layer; everything else in fakoli-crew is unchanged.

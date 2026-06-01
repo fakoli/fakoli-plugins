@@ -158,7 +158,7 @@ restarts automatically without asking again.
 |-----------|-----------------|---------|
 | Specs | `docs/specs/YYYY-MM-DD-<topic>.md` | Path specified in `CLAUDE.md` |
 | Plans | `docs/plans/YYYY-MM-DD-<topic>.md` | Path specified in `CLAUDE.md` |
-| Agent status | `docs/plans/agent-<name>-status.md` | Not configurable |
+| Agent status | `.fakoli/runs/<run-id>/agent-<name>-status.md` | Path injected by orchestrator; `<run-id>` = plan basename + UTC timestamp |
 | Visual mockups | `<project>/.fakoli-flow/brainstorm/<session>/` | `--project-dir` argument |
 
 Add `.fakoli-flow/` to `.gitignore` if you use the visual companion.

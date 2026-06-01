@@ -104,7 +104,7 @@ The execution still works — you just lose the specialized agent expertise (TDD
 
 ### How It Works
 
-1. **Collect modified files.** Read all `docs/plans/agent-*-status.md` files from the completed wave. Extract the "Files Modified" section from each.
+1. **Collect modified files.** Read all `<scratch-root>/agent-*-status.md` files from the completed wave. Extract the "Files Modified" section from each. (`<scratch-root>` is the run scratch directory logged at the start of `/flow:execute`.)
 
 2. **Dispatch critic.**
 ```
@@ -215,7 +215,17 @@ Each parallel agent targets different files/packages. The file ownership table p
 
 ## Status File Protocol
 
-Agents communicate between waves via status files at `docs/plans/agent-<name>-status.md`. The wave engine reads these after each wave to:
+Agents communicate between waves via status files written to the run scratch directory.
+The orchestrator derives the scratch root once at the start of `/flow:execute`:
+
+```
+<run-id>      = <plan-basename-without-extension>-<YYYYMMDDHHmm UTC>
+<scratch-root> = <project-root>/.fakoli/runs/<run-id>/
+```
+
+The orchestrator injects the absolute status-file path into every dispatch prompt. Each
+agent writes to exactly the path it was given. The wave engine reads from that same
+directory after each wave to:
 
 1. Confirm all agents completed (status: COMPLETE)
 2. Detect blockers (status: BLOCKED — surface to user)

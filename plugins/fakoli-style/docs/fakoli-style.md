@@ -19,6 +19,7 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 | P8 | Conflicts live at the contract level, not the file level | aspirational |  |
 | P5 | Sequence by credibility risk, not demonstrability | asserted | `plugins/fakoli-state/docs/roadmap.md` |
 | P1 | Advisory and enforcing share one code path | proven | `plugins/fakoli-state/bin/src/fakoli_state/state/transitions.py` |
+| P10 | Tool scratch lives outside version control | proven | `.gitignore`<br>`plugins/fakoli-flow/references/status-protocol.md` |
 
 ## Principles
 
@@ -132,3 +133,21 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 - `plugins/fakoli-state/bin/src/fakoli_state/state/transitions.py` (fakoli-state) — transitions._evidence_complete delegates to review.gates.evidence_complete (single source of truth)
 
 **Open work.** extend the agreement-test pattern to fakoli-flow's preview/enforce paths
+
+### P10 — Tool scratch lives outside version control
+
+**Status:** proven  
+**Credibility risk:** med
+
+**Principle.** Run-local process artifacts are gitignored; only intent (specs and plans) is committed.
+
+**Why.** Committing scratch clutters history and PR diffs with mechanics that have no value after the run.
+
+**Proof.** `tests/test-scratch-not-tracked.sh`
+
+**Embodied in:**
+
+- `.gitignore` (repo) — gitignores .fakoli/ so run scratch cannot be committed
+- `plugins/fakoli-flow/references/status-protocol.md` (fakoli-flow) — status files write to .fakoli/runs/<run-id>/, not docs/plans/
+
+**Open work.** Status scratch is now proven untracked under both .fakoli/ and docs/plans/. Extend the check to non-status scratch (server PID/logs, screenshots) if those ever risk being committed.

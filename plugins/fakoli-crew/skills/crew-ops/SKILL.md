@@ -1,10 +1,10 @@
 ---
 name: crew-ops
-description: "This skill should be used when coordinating multiple fakoli-crew agents on a single project — assembling crews, planning waves, assigning file ownership, or routing work across guido, critic, scout, smith, welder, herald, keeper, and sentinel. Provides wave patterns, file-ownership rules, status-file protocol, and language-style references shared across the crew. Trigger phrases: \"assemble a crew\", \"who owns this file\", \"plan the waves\", \"run the crew on X\", \"coordinate agents to Y\", \"which agent should handle\", \"multi-agent orchestration\"."
+description: "This skill should be used when coordinating multiple fakoli-crew agents on a single project — assembling crews, planning waves, assigning file ownership, or routing work across guido, critic, scout, smith, welder, herald, keeper, and sentinel. Provides wave patterns, file-ownership rules, status-file protocol, and language-style references shared across the crew. Trigger phrases: \"assemble a crew\", \"who owns this file\", \"plan the waves\", \"run the crew on X\", \"coordinate agents to Y\", \"which agent should handle\", \"multi-agent orchestration\". Each agent writes its status to the path the orchestrator provides; the default scratch root is `.fakoli/runs/<run-id>/`."
 ---
 # Crew Operations
 
-To orchestrate multi-agent work, assign one owner per file, route work through the wave pattern below, and have each agent write status to `docs/plans/agent-<name>-status.md` so others can pick up coordinated work without conflict.
+To orchestrate multi-agent work, assign one owner per file, route work through the wave pattern below, and have each agent write status to the path the orchestrator provides in the dispatch prompt. The default scratch root is `.fakoli/runs/<run-id>/`; the orchestrator supplies the absolute path so agents remain path-agnostic.
 
 ## Available Agents
 
@@ -54,7 +54,7 @@ Each agent owns specific files. No two agents modify the same file. If overlap i
 
 ## Communication
 
-Agents write status to `docs/plans/agent-<name>-status.md`:
+Agents write status to the path the orchestrator provides in the dispatch prompt (default scratch root: `.fakoli/runs/<run-id>/`):
 - Status: IN_PROGRESS | COMPLETE | NEEDS_REVIEW
 - Decisions: key choices other agents need to know
 - Files Modified: list of changed files

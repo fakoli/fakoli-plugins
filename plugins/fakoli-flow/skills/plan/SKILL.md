@@ -67,7 +67,23 @@ If no spec file is provided, ask for it before proceeding. Do not plan from memo
 
 ### Step 2: Scout Phase
 
-**If fakoli-crew is installed:** dispatch a scout agent before writing any task:
+**If fakoli-crew is installed:** dispatch a scout agent before writing any task.
+
+First, derive a scratch path for this planning session. Use a `plan-` prefixed run ID:
+
+```
+<plan-run-id>  = plan-<spec-basename-without-extension>-<YYYYMMDDHHmm UTC>
+<scout-status> = <project-root>/.fakoli/runs/<plan-run-id>/agent-scout-status.md
+```
+
+Log the resolved path before dispatch:
+
+```
+[plan] Run ID: plan-<spec-basename>-202606011545
+[plan] Scout status: /abs/project/.fakoli/runs/plan-<spec-basename>-202606011545/agent-scout-status.md
+```
+
+Then dispatch:
 
 ```
 Agent(
@@ -84,13 +100,14 @@ Agent(
     3. Are there existing patterns in this codebase that the plan should follow?
     4. Are there any files in scope that already partially implement something in the spec?
 
-    Write your findings to docs/plans/agent-scout-status.md using the standard status file format.
+    Write your findings to: <scout-status>
+    Use the standard status file format.
     Status: COMPLETE with findings, or BLOCKED if the spec references something that doesn't exist.
   """
 )
 ```
 
-Wait for `docs/plans/agent-scout-status.md`. Read it fully before writing tasks. If the scout finds that a library or API doesn't exist as described, flag this to the user before proceeding — do not silently write tasks around a broken assumption.
+Wait for `<scout-status>`. Read it fully before writing tasks. If the scout finds that a library or API doesn't exist as described, flag this to the user before proceeding — do not silently write tasks around a broken assumption.
 
 **If fakoli-crew is not installed:** skip the scout. Note at the top of the plan: "Scout phase skipped (fakoli-crew not installed). Verify library availability manually."
 

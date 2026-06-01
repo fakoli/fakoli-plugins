@@ -6,14 +6,17 @@ other agents read before starting their own work.
 
 ## Status File Location
 
+Each agent writes its status to the path the orchestrator provides in the dispatch prompt.
+The orchestrator must always supply an absolute path. The default scratch root is:
+
 ```
-docs/plans/agent-<name>-status.md
+.fakoli/runs/<run-id>/
 ```
 
-Examples:
-- `docs/plans/agent-guido-status.md`
-- `docs/plans/agent-welder-status.md`
-- `docs/plans/agent-sentinel-status.md`
+Example paths (orchestrator-assigned, not fixed):
+- `.fakoli/runs/abc123/agent-guido-status.md`
+- `.fakoli/runs/abc123/agent-welder-status.md`
+- `.fakoli/runs/abc123/agent-sentinel-status.md`
 
 ## Status File Format
 
@@ -30,7 +33,7 @@ Examples:
 - `src/providers/openai.py` — refactored to implement ProviderProtocol
 
 ## Files Read (not modified)
-- `docs/plans/agent-scout-status.md`
+- `.fakoli/runs/abc123/agent-scout-status.md`
 - `src/client.py` — existing interface understood, backward compat required
 
 ## Decisions
@@ -63,9 +66,9 @@ Issues that prevent downstream agents from proceeding:
 
 Every agent that operates in Wave 2 or later must:
 
-1. **Check which upstream agents have status files** using Glob:
+1. **Check which upstream agents have status files** using Glob on the orchestrator-provided scratch root:
    ```
-   docs/plans/agent-*-status.md
+   <orchestrator-provided-path>/agent-*-status.md
    ```
 2. **Read ALL status files** from upstream waves before writing anything.
 3. **Extract the Decisions section** — these are the contracts you must honor.
@@ -83,8 +86,8 @@ Write your status file in two stages:
 **Timestamp:** 2024-01-15 14:45 UTC
 
 ## Files Read
-- docs/plans/agent-guido-status.md
-- docs/plans/agent-smith-status.md
+- .fakoli/runs/abc123/agent-guido-status.md
+- .fakoli/runs/abc123/agent-smith-status.md
 - src/client.py
 - src/protocols.py
 ```
@@ -142,11 +145,8 @@ will break those calls. Options:
 Recommend option 2 as the safest. Awaiting orchestrator decision.
 ```
 
-## Archiving Status Files
+## Status Files Are Ephemeral (Not Archived)
 
-After a session is fully complete and merged, keeper moves status files to:
-```
-archive/YYYY-MM/plans/
-```
+Status files are run-local scratch under `.fakoli/runs/<run-id>/` (gitignored). They have no value once a run completes and must NOT be moved into a tracked directory such as `archive/` — doing so would re-commit scratch and violate P10 (tool scratch lives outside version control). Let them be discarded with the run directory. Only durable plan and spec docs under `docs/plans/` and `docs/specs/` are version-controlled.
 
-Active `docs/plans/` should only contain in-progress or recent sessions.
+Active run directories under `.fakoli/runs/<run-id>/` contain in-progress or recent sessions. The orchestrator is responsible for pointing agents at the correct run directory.

@@ -102,4 +102,4 @@ Every integration follows RED-GREEN-REFACTOR:
 - Never change a function signature's positional arguments; add keyword-only params instead.
 - Always run the project's test command after integration.
 - If a test fails, stop and report — do not patch the test to make it pass.
-- Write your status to `docs/plans/agent-welder-status.md` when done.
+- Write your status to the path the orchestrator provides in your dispatch prompt.
