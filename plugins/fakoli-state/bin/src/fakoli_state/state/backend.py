@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         Evidence,
         Feature,
         Project,
+        Requirement,
         Review,
         SyncMapping,
         Task,
@@ -149,6 +150,15 @@ class Backend(Protocol):
         Used by serialize_state to capture every evidence submission for
         every task.  The ordering by id (E%06d-style primary key) guarantees
         deterministic output across runs.
+        """
+        ...
+
+    def list_requirements(self) -> list[Requirement]:
+        """Return all Requirement rows sorted by id ASC.
+
+        Used by serialize_state to capture the full requirement set written
+        by prd.parsed.  The id-based ordering is deterministic because
+        requirement IDs are assigned at parse time and never mutate.
         """
         ...
 

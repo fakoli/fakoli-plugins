@@ -541,6 +541,21 @@ class SqliteBackend:
         ).fetchall()
         return [self._row_to_evidence(row) for row in rows]
 
+    def list_requirements(self) -> list[Requirement]:
+        """Return all Requirement rows sorted by id ASC.
+
+        The id-based ordering is deterministic because requirement IDs are
+        assigned at prd.parsed time and never mutate.  prd.parsed is
+        destructive — it deletes and re-inserts all rows — so the result
+        always reflects the current parse, in stable id order.
+        """
+        conn = self._require_conn()
+        rows = conn.execute(
+            "SELECT id, prd_section, text, source_paragraph, derived "
+            "FROM requirements ORDER BY id ASC"
+        ).fetchall()
+        return [self._row_to_requirement(row) for row in rows]
+
     def get_prd(self) -> PRD | None:
         """Return the current PRD, or None if not yet created."""
         conn = self._require_conn()
@@ -2801,6 +2816,24 @@ class SqliteBackend:
     def _row_to_project(self, row: Any) -> Project:
         """Deserialise a projects row into a Project model instance."""
         return Project.model_validate(dict(row))
+
+    @staticmethod
+    def _row_to_requirement(row: Any) -> Requirement:
+        """Deserialise a requirements row into a Requirement model instance.
+
+        Row column order must match the SELECT used in list_requirements:
+          0:id  1:prd_section  2:text  3:source_paragraph  4:derived
+
+        The ``derived`` column is stored as an integer (0/1) — bool() is
+        applied so the Requirement model receives a proper Python bool.
+        """
+        return Requirement(
+            id=row[0],
+            prd_section=row[1],
+            text=row[2],
+            source_paragraph=row[3],
+            derived=bool(row[4]),
+        )
 
     @staticmethod
     def _row_to_sync_mapping(row: Any) -> SyncMapping:

@@ -6823,3 +6823,138 @@ class TestListClaimsReviewsEvidence:
             assert "src/auth.py" in ev.files_changed
         finally:
             b.close()
+
+
+# ---------------------------------------------------------------------------
+# list_requirements — read method
+# ---------------------------------------------------------------------------
+
+
+class TestListRequirements:
+    """Tests for SqliteBackend.list_requirements()."""
+
+    def test_list_requirements_returns_empty_before_prd_parsed(
+        self, tmp_path: Path
+    ) -> None:
+        """list_requirements() returns [] when no prd.parsed event has been applied."""
+        b = _make_backend(tmp_path)
+        try:
+            assert b.list_requirements() == []
+        finally:
+            b.close()
+
+    def test_list_requirements_returns_rows_after_prd_parsed(
+        self, tmp_path: Path
+    ) -> None:
+        """list_requirements() returns Requirement objects populated by prd.parsed."""
+        from fakoli_state.state.models import Requirement
+
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            payload = _make_prd_parsed_payload(
+                requirements=[
+                    {
+                        "id": "R001",
+                        "prd_section": "functional",
+                        "text": "System must authenticate users.",
+                        "source_paragraph": None,
+                        "derived": False,
+                    },
+                    {
+                        "id": "R002",
+                        "prd_section": "non-functional",
+                        "text": "Response time under 200ms.",
+                        "source_paragraph": "para-1",
+                        "derived": True,
+                    },
+                ]
+            )
+            b.apply_event(_make_event("prd.parsed", payload, event_id="E000003"))
+
+            reqs = b.list_requirements()
+            assert len(reqs) == 2
+            for rq in reqs:
+                assert isinstance(rq, Requirement)
+        finally:
+            b.close()
+
+    def test_list_requirements_sorted_by_id_asc(self, tmp_path: Path) -> None:
+        """list_requirements() returns rows in id ASC order."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            # Insert in reverse lexical order to verify sort is applied.
+            payload = _make_prd_parsed_payload(
+                requirements=[
+                    {
+                        "id": "R003",
+                        "prd_section": "s",
+                        "text": "Req 3.",
+                        "source_paragraph": None,
+                        "derived": False,
+                    },
+                    {
+                        "id": "R001",
+                        "prd_section": "s",
+                        "text": "Req 1.",
+                        "source_paragraph": None,
+                        "derived": False,
+                    },
+                    {
+                        "id": "R002",
+                        "prd_section": "s",
+                        "text": "Req 2.",
+                        "source_paragraph": None,
+                        "derived": False,
+                    },
+                ]
+            )
+            b.apply_event(_make_event("prd.parsed", payload, event_id="E000003"))
+
+            reqs = b.list_requirements()
+            ids = [r.id for r in reqs]
+            assert ids == sorted(ids), (
+                f"list_requirements() result is not sorted by id: {ids}"
+            )
+        finally:
+            b.close()
+
+    def test_list_requirements_fields_match_payload(self, tmp_path: Path) -> None:
+        """list_requirements() returns requirements with fields matching the parsed payload."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            payload = _make_prd_parsed_payload(
+                requirements=[
+                    {
+                        "id": "R001",
+                        "prd_section": "auth",
+                        "text": "Users must log in.",
+                        "source_paragraph": "para-intro",
+                        "derived": False,
+                    },
+                    {
+                        "id": "R002",
+                        "prd_section": "perf",
+                        "text": "Latency under 100ms.",
+                        "source_paragraph": None,
+                        "derived": True,
+                    },
+                ]
+            )
+            b.apply_event(_make_event("prd.parsed", payload, event_id="E000003"))
+
+            reqs = {r.id: r for r in b.list_requirements()}
+
+            assert reqs["R001"].prd_section == "auth"
+            assert reqs["R001"].text == "Users must log in."
+            assert reqs["R001"].source_paragraph == "para-intro"
+            assert reqs["R001"].derived is False
+
+            assert reqs["R002"].prd_section == "perf"
+            assert reqs["R002"].text == "Latency under 100ms."
+            assert reqs["R002"].source_paragraph is None
+            assert reqs["R002"].derived is True
+        finally:
+            b.close()
