@@ -6405,14 +6405,15 @@ class TestSyncDispatcherUsesConcreteSubclasses:
 
         b = _make_backend(tmp_path)
         try:
-            table = b._get_action_handlers()
+            table = b._get_action_dispatch()
             for action in ACTION_TO_PAYLOAD:
                 assert action in table, (
                     f"T5 regression: dispatcher missing sync action {action!r}; "
                     f"ACTION_TO_PAYLOAD declares it but the dispatch table "
                     "does not route it. Did the dict-spread merge drop?"
                 )
-                payload_cls, handler = table[action]
+                spec = table[action]
+                payload_cls = spec.payload_model
                 # The contract is: a class with .model_validate (the
                 # Pydantic v2 BaseModel API). The TypeAlias would fail
                 # this — UnionType has no such attribute.
@@ -6429,7 +6430,10 @@ class TestSyncDispatcherUsesConcreteSubclasses:
                     f"{payload_cls!r}, but ACTION_TO_PAYLOAD says it should "
                     f"be {ACTION_TO_PAYLOAD[action]!r}."
                 )
-                assert callable(handler)
+                # SL1-RR-1 architecture move #1: each action splits into a
+                # read-only check and an infallible write, both callable.
+                assert callable(spec.check)
+                assert callable(spec.write)
         finally:
             b.close()
 
@@ -6480,7 +6484,7 @@ class TestSyncDispatcherUsesConcreteSubclasses:
             assert "error.transaction_aborted" not in actions, (
                 f"T5 regression: dispatcher crashed on sync.pull.deferred; "
                 f"got actions={actions}. Check ACTION_TO_PAYLOAD wiring "
-                f"in state/sqlite.py:_get_action_handlers."
+                f"in state/sqlite.py:_get_action_dispatch."
             )
         finally:
             b.close()

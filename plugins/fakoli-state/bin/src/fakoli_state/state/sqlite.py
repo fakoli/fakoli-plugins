@@ -23,13 +23,15 @@ import os
 import sqlite3
 import sys
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import BaseModel
 
 from fakoli_state.state.backend import (
     PENDING_EVENT_ID,
     BackendError,  # noqa: F401
+    EventRejected,
+    IdempotentNoOp,
     SchemaMismatch,
     StateLocked,
     TransactionAborted,
@@ -91,6 +93,58 @@ _TASK_OUTCOME_TO_REVIEW_DECISION: dict[str, str] = {
     "accepted": ReviewDecision.approve,
     "rejected": ReviewDecision.needs_changes,
 }
+
+
+# Signature shared by every ``_check_*`` and ``_write_*`` bound method.
+_PhaseFn = Callable[["sqlite3.Connection", Any, "Event"], None]
+
+
+class ActionSpec(NamedTuple):
+    """Dispatch entry for one event action: payload model + decide/apply phases.
+
+    SL1-RR-1 architecture move #1 — every dispatched action is split into a
+    validation phase and an infallible mutation phase:
+
+    - ``check(conn, payload, event)`` reads current state and raises
+      :class:`EventRejected` on an illegal transition / bad payload, or
+      :class:`IdempotentNoOp` on an already-satisfied request. It performs no
+      writes.
+    - ``write(conn, payload, event)`` performs the mutation and contains no
+      validation that can raise a rejection — it assumes ``check`` passed.
+
+    This wave keeps ``apply_event``'s observable behavior unchanged: a
+    ``check`` raising ``EventRejected`` flows through ``apply_event``'s existing
+    except-block (abort tombstone + ``TransactionAborted``); an
+    ``IdempotentNoOp`` is mapped back to the prior warn-and-record behavior by
+    ``_apply_mutation``. The strict write-path rewire (``append`` / log-first /
+    ``audit.jsonl``) is Task 4.
+    """
+
+    payload_model: type[BaseModel]
+    check: _PhaseFn
+    write: _PhaseFn
+
+
+def _idempotent_no_op(
+    reason: str,
+    *,
+    warn_action: str | None = None,
+    warn_target_id: str | None = None,
+) -> IdempotentNoOp:
+    """Build an :class:`IdempotentNoOp` carrying optional warn-log metadata.
+
+    Some legal-but-already-satisfied requests historically emitted a
+    ``warn.idempotent_no_op`` JSONL line (already-released / already-stale
+    claims, double-submitted evidence); others returned silently (a
+    status_changed already at its target, a replayed claim.created). The
+    ``warn_*`` attributes let ``_apply_mutation`` reproduce exactly the prior
+    behavior for each case: when ``warn_action`` is set it re-emits the warn
+    log, otherwise it returns silently. ``reason`` is the human-readable detail.
+    """
+    exc = IdempotentNoOp(reason)
+    exc.warn_action = warn_action  # type: ignore[attr-defined]
+    exc.warn_target_id = warn_target_id  # type: ignore[attr-defined]
+    return exc
 
 
 class SqliteBackend:
@@ -878,126 +932,263 @@ class SqliteBackend:
     # Built lazily on first access to allow self-referential bound methods.
     # ------------------------------------------------------------------
 
-    def _get_action_handlers(
-        self,
-    ) -> dict[str, tuple[type[Any], Callable[..., None]]]:
-        """Return the dispatch table mapping action → (PayloadModel, handler).
+    def _get_action_dispatch(self) -> dict[str, ActionSpec]:
+        """Return the dispatch table mapping action → ``ActionSpec``.
 
-        All handlers share the normalised signature:
-            handler(conn, payload: TypedPayload, event: Event) -> None
-
-        The payload is validated against the model before the handler is called.
+        SL1-RR-1 architecture move #1: each action resolves to an
+        ``ActionSpec(payload_model, check, write)`` rather than a single
+        interleaved handler. The check/write phases share the normalised
+        signature ``(conn, payload: TypedPayload, event: Event) -> None``; the
+        payload is validated against ``payload_model`` before either phase runs.
 
         The table is built once per instance and cached. Bound-method values
         capture ``self``, so the cache is invalidated naturally if the instance
         is replaced.
         """
-        cached = getattr(self, "_action_handlers_cache", None)
+        cached: dict[str, ActionSpec] | None = getattr(
+            self, "_action_dispatch_cache", None
+        )
         if cached is not None:
             return cached
-        table: dict[str, tuple[type[Any], Callable[..., None]]] = {
-            "project.created": (ProjectCreatedPayload, self._handle_project_created),
-            "state.initialized": (StateInitializedPayload, self._handle_state_initialized),
-            "prd.parsed": (PrdParsedPayload, self._handle_prd_parsed),
-            "prd.reviewed": (PrdReviewedPayload, self._handle_prd_reviewed),
-            "prd.approved": (PrdApprovedPayload, self._handle_prd_approved),
-            "feature.created": (FeatureCreatedPayload, self._handle_feature_created),
-            "task.created": (TaskCreatedPayload, self._handle_task_created),
-            "task.scored": (TaskScoredPayload, self._handle_task_scored),
-            "task.expanded": (TaskExpandedPayload, self._handle_task_expanded),
-            "task.status_changed": (
+        table: dict[str, ActionSpec] = {
+            "project.created": ActionSpec(
+                ProjectCreatedPayload,
+                self._check_project_created,
+                self._write_project_created,
+            ),
+            "state.initialized": ActionSpec(
+                StateInitializedPayload,
+                self._check_audit_only,
+                self._write_audit_only,
+            ),
+            "prd.parsed": ActionSpec(
+                PrdParsedPayload, self._check_prd_parsed, self._write_prd_parsed
+            ),
+            "prd.reviewed": ActionSpec(
+                PrdReviewedPayload, self._check_prd_reviewed, self._write_prd_reviewed
+            ),
+            "prd.approved": ActionSpec(
+                PrdApprovedPayload, self._check_prd_approved, self._write_prd_approved
+            ),
+            "feature.created": ActionSpec(
+                FeatureCreatedPayload,
+                self._check_feature_created,
+                self._write_feature_created,
+            ),
+            "task.created": ActionSpec(
+                TaskCreatedPayload, self._check_task_created, self._write_task_created
+            ),
+            "task.scored": ActionSpec(
+                TaskScoredPayload, self._check_task_scored, self._write_task_scored
+            ),
+            "task.expanded": ActionSpec(
+                TaskExpandedPayload,
+                self._check_task_expanded,
+                self._write_task_expanded,
+            ),
+            "task.status_changed": ActionSpec(
                 TaskStatusChangedPayload,
-                self._handle_task_status_changed,
+                self._check_task_status_changed,
+                self._write_task_status_changed,
             ),
             # v1.15.0 — orphan cleanup on re-parse.
-            "task.deleted": (TaskDeletedPayload, self._handle_task_deleted),
-            "feature.deleted": (
+            "task.deleted": ActionSpec(
+                TaskDeletedPayload, self._check_task_deleted, self._write_task_deleted
+            ),
+            "feature.deleted": ActionSpec(
                 FeatureDeletedPayload,
-                self._handle_feature_deleted,
+                self._check_feature_deleted,
+                self._write_feature_deleted,
             ),
             # Phase 8: pull-applies-remote — local Task gets title/desc/status
             # rewritten from the remote payload after a non-conflict pull.
-            "task.synced_from_remote": (
+            "task.synced_from_remote": ActionSpec(
                 TaskSyncedFromRemotePayload,
-                self._handle_task_synced_from_remote,
+                self._check_task_synced_from_remote,
+                self._write_task_synced_from_remote,
             ),
-            "claim.created": (ClaimCreatedPayload, self._handle_claim_created),
-            "claim.released": (ClaimReleasedPayload, self._handle_claim_released),
-            "claim.renewed": (ClaimRenewedPayload, self._handle_claim_renewed),
-            "claim.stale": (ClaimStalePayload, self._handle_claim_stale),
-            "evidence.submitted": (EvidenceSubmittedPayload, self._handle_evidence_submitted),
-            "task.applied": (TaskAppliedPayload, self._handle_task_applied),
-            "file_changed": (FileChangedPayload, self._handle_file_changed),
+            "claim.created": ActionSpec(
+                ClaimCreatedPayload,
+                self._check_claim_created,
+                self._write_claim_created,
+            ),
+            "claim.released": ActionSpec(
+                ClaimReleasedPayload,
+                self._check_claim_released,
+                self._write_claim_released,
+            ),
+            "claim.renewed": ActionSpec(
+                ClaimRenewedPayload,
+                self._check_claim_renewed,
+                self._write_claim_renewed,
+            ),
+            "claim.stale": ActionSpec(
+                ClaimStalePayload, self._check_claim_stale, self._write_claim_stale
+            ),
+            "evidence.submitted": ActionSpec(
+                EvidenceSubmittedPayload,
+                self._check_evidence_submitted,
+                self._write_evidence_submitted,
+            ),
+            "task.applied": ActionSpec(
+                TaskAppliedPayload, self._check_task_applied, self._write_task_applied
+            ),
+            "file_changed": ActionSpec(
+                FileChangedPayload, self._check_audit_only, self._write_audit_only
+            ),
             # Phase 6: MCP submit_progress — audit-only, no SQLite mutation.
-            "progress.noted": (ProgressNotedPayload, self._handle_progress_noted),
-            # Phase 8: sync_mappings table — external-system mirroring.
-            "sync_mapping.upserted": (
-                SyncMappingUpsertedPayload,
-                self._handle_sync_mapping_upserted,
+            "progress.noted": ActionSpec(
+                ProgressNotedPayload, self._check_audit_only, self._write_audit_only
             ),
-            "sync_mapping.deleted": (
+            # Phase 8: sync_mappings table — external-system mirroring.
+            "sync_mapping.upserted": ActionSpec(
+                SyncMappingUpsertedPayload,
+                self._check_sync_mapping_upserted,
+                self._write_sync_mapping_upserted,
+            ),
+            "sync_mapping.deleted": ActionSpec(
                 SyncMappingDeletedPayload,
-                self._handle_sync_mapping_deleted,
+                self._check_sync_mapping_deleted,
+                self._write_sync_mapping_deleted,
             ),
             # Phase 8 Wave 3: sync.* audit events (CLI sync surface). Every
-            # one is an audit-only no-op handler; the JSONL row is the
-            # entire audit record. State mutation flows through the
-            # `sync_mapping.upserted` event above, kept separate so replay
-            # can rebuild the mappings table without `sync.*` semantics.
+            # one is an audit-only no-op; the JSONL row is the entire audit
+            # record. State mutation flows through the `sync_mapping.upserted`
+            # event above, kept separate so replay can rebuild the mappings
+            # table without `sync.*` semantics.
             #
             # Phase 9 T3/T5: ``SyncAuditPayload`` is now a discriminated
             # union (TypeAlias), NOT a BaseModel subclass — calling
             # ``SyncAuditPayload.model_validate(...)`` from the dispatcher
             # raises ``AttributeError`` because ``types.UnionType`` has no
-            # such classmethod. We now dispatch each ``sync.*`` action
-            # against its concrete subclass via ``ACTION_TO_PAYLOAD`` from
-            # ``payloads.py`` so every entry resolves to a real
-            # ``BaseModel`` class with a working ``.model_validate``. This
-            # also tightens validation: each subclass declares only the
-            # fields its action actually carries (``extra='forbid'``), so
-            # malformed payloads fail fast at dispatch time.
+            # such classmethod. We dispatch each ``sync.*`` action against its
+            # concrete subclass via ``ACTION_TO_PAYLOAD`` from ``payloads.py``
+            # so every entry resolves to a real ``BaseModel`` class with a
+            # working ``.model_validate``. This also tightens validation: each
+            # subclass declares only the fields its action actually carries
+            # (``extra='forbid'``), so malformed payloads fail fast at dispatch.
             **{
-                action: (model_cls, self._handle_sync_audit)
+                action: ActionSpec(
+                    model_cls, self._check_audit_only, self._write_audit_only
+                )
                 for action, model_cls in ACTION_TO_PAYLOAD.items()
             },
         }
-        self._action_handlers_cache = table
+        self._action_dispatch_cache = table
         return table
 
     def _apply_mutation(self, conn: sqlite3.Connection, event: Event) -> None:
-        """Dispatch event.action to the appropriate mutation handler.
+        """Validate via ``_check_*`` then mutate via ``_write_*``.
 
-        Phase 2 handles 'project.created' and 'state.initialized'.
-        Phase 3 adds: prd.parsed, prd.reviewed, prd.approved, feature.created,
-        task.created, task.scored, task.expanded, task.status_changed.
-        Phase 4 adds: claim.created, claim.released, claim.renewed, claim.stale.
-        Phase 5 adds: evidence.submitted, task.applied.
+        SL1-RR-1 architecture move #1: a dispatched action is now applied in
+        two phases. The payload is validated against its model, then the
+        action's ``check`` runs (read-only validation that may raise
+        ``EventRejected`` / ``IdempotentNoOp``), then its ``write`` performs the
+        mutation.
 
-        Payload validation is centralised here: each action's payload model is
-        looked up in the dispatch table, validated once, and the typed model is
-        passed to the handler.  Unknown keys in the payload raise ValidationError
-        immediately (extra='forbid' on every payload model).
+        This wave is behavior-preserving — the split is internal to
+        ``_apply_mutation``; the outcomes observed by ``apply_event`` /
+        ``replay_from_empty`` are exactly today's:
+
+        - ``EventRejected`` (raised by a check that used to ``raise
+          TransactionAborted`` as a validation guard) is left to propagate.
+          ``apply_event``'s existing ``except Exception`` block treats it like
+          the validation failures it handled before: rollback, append an
+          ``error.transaction_aborted`` tombstone, re-raise ``TransactionAborted``.
+        - ``IdempotentNoOp`` (raised by a check where the handler used to
+          warn-and-return or return silently) is caught here and mapped back to
+          the prior behavior: emit the ``warn.idempotent_no_op`` line when the
+          original handler did, then return normally so the caller still records
+          the event row + JSONL line exactly as before.
+        - Genuine infra failures (``sqlite3.OperationalError`` from a ``write``)
+          keep flowing to the caller untouched.
+
+        Task 4 rewires error handling (log-first ``append`` + ``audit.jsonl``);
+        until then this mapping keeps the suite green.
         """
         action = event.action
-        handlers = self._get_action_handlers()
+        dispatch = self._get_action_dispatch()
 
-        if action not in handlers:
+        if action not in dispatch:
             raise NotImplementedError(
                 f"Event action {action!r} is not yet supported. "
                 "This action will be implemented in a later phase."
             )
 
-        payload_model_cls, handler = handlers[action]
-        typed_payload = payload_model_cls.model_validate(event.payload_json)
-        handler(conn, typed_payload, event)
+        spec = dispatch[action]
+        typed_payload = spec.payload_model.model_validate(event.payload_json)
 
-    def _handle_project_created(
+        try:
+            spec.check(conn, typed_payload, event)
+        except IdempotentNoOp as no_op:
+            # Already-satisfied request. Reproduce the prior behavior: some
+            # handlers emitted a warn.idempotent_no_op JSONL line, others
+            # returned silently. Either way the event row + JSONL line are still
+            # recorded by the caller (apply_event continues to _insert_event_row
+            # + COMMIT), so we return normally without running the write.
+            warn_action = getattr(no_op, "warn_action", None)
+            if warn_action is not None:
+                self._append_warn_log(
+                    action=warn_action,
+                    target_id=getattr(no_op, "warn_target_id", "") or "",
+                    reason=str(no_op),
+                )
+            return
+
+        spec.write(conn, typed_payload, event)
+
+    # ------------------------------------------------------------------
+    # Audit-only phases — shared by state.initialized, file_changed,
+    # progress.noted, and every sync.* action. The JSONL row is the entire
+    # audit record; there is no SQLite mutation. The check always proceeds and
+    # the write is a no-op.
+    # ------------------------------------------------------------------
+
+    def _check_audit_only(
+        self,
+        conn: sqlite3.Connection,
+        payload: BaseModel,
+        event: Event,
+    ) -> None:
+        """No-op check for audit-only actions — always proceeds.
+
+        Payload validation (the model + ``extra='forbid'``) already ran in
+        ``_apply_mutation``; an audit-only action has no state precondition that
+        could reject it, so this phase never raises.
+        """
+        _ = (conn, payload, event)
+
+    def _write_audit_only(
+        self,
+        conn: sqlite3.Connection,
+        payload: BaseModel,
+        event: Event,
+    ) -> None:
+        """No-op write for audit-only actions — the event row is the record.
+
+        Covers ``state.initialized``, ``file_changed``, ``progress.noted`` and
+        every ``sync.*`` action. The events-table INSERT + JSONL line (written
+        by the caller) are the entire audit trail; no domain table is touched.
+        """
+        _ = (conn, payload, event)
+
+    def _check_project_created(
+        self,
+        conn: sqlite3.Connection,
+        payload: ProjectCreatedPayload,
+        event: Event,
+    ) -> None:
+        """No validation gate — project.created is an idempotent upsert."""
+        _ = (conn, payload, event)
+
+    def _write_project_created(
         self,
         conn: sqlite3.Connection,
         payload: ProjectCreatedPayload,
         event: Event,
     ) -> None:
         """Insert or replace the project row from the event payload."""
+        _ = event
         project = Project.model_validate(payload.model_dump(mode="json"))
         data = project.model_dump(mode="json")
         conn.execute(
@@ -1010,27 +1201,31 @@ class SqliteBackend:
             data,
         )
 
-    def _handle_state_initialized(
-        self,
-        conn: sqlite3.Connection,
-        payload: StateInitializedPayload,
-        event: Event,
-    ) -> None:
-        """Handle the state.initialized event.
-
-        This event signals that the state engine has been set up.  In Phase 2 it
-        is a no-op beyond being recorded in the events table; future phases may
-        use the payload to seed configuration.
-        """
-        # Nothing to mutate for Phase 2 — the event row insertion is handled
-        # by the caller (_apply_event_sqlite_only / apply_event).
-        _ = payload  # acknowledged; intentionally unused
-
     # ------------------------------------------------------------------
     # Phase 3 handlers
     # ------------------------------------------------------------------
 
-    def _handle_prd_parsed(
+    def _check_prd_parsed(
+        self,
+        conn: sqlite3.Connection,
+        payload: PrdParsedPayload,
+        event: Event,
+    ) -> None:
+        """Validate every Requirement payload before any write.
+
+        Was a validation guard inside the old handler (``raise
+        TransactionAborted`` on an invalid Requirement); now rejects up front.
+        """
+        _ = (conn, event)
+        for req_data in payload.requirements:
+            try:
+                Requirement.model_validate(req_data)
+            except Exception as exc:
+                raise EventRejected(
+                    f"prd.parsed: invalid Requirement in payload: {exc}"
+                ) from exc
+
+    def _write_prd_parsed(
         self,
         conn: sqlite3.Connection,
         payload: PrdParsedPayload,
@@ -1056,7 +1251,11 @@ class SqliteBackend:
 
         Parsing is destructive: old Requirement rows are deleted and replaced
         with the new set inside a SAVEPOINT so failure leaves no partial state.
+
+        Each Requirement was already validated by ``_check_prd_parsed``; the
+        ``model_validate`` calls here are an infallible rebuild.
         """
+        _ = event
         project_id: str = payload.project_id
         summary: str = payload.summary
         status: str = payload.status
@@ -1067,17 +1266,9 @@ class SqliteBackend:
         risks = payload.risks
         open_questions = payload.open_questions
 
-        # Validate requirement payloads and collect IDs.
-        requirement_objects: list[Requirement] = []
-        for req_data in requirements_raw:
-            try:
-                req = Requirement.model_validate(req_data)
-            except Exception as exc:
-                raise TransactionAborted(
-                    f"prd.parsed: invalid Requirement in payload: {exc}"
-                ) from exc
-            requirement_objects.append(req)
-
+        requirement_objects: list[Requirement] = [
+            Requirement.model_validate(req_data) for req_data in requirements_raw
+        ]
         requirement_ids = [r.id for r in requirement_objects]
 
         # Upsert the PRD row.
@@ -1130,7 +1321,16 @@ class SqliteBackend:
             raise
         conn.execute("RELEASE prd_requirements_replace")
 
-    def _handle_prd_reviewed(
+    def _check_prd_reviewed(
+        self,
+        conn: sqlite3.Connection,
+        payload: PrdReviewedPayload,
+        event: Event,
+    ) -> None:
+        """No state precondition — the UPDATE is scoped and side-effect-only."""
+        _ = (conn, payload, event)
+
+    def _write_prd_reviewed(
         self,
         conn: sqlite3.Connection,
         payload: PrdReviewedPayload,
@@ -1168,7 +1368,16 @@ class SqliteBackend:
             (timestamp, reviewer, project_id),
         )
 
-    def _handle_prd_approved(
+    def _check_prd_approved(
+        self,
+        conn: sqlite3.Connection,
+        payload: PrdApprovedPayload,
+        event: Event,
+    ) -> None:
+        """No state precondition — scoped UPDATE plus an idempotent Review upsert."""
+        _ = (conn, payload, event)
+
+    def _write_prd_approved(
         self,
         conn: sqlite3.Connection,
         payload: PrdApprovedPayload,
@@ -1213,7 +1422,26 @@ class SqliteBackend:
             (review_id, project_id, approver, timestamp),
         )
 
-    def _handle_feature_created(
+    def _check_feature_created(
+        self,
+        conn: sqlite3.Connection,
+        payload: FeatureCreatedPayload,
+        event: Event,
+    ) -> None:
+        """Validate the Feature payload before any write.
+
+        Was a validation guard inside the old handler (``raise
+        TransactionAborted`` on an invalid Feature); now rejects up front.
+        """
+        _ = (conn, event)
+        try:
+            Feature.model_validate(payload.model_dump(mode="json"))
+        except Exception as exc:
+            raise EventRejected(
+                f"feature.created: invalid Feature payload: {exc}"
+            ) from exc
+
+    def _write_feature_created(
         self,
         conn: sqlite3.Connection,
         payload: FeatureCreatedPayload,
@@ -1223,14 +1451,12 @@ class SqliteBackend:
 
         Payload fields: all Feature model fields (id, title, description,
         status, requirements, tasks).
-        """
-        try:
-            feature = Feature.model_validate(payload.model_dump(mode="json"))
-        except Exception as exc:
-            raise TransactionAborted(
-                f"feature.created: invalid Feature payload: {exc}"
-            ) from exc
 
+        The payload was already validated by ``_check_feature_created``; the
+        ``model_validate`` here is an infallible rebuild.
+        """
+        _ = event
+        feature = Feature.model_validate(payload.model_dump(mode="json"))
         data = feature.model_dump(mode="json")
         # Use INSERT ... ON CONFLICT DO UPDATE (UPSERT) instead of INSERT OR
         # REPLACE to avoid violating the ON DELETE RESTRICT FK from tasks.
@@ -1259,7 +1485,43 @@ class SqliteBackend:
             },
         )
 
-    def _handle_task_created(
+    @staticmethod
+    def _normalize_task_payload(task_dict: dict[str, Any]) -> dict[str, Any]:
+        """Coerce a minimal Task payload's None scores/verification to ``{}``.
+
+        Task.scores / Task.verification are required submodels; the payload
+        allows None so MCP / hand-rolled callers can send a minimal task without
+        preloading sentinels. Pure dict munging — shared by the check and write
+        phases so both validate / build the identical normalized shape.
+        """
+        task_dict = dict(task_dict)
+        if task_dict.get("scores") is None:
+            task_dict["scores"] = {}
+        if task_dict.get("verification") is None:
+            task_dict["verification"] = {}
+        return task_dict
+
+    def _check_task_created(
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskCreatedPayload,
+        event: Event,
+    ) -> None:
+        """Validate the (normalized) Task payload before any write.
+
+        Was a validation guard inside the old handler (``raise
+        TransactionAborted`` on an invalid Task); now rejects up front.
+        """
+        _ = (conn, event)
+        task_dict = self._normalize_task_payload(payload.model_dump(mode="json"))
+        try:
+            Task.model_validate(task_dict)
+        except Exception as exc:
+            raise EventRejected(
+                f"task.created: invalid Task payload: {exc}"
+            ) from exc
+
+    def _write_task_created(
         self,
         conn: sqlite3.Connection,
         payload: TaskCreatedPayload,
@@ -1269,25 +1531,47 @@ class SqliteBackend:
 
         Payload fields: all Task model fields.  Scores may be None for all
         dimensions at creation time; they get populated by task.scored later.
-        """
-        task_dict = payload.model_dump(mode="json")
-        # Task.scores / Task.verification are required submodels; the payload
-        # allows None so MCP / hand-rolled callers can send a minimal task
-        # without preloading sentinels. Normalize before validation.
-        if task_dict.get("scores") is None:
-            task_dict["scores"] = {}
-        if task_dict.get("verification") is None:
-            task_dict["verification"] = {}
-        try:
-            task = Task.model_validate(task_dict)
-        except Exception as exc:
-            raise TransactionAborted(
-                f"task.created: invalid Task payload: {exc}"
-            ) from exc
 
+        The payload was already validated by ``_check_task_created``; the
+        ``model_validate`` here is an infallible rebuild.
+        """
+        _ = event
+        task_dict = self._normalize_task_payload(payload.model_dump(mode="json"))
+        task = Task.model_validate(task_dict)
         self._insert_task_row(conn, task)
 
-    def _handle_task_scored(
+    @staticmethod
+    def _build_task_score(payload: TaskScoredPayload) -> Score:
+        """Build the Score model from a task.scored payload (pure)."""
+        score_data = dict(payload.scores)
+        score_data["explanation"] = payload.explanation
+        return Score.model_validate(score_data)
+
+    def _check_task_scored(
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskScoredPayload,
+        event: Event,
+    ) -> None:
+        """Validate the scores payload and confirm the task exists.
+
+        Was two validation guards in the old handler (invalid scores payload;
+        ``task not found`` after a 0-row UPDATE); both now reject up front.
+        """
+        _ = event
+        try:
+            self._build_task_score(payload)
+        except Exception as exc:
+            raise EventRejected(
+                f"task.scored: invalid scores payload: {exc}"
+            ) from exc
+        row = conn.execute(
+            "SELECT 1 FROM tasks WHERE id = ?", (payload.task_id,)
+        ).fetchone()
+        if row is None:
+            raise EventRejected(f"task.scored: task '{payload.task_id}' not found.")
+
+    def _write_task_scored(
         self,
         conn: sqlite3.Connection,
         payload: TaskScoredPayload,
@@ -1303,22 +1587,13 @@ class SqliteBackend:
         The scores dict is merged with any existing Score fields; null-valued
         dimensions remain null (not coerced to 0).  The explanation is stored
         inside the Score model's ``explanation`` field.
+
+        ``_check_task_scored`` already proved the scores validate and the task
+        exists, so this UPDATE always hits a row.
         """
         task_id: str = payload.task_id
-        scores_dict: dict[str, Any] = payload.scores
-        explanation: str | None = payload.explanation
         timestamp: str = event.timestamp.isoformat()
-
-        # Build the Score model from the payload dimensions + explanation.
-        score_data = dict(scores_dict)
-        score_data["explanation"] = explanation
-        try:
-            score = Score.model_validate(score_data)
-        except Exception as exc:
-            raise TransactionAborted(
-                f"task.scored: invalid scores payload: {exc}"
-            ) from exc
-
+        score = self._build_task_score(payload)
         scores_json = json.dumps(score.model_dump(mode="json"))
 
         conn.execute(
@@ -1330,12 +1605,41 @@ class SqliteBackend:
             """,
             (scores_json, timestamp, task_id),
         )
-        if conn.execute("SELECT changes()").fetchone()[0] == 0:
-            raise TransactionAborted(
-                f"task.scored: task '{task_id}' not found."
-            )
 
-    def _handle_task_expanded(
+    def _normalize_subtask(
+        self, subtask_data: Any, parent_task_id: str
+    ) -> dict[str, Any]:
+        """Force the parent id and coerce minimal scores/verification (pure)."""
+        normalized: dict[str, Any] = self._normalize_task_payload(dict(subtask_data))
+        normalized["parent_task_id"] = parent_task_id
+        return normalized
+
+    def _check_task_expanded(
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskExpandedPayload,
+        event: Event,
+    ) -> None:
+        """Reject an empty expansion and validate every subtask payload.
+
+        Was two validation guards in the old handler (empty ``subtasks`` list;
+        invalid subtask payload); both now reject up front.
+        """
+        _ = (conn, event)
+        if not payload.subtasks:
+            raise EventRejected(
+                "task.expanded payload has empty 'subtasks' list; nothing to expand."
+            )
+        for subtask_data in payload.subtasks:
+            normalized = self._normalize_subtask(subtask_data, payload.parent_task_id)
+            try:
+                Task.model_validate(normalized)
+            except Exception as exc:
+                raise EventRejected(
+                    f"task.expanded: invalid subtask payload: {exc}"
+                ) from exc
+
+    def _write_task_expanded(
         self,
         conn: sqlite3.Connection,
         payload: TaskExpandedPayload,
@@ -1350,33 +1654,60 @@ class SqliteBackend:
 
         The parent task's status is NOT changed here; the subtask rows
         themselves signal expansion (parent_task_id IS NOT NULL).
-        """
-        parent_task_id: str = payload.parent_task_id
-        subtasks_raw: list[Any] = payload.subtasks
-        if not subtasks_raw:
-            raise TransactionAborted(
-                "task.expanded payload has empty 'subtasks' list; nothing to expand."
-            )
 
-        for subtask_data in subtasks_raw:
-            # Force parent_task_id from the event, not from the payload sub-dict.
-            subtask_data = dict(subtask_data)
-            subtask_data["parent_task_id"] = parent_task_id
-            # Same None→{} normalization as task.created — subtasks can also
-            # be minimal payloads from MCP callers.
-            if subtask_data.get("scores") is None:
-                subtask_data["scores"] = {}
-            if subtask_data.get("verification") is None:
-                subtask_data["verification"] = {}
-            try:
-                subtask = Task.model_validate(subtask_data)
-            except Exception as exc:
-                raise TransactionAborted(
-                    f"task.expanded: invalid subtask payload: {exc}"
-                ) from exc
+        ``_check_task_expanded`` already proved the list is non-empty and every
+        subtask validates, so each ``model_validate`` here is an infallible
+        rebuild.
+        """
+        _ = event
+        parent_task_id: str = payload.parent_task_id
+        for subtask_data in payload.subtasks:
+            normalized = self._normalize_subtask(subtask_data, parent_task_id)
+            subtask = Task.model_validate(normalized)
             self._insert_task_row(conn, subtask)
 
-    def _handle_task_status_changed(
+    def _check_task_status_changed(
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskStatusChangedPayload,
+        event: Event,
+    ) -> None:
+        """Decide the transition outcome before any write.
+
+        The old handler ran the guarded UPDATE then interpreted a 0-row result:
+        task-not-found / concurrency-drift were ``TransactionAborted``;
+        already-at-target was a silent ``return``. This check reproduces those
+        decisions on read-only state — reject (not found / drift) or signal a
+        silent ``IdempotentNoOp`` (already at target).
+        """
+        _ = event
+        task_id: str = payload.task_id
+        from_status: str = payload.from_status
+        to_status: str = payload.to_status
+
+        row = conn.execute(
+            "SELECT status FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if row is None:
+            raise EventRejected(f"task.status_changed: task '{task_id}' not found.")
+        actual_status = row[0]
+        if actual_status == from_status:
+            return  # proceed — the guarded UPDATE will match.
+        # Idempotent re-application: already at the target status. This lets
+        # `plan` (which emits proposed→drafted) be re-run safely after the
+        # first run promoted tasks. The old handler returned silently here — no
+        # warn log — so this IdempotentNoOp carries no warn metadata.
+        if actual_status == to_status:
+            raise _idempotent_no_op(
+                f"task.status_changed: task '{task_id}' already at '{to_status}'."
+            )
+        raise EventRejected(
+            f"task.status_changed: concurrency guard failed for task '{task_id}'. "
+            f"Expected status '{from_status}', got '{actual_status}'. "
+            "The task status may have been changed by a concurrent operation."
+        )
+
+    def _write_task_status_changed(
         self,
         conn: sqlite3.Connection,
         payload: TaskStatusChangedPayload,
@@ -1390,15 +1721,11 @@ class SqliteBackend:
             to (str)      — target status
             reason (str | None) — optional human-readable reason
 
-        The UPDATE uses a WHERE status=from clause as a concurrency guard.
-        If zero rows are updated (the task does not exist or its status has
-        drifted), TransactionAborted is raised.
+        ``_check_task_status_changed`` already proved the task exists and is at
+        ``from_status``; the WHERE-status guard remains as a defensive belt but
+        always matches here.
         """
-        task_id: str = payload.task_id
-        from_status: str = payload.from_status
-        to_status: str = payload.to_status
         timestamp: str = event.timestamp.isoformat()
-
         conn.execute(
             """
             UPDATE tasks
@@ -1407,31 +1734,8 @@ class SqliteBackend:
              WHERE id = ?
                AND status = ?
             """,
-            (to_status, timestamp, task_id, from_status),
+            (payload.to_status, timestamp, payload.task_id, payload.from_status),
         )
-        if conn.execute("SELECT changes()").fetchone()[0] == 0:
-            # Determine whether task exists at all for a clearer error.
-            row = conn.execute(
-                "SELECT status FROM tasks WHERE id = ?", (task_id,)
-            ).fetchone()
-            if row is None:
-                raise TransactionAborted(
-                    f"task.status_changed: task '{task_id}' not found."
-                )
-            actual_status = row[0]
-            # Idempotent re-application: if the task is already at the
-            # target status, treat as a successful no-op. This lets `plan`
-            # (which emits proposed→drafted) be re-run safely after the
-            # first run has already promoted tasks. Without this branch,
-            # re-plan would always raise because status no longer matches
-            # the 'from' field.
-            if actual_status == to_status:
-                return
-            raise TransactionAborted(
-                f"task.status_changed: concurrency guard failed for task '{task_id}'. "
-                f"Expected status '{from_status}', got '{actual_status}'. "
-                "The task status may have been changed by a concurrent operation."
-            )
 
     # ------------------------------------------------------------------
     # v1.15.0 handlers — orphan cleanup on PRD re-parse
@@ -1446,22 +1750,71 @@ class SqliteBackend:
         "proposed", "drafted", "ready",
     })
 
-    def _handle_task_deleted(
+    def _check_task_deleted(
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskDeletedPayload,
+        event: Event,
+    ) -> None:
+        """Refuse deletion of a missing / unsafe / FK-protected task.
+
+        Was three validation guards in the old handler:
+        1. Status check — refuses unless safe-deletable or ``force=True``.
+        2. Existence check — task must exist.
+        3. Audit-FK check — ``claims`` and ``evidence`` are RESTRICT-FK'd on
+           ``task_id``; a referenced task cannot be deleted (``force`` does NOT
+           bypass this — those tables hold the protected audit history).
+
+        All three now reject up front, before the cleanup write runs.
+        """
+        _ = event
+        task_id = payload.task_id
+
+        row = conn.execute(
+            "SELECT status FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if row is None:
+            raise EventRejected(
+                f"task.deleted: task '{task_id}' not found in state.db"
+            )
+        current_status: str = row[0]
+
+        if not payload.force and current_status not in self._DELETABLE_TASK_STATUSES:
+            raise EventRejected(
+                f"task.deleted: refusing to delete task '{task_id}' in status "
+                f"'{current_status}' without force=True. "
+                f"Safe-delete statuses: {sorted(self._DELETABLE_TASK_STATUSES)}. "
+                "Release any active claim, complete the work, or pass "
+                "force=True (via `fakoli-state plan --prune-force`) to "
+                "delete despite the status."
+            )
+
+        claim_count = conn.execute(
+            "SELECT COUNT(*) FROM claims WHERE task_id = ?", (task_id,)
+        ).fetchone()[0]
+        evidence_count = conn.execute(
+            "SELECT COUNT(*) FROM evidence WHERE task_id = ?", (task_id,)
+        ).fetchone()[0]
+        if claim_count or evidence_count:
+            raise EventRejected(
+                f"task.deleted: cannot delete task '{task_id}' — it has "
+                f"{claim_count} claim row(s) and {evidence_count} evidence "
+                "row(s) that are FK-protected by schema. The audit history "
+                "intentionally outlives the task. Re-add the task to "
+                "prd.md if you want to preserve a working entry, or "
+                "accept that the orphan is conceptually dropped but its "
+                "row stays (the data is reachable via events.jsonl)."
+            )
+
+    def _write_task_deleted(
         self,
         conn: sqlite3.Connection,
         payload: TaskDeletedPayload,
         event: Event,  # noqa: ARG002 — event metadata recorded via JSONL only
     ) -> None:
-        """Delete a Task row, refusing to clobber unsafe statuses by default.
+        """Delete a Task row after ``_check_task_deleted`` cleared it.
 
-        Cleanup walk:
-        1. Status check — refuses unless safe-deletable or `force=True`.
-        2. Audit-FK check — `claims` and `evidence` are RESTRICT-FK'd on
-           task_id by schema design. If either exists for this task, the
-           DELETE would fail with a generic SQLite FK error; we pre-check
-           and raise a clearer message. ``force=True`` does NOT bypass
-           this — those tables hold the audit history that the schema
-           intentionally protects.
+        Cleanup walk (the precondition guards live in ``_check_task_deleted``):
         3. ``conflict_groups.task_ids`` — JSON array; rewrite to drop the
            deleted task ID. Cosmetic since the row is going anyway, but
            keeps the groups table self-consistent.
@@ -1476,44 +1829,6 @@ class SqliteBackend:
         not touch the events table.
         """
         task_id = payload.task_id
-
-        # 1. Status check.
-        row = conn.execute(
-            "SELECT status FROM tasks WHERE id = ?", (task_id,)
-        ).fetchone()
-        if row is None:
-            raise TransactionAborted(
-                f"task.deleted: task '{task_id}' not found in state.db"
-            )
-        current_status: str = row[0]
-
-        if not payload.force and current_status not in self._DELETABLE_TASK_STATUSES:
-            raise TransactionAborted(
-                f"task.deleted: refusing to delete task '{task_id}' in status "
-                f"'{current_status}' without force=True. "
-                f"Safe-delete statuses: {sorted(self._DELETABLE_TASK_STATUSES)}. "
-                "Release any active claim, complete the work, or pass "
-                "force=True (via `fakoli-state plan --prune-force`) to "
-                "delete despite the status."
-            )
-
-        # 2. Audit-FK check (claims, evidence — RESTRICT by schema design).
-        claim_count = conn.execute(
-            "SELECT COUNT(*) FROM claims WHERE task_id = ?", (task_id,)
-        ).fetchone()[0]
-        evidence_count = conn.execute(
-            "SELECT COUNT(*) FROM evidence WHERE task_id = ?", (task_id,)
-        ).fetchone()[0]
-        if claim_count or evidence_count:
-            raise TransactionAborted(
-                f"task.deleted: cannot delete task '{task_id}' — it has "
-                f"{claim_count} claim row(s) and {evidence_count} evidence "
-                "row(s) that are FK-protected by schema. The audit history "
-                "intentionally outlives the task. Re-add the task to "
-                "prd.md if you want to preserve a working entry, or "
-                "accept that the orphan is conceptually dropped but its "
-                "row stays (the data is reachable via events.jsonl)."
-            )
 
         # 3. Rewrite conflict_groups.task_ids JSON arrays to remove this task.
         # Explicit Row indexing (row["id"]) is safer than positional unpack —
@@ -1555,32 +1870,29 @@ class SqliteBackend:
         # 4. The task row itself.
         conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
 
-    def _handle_feature_deleted(
+    def _check_feature_deleted(
         self,
         conn: sqlite3.Connection,
         payload: FeatureDeletedPayload,
-        event: Event,  # noqa: ARG002 — event metadata recorded via JSONL only
+        event: Event,
     ) -> None:
-        """Delete a Feature row, refusing if any tasks still reference it.
+        """Refuse deletion of a missing or still-referenced feature.
 
-        The schema has ``tasks.feature_id REFERENCES features(id) ON DELETE
-        RESTRICT``, so the underlying DELETE would already fail with a
-        FK error. We pre-check so the error message names the actual
-        blocking task IDs instead of a generic FK violation.
-
-        ``force=True`` does NOT bypass this check — feature deletion in
-        the presence of referencing tasks is data corruption, not a
-        risk the user can accept. To remove a feature with tasks, the
-        tasks must be deleted first (which the orphan-prune flow does
-        in the correct order — tasks before features).
+        Was two validation guards in the old handler (feature not found;
+        referencing tasks still present). The schema has ``tasks.feature_id
+        REFERENCES features(id) ON DELETE RESTRICT``, so the DELETE would
+        already fail with a generic FK error; pre-checking names the actual
+        blocking task IDs. ``force=True`` does NOT bypass this — deleting a
+        feature with tasks is data corruption, not an acceptable risk.
         """
+        _ = event
         feature_id = payload.feature_id
 
         row = conn.execute(
             "SELECT id FROM features WHERE id = ?", (feature_id,)
         ).fetchone()
         if row is None:
-            raise TransactionAborted(
+            raise EventRejected(
                 f"feature.deleted: feature '{feature_id}' not found in state.db"
             )
 
@@ -1589,20 +1901,48 @@ class SqliteBackend:
         ).fetchall()
         if blocking:
             blocking_ids = [r[0] for r in blocking]
-            raise TransactionAborted(
+            raise EventRejected(
                 f"feature.deleted: refusing to delete feature '{feature_id}' "
                 f"while tasks still reference it: {blocking_ids}. "
                 "Delete those tasks first (the orphan-prune flow in `plan` "
                 "does this in the right order — tasks before features)."
             )
 
-        conn.execute("DELETE FROM features WHERE id = ?", (feature_id,))
+    def _write_feature_deleted(
+        self,
+        conn: sqlite3.Connection,
+        payload: FeatureDeletedPayload,
+        event: Event,  # noqa: ARG002 — event metadata recorded via JSONL only
+    ) -> None:
+        """Delete the Feature row after ``_check_feature_deleted`` cleared it."""
+        conn.execute("DELETE FROM features WHERE id = ?", (payload.feature_id,))
 
     # ------------------------------------------------------------------
     # Phase 8 handler — pull-applies-remote (P1-1 fix)
     # ------------------------------------------------------------------
 
-    def _handle_task_synced_from_remote(
+    def _check_task_synced_from_remote(
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskSyncedFromRemotePayload,
+        event: Event,
+    ) -> None:
+        """Confirm the target task exists before the remote overwrite.
+
+        Was the ``task not found`` guard (0-row UPDATE) in the old handler; now
+        rejects up front. No from-status concurrency guard — the sync pull path
+        already proved local was untouched before emitting this event.
+        """
+        _ = event
+        row = conn.execute(
+            "SELECT 1 FROM tasks WHERE id = ?", (payload.task_id,)
+        ).fetchone()
+        if row is None:
+            raise EventRejected(
+                f"task.synced_from_remote: task '{payload.task_id}' not found."
+            )
+
+    def _write_task_synced_from_remote(
         self,
         conn: sqlite3.Connection,
         payload: TaskSyncedFromRemotePayload,
@@ -1648,22 +1988,54 @@ class SqliteBackend:
             """,
             (title, description, status, timestamp, task_id),
         )
-        if conn.execute("SELECT changes()").fetchone()[0] == 0:
-            raise TransactionAborted(
-                f"task.synced_from_remote: task '{task_id}' not found."
-            )
 
     # ------------------------------------------------------------------
     # Phase 4 handlers — claim lifecycle
     # ------------------------------------------------------------------
 
-    def _handle_claim_created(
+    def _check_claim_created(
         self,
         conn: sqlite3.Connection,
         payload: ClaimCreatedPayload,
         event: Event,
     ) -> None:
-        """Atomically INSERT the claim and transition the task to 'claimed'.
+        """Decide whether a claim may transition its task ready → claimed.
+
+        The old handler ran the INSERT OR IGNORE + guarded UPDATE, then on a
+        0-row UPDATE: ``task not found`` → TransactionAborted; already
+        ``'claimed'`` → silent return (replay of a committed claim); any other
+        status → concurrency TransactionAborted. This check reproduces the
+        reject decisions on read-only state.
+
+        Note: the already-``'claimed'`` case is **not** an ``IdempotentNoOp``
+        here — the write must still run so the INSERT OR IGNORE happens. With a
+        ready/claimed task the UPDATE simply matches 0 rows, exactly as before,
+        and the claim INSERT OR IGNORE is idempotent on its PK. Treating it as a
+        no-op would skip the write and change behavior for a fresh claim PK
+        against an already-claimed task.
+        """
+        _ = event
+        row = conn.execute(
+            "SELECT status FROM tasks WHERE id = ?", (payload.task_id,)
+        ).fetchone()
+        if row is None:
+            raise EventRejected(f"claim.created: task '{payload.task_id}' not found.")
+        actual_status = row[0]
+        if actual_status not in ("ready", "claimed"):
+            raise EventRejected(
+                f"claim.created: concurrency guard failed for task "
+                f"'{payload.task_id}'. Expected status 'ready', got "
+                f"'{actual_status}'. Another claim may have already acquired "
+                "this task."
+            )
+
+    def _write_claim_created(
+        self,
+        conn: sqlite3.Connection,
+        payload: ClaimCreatedPayload,
+        event: Event,
+    ) -> None:
+        """INSERT the claim and transition the task ready → claimed.
 
         Payload fields (all required):
             id (str)                — claim PK
@@ -1678,13 +2050,11 @@ class SqliteBackend:
             lease_expires_at (str) — ISO 8601 UTC
             last_heartbeat_at (str) — ISO 8601 UTC
 
-        Idempotent: INSERT OR IGNORE on the claim id PK — replay is safe.
-
-        Concurrency guard: the task status UPDATE uses WHERE status='ready'
-        so a parallel claim attempt that has already transitioned the task
-        results in 0 rows updated → TransactionAborted.  The task→claimed
-        transition is a side effect of claim.created; it does NOT need a
-        separate task.status_changed event.
+        Idempotent: INSERT OR IGNORE on the claim id PK — replay is safe. The
+        task UPDATE keeps its WHERE status='ready' guard; when the task is
+        already 'claimed' (replay of a committed claim) it matches 0 rows
+        harmlessly, which ``_check_claim_created`` already determined is
+        acceptable.
         """
         claim_id: str = payload.id
         task_id: str = payload.task_id
@@ -1726,10 +2096,9 @@ class SqliteBackend:
         )
 
         # Side-effect: transition the task status from 'ready' → 'claimed'.
-        # The WHERE status='ready' is the concurrency guard — if another claim
-        # has already moved the task to 'claimed', 0 rows are updated and we
-        # abort (the INSERT OR IGNORE above means the claim row itself is also
-        # a no-op on replay, keeping the two mutations consistent).
+        # The WHERE status='ready' guard is preserved; on an already-claimed
+        # task it matches 0 rows (acceptable per the check) and on a fresh ready
+        # task it promotes to claimed.
         conn.execute(
             """
             UPDATE tasks
@@ -1740,68 +2109,81 @@ class SqliteBackend:
             """,
             (timestamp, task_id),
         )
-        if conn.execute("SELECT changes()").fetchone()[0] == 0:
-            # Determine whether the task exists and what its current status is.
-            row = conn.execute(
-                "SELECT status FROM tasks WHERE id = ?", (task_id,)
-            ).fetchone()
-            if row is None:
-                raise TransactionAborted(
-                    f"claim.created: task '{task_id}' not found."
-                )
-            actual_status = row[0]
-            # Idempotent replay path: if the INSERT OR IGNORE above was a no-op
-            # (claim already existed) AND the task is already 'claimed', this
-            # is a replay of a previously-committed claim.created — treat as
-            # no-op instead of raising.
-            if actual_status == "claimed":
-                return
-            raise TransactionAborted(
-                f"claim.created: concurrency guard failed for task '{task_id}'. "
-                f"Expected status 'ready', got '{actual_status}'. "
-                "Another claim may have already acquired this task."
-            )
 
-    def _handle_claim_released(
+    @staticmethod
+    def _claim_release_target(force: bool) -> tuple[str, str]:
+        """Return (target_status, SQL status_guard) for a claim release (pure).
+
+        Force-release writes a distinct terminal status (force_released) so the
+        audit trail captures the override; normal release uses 'released'. Force
+        also allows non-active claims to be released so a stranded stale claim
+        can be cleaned up after the fact.
+        """
+        if force:
+            return "force_released", "status NOT IN ('released', 'force_released')"
+        return "released", "status = 'active'"
+
+    def _check_claim_released(
         self,
         conn: sqlite3.Connection,
         payload: ClaimReleasedPayload,
         event: Event,
     ) -> None:
-        """Release an active claim and return the task to 'ready'.
+        """Decide whether a claim release mutates or is an idempotent no-op.
+
+        The old handler ran the guarded UPDATE then on a 0-row result: claim
+        not found → TransactionAborted; already-terminal → warn.idempotent_no_op
+        + silent return. This check reproduces those on read-only state: reject
+        a missing claim, or signal an ``IdempotentNoOp`` (carrying the warn-log
+        metadata so the prior tombstone is still emitted) for an already-terminal
+        claim that the guard would not match.
+        """
+        _ = event
+        claim_id: str = payload.claim_id
+        row = conn.execute(
+            "SELECT status FROM claims WHERE id = ?", (claim_id,)
+        ).fetchone()
+        if row is None:
+            raise EventRejected(f"claim.released: claim '{claim_id}' not found.")
+        current_status = row[0]
+        if payload.force:
+            guard_matches = current_status not in ("released", "force_released")
+        else:
+            guard_matches = current_status == "active"
+        if not guard_matches:
+            # Already terminal — idempotent no-op; the old handler emitted a
+            # warn.idempotent_no_op line and returned without raising.
+            raise _idempotent_no_op(
+                f"claim.released: claim '{claim_id}' already has status "
+                f"'{current_status}'; treating as idempotent no-op.",
+                warn_action="claim.released",
+                warn_target_id=claim_id or "",
+            )
+
+    def _write_claim_released(
+        self,
+        conn: sqlite3.Connection,
+        payload: ClaimReleasedPayload,
+        event: Event,
+    ) -> None:
+        """Release the claim and return its task to 'ready'.
 
         Payload fields (all required):
             claim_id (str)       — PK of the claim to release
             released_by (str)    — agent releasing the claim
             release_reason (str) — human-readable reason
 
-        On already-released (idempotent): log a warning tombstone to the event
-        log via _append_abort_event but do NOT raise — the stale detector runs
-        frequently and should not error on already-released claims.
-
-        Side-effect: UPDATE tasks SET status='ready' WHERE id=task_id AND
-        status='claimed' — uses the WHERE guard for concurrency safety.
+        ``_check_claim_released`` already proved the guard matches, so the
+        claims UPDATE always hits a row. The task UPDATE keeps its widened
+        WHERE-status guard and tolerates 0 rows (the task may have legitimately
+        advanced).
         """
         claim_id: str = payload.claim_id
-        # release_reason is optional — the ClaimManager passes None when the
-        # caller provides no explicit reason.
         release_reason: str | None = payload.release_reason
-        # `force` honours the CLI's --force flag: lets non-owners release a
-        # claim and lets release succeed even on already-stale/non-active
-        # claims (Greptile + critic both flagged that the original handler
-        # silently no-op'd force-release of stale claims).
         force: bool = payload.force
         timestamp: str = event.timestamp.isoformat()
 
-        # Force-release writes a distinct terminal status (force_released) so
-        # the audit trail captures the override; normal release uses 'released'.
-        # Force also allows non-active claims to be released so a stranded
-        # stale claim can be cleaned up after the fact.
-        target_status = "force_released" if force else "released"
-        if force:
-            status_guard = "status NOT IN ('released', 'force_released')"
-        else:
-            status_guard = "status = 'active'"
+        target_status, status_guard = self._claim_release_target(force)
 
         conn.execute(
             f"""
@@ -1814,27 +2196,6 @@ class SqliteBackend:
             """,  # noqa: S608 — status_guard is a literal, not user input
             (target_status, timestamp, release_reason, claim_id),
         )
-
-        if conn.execute("SELECT changes()").fetchone()[0] == 0:
-            # Check whether the claim exists at all, or was already released.
-            row = conn.execute(
-                "SELECT status FROM claims WHERE id = ?", (claim_id,)
-            ).fetchone()
-            if row is None:
-                raise TransactionAborted(
-                    f"claim.released: claim '{claim_id}' not found."
-                )
-            # Already in a terminal state — idempotent no-op; log but don't raise.
-            current_status = row[0]
-            self._append_warn_log(
-                action="claim.released",
-                target_id=claim_id or "",
-                reason=(
-                    f"claim.released: claim '{claim_id}' already has status "
-                    f"'{current_status}'; treating as idempotent no-op."
-                ),
-            )
-            return
 
         # Side-effect: return the task to 'ready'. Widened from the original
         # WHERE status='claimed' (which would TransactionAborted on tasks that
@@ -1860,7 +2221,32 @@ class SqliteBackend:
             # to needs_review, accepted, or done in parallel (Phase 5 completion).
             # No error — releasing the claim is the right behaviour regardless.
 
-    def _handle_claim_renewed(
+    def _check_claim_renewed(
+        self,
+        conn: sqlite3.Connection,
+        payload: ClaimRenewedPayload,
+        event: Event,
+    ) -> None:
+        """Confirm the claim exists and is active before extending its lease.
+
+        Was two validation guards in the old handler (claim not found; claim not
+        active) interpreted from a 0-row UPDATE; both now reject up front.
+        """
+        _ = event
+        claim_id: str = payload.claim_id
+        row = conn.execute(
+            "SELECT status FROM claims WHERE id = ?", (claim_id,)
+        ).fetchone()
+        if row is None:
+            raise EventRejected(f"claim.renewed: claim '{claim_id}' not found.")
+        actual_status = row[0]
+        if actual_status != "active":
+            raise EventRejected(
+                f"claim.renewed: cannot renew claim '{claim_id}' "
+                f"with status '{actual_status}' (must be 'active')."
+            )
+
+    def _write_claim_renewed(
         self,
         conn: sqlite3.Connection,
         payload: ClaimRenewedPayload,
@@ -1875,11 +2261,13 @@ class SqliteBackend:
 
         Does NOT mutate the tasks table.
 
-        Raises TransactionAborted if the claim does not exist or is not active.
+        ``_check_claim_renewed`` already proved the claim exists and is active,
+        so the WHERE status='active' UPDATE always hits a row.
 
         The event-level timestamp is not used here — the renewed lease timestamps
         come from the payload itself.
         """
+        _ = event
         claim_id: str = payload.claim_id
         lease_expires_at: str = payload.lease_expires_at
         last_heartbeat_at: str = payload.last_heartbeat_at
@@ -1895,21 +2283,37 @@ class SqliteBackend:
             (lease_expires_at, last_heartbeat_at, claim_id),
         )
 
-        if conn.execute("SELECT changes()").fetchone()[0] == 0:
-            row = conn.execute(
-                "SELECT status FROM claims WHERE id = ?", (claim_id,)
-            ).fetchone()
-            if row is None:
-                raise TransactionAborted(
-                    f"claim.renewed: claim '{claim_id}' not found."
-                )
-            actual_status = row[0]
-            raise TransactionAborted(
-                f"claim.renewed: cannot renew claim '{claim_id}' "
-                f"with status '{actual_status}' (must be 'active')."
+    def _check_claim_stale(
+        self,
+        conn: sqlite3.Connection,
+        payload: ClaimStalePayload,
+        event: Event,
+    ) -> None:
+        """Decide whether marking a claim stale mutates or is a no-op.
+
+        The old handler ran the guarded UPDATE then on a 0-row result: claim not
+        found → TransactionAborted; not active (already stale / terminal) →
+        warn.idempotent_no_op + silent return. This check reproduces those on
+        read-only state: reject a missing claim, or signal an ``IdempotentNoOp``
+        (carrying warn-log metadata) for a non-active claim.
+        """
+        _ = event
+        claim_id: str = payload.claim_id
+        row = conn.execute(
+            "SELECT status FROM claims WHERE id = ?", (claim_id,)
+        ).fetchone()
+        if row is None:
+            raise EventRejected(f"claim.stale: claim '{claim_id}' not found.")
+        current_status = row[0]
+        if current_status != "active":
+            raise _idempotent_no_op(
+                f"claim.stale: claim '{claim_id}' already has status "
+                f"'{current_status}'; treating as idempotent no-op.",
+                warn_action="claim.stale",
+                warn_target_id=claim_id or "",
             )
 
-    def _handle_claim_stale(
+    def _write_claim_stale(
         self,
         conn: sqlite3.Connection,
         payload: ClaimStalePayload,
@@ -1922,9 +2326,8 @@ class SqliteBackend:
             detected_at (str) — when staleness was detected (ISO 8601 UTC)
             reason (str)      — typically 'lease_expired'
 
-        On already-stale (idempotent): log a warning tombstone but do NOT raise.
-        The stale detector runs on every CLI call and should not error on claims
-        it has already processed.
+        ``_check_claim_stale`` already proved the claim is active, so the WHERE
+        status='active' UPDATE always hits a row.
 
         Side-effect: UPDATE tasks SET status='ready' WHERE id=task_id AND
         status IN ('claimed', 'in_progress', 'blocked').  If the task status
@@ -1945,27 +2348,6 @@ class SqliteBackend:
             """,
             (timestamp, claim_id),
         )
-
-        if conn.execute("SELECT changes()").fetchone()[0] == 0:
-            # Check whether it's already stale (idempotent no-op) or truly missing.
-            row = conn.execute(
-                "SELECT status FROM claims WHERE id = ?", (claim_id,)
-            ).fetchone()
-            if row is None:
-                raise TransactionAborted(
-                    f"claim.stale: claim '{claim_id}' not found."
-                )
-            # Already stale (or force_released) — idempotent; log warning only.
-            current_status = row[0]
-            self._append_warn_log(
-                action="claim.stale",
-                target_id=claim_id or "",
-                reason=(
-                    f"claim.stale: claim '{claim_id}' already has status "
-                    f"'{current_status}'; treating as idempotent no-op."
-                ),
-            )
-            return
 
         # Side-effect: return the task to 'ready' if it is still in an
         # active-work status.  Tasks already at accepted/done/rejected are
@@ -1991,13 +2373,87 @@ class SqliteBackend:
     # Phase 5 handlers — completion flow
     # ------------------------------------------------------------------
 
-    def _handle_evidence_submitted(
+    def _check_evidence_submitted(
         self,
         conn: sqlite3.Connection,
         payload: EvidenceSubmittedPayload,
         event: Event,
     ) -> None:
-        """Insert evidence and atomically transition task to needs_review.
+        """Validate the evidence payload and decide the submission outcome.
+
+        Reproduces the old handler's pre-mutation guards on read-only state:
+
+        - Empty ``commands_run`` / ``files_changed`` → reject (was
+          TransactionAborted).
+        - CL-8 double-submit (this claim already carries evidence under a
+          *different* id) → ``IdempotentNoOp`` carrying the warn-log metadata, so
+          the prior warn.idempotent_no_op tombstone is still emitted and nothing
+          mutates.
+        - Task missing → reject; task not in an eligible status and not already
+          ``needs_review`` → reject (was the 0-row TransactionAborted).
+
+        The claim auto-release branch (and its conditional warn log) is NOT a
+        gate — it is a side effect of the write and stays there.
+        """
+        _ = event
+        if not payload.commands_run:
+            raise EventRejected(
+                "evidence.submitted payload requires non-empty 'commands_run'."
+            )
+        if not payload.files_changed:
+            raise EventRejected(
+                "evidence.submitted payload requires non-empty 'files_changed'."
+            )
+
+        claim_id: str = payload.claim_id
+        evidence_id: str = payload.evidence_id
+        task_id: str = payload.task_id
+
+        # CL-8 idempotency guard: a second submit under a DIFFERENT evidence_id
+        # is a double-submit; the old handler emitted a warn line and returned.
+        existing_row = conn.execute(
+            "SELECT id FROM evidence WHERE claim_id = ?",
+            (claim_id,),
+        ).fetchone()
+        if existing_row is not None and existing_row[0] != evidence_id:
+            raise _idempotent_no_op(
+                f"evidence.submitted: claim '{claim_id}' already has evidence "
+                f"'{existing_row[0]}'; rejecting duplicate submission with new "
+                f"evidence_id '{evidence_id}' as idempotent no-op (CL-8).",
+                warn_action="evidence.submitted",
+                warn_target_id=claim_id or "",
+            )
+
+        # Task eligibility: must exist and be in an active-work status, or be
+        # already at needs_review (idempotent replay — write's task UPDATE will
+        # no-op harmlessly).
+        row = conn.execute(
+            "SELECT status FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if row is None:
+            raise EventRejected(
+                f"evidence.submitted: task '{task_id}' not found."
+            )
+        actual_status = row[0]
+        if actual_status not in (
+            "claimed",
+            "in_progress",
+            "blocked",
+            "needs_review",
+        ):
+            raise EventRejected(
+                f"evidence.submitted: task '{task_id}' has status "
+                f"'{actual_status}', which is not eligible for evidence submission "
+                "(must be 'claimed', 'in_progress', or 'blocked')."
+            )
+
+    def _write_evidence_submitted(
+        self,
+        conn: sqlite3.Connection,
+        payload: EvidenceSubmittedPayload,
+        event: Event,
+    ) -> None:
+        """Insert evidence, transition task to needs_review, auto-release claim.
 
         Payload fields:
             task_id (str)            — required; FK into tasks
@@ -2012,14 +2468,15 @@ class SqliteBackend:
             screenshots (list[str])     — optional, default []
             known_limitations (str | None) — optional
 
-        Idempotent on replay:
-            - INSERT OR IGNORE on evidence.id PK — duplicate events are no-ops.
-            - Task UPDATE uses WHERE status IN ('claimed', 'in_progress', 'blocked');
-              if already 'needs_review' that branch is treated as a no-op.
-
-        Auto-release the active claim:
-            - UPDATE claims SET status='released' WHERE id=claim_id AND
-              status='active'. 0 rows = claim already stale/released; log only.
+        ``_check_evidence_submitted`` already validated the payload, screened the
+        CL-8 double-submit, and proved task eligibility. The mutations here are
+        infallible:
+            - INSERT OR IGNORE on evidence.id PK — idempotent on replay.
+            - Task UPDATE (claimed/in_progress/blocked → needs_review) matches a
+              row, or no-ops when the task was already needs_review.
+            - Claim auto-release (UPDATE active → released). 0 rows means the
+              claim was already released/stale; the conditional warn log records
+              that — it is an audit side effect, not a rejection.
         """
         task_id: str = payload.task_id
         claim_id: str = payload.claim_id
@@ -2029,48 +2486,11 @@ class SqliteBackend:
         files_changed: list[Any] = payload.files_changed
         timestamp: str = event.timestamp.isoformat()
 
-        # Require commands_run and files_changed to be non-empty —
-        # submitting evidence with neither a verification command nor any
-        # changed files is meaningless.
-        if not commands_run:
-            raise TransactionAborted(
-                "evidence.submitted payload requires non-empty 'commands_run'."
-            )
-        if not files_changed:
-            raise TransactionAborted(
-                "evidence.submitted payload requires non-empty 'files_changed'."
-            )
-
         output_excerpt: str | None = payload.output_excerpt
         pr_url: str | None = payload.pr_url
         commit_sha: str | None = payload.commit_sha
         screenshots: list[Any] = payload.screenshots or []
         known_limitations: str | None = payload.known_limitations
-
-        # CL-8 idempotency guard: if this claim already has an evidence row
-        # under a DIFFERENT evidence_id, a second submit() is a double-submit
-        # — the task already moved to needs_review and the active claim is
-        # already released. Inserting a second row would silently create a
-        # non-deterministic "which evidence wins" race in _fetch_latest_evidence
-        # when both rows share the FrozenClock timestamp. Treat this exactly
-        # like the established idempotency idiom used for already-released
-        # claims (see _handle_claim_renewed / auto-release branch below):
-        # emit a warn.idempotent_no_op tombstone and return without mutating.
-        existing_row = conn.execute(
-            "SELECT id FROM evidence WHERE claim_id = ?",
-            (claim_id,),
-        ).fetchone()
-        if existing_row is not None and existing_row[0] != evidence_id:
-            self._append_warn_log(
-                action="evidence.submitted",
-                target_id=claim_id or "",
-                reason=(
-                    f"evidence.submitted: claim '{claim_id}' already has evidence "
-                    f"'{existing_row[0]}'; rejecting duplicate submission with new "
-                    f"evidence_id '{evidence_id}' as idempotent no-op (CL-8)."
-                ),
-            )
-            return
 
         # INSERT OR IGNORE: idempotent on replay — duplicate evidence.submitted
         # events (after crash mid-transaction) do not produce duplicate rows.
@@ -2102,6 +2522,9 @@ class SqliteBackend:
         # Atomically transition the task to needs_review.
         # WHERE status IN ('claimed', 'in_progress', 'blocked') is the
         # concurrency guard — allows submit from any active-work status.
+        # ``_check_evidence_submitted`` already proved the task is in one of
+        # those statuses or already at needs_review, so a 0-row result here is
+        # the harmless idempotent-replay case (no raise needed).
         conn.execute(
             """
             UPDATE tasks
@@ -2112,26 +2535,6 @@ class SqliteBackend:
             """,
             (timestamp, task_id),
         )
-
-        if conn.execute("SELECT changes()").fetchone()[0] == 0:
-            # Task not updated — check why.
-            row = conn.execute(
-                "SELECT status FROM tasks WHERE id = ?", (task_id,)
-            ).fetchone()
-            if row is None:
-                raise TransactionAborted(
-                    f"evidence.submitted: task '{task_id}' not found."
-                )
-            actual_status = row[0]
-            # Idempotent replay path: task already at needs_review.
-            if actual_status == "needs_review":
-                pass  # acceptable — evidence INSERT OR IGNORE above was also a no-op
-            else:
-                raise TransactionAborted(
-                    f"evidence.submitted: task '{task_id}' has status "
-                    f"'{actual_status}', which is not eligible for evidence submission "
-                    "(must be 'claimed', 'in_progress', or 'blocked')."
-                )
 
         # Auto-release the active claim.
         conn.execute(
@@ -2161,7 +2564,58 @@ class SqliteBackend:
                 ),
             )
 
-    def _handle_task_applied(
+    def _check_task_applied(
+        self,
+        conn: sqlite3.Connection,
+        payload: TaskAppliedPayload,
+        event: Event,
+    ) -> None:
+        """Validate the decision and the task's eligibility for it.
+
+        Reproduces the old handler's pre-mutation guards on read-only state:
+
+        - ``decision`` must be 'accepted' or 'rejected' → reject.
+        - Task must exist → reject.
+        - Task status must be ``needs_review`` (fresh apply) or, for replay
+          idempotency, already in the decision's terminal set
+          (accepted/done for accept, rejected/drafted for reject) → otherwise
+          reject as status-drift.
+
+        The accepted → done / rejected → drafted auto-promotion (and its
+        defensive 0-row invariant) is a write-phase concern, left in
+        ``_write_task_applied``.
+        """
+        _ = event
+        decision: str = payload.decision
+        task_id: str = payload.task_id
+
+        if decision not in ("accepted", "rejected"):
+            raise EventRejected(
+                f"task.applied: 'decision' must be 'accepted' or 'rejected', "
+                f"got {decision!r}."
+            )
+
+        row = conn.execute(
+            "SELECT status FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if row is None:
+            raise EventRejected(f"task.applied: task '{task_id}' not found.")
+        actual_status = row[0]
+        if actual_status == "needs_review":
+            return  # fresh apply — proceed.
+        acceptable = (
+            ("accepted", "done")
+            if decision == "accepted"
+            else ("rejected", "drafted")
+        )
+        if actual_status not in acceptable:
+            raise EventRejected(
+                f"task.applied: status-drift for task '{task_id}'. "
+                f"Expected 'needs_review', got '{actual_status}'. "
+                "The task may have been reviewed by a concurrent operation."
+            )
+
+    def _write_task_applied(
         self,
         conn: sqlite3.Connection,
         payload: TaskAppliedPayload,
@@ -2187,8 +2641,13 @@ class SqliteBackend:
             INSERT OR REPLACE INTO reviews with id=f"RV-{event_id}" for
             replay safety. target_kind='task', target_id=task_id.
 
-        0 rows on the main UPDATE: existence check then raise with clear
-        status-drift message.
+        ``_check_task_applied`` already validated the decision and proved the
+        task is at needs_review (or in the idempotent-replay terminal set). The
+        WHERE-status guards and 0-row branches remain as a defensive belt that
+        handles the idempotent-replay no-op without raising; the only surviving
+        raise is the accepted → done auto-promote invariant, which signals a
+        genuine unexpected concurrent mutation (infra-class, not a validation
+        rejection).
         """
         task_id: str = payload.task_id
         reviewer: str = payload.reviewer
@@ -2196,12 +2655,6 @@ class SqliteBackend:
         notes: str | None = payload.notes
         event_id: str = event.id
         timestamp: str = event.timestamp.isoformat()
-
-        if decision not in ("accepted", "rejected"):
-            raise TransactionAborted(
-                f"task.applied: 'decision' must be 'accepted' or 'rejected', "
-                f"got {decision!r}."
-            )
 
         if decision == "accepted":
             # Transition needs_review → accepted.
@@ -2314,76 +2767,30 @@ class SqliteBackend:
             (review_id, task_id, reviewer, decision, notes, timestamp),
         )
 
-    def _handle_file_changed(
-        self,
-        conn: sqlite3.Connection,
-        payload: FileChangedPayload,
-        event: Event,
-    ) -> None:
-        """Audit-trail-only event emitted by the PostToolUse hook.
-
-        (record-file-change.sh → fakoli-state hook record-file-change).
-        No SQLite mutation: the JSONL line is the audit record.  The validated
-        payload model is accepted here to keep the dispatch table uniform and to
-        enforce the known field schema via extra='forbid'.
-        """
-        # No-op — the event row is recorded by the caller in the events table.
-        _ = payload
-        _ = conn
-        _ = event
-
-    def _handle_progress_noted(
-        self,
-        conn: sqlite3.Connection,
-        payload: ProgressNotedPayload,
-        event: Event,
-    ) -> None:
-        """Audit-trail-only event emitted by the MCP submit_progress tool (Phase 6).
-
-        No SQLite mutation: the JSONL row and the events-table INSERT (done by
-        the caller) are the full audit record.  Task status does NOT change.
-
-        This handler exists to keep the dispatch table uniform and to enforce
-        the known field schema via ProgressNotedPayload's extra='forbid'.
-        """
-        # No-op — the event row is recorded by the caller in the events table.
-        _ = payload
-        _ = conn
-        _ = event
-
-    def _handle_sync_audit(
-        self,
-        conn: sqlite3.Connection,
-        payload: BaseModel,
-        event: Event,
-    ) -> None:
-        """Audit-trail-only handler for every `sync.*` action (Phase 8 Wave 3).
-
-        Covers `sync.push.started|completed|deferred|failed`,
-        `sync.pull.started|completed|deferred|failed`, `sync.conflict_detected`,
-        `sync.batch.started|completed`, and the forward-compat
-        `sync.reconciliation.{started,completed}`. The actual mapping
-        persistence is emitted by the CLI as a separate
-        `sync_mapping.upserted` event so replay-from-empty can rebuild
-        the mappings table without depending on the audit stream.
-
-        ``payload`` is a concrete subclass of the ``SyncAuditPayload``
-        discriminated union (Phase 9 T3): one per action, each with
-        ``extra='forbid'`` so malformed payloads fail at dispatch time.
-        The handler does not introspect the payload — the JSONL row and
-        the events-table INSERT (recorded by the caller) are the entire
-        audit record.
-        """
-        # No-op — the event row is recorded by the caller in the events table.
-        _ = payload
-        _ = conn
-        _ = event
-
     # ------------------------------------------------------------------
     # Phase 8 handlers — sync_mappings (external-system mirror)
     # ------------------------------------------------------------------
 
-    def _handle_sync_mapping_upserted(
+    def _check_sync_mapping_upserted(
+        self,
+        conn: sqlite3.Connection,
+        payload: SyncMappingUpsertedPayload,
+        event: Event,
+    ) -> None:
+        """Validate the SyncMapping (enum / UTC checks) before the upsert.
+
+        Was a validation guard inside the old handler (``raise
+        TransactionAborted`` on an invalid SyncMapping); now rejects up front.
+        """
+        _ = (conn, event)
+        try:
+            SyncMapping.model_validate(payload.model_dump())
+        except Exception as exc:
+            raise EventRejected(
+                f"sync_mapping.upserted: invalid SyncMapping payload: {exc}"
+            ) from exc
+
+    def _write_sync_mapping_upserted(
         self,
         conn: sqlite3.Connection,
         payload: SyncMappingUpsertedPayload,
@@ -2396,16 +2803,12 @@ class SqliteBackend:
         on the full PK, not on task_id alone. This is intentional: a task can
         legitimately have a github_issues mapping AND, in the future, a
         linear mapping, both kept in sync.
+
+        ``_check_sync_mapping_upserted`` already validated the payload; the
+        ``model_validate`` here is an infallible rebuild that yields the
+        canonical serialized form.
         """
-        # Validate against the SyncMapping model so the enum / UTC checks fire
-        # before we hit SQLite. Any validation failure is wrapped as
-        # TransactionAborted so the JSONL tombstone records the reason.
-        try:
-            mapping = SyncMapping.model_validate(payload.model_dump())
-        except Exception as exc:
-            raise TransactionAborted(
-                f"sync_mapping.upserted: invalid SyncMapping payload: {exc}"
-            ) from exc
+        mapping = SyncMapping.model_validate(payload.model_dump())
 
         # Use the validated model's serialized form so enum values become the
         # canonical string. last_synced_at is already an ISO string from the
@@ -2445,7 +2848,16 @@ class SqliteBackend:
             },
         )
 
-    def _handle_sync_mapping_deleted(
+    def _check_sync_mapping_deleted(
+        self,
+        conn: sqlite3.Connection,
+        payload: SyncMappingDeletedPayload,
+        event: Event,
+    ) -> None:
+        """No validation gate — sync_mapping.deleted is an idempotent delete."""
+        _ = (conn, payload, event)
+
+    def _write_sync_mapping_deleted(
         self,
         conn: sqlite3.Connection,
         payload: SyncMappingDeletedPayload,
