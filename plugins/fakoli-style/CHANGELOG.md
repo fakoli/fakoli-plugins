@@ -2,6 +2,13 @@
 
 All notable changes to fakoli-style are documented here.
 
+## [1.1.2] - 2026-06-01
+
+### Added
+- Principle **P11** (aspirational): derived indexes live outside the replay boundary. Model-derived or externally-sourced data (embeddings, vector indexes via `sqlite-vec`, semantic-graph caches) is a rebuildable projection kept out of canonical state and the event log, so deterministic replay is preserved. Parked from a design discussion; `open_work` points to the post-Wave-1 fakoli-state roadmap evaluation.
+
+---
+
 ## [1.1.1] - 2026-06-01
 
 ### Added

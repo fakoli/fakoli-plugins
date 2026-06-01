@@ -161,6 +161,16 @@ GitHub Projects providers) and the 56-item `P11-*` audit batch stay in the
 version buckets below. Adding a third sync provider makes the product wider; it
 does not make the central claim more true. None of it belongs in these 90 days.
 
+Semantic indexing (`sqlite-vec`) and a knowledge-graph view are likewise deferred
+to after Wave 1. They are useful eventually — semantic dedup of requirements
+(SL-6), retrieval of prior decisions, and contract-level conflict modelling
+(SL-5) — but they widen the surface before the integrity claims are proven,
+which is exactly what this track resists. They must also stay **outside the
+replay boundary**: an embedding is model-derived and non-deterministic, so it is
+a rebuildable derived index, never canonical state in `events.jsonl`. Captured as
+fakoli-style principle **P11** (derived indexes live outside the replay boundary;
+distinct from the `P11-*` audit batch below).
+
 ---
 
 ## Version: next (v1.11 / v2.0 candidate)
