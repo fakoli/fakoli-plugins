@@ -17,6 +17,7 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 | P9 | Score spec assumptions, not just tasks | aspirational |  |
 | P6 | Close the loop on failure, not just success | aspirational |  |
 | P8 | Conflicts live at the contract level, not the file level | aspirational |  |
+| P11 | Derived indexes live outside the replay boundary | aspirational |  |
 | P5 | Sequence by credibility risk, not demonstrability | asserted | `plugins/fakoli-state/docs/roadmap.md` |
 | P1 | Advisory and enforcing share one code path | proven | `plugins/fakoli-state/bin/src/fakoli_state/state/transitions.py` |
 | P10 | Tool scratch lives outside version control | proven | `.gitignore`<br>`plugins/fakoli-flow/references/status-protocol.md` |
@@ -99,6 +100,17 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 **Why.** File-level conflict detection both misses semantic clashes in non-overlapping files and flags harmless coincidental edits as conflicts.
 
 **Open work.** SL-5 (OutputContract + post-apply drift check)
+
+### P11 — Derived indexes live outside the replay boundary
+
+**Status:** aspirational  
+**Credibility risk:** med
+
+**Principle.** Data produced by a non-deterministic or external process (embeddings, vector indexes, search or semantic-graph caches not derivable from canonical rows) is a rebuildable projection kept outside canonical state — never in the event log or serialize_state.
+
+**Why.** Canonical state must be a deterministic projection of the event log; admitting model-derived or externally-sourced data into it breaks replay equivalence the first time the model or source changes.
+
+**Open work.** Post-Wave-1: evaluate sqlite-vec (SQLite-native vector index) and a SQLite-native knowledge graph as derived projections that consult canonical state without entering it; see fakoli-state roadmap deferred section.
 
 ### P5 — Sequence by credibility risk, not demonstrability
 

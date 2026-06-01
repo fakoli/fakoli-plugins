@@ -10,6 +10,14 @@ _No unreleased changes._
 
 ---
 
+## [1.18.2] — 2026-06-01
+
+### Added
+
+- Roadmap: deferral note for semantic indexing (`sqlite-vec`) and a knowledge-graph view. Useful after Wave 1 (SL-5 contract conflicts, SL-6 spec assumptions) but kept **outside the replay boundary** as rebuildable derived indexes — never canonical state in `events.jsonl`. Cross-references fakoli-style principle P11. Docs-only.
+
+---
+
 ## [1.18.1] — 2026-06-01
 
 ### Added

@@ -119,6 +119,15 @@
       ],
       "open_work": "Status scratch is now proven untracked under both .fakoli/ and docs/plans/. Extend the check to non-status scratch (server PID/logs, screenshots) if those ever risk being committed.",
       "credibility_risk": "med"
+    },
+    {
+      "id": "P11",
+      "name": "Derived indexes live outside the replay boundary",
+      "principle": "Data produced by a non-deterministic or external process (embeddings, vector indexes, search or semantic-graph caches not derivable from canonical rows) is a rebuildable projection kept outside canonical state — never in the event log or serialize_state.",
+      "why": "Canonical state must be a deterministic projection of the event log; admitting model-derived or externally-sourced data into it breaks replay equivalence the first time the model or source changes.",
+      "status": "aspirational",
+      "credibility_risk": "med",
+      "open_work": "Post-Wave-1: evaluate sqlite-vec (SQLite-native vector index) and a SQLite-native knowledge graph as derived projections that consult canonical state without entering it; see fakoli-state roadmap deferred section."
     }
   ]
 }
