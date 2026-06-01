@@ -37,7 +37,14 @@ jobs:
       # the `addopts = -m 'not live_github'` in bin/pyproject.toml. This suite
       # includes the replay-equivalence check (test_replay_equivalence.py) that
       # proves deterministic replay — the SL-1 invariant, now guarded in CI.
+      # TERM=dumb + unsetting FORCE_COLOR force plain (non-ANSI) Typer/Rich
+      # --help rendering. CI runners set FORCE_COLOR, which makes Rich interleave
+      # ANSI codes into help output and break the pre-existing `--flag in help`
+      # substring assertions (they pass locally where output is plain). The full
+      # suite passes identically with color off; nothing depends on color being on.
       - name: Run fakoli-state suite (incl. replay-equivalence)
+        env:
+          TERM: dumb
         run: |
-          uv run --project plugins/fakoli-state/bin --extra all-providers \
+          env -u FORCE_COLOR uv run --project plugins/fakoli-state/bin --extra all-providers \
             --with pytest pytest plugins/fakoli-state/tests/ -q
