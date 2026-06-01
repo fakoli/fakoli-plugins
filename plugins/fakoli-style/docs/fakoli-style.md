@@ -85,7 +85,7 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 - `.github/workflows/fakoli-state.yml` (fakoli-state) — runs the replay-equivalence test on every PR touching the plugin
 - `plugins/fakoli-state/bin/src/fakoli_state/state/snapshot.py` (fakoli-state) — serialize_state defines the canonical state compared for equivalence
 
-**Open work.** Latent follow-up: a rejected non-PENDING event leaves a poison canonical line that aborts full replay (tracked in tech-debt-backlog); extend equivalence to fault-injected logs.
+**Open work.** SL1-RR-1 (latent, not live-reachable): the JSONL-first non-PENDING apply path can persist a poison canonical line that aborts full replay, but every live caller uses PENDING_EVENT_ID so no caller arms it in main today. Fix needs a spec: adopt Option A (append JSONL only after COMMIT on all paths, making 'log holds only committed events' the invariant) plus a poison-line regression fixture for the equivalence test. Tracked in tech-debt-backlog.
 
 ### P6 — Close the loop on failure, not just success
 
