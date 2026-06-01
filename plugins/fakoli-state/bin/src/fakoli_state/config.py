@@ -83,6 +83,27 @@ class Config:
 
     git_ops_mode: Literal["auto", "record_only", "off"] = "auto"
 
+    # SL1-RR-1 — write-path durability mode.
+    #
+    # Selects how aggressively the event log is persisted to disk. The write
+    # path (see state/sqlite.py append()) reads this to decide whether to
+    # fsync the log before COMMIT.
+    #
+    #   relaxed (DEFAULT) — laptop: synchronous=NORMAL, buffered log, no
+    #                       per-event fsync. Correctness does not depend on
+    #                       fsync (ordering + log-authority counter + forward
+    #                       catch-up guarantee replay determinism); worst case
+    #                       on hard power-loss is the last few un-synced events
+    #                       drop from log and projection together and the user
+    #                       repeats the last action.
+    #   strict            — CI/shared/server: synchronous=FULL + fsync(log)
+    #                       before COMMIT. Opt-in; the only mode that fsyncs
+    #                       per event.
+    #
+    # Defaults to "relaxed" so a config written before this key existed keeps
+    # its prior (un-synced) behaviour without surprise.
+    durability: Literal["relaxed", "strict"] = "relaxed"
+
     # v1.15.0 — host-project branch-naming convention.
     #
     # The CLI's `claim` command creates a git branch per task. By default
@@ -181,6 +202,15 @@ def load_config(path: str | Path) -> Config:
         "git_ops_mode",
     )
 
+    # SL1-RR-1 — durability mode. Absent key → "relaxed" (back-compat with
+    # configs written before this knob existed). An invalid value raises the
+    # same ValueError that every other literal-typed field raises.
+    durability = _validate_literal(
+        data.get("durability", "relaxed"),
+        ("relaxed", "strict"),
+        "durability",
+    )
+
     # v1.15.0 — branch_prefix. Validate format: no whitespace, no leading
     # or trailing slash. An empty string is acceptable (explicit no-prefix
     # mode). Internal slashes are allowed (nested prefixes like
@@ -251,6 +281,7 @@ def load_config(path: str | Path) -> Config:
         default_lease_minutes=int(str(data.get("default_lease_minutes", 60))),
         default_heartbeat_minutes=int(str(data.get("default_heartbeat_minutes", 5))),
         git_ops_mode=git_ops_mode,  # type: ignore[arg-type]
+        durability=durability,  # type: ignore[arg-type]
         branch_prefix=branch_prefix,
         sync_github_enabled=bool(data.get("sync_github_enabled", False)),
         sync_github_conflict_strategy=sync_conflict_strategy,  # type: ignore[arg-type]
@@ -459,6 +490,17 @@ default_heartbeat_minutes: 5
 #   off         — no git integration
 # ---------------------------------------------------------------------------
 git_ops_mode: auto
+
+# ---------------------------------------------------------------------------
+# Write-path durability  (relaxed | strict)
+#   relaxed — DEFAULT. synchronous=NORMAL, buffered log, no per-event fsync.
+#             Fast; correctness does not depend on fsync. Worst case on hard
+#             power-loss: the last few un-synced events drop and you repeat
+#             the last action. Right choice for a laptop.
+#   strict  — synchronous=FULL + fsync(log) before COMMIT. The only mode that
+#             fsyncs per event. Use on CI / shared / server storage.
+# ---------------------------------------------------------------------------
+durability: relaxed
 
 # ---------------------------------------------------------------------------
 # Branch naming convention (v1.15.0)

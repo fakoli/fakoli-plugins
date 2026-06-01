@@ -282,5 +282,33 @@ class StateLocked(BackendError):
     """SQLite busy_timeout exceeded; another writer held the lock too long."""
 
 
+class EventRejected(BackendError):
+    """An ``append`` was refused before anything was logged.
+
+    Raised by a ``_check_<action>`` on an illegal transition or a bad payload
+    (e.g. claiming an already-claimed task, evidence missing required fields).
+    This is a *normal, expected* control-flow signal on the write path — not an
+    infrastructure failure. Nothing is written to ``events.jsonl``; the rejection
+    is recorded in the sibling ``audit.jsonl`` and re-raised to the caller.
+
+    Distinct from :class:`TransactionAborted`, which (under the SL1-RR-1
+    write-path rework) is narrowed to mean only an unexpected infrastructure
+    failure *after* the log append.
+    """
+
+
+class IdempotentNoOp(BackendError):
+    """An ``append`` request that is legal but already satisfied — a no-op.
+
+    Raised by a ``_check_<action>`` when the requested mutation has already
+    happened (e.g. releasing an already-released claim). This is *not* an error:
+    ``append`` catches it internally, records an ``idempotent_no_op`` line in
+    ``audit.jsonl``, and returns ``None`` without logging a canonical event or
+    mutating state. It is defined as an exception purely so a ``_check_*`` can
+    signal this third outcome (alongside "proceed" and ``EventRejected``) via
+    control flow; callers of ``append`` never see it.
+    """
+
+
 class SchemaMismatch(BackendError):
     """DB schema version != code expected version."""

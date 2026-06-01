@@ -23,6 +23,8 @@ from fakoli_state.state.models import (
     ClaimType,
     ConflictGroup,
     Decision,
+    Event,
+    EventDraft,
     Evidence,
     Feature,
     FeatureStatus,
@@ -356,6 +358,104 @@ class TestEventIdFormat:
                 target_kind="project",
                 target_id="p1",
             )
+
+
+# ---------------------------------------------------------------------------
+# EventDraft -> Event (SL1-RR-1 write-path types)
+# ---------------------------------------------------------------------------
+
+
+class TestEventDraft:
+    def test_event_draft_has_no_id_field(self) -> None:
+        """EventDraft carries every Event field except `id`."""
+        assert "id" not in EventDraft.model_fields
+        # Event adds exactly `id` on top of the draft's fields.
+        assert set(Event.model_fields) == set(EventDraft.model_fields) | {"id"}
+
+    def test_event_is_subclass_of_draft(self) -> None:
+        """Event extends EventDraft — the materialized form is-a draft."""
+        assert issubclass(Event, EventDraft)
+
+    def test_event_draft_forbids_id(self) -> None:
+        """Passing `id` to a draft is rejected (extra='forbid')."""
+        with pytest.raises(ValidationError):
+            EventDraft(
+                id="E000001",  # type: ignore[call-arg]
+                timestamp=_NOW,
+                actor="test",
+                action="project.created",
+                target_kind="project",
+                target_id="p1",
+            )
+
+    def test_event_draft_requires_utc_timestamp(self) -> None:
+        """A draft enforces the same UTC-aware timestamp rule as Event."""
+        with pytest.raises(ValidationError):
+            EventDraft(
+                timestamp=datetime.datetime(2026, 1, 1),  # naive!
+                actor="test",
+                action="project.created",
+                target_kind="project",
+                target_id="p1",
+            )
+
+    def test_draft_to_event_round_trip(self) -> None:
+        """An EventDraft promotes to an Event with an assigned id and the
+        materialized Event serializes/validates without loss."""
+        draft = EventDraft(
+            timestamp=_NOW,
+            actor="agent-x",
+            action="task.applied",
+            target_kind="task",
+            target_id="T001",
+            payload_json={"decision": "approve"},
+        )
+
+        # Promote the draft to a fact by assigning the backend-owned id.
+        event = Event(id="E000007", **draft.model_dump())
+
+        assert event.id == "E000007"
+        assert event.timestamp == draft.timestamp
+        assert event.actor == draft.actor
+        assert event.action == draft.action
+        assert event.target_kind == draft.target_kind
+        assert event.target_id == draft.target_id
+        assert event.payload_json == draft.payload_json
+
+        # Round-trip the materialized Event through JSON.
+        dumped = event.model_dump(mode="json")
+        restored = Event.model_validate(dumped)
+        assert restored == event
+
+
+# ---------------------------------------------------------------------------
+# Error signals (SL1-RR-1 write-path) — import + hierarchy
+# ---------------------------------------------------------------------------
+
+
+class TestWritePathErrors:
+    def test_new_error_types_importable_and_in_hierarchy(self) -> None:
+        """EventRejected and IdempotentNoOp live alongside the existing
+        backend exceptions and share the BackendError base."""
+        from fakoli_state.state.backend import (
+            BackendError,
+            EventRejected,
+            IdempotentNoOp,
+            StateLocked,
+            TransactionAborted,
+        )
+
+        assert issubclass(EventRejected, BackendError)
+        assert issubclass(IdempotentNoOp, BackendError)
+        # The new signals are siblings of the existing ones, not the same type.
+        assert EventRejected is not TransactionAborted
+        assert IdempotentNoOp is not StateLocked
+
+    def test_pending_event_id_still_exists(self) -> None:
+        """PENDING_EVENT_ID is not removed at this stage (deferred to Task 5)."""
+        from fakoli_state.state.backend import PENDING_EVENT_ID
+
+        assert PENDING_EVENT_ID == "PENDING"
 
 
 # ---------------------------------------------------------------------------
