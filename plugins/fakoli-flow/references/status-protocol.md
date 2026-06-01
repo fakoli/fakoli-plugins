@@ -15,6 +15,11 @@ exactly the path you are given.
 .fakoli/runs/<run-id>/agent-<name>-status.md
 ```
 
+> Operating-model principle: keeping run scratch under `.fakoli/runs/` (outside
+> version control) embodies fakoli-style **P10** (tool scratch lives outside
+> version control). See
+> [`plugins/fakoli-style/docs/fakoli-style.md`](../../fakoli-style/docs/fakoli-style.md).
+
 `<run-id>` is derived once by the orchestrator at the start of `/flow:execute`:
 plan filename (without `.md`) plus a short UTC timestamp (`YYYYMMDDHHmm`).
 Example: `2026-06-01-retry-mechanism-202606011430`.

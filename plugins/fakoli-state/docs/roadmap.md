@@ -27,6 +27,10 @@ for the next quarter and it is sequenced by credibility risk, not by how
 demonstrable each item is. The version buckets (`next`, `v2.0`, `v2.1`) remain
 the backlog; this track is what actually gets built first.
 
+> Operating-model principle: sequencing this track by credibility risk embodies
+> fakoli-style **P5** (sequence by credibility risk, not demonstrability). See
+> [`plugins/fakoli-style/docs/fakoli-style.md`](../../fakoli-style/docs/fakoli-style.md).
+
 ### The reframe this track serves
 
 The strategic position is that fakoli-state is the durable, governed state and

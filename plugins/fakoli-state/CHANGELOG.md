@@ -10,6 +10,14 @@ _No unreleased changes._
 
 ---
 
+## [1.18.1] — 2026-06-01
+
+### Added
+
+- Operating-model up-links: `_evidence_complete` (the unified evidence gate) and the integrity-first roadmap track now back-reference their fakoli-style principles (**P1** advisory and enforcing share one code path; **P5** sequence by credibility risk). Documentation-only; no behavior change.
+
+---
+
 ## [1.18.0] — 2026-05-31
 
 ### Added
