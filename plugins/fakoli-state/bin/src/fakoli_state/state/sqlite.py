@@ -98,8 +98,13 @@ _TASK_OUTCOME_TO_REVIEW_DECISION: dict[str, str] = {
 }
 
 
-# Signature shared by every ``_check_*`` and ``_write_*`` bound method.
-_PhaseFn = Callable[["sqlite3.Connection", Any, "Event"], None]
+# ``_check_*`` runs in append()'s validation phase and is handed the *draft*
+# (no id assigned yet), so its third arg is ``EventDraft`` — a check must never
+# read ``event.id``. ``_write_*`` runs post-id-assignment and receives the
+# materialized ``Event``. Keeping these distinct lets mypy reject a check that
+# touches ``.id`` instead of silencing it with ``# type: ignore``.
+_CheckFn = Callable[["sqlite3.Connection", Any, "EventDraft"], None]
+_WriteFn = Callable[["sqlite3.Connection", Any, "Event"], None]
 
 
 class ActionSpec(NamedTuple):
@@ -124,8 +129,8 @@ class ActionSpec(NamedTuple):
     """
 
     payload_model: type[BaseModel]
-    check: _PhaseFn
-    write: _PhaseFn
+    check: _CheckFn
+    write: _WriteFn
 
 
 def _idempotent_no_op(
@@ -334,9 +339,9 @@ class SqliteBackend:
             action = draft.action
             dispatch = self._get_action_dispatch()
             if action not in dispatch:
-                raise EventRejected(
-                    f"append: action {action!r} is not in the dispatch table."
-                )
+                reason = f"append: action {action!r} is not in the dispatch table."
+                self._append_audit_line("rejection", draft, reason)
+                raise EventRejected(reason)
             spec = dispatch[action]
             try:
                 typed_payload = spec.payload_model.model_validate(draft.payload_json)
@@ -346,7 +351,7 @@ class SqliteBackend:
                 raise EventRejected(reason) from exc
 
             try:
-                spec.check(conn, typed_payload, draft)  # type: ignore[arg-type]
+                spec.check(conn, typed_payload, draft)
             except EventRejected as exc:
                 reason = str(exc)
                 self._append_audit_line("rejection", draft, reason)
@@ -1416,7 +1421,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: BaseModel,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """No-op check for audit-only actions — always proceeds.
 
@@ -1444,7 +1449,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: ProjectCreatedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """No validation gate — project.created is an idempotent upsert."""
         _ = (conn, payload, event)
@@ -1477,7 +1482,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: PrdParsedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Validate every Requirement payload before any write.
 
@@ -1593,7 +1598,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: PrdReviewedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """No state precondition — the UPDATE is scoped and side-effect-only."""
         _ = (conn, payload, event)
@@ -1640,7 +1645,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: PrdApprovedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """No state precondition — scoped UPDATE plus an idempotent Review upsert."""
         _ = (conn, payload, event)
@@ -1694,7 +1699,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: FeatureCreatedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Validate the Feature payload before any write.
 
@@ -1773,7 +1778,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: TaskCreatedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Validate the (normalized) Task payload before any write.
 
@@ -1819,7 +1824,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: TaskScoredPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Validate the scores payload and confirm the task exists.
 
@@ -1886,7 +1891,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: TaskExpandedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Reject an empty expansion and validate every subtask payload.
 
@@ -1938,7 +1943,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: TaskStatusChangedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Decide the transition outcome before any write.
 
@@ -2022,7 +2027,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: TaskDeletedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Refuse deletion of a missing / unsafe / FK-protected task.
 
@@ -2142,7 +2147,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: FeatureDeletedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Refuse deletion of a missing or still-referenced feature.
 
@@ -2193,7 +2198,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: TaskSyncedFromRemotePayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Confirm the target task exists before the remote overwrite.
 
@@ -2265,7 +2270,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: ClaimCreatedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Decide whether a claim may transition its task ready → claimed.
 
@@ -2395,7 +2400,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: ClaimReleasedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Decide whether a claim release mutates or is an idempotent no-op.
 
@@ -2493,7 +2498,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: ClaimRenewedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Confirm the claim exists and is active before extending its lease.
 
@@ -2555,7 +2560,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: ClaimStalePayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Decide whether marking a claim stale mutates or is a no-op.
 
@@ -2645,7 +2650,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: EvidenceSubmittedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Validate the evidence payload and decide the submission outcome.
 
@@ -2841,7 +2846,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: TaskAppliedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Validate the decision and the task's eligibility for it.
 
@@ -3048,7 +3053,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: SyncMappingUpsertedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """Validate the SyncMapping (enum / UTC checks) before the upsert.
 
@@ -3125,7 +3130,7 @@ class SqliteBackend:
         self,
         conn: sqlite3.Connection,
         payload: SyncMappingDeletedPayload,
-        event: Event,
+        event: EventDraft,
     ) -> None:
         """No validation gate — sync_mapping.deleted is an idempotent delete."""
         _ = (conn, payload, event)

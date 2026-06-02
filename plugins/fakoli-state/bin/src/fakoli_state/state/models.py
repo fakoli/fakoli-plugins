@@ -485,15 +485,10 @@ class Event(EventDraft):
 
     @model_validator(mode="after")
     def _validate_event_id_format(self) -> Event:
-        # SL1-RR-1 (write-path rework): PENDING_EVENT_ID sentinel is retired.
+        # SL1-RR-1 (write-path rework): the PENDING_EVENT_ID sentinel is retired.
         # The ``append(EventDraft)`` path assigns ids from the log-authority
-        # counter inside the flock critical section. All Event ids must now be
-        # in the canonical monotonic ``E000001`` format assigned by ``append``.
-        # The PENDING allowance below is kept temporarily so the test suite
-        # can construct legacy fixtures; it will be removed in Task 6 when
-        # test helpers migrate to EventDraft + append.
-        if self.id == "PENDING":
-            return self
+        # counter inside the flock critical section, so every Event id must be
+        # in the canonical monotonic ``E000001`` format.
         if not self.id.startswith("E") or not self.id[1:].isdigit():
             raise ValueError(
                 f"Event.id must be in monotonic format 'E000001'; got {self.id!r}"
