@@ -22,7 +22,7 @@ from fakoli_state.cli._helpers import (
     _resolve_state_dir,
     _scores_complete,
 )
-from fakoli_state.state.backend import PENDING_EVENT_ID
+from fakoli_state.state.backend import EventRejected
 
 if TYPE_CHECKING:
     from fakoli_state.config import Config
@@ -191,7 +191,7 @@ def plan(
         generate_tasks_markdown,
     )
     from fakoli_state.planning.template import parse_prd
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.models import EventDraft
 
     state_dir = _resolve_state_dir(cwd)
     _require_state_dir(state_dir)
@@ -368,7 +368,7 @@ def plan(
                 clock=clock,
                 prune_force=prune_force,
             )
-        except TransactionAborted as exc:
+        except EventRejected as exc:
             typer.echo(f"Error: orphan cleanup refused — {exc}", err=True)
             raise typer.Exit(code=1) from exc
 
@@ -379,8 +379,7 @@ def plan(
         for feature in parsed.features:
             now = clock.now()
             feature_data = feature.model_dump(mode="json")
-            event = Event(
-                id=PENDING_EVENT_ID,
+            draft = EventDraft(
                 timestamp=now,
                 actor="fakoli-state-cli",
                 action="feature.created",
@@ -388,14 +387,13 @@ def plan(
                 target_id=feature.id,
                 payload_json=feature_data,
             )
-            backend.apply_event(event)
+            backend.append(draft)
 
         # Emit task.created for each task (status proposed at creation time).
         for task in parsed.tasks:
             now = clock.now()
             task_data = task.model_dump(mode="json")
-            event = Event(
-                id=PENDING_EVENT_ID,
+            draft = EventDraft(
                 timestamp=now,
                 actor="fakoli-state-cli",
                 action="task.created",
@@ -403,7 +401,7 @@ def plan(
                 target_id=task.id,
                 payload_json=task_data,
             )
-            backend.apply_event(event)
+            backend.append(draft)
 
         # Run inference on the parsed tasks (before they are stored with updated
         # deps/conflict groups — we upsert them via task.created events again).
@@ -415,8 +413,7 @@ def plan(
             now = clock.now()
             # Upsert with full updated fields.
             task_data = inferred_task.model_dump(mode="json")
-            upsert_event = Event(
-                id=PENDING_EVENT_ID,
+            upsert_draft = EventDraft(
                 timestamp=now,
                 actor="fakoli-state-cli",
                 action="task.created",
@@ -424,7 +421,7 @@ def plan(
                 target_id=inferred_task.id,
                 payload_json=task_data,
             )
-            backend.apply_event(upsert_event)
+            backend.append(upsert_draft)
 
             # Promote proposed → drafted, but ONLY if the task is currently
             # at 'proposed'. On re-plan, existing tasks may have advanced
@@ -436,8 +433,7 @@ def plan(
             current = backend.get_task(inferred_task.id)
             if current is not None and current.status.value == "proposed":
                 now = clock.now()
-                status_event = Event(
-                    id=PENDING_EVENT_ID,
+                status_draft = EventDraft(
                     timestamp=now,
                     actor="fakoli-state-cli",
                     action="task.status_changed",
@@ -450,9 +446,9 @@ def plan(
                         "reason": "plan: initial draft after inference",
                     },
                 )
-                backend.apply_event(status_event)
+                backend.append(status_draft)
         # Echo summary inside the try block so it only runs on full success;
-        # otherwise inference_result may be unbound (if apply_event raised
+        # otherwise inference_result may be unbound (if append raised
         # before line 173) and the access below would NameError.
         if llm_generated_count and llm_tier_used:
             typer.echo(
@@ -494,9 +490,11 @@ def plan(
             # sync, not silently lingering with orphans.
             bits: list[str] = []
             if deleted_task_ids:
-                bits.append(f"{len(deleted_task_ids)} orphan task(s) ({', '.join(deleted_task_ids)})")
+                joined = ", ".join(deleted_task_ids)
+                bits.append(f"{len(deleted_task_ids)} orphan task(s) ({joined})")
             if deleted_feature_ids:
-                bits.append(f"{len(deleted_feature_ids)} orphan feature(s) ({', '.join(deleted_feature_ids)})")
+                joined = ", ".join(deleted_feature_ids)
+                bits.append(f"{len(deleted_feature_ids)} orphan feature(s) ({joined})")
             typer.echo(f"Pruned {' and '.join(bits)} removed from prd.md.")
     finally:
         backend.close()
@@ -547,7 +545,7 @@ def score(
     """
     from fakoli_state.clock import SystemClock
     from fakoli_state.planning.scoring import score_task
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.models import EventDraft
 
     state_dir = _resolve_state_dir(cwd)
     _require_state_dir(state_dir)
@@ -595,8 +593,7 @@ def score(
                 "explanation": computed_score.explanation,
             }
 
-            event = Event(
-                id=PENDING_EVENT_ID,
+            draft = EventDraft(
                 timestamp=now,
                 actor="fakoli-state-cli",
                 action="task.scored",
@@ -604,7 +601,7 @@ def score(
                 target_id=task.id,
                 payload_json=score_payload,
             )
-            backend.apply_event(event)
+            backend.append(draft)
             scored_tasks.append((task, computed_score))
     finally:
         backend.close()
@@ -875,7 +872,7 @@ def review_tasks(
     by gates (with reasons).
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.models import EventDraft
     from fakoli_state.state.transitions import (
         TransitionError,
         task_drafted_to_reviewed,
@@ -906,8 +903,7 @@ def review_tasks(
                 blocked.append((task.id, exc.message))
                 continue
 
-            event = Event(
-                id=PENDING_EVENT_ID,
+            draft = EventDraft(
                 timestamp=now,
                 actor="fakoli-state-cli",
                 action="task.status_changed",
@@ -920,7 +916,7 @@ def review_tasks(
                     "reason": "review tasks: gate passed",
                 },
             )
-            backend.apply_event(event)
+            backend.append(draft)
             promoted_to_reviewed.append(task.id)
 
         # reviewed → ready (includes tasks that just moved to reviewed above)
@@ -940,8 +936,7 @@ def review_tasks(
                 blocked.append((task.id, exc.message))
                 continue
 
-            event = Event(
-                id=PENDING_EVENT_ID,
+            draft = EventDraft(
                 timestamp=now,
                 actor="fakoli-state-cli",
                 action="task.status_changed",
@@ -954,7 +949,7 @@ def review_tasks(
                     "reason": "review tasks: promoted to ready",
                 },
             )
-            backend.apply_event(event)
+            backend.append(draft)
             promoted_to_ready.append(task.id)
     finally:
         backend.close()

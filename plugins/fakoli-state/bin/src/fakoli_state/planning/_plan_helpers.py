@@ -170,14 +170,13 @@ def emit_prune_events(
         :class:`PruneResult` with the IDs that were successfully pruned.
 
     Raises:
-        TransactionAborted: When the SQLite handler refuses a deletion
+        EventRejected: When the SQLite handler refuses a deletion
             (e.g. feature with referencing tasks, or claim/evidence rows
             exist on a task). Callers should catch and surface in a
             layer-appropriate way — the handler's message is
             user-actionable as-is.
     """
-    from fakoli_state.state.backend import PENDING_EVENT_ID
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.models import EventDraft
 
     pruned_task_ids: list[str] = []
     to_delete = classification.safe_task_orphans + (
@@ -185,8 +184,7 @@ def emit_prune_events(
     )
     for task in to_delete:
         now = clock.now()
-        event = Event(
-            id=PENDING_EVENT_ID,
+        draft = EventDraft(
             timestamp=now,
             actor=actor,
             action="task.deleted",
@@ -201,14 +199,13 @@ def emit_prune_events(
                 "reason": "plan: removed from prd.md (orphan cleanup)",
             },
         )
-        backend.apply_event(event)
+        backend.append(draft)
         pruned_task_ids.append(task.id)
 
     pruned_feature_ids: list[str] = []
     for feature_id in classification.feature_orphans:
         now = clock.now()
-        event = Event(
-            id=PENDING_EVENT_ID,
+        draft = EventDraft(
             timestamp=now,
             actor=actor,
             action="feature.deleted",
@@ -220,7 +217,7 @@ def emit_prune_events(
                 "reason": "plan: removed from prd.md (orphan cleanup)",
             },
         )
-        backend.apply_event(event)
+        backend.append(draft)
         pruned_feature_ids.append(feature_id)
 
     return PruneResult(

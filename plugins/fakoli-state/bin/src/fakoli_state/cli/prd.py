@@ -13,7 +13,7 @@ from fakoli_state.cli._helpers import (
     _require_state_dir,
     _resolve_state_dir,
 )
-from fakoli_state.state.backend import PENDING_EVENT_ID
+from fakoli_state.state.models import EventDraft
 
 prd_app = typer.Typer(
     name="prd",
@@ -49,7 +49,6 @@ def prd_parse(
     """
     from fakoli_state.clock import SystemClock
     from fakoli_state.planning.template import parse_prd
-    from fakoli_state.state.models import Event
 
     state_dir = _resolve_state_dir(cwd)
     _require_state_dir(state_dir)
@@ -111,8 +110,7 @@ def prd_parse(
             "open_questions": result.prd.open_questions,
         }
 
-        event = Event(
-            id=PENDING_EVENT_ID,
+        draft = EventDraft(
             timestamp=now,
             actor="fakoli-state-cli",
             action="prd.parsed",
@@ -120,7 +118,7 @@ def prd_parse(
             target_id=project_id,
             payload_json=payload,
         )
-        backend.apply_event(event)
+        backend.append(draft)
     finally:
         backend.close()
 
@@ -162,7 +160,6 @@ def prd_review(
     With --approve:    reviewed → approved (emits prd.approved event).
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.state.models import Event
 
     state_dir = _resolve_state_dir(cwd)
     _require_state_dir(state_dir)
@@ -191,8 +188,7 @@ def prd_review(
                 )
                 raise typer.Exit(code=1)
 
-            event = Event(
-                id=PENDING_EVENT_ID,
+            draft = EventDraft(
                 timestamp=now,
                 actor="fakoli-state-cli",
                 action="prd.approved",
@@ -200,7 +196,7 @@ def prd_review(
                 target_id=project_id,
                 payload_json={"project_id": project_id, "approver": reviewer},
             )
-            backend.apply_event(event)
+            backend.append(draft)
             typer.echo(f"PRD approved by '{reviewer}'.")
         else:
             if prd.status.value != "draft":
@@ -212,8 +208,7 @@ def prd_review(
                 )
                 raise typer.Exit(code=1)
 
-            event = Event(
-                id=PENDING_EVENT_ID,
+            draft = EventDraft(
                 timestamp=now,
                 actor="fakoli-state-cli",
                 action="prd.reviewed",
@@ -221,7 +216,7 @@ def prd_review(
                 target_id=project_id,
                 payload_json={"project_id": project_id, "reviewer": reviewer, "notes": notes},
             )
-            backend.apply_event(event)
+            backend.append(draft)
             typer.echo(f"PRD reviewed by '{reviewer}'.")
             typer.echo("Run `fakoli-state prd review --approve` to approve.")
     finally:

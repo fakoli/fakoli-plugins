@@ -26,7 +26,6 @@ Tool names match the spec exactly (2026-05-24-fakoli-state-v0.md §MCP Server).
 from __future__ import annotations
 
 import json
-import re
 import sys
 import uuid
 from pathlib import Path
@@ -705,8 +704,7 @@ def submit_progress(
     backend = _open_backend(state_dir)
     try:
         from fakoli_state.clock import SystemClock
-        from fakoli_state.state.backend import PENDING_EVENT_ID
-        from fakoli_state.state.models import Event
+        from fakoli_state.state.models import EventDraft
 
         _reap_stale(backend)
 
@@ -717,8 +715,7 @@ def submit_progress(
         clock = SystemClock()
         now = clock.now()
 
-        event = Event(
-            id=PENDING_EVENT_ID,
+        draft = EventDraft(
             timestamp=now,
             actor=actor,
             action="progress.noted",
@@ -731,7 +728,7 @@ def submit_progress(
                 "noted_at": now.isoformat(),
             },
         )
-        backend.apply_event(event)
+        backend.append(draft)
         return ProgressResponse(recorded=True)
     finally:
         backend.close()
@@ -764,8 +761,8 @@ def submit_completion_evidence(
     backend = _open_backend(state_dir)
     try:
         from fakoli_state.clock import SystemClock
-        from fakoli_state.state.backend import PENDING_EVENT_ID
-        from fakoli_state.state.models import Event
+        from fakoli_state.state.backend import EventRejected
+        from fakoli_state.state.models import EventDraft
 
         _reap_stale(backend)
 
@@ -793,8 +790,7 @@ def submit_completion_evidence(
         clock = SystemClock()
         now = clock.now()
 
-        event = Event(
-            id=PENDING_EVENT_ID,
+        draft = EventDraft(
             timestamp=now,
             actor=actor,
             action="evidence.submitted",
@@ -815,11 +811,9 @@ def submit_completion_evidence(
             },
         )
 
-        from fakoli_state.state.backend import TransactionAborted
-
         try:
-            backend.apply_event(event)
-        except TransactionAborted as exc:
+            backend.append(draft)
+        except EventRejected as exc:
             raise ToolError(str(exc)) from exc
 
         fresh_task = backend.get_task(task_id)
@@ -1003,8 +997,8 @@ def update_task_status(
     backend = _open_backend(state_dir)
     try:
         from fakoli_state.clock import SystemClock
-        from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
-        from fakoli_state.state.models import Event
+        from fakoli_state.state.backend import EventRejected
+        from fakoli_state.state.models import EventDraft
 
         _reap_stale(backend)
 
@@ -1025,8 +1019,7 @@ def update_task_status(
         clock = SystemClock()
         now = clock.now()
 
-        event = Event(
-            id=PENDING_EVENT_ID,
+        draft = EventDraft(
             timestamp=now,
             actor=actor,
             action="task.status_changed",
@@ -1041,8 +1034,8 @@ def update_task_status(
         )
 
         try:
-            backend.apply_event(event)
-        except TransactionAborted as exc:
+            backend.append(draft)
+        except EventRejected as exc:
             raise ToolError(str(exc)) from exc
 
         return StatusUpdateResponse(from_status=from_status, to_status=to_status)
@@ -1114,8 +1107,7 @@ def init_project(
     from fakoli_state.cli._helpers import _is_plugin_root, _slug
     from fakoli_state.clock import SystemClock
     from fakoli_state.config import write_default_config
-    from fakoli_state.state.backend import PENDING_EVENT_ID
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.models import EventDraft
     from fakoli_state.state.sqlite import SqliteBackend
 
     base = Path(cwd).resolve() if cwd else Path.cwd().resolve()
@@ -1154,8 +1146,7 @@ def init_project(
         # bootstrap still triggers backend.close() in the finally block.
         backend.initialize()
         now = SystemClock().now()
-        backend.apply_event(Event(
-            id=PENDING_EVENT_ID,
+        backend.append(EventDraft(
             timestamp=now,
             actor="fakoli-state-mcp",
             action="project.created",
@@ -1169,8 +1160,7 @@ def init_project(
                 "updated_at": now.isoformat(),
             },
         ))
-        backend.apply_event(Event(
-            id=PENDING_EVENT_ID,
+        backend.append(EventDraft(
             timestamp=now,
             actor="fakoli-state-mcp",
             action="state.initialized",
@@ -1319,8 +1309,7 @@ def parse_prd(
     """
     from fakoli_state.clock import SystemClock
     from fakoli_state.planning.template import parse_prd as _parse_prd_impl
-    from fakoli_state.state.backend import PENDING_EVENT_ID
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.models import EventDraft
 
     state_dir = _resolve_state_dir(cwd)
     if not state_dir.exists():
@@ -1396,8 +1385,7 @@ def parse_prd(
             "open_questions": result.prd.open_questions,
         }
 
-        backend.apply_event(Event(
-            id=PENDING_EVENT_ID,
+        backend.append(EventDraft(
             timestamp=now,
             actor="fakoli-state-mcp",
             action="prd.parsed",
@@ -1454,8 +1442,8 @@ def review_prd(
         cwd:      Project root. Defaults to Path.cwd().
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.backend import EventRejected
+    from fakoli_state.state.models import EventDraft
 
     state_dir = _resolve_state_dir(cwd)
     if not state_dir.exists():
@@ -1503,8 +1491,7 @@ def review_prd(
         clock = SystemClock()
         now = clock.now()
         try:
-            backend.apply_event(Event(
-                id=PENDING_EVENT_ID,
+            backend.append(EventDraft(
                 timestamp=now,
                 actor=reviewer,
                 action=action,
@@ -1512,7 +1499,7 @@ def review_prd(
                 target_id=project_id,
                 payload_json=payload,
             ))
-        except TransactionAborted as exc:
+        except EventRejected as exc:
             raise ToolError(str(exc)) from exc
 
         return ReviewPrdResponse(
@@ -1612,8 +1599,8 @@ def plan_tasks(
         generate_tasks_markdown,
     )
     from fakoli_state.planning.template import parse_prd as _parse_prd_impl
-    from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.backend import EventRejected
+    from fakoli_state.state.models import EventDraft
 
     state_dir = _resolve_state_dir(cwd)
     if not state_dir.exists():
@@ -1803,7 +1790,7 @@ def plan_tasks(
                 clock=clock,
                 prune_force=prune_force,
             )
-        except TransactionAborted as exc:
+        except EventRejected as exc:
             raise ToolError(str(exc)) from exc
 
         pruned_task_ids = prune_result.pruned_task_ids
@@ -1813,8 +1800,7 @@ def plan_tasks(
         for feature in result.features:
             now = clock.now()
             try:
-                backend.apply_event(Event(
-                    id=PENDING_EVENT_ID,
+                backend.append(EventDraft(
                     timestamp=now,
                     actor="fakoli-state-mcp",
                     action="feature.created",
@@ -1822,15 +1808,14 @@ def plan_tasks(
                     target_id=feature.id,
                     payload_json=feature.model_dump(mode="json"),
                 ))
-            except TransactionAborted as exc:
+            except EventRejected as exc:
                 raise ToolError(str(exc)) from exc
 
         # Emit task.created per task.
         for task in result.tasks:
             now = clock.now()
             try:
-                backend.apply_event(Event(
-                    id=PENDING_EVENT_ID,
+                backend.append(EventDraft(
                     timestamp=now,
                     actor="fakoli-state-mcp",
                     action="task.created",
@@ -1838,7 +1823,7 @@ def plan_tasks(
                     target_id=task.id,
                     payload_json=task.model_dump(mode="json"),
                 ))
-            except TransactionAborted as exc:
+            except EventRejected as exc:
                 raise ToolError(str(exc)) from exc
 
         inference_result = infer_all(result.tasks)
@@ -1846,8 +1831,7 @@ def plan_tasks(
         for inferred_task in inference_result.tasks:
             now = clock.now()
             try:
-                backend.apply_event(Event(
-                    id=PENDING_EVENT_ID,
+                backend.append(EventDraft(
                     timestamp=now,
                     actor="fakoli-state-mcp",
                     action="task.created",
@@ -1855,15 +1839,14 @@ def plan_tasks(
                     target_id=inferred_task.id,
                     payload_json=inferred_task.model_dump(mode="json"),
                 ))
-            except TransactionAborted as exc:
+            except EventRejected as exc:
                 raise ToolError(str(exc)) from exc
 
             current = backend.get_task(inferred_task.id)
             if current is not None and current.status.value == "proposed":
                 now = clock.now()
                 try:
-                    backend.apply_event(Event(
-                        id=PENDING_EVENT_ID,
+                    backend.append(EventDraft(
                         timestamp=now,
                         actor="fakoli-state-mcp",
                         action="task.status_changed",
@@ -1876,7 +1859,7 @@ def plan_tasks(
                             "reason": "plan_tasks: initial draft after inference",
                         },
                     ))
-                except TransactionAborted as exc:
+                except EventRejected as exc:
                     raise ToolError(str(exc)) from exc
 
         return PlanTasksResponse(
@@ -1951,8 +1934,8 @@ def score_tasks(
     from fakoli_state.cli._helpers import _scores_complete
     from fakoli_state.clock import SystemClock
     from fakoli_state.planning.scoring import score_task
-    from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.backend import EventRejected
+    from fakoli_state.state.models import EventDraft
 
     state_dir = _resolve_state_dir(cwd)
     if not state_dir.exists():
@@ -1992,8 +1975,7 @@ def score_tasks(
                 "explanation": computed.explanation,
             }
             try:
-                backend.apply_event(Event(
-                    id=PENDING_EVENT_ID,
+                backend.append(EventDraft(
                     timestamp=now,
                     actor="fakoli-state-mcp",
                     action="task.scored",
@@ -2001,7 +1983,7 @@ def score_tasks(
                     target_id=task.id,
                     payload_json=payload,
                 ))
-            except TransactionAborted as exc:
+            except EventRejected as exc:
                 raise ToolError(str(exc)) from exc
 
             scored.append(TaskScoreEntry(
@@ -2059,8 +2041,8 @@ def review_tasks(cwd: str | None = None) -> ReviewTasksResponse:
         cwd: Project root. Defaults to Path.cwd().
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.backend import EventRejected
+    from fakoli_state.state.models import EventDraft
     from fakoli_state.state.transitions import (
         TransitionError,
         task_drafted_to_reviewed,
@@ -2097,8 +2079,7 @@ def review_tasks(cwd: str | None = None) -> ReviewTasksResponse:
                 blocked.append(BlockedTaskEntry(task_id=task.id, reason=exc.message))
                 continue
             try:
-                backend.apply_event(Event(
-                    id=PENDING_EVENT_ID,
+                backend.append(EventDraft(
                     timestamp=now,
                     actor="fakoli-state-mcp",
                     action="task.status_changed",
@@ -2111,7 +2092,7 @@ def review_tasks(cwd: str | None = None) -> ReviewTasksResponse:
                         "reason": "review_tasks: gate passed",
                     },
                 ))
-            except TransactionAborted as exc:
+            except EventRejected as exc:
                 raise ToolError(str(exc)) from exc
             promoted_to_reviewed.append(task.id)
 
@@ -2130,8 +2111,7 @@ def review_tasks(cwd: str | None = None) -> ReviewTasksResponse:
                 blocked.append(BlockedTaskEntry(task_id=task.id, reason=exc.message))
                 continue
             try:
-                backend.apply_event(Event(
-                    id=PENDING_EVENT_ID,
+                backend.append(EventDraft(
                     timestamp=now,
                     actor="fakoli-state-mcp",
                     action="task.status_changed",
@@ -2144,7 +2124,7 @@ def review_tasks(cwd: str | None = None) -> ReviewTasksResponse:
                         "reason": "review_tasks: promoted to ready",
                     },
                 ))
-            except TransactionAborted as exc:
+            except EventRejected as exc:
                 raise ToolError(str(exc)) from exc
             promoted_to_ready.append(task.id)
 
@@ -2197,8 +2177,8 @@ def apply_review_decision(
         cwd:      Project root. Defaults to Path.cwd().
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.state.backend import PENDING_EVENT_ID, TransactionAborted
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.backend import EventRejected
+    from fakoli_state.state.models import EventDraft
 
     state_dir = _resolve_state_dir(cwd)
     if not state_dir.exists():
@@ -2237,8 +2217,7 @@ def apply_review_decision(
         }
 
         try:
-            backend.apply_event(Event(
-                id=PENDING_EVENT_ID,
+            backend.append(EventDraft(
                 timestamp=now,
                 actor=reviewer,
                 action="task.applied",
@@ -2246,7 +2225,7 @@ def apply_review_decision(
                 target_id=task_id,
                 payload_json=payload,
             ))
-        except TransactionAborted as exc:
+        except EventRejected as exc:
             raise ToolError(str(exc)) from exc
 
         # Read fresh status after the backend's auto-promotion (accepted → done

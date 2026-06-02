@@ -13,7 +13,7 @@ from fakoli_state.cli._helpers import (
     _require_state_dir,
     _resolve_state_dir,
 )
-from fakoli_state.state.backend import PENDING_EVENT_ID
+from fakoli_state.state.models import EventDraft
 
 # ---------------------------------------------------------------------------
 # packet subcommand
@@ -143,7 +143,10 @@ def submit(
     screenshots: str | None = typer.Option(  # noqa: B008
         None,
         "--screenshots",
-        help="Comma-separated paths to screenshot files (for tasks with screenshot evidence requirements).",
+        help=(
+            "Comma-separated paths to screenshot files "
+            "(for tasks with screenshot evidence requirements)."
+        ),
     ),
     known_limitations: str | None = typer.Option(  # noqa: B008
         None,
@@ -167,7 +170,6 @@ def submit(
     import uuid
 
     from fakoli_state.clock import SystemClock
-    from fakoli_state.state.models import Event
 
     resolved_actor = actor or os.environ.get("USER") or "agent"
     state_dir = _resolve_state_dir(cwd)
@@ -234,8 +236,7 @@ def submit(
             "known_limitations": known_limitations,
         }
 
-        event = Event(
-            id=PENDING_EVENT_ID,
+        draft = EventDraft(
             timestamp=now,
             actor=resolved_actor,
             action="evidence.submitted",
@@ -243,7 +244,7 @@ def submit(
             target_id=task_id,
             payload_json=payload,
         )
-        backend.apply_event(event)
+        backend.append(draft)
 
         # Fetch the fresh task state and evidence for gates summary.
         fresh_task = backend.get_task(task_id)
@@ -404,7 +405,6 @@ def apply(
             raise typer.Exit(code=1)
 
         from fakoli_state.clock import SystemClock
-        from fakoli_state.state.models import Event
 
         clock = SystemClock()
         now = clock.now()
@@ -421,8 +421,7 @@ def apply(
             "notes": reason,
         }
 
-        event = Event(
-            id=PENDING_EVENT_ID,
+        draft = EventDraft(
             timestamp=now,
             actor=resolved_reviewer,
             action="task.applied",
@@ -430,7 +429,7 @@ def apply(
             target_id=task_id,
             payload_json=payload,
         )
-        backend.apply_event(event)
+        backend.append(draft)
     finally:
         backend.close()
 
