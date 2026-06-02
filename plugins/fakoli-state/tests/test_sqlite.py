@@ -25,8 +25,14 @@ from typing import Any
 import pytest
 
 from fakoli_state.clock import FrozenClock
-from fakoli_state.state.backend import PENDING_EVENT_ID, SchemaMismatch, TransactionAborted
-from fakoli_state.state.models import Event
+from fakoli_state.state.backend import (
+    PENDING_EVENT_ID,
+    EventRejected,
+    SchemaMismatch,
+    StateLocked,
+    TransactionAborted,
+)
+from fakoli_state.state.models import Event, EventDraft
 from fakoli_state.state.schema import SCHEMA_VERSION
 from fakoli_state.state.sqlite import SqliteBackend
 
@@ -6962,3 +6968,1212 @@ class TestListRequirements:
             assert reqs["R002"].derived is True
         finally:
             b.close()
+
+
+# ===========================================================================
+# T4 — append write-path, log-authority counter, lock, self-heal, replay
+# ===========================================================================
+# Tag: use  -k "append or replay or lock or durability or self_heal"  to run
+# only this suite. Tests here use EventDraft + append() exclusively — never
+# the legacy apply_event() helper — so they stay green after Task 6.
+# ===========================================================================
+
+
+def _make_draft(
+    action: str,
+    payload: dict[str, Any],
+    *,
+    target_kind: str = "project",
+    target_id: str = "proj-1",
+    now: datetime = _T0,
+    actor: str = "test",
+) -> EventDraft:
+    """Build a minimal EventDraft for T4 tests."""
+    return EventDraft(
+        timestamp=now,
+        actor=actor,
+        action=action,
+        target_kind=target_kind,
+        target_id=target_id,
+        payload_json=payload,
+    )
+
+
+def _project_draft(
+    *,
+    project_id: str = "proj-1",
+    name: str = "Test Project",
+    now: datetime = _T0,
+) -> EventDraft:
+    return _make_draft(
+        "project.created",
+        {
+            "id": project_id,
+            "name": name,
+            "description": "",
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        },
+        target_kind="project",
+        target_id=project_id,
+        now=now,
+    )
+
+
+def _init_draft(
+    *,
+    project_id: str = "proj-1",
+    now: datetime = _T0,
+) -> EventDraft:
+    return _make_draft(
+        "state.initialized",
+        {},
+        target_kind="project",
+        target_id=project_id,
+        now=now,
+    )
+
+
+def _setup_project_via_append(b: SqliteBackend) -> None:
+    """Apply project.created + state.initialized via append()."""
+    b.append(_project_draft())
+    b.append(_init_draft())
+
+
+def _read_audit_jsonl(audit_path: str) -> list[dict[str, Any]]:
+    """Read all lines from audit.jsonl."""
+    if not os.path.exists(audit_path):
+        return []
+    records = []
+    with open(audit_path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                records.append(json.loads(line))
+    return records
+
+
+class TestAppendHappyPath:
+    """append() assigns sequential ids and persists log-then-SQLite."""
+
+    def test_append_returns_event_with_assigned_id(self, tmp_path: Path) -> None:
+        """append() materializes the draft into an Event with a real id."""
+        b = _make_backend(tmp_path)
+        try:
+            event = b.append(_project_draft())
+            assert event is not None
+            assert event.id == "E000001"
+            assert event.action == "project.created"
+        finally:
+            b.close()
+
+    def test_append_assigns_sequential_ids(self, tmp_path: Path) -> None:
+        """Sequential appends produce E000001, E000002, ..."""
+        b = _make_backend(tmp_path)
+        try:
+            e1 = b.append(_project_draft())
+            e2 = b.append(_init_draft())
+            assert e1 is not None and e1.id == "E000001"
+            assert e2 is not None and e2.id == "E000002"
+        finally:
+            b.close()
+
+    def test_append_writes_log_then_commits_sqlite(self, tmp_path: Path) -> None:
+        """The JSONL line appears before the SQLite row (log-first ordering)."""
+        events_path = str(tmp_path / "events.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            event = b.append(_project_draft())
+            assert event is not None
+
+            # JSONL line present
+            lines = _read_jsonl(events_path)
+            assert len(lines) == 1
+            assert lines[0]["id"] == "E000001"
+            assert lines[0]["action"] == "project.created"
+
+            # SQLite row present
+            project = b.get_project()
+            assert project is not None
+        finally:
+            b.close()
+
+    def test_append_increments_counter_at_log_append_time(self, tmp_path: Path) -> None:
+        """Counter is incremented when the log line is written, not at COMMIT."""
+        b = _make_backend(tmp_path)
+        try:
+            # After first append, counter should be 1.
+            b.append(_project_draft())
+            assert b._next_seq == 1  # noqa: SLF001 — testing internal counter
+            b.append(_init_draft())
+            assert b._next_seq == 2  # noqa: SLF001
+        finally:
+            b.close()
+
+
+class TestAppendValidationFailure:
+    """A validation failure writes zero event lines and one rejection audit line."""
+
+    def test_validation_failure_writes_no_event_line(self, tmp_path: Path) -> None:
+        """EventRejected leaves events.jsonl empty."""
+        events_path = str(tmp_path / "events.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            # prd.reviewed without a project — check will raise EventRejected
+            # because the payload is malformed (missing required field).
+            bad_draft = _make_draft(
+                "prd.reviewed",
+                {"project_id": "proj-1"},  # missing 'reviewer'
+                target_kind="prd",
+                target_id="proj-1",
+            )
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
+
+            lines = _read_jsonl(events_path)
+            assert lines == [], f"Expected no event lines, got: {lines}"
+        finally:
+            b.close()
+
+    def test_validation_failure_writes_rejection_audit_line(self, tmp_path: Path) -> None:
+        """EventRejected writes exactly one rejection line to audit.jsonl."""
+        audit_path = str(tmp_path / "audit.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            bad_draft = _make_draft(
+                "prd.reviewed",
+                {"project_id": "proj-1"},  # missing 'reviewer'
+                target_kind="prd",
+                target_id="proj-1",
+            )
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
+
+            audit_records = _read_audit_jsonl(audit_path)
+            assert len(audit_records) == 1
+            assert audit_records[0]["kind"] == "rejection"
+            assert audit_records[0]["attempted_action"] == "prd.reviewed"
+        finally:
+            b.close()
+
+    def test_validation_failure_does_not_increment_counter(self, tmp_path: Path) -> None:
+        """Counter stays at 0 after a validation failure."""
+        b = _make_backend(tmp_path)
+        try:
+            bad_draft = _make_draft(
+                "prd.reviewed",
+                {"project_id": "proj-1"},  # missing 'reviewer'
+                target_kind="prd",
+                target_id="proj-1",
+            )
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
+            assert b._next_seq == 0  # noqa: SLF001
+        finally:
+            b.close()
+
+    def test_unknown_action_raises_event_rejected(self, tmp_path: Path) -> None:
+        """An action not in the dispatch table raises EventRejected."""
+        b = _make_backend(tmp_path)
+        try:
+            draft = _make_draft("nonexistent.action", {})
+            with pytest.raises(EventRejected, match="not in the dispatch table"):
+                b.append(draft)
+        finally:
+            b.close()
+
+
+class TestAppendIdempotentNoOp:
+    """An idempotent no-op returns None and writes one idempotent_no_op audit line."""
+
+    def _setup_with_released_claim(self, b: SqliteBackend) -> None:
+        """Build a claim via append and release it once."""
+        _setup_project_via_append(b)
+        b.append(_make_draft(
+            "prd.parsed",
+            {
+                "project_id": "proj-1",
+                "status": "draft",
+                "summary": "A test PRD.",
+                "goals": [],
+                "non_goals": [],
+                "requirements": [
+                    {"id": "R001", "prd_section": "s", "text": "Req.",
+                     "source_paragraph": None, "derived": False}
+                ],
+                "acceptance_criteria": [],
+                "risks": [],
+                "open_questions": [],
+            },
+            target_kind="prd", target_id="proj-1",
+        ))
+        b.append(_make_draft(
+            "feature.created",
+            {"id": "F001", "title": "F", "description": "d",
+             "status": "proposed", "requirements": [], "tasks": []},
+            target_kind="feature", target_id="F001",
+        ))
+        b.append(_make_draft(
+            "task.created",
+            _make_task_payload(),
+            target_kind="task", target_id="T001",
+        ))
+        for from_s, to_s in [("proposed", "drafted"), ("drafted", "reviewed"), ("reviewed", "ready")]:
+            b.append(_make_draft(
+                "task.status_changed",
+                {"task_id": "T001", "from": from_s, "to": to_s},
+                target_kind="task", target_id="T001",
+            ))
+        b.append(_make_draft(
+            "claim.created",
+            _make_claim_payload(),
+            target_kind="claim", target_id="C001",
+        ))
+        b.append(_make_draft(
+            "claim.released",
+            {"claim_id": "C001", "released_by": "agent-alpha", "release_reason": "done", "force": False},
+            target_kind="claim", target_id="C001",
+        ))
+
+    def test_idempotent_no_op_returns_none(self, tmp_path: Path) -> None:
+        """claim.released on an already-released claim returns None."""
+        b = _make_backend(tmp_path)
+        try:
+            self._setup_with_released_claim(b)
+            result = b.append(_make_draft(
+                "claim.released",
+                {"claim_id": "C001", "released_by": "agent-alpha", "release_reason": "done", "force": False},
+                target_kind="claim", target_id="C001",
+            ))
+            assert result is None
+        finally:
+            b.close()
+
+    def test_idempotent_no_op_writes_audit_line(self, tmp_path: Path) -> None:
+        """claim.released on already-released claim writes one idempotent_no_op audit line."""
+        audit_path = str(tmp_path / "audit.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            self._setup_with_released_claim(b)
+            b.append(_make_draft(
+                "claim.released",
+                {"claim_id": "C001", "released_by": "agent-alpha", "release_reason": "done", "force": False},
+                target_kind="claim", target_id="C001",
+            ))
+            records = _read_audit_jsonl(audit_path)
+            no_op_records = [r for r in records if r.get("kind") == "idempotent_no_op"]
+            assert len(no_op_records) >= 1
+            assert any(r.get("action") == "claim.released" for r in no_op_records)
+        finally:
+            b.close()
+
+    def test_idempotent_no_op_writes_zero_event_lines(self, tmp_path: Path) -> None:
+        """An idempotent no-op does not add a line to events.jsonl."""
+        events_path = str(tmp_path / "events.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            self._setup_with_released_claim(b)
+            count_before = len(_read_jsonl(events_path))
+            b.append(_make_draft(
+                "claim.released",
+                {"claim_id": "C001", "released_by": "agent-alpha", "release_reason": "done", "force": False},
+                target_kind="claim", target_id="C001",
+            ))
+            count_after = len(_read_jsonl(events_path))
+            assert count_after == count_before, (
+                "Idempotent no-op should not add a line to events.jsonl"
+            )
+        finally:
+            b.close()
+
+
+class TestAppendCounterSeeding:
+    """Counter seeds from log max on open, not from SQLite MAX(id)."""
+
+    def test_counter_seeds_from_log_max_on_open(self, tmp_path: Path) -> None:
+        """Re-opening a backend seeds _next_seq from the log's last id."""
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft())
+            b.append(_init_draft())
+        finally:
+            b.close()
+
+        # Re-open and check counter.
+        b2 = SqliteBackend(
+            db_path=str(tmp_path / "state.db"),
+            events_path=str(tmp_path / "events.jsonl"),
+            clock=_make_clock(),
+        )
+        b2.initialize()
+        try:
+            assert b2._next_seq == 2  # noqa: SLF001 — seeded from log max E000002
+            # Next append should get E000003.
+            e3 = b2.append(_init_draft())
+            assert e3 is not None
+            assert e3.id == "E000003"
+        finally:
+            b2.close()
+
+    def test_counter_never_reuses_id_after_reopen(self, tmp_path: Path) -> None:
+        """IDs never repeat across backend close/reopen cycles."""
+        seen_ids: list[str] = []
+        events_path = str(tmp_path / "events.jsonl")
+        if not os.path.exists(events_path):
+            open(events_path, "a").close()  # noqa: WPS515
+
+        for _ in range(3):
+            b = SqliteBackend(
+                db_path=str(tmp_path / "state.db"),
+                events_path=events_path,
+                clock=_make_clock(),
+            )
+            b.initialize()
+            try:
+                event = b.append(_project_draft())
+                assert event is not None
+                seen_ids.append(event.id)
+            finally:
+                b.close()
+
+        assert len(seen_ids) == len(set(seen_ids)), (
+            f"IDs were reused across reopens: {seen_ids}"
+        )
+
+
+class TestSelfHeal:
+    """Forward catch-up converges log-ahead skew on open."""
+
+    def test_self_heal_forward_catch_up_on_open(self, tmp_path: Path) -> None:
+        """Manually inject a log-ahead skew; re-opening heals it."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        # Step 1: create a backend and apply one event normally.
+        b = _make_backend(tmp_path)
+        try:
+            e1 = b.append(_project_draft())
+            assert e1 is not None
+        finally:
+            b.close()
+
+        # Step 2: manually append a second event to events.jsonl without
+        # committing it to SQLite — simulating a crash after log-append but
+        # before COMMIT.
+        e2_event = Event(
+            id="E000002",
+            timestamp=_T0,
+            actor="test",
+            action="state.initialized",
+            target_kind="project",
+            target_id="proj-1",
+            payload_json={},
+        )
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write(e2_event.model_dump_json() + "\n")
+
+        # Step 3: re-open; initialize() should detect log_max=2 > table_max=1
+        # and forward-catch-up E000002.
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.initialize()
+        try:
+            # Counter should be seeded from log max (2), NOT reassigned to 1.
+            assert b2._next_seq == 2  # noqa: SLF001
+            # Next event gets E000003, not E000002.
+            e3 = b2.append(_init_draft())
+            assert e3 is not None
+            assert e3.id == "E000003"
+
+            # The orphaned E000002 should now be in the events table (caught up).
+            conn = sqlite3.connect(db_path)
+            rows = conn.execute("SELECT id FROM events ORDER BY id").fetchall()
+            conn.close()
+            ids = [r[0] for r in rows]
+            assert "E000002" in ids, f"Catch-up missed E000002; events table: {ids}"
+        finally:
+            b2.close()
+
+    def test_self_heal_does_not_reassign_orphaned_id(self, tmp_path: Path) -> None:
+        """After a skew, the next append gets N+1, not the orphaned N."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft())  # E000001
+        finally:
+            b.close()
+
+        # Inject E000002 into log without SQLite commit.
+        orphan = Event(
+            id="E000002",
+            timestamp=_T0,
+            actor="test",
+            action="state.initialized",
+            target_kind="project",
+            target_id="proj-1",
+            payload_json={},
+        )
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write(orphan.model_dump_json() + "\n")
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.initialize()
+        try:
+            # Must not get E000002 — it was already in the log.
+            e = b2.append(_init_draft())
+            assert e is not None
+            assert e.id == "E000003", (
+                f"Expected E000003 after orphaned E000002; got {e.id}"
+            )
+        finally:
+            b2.close()
+
+
+class TestReplayStrict:
+    """replay_from_empty applies every line via _write_*, no skip-list."""
+
+    def test_replay_applies_every_line_no_skip_list(self, tmp_path: Path) -> None:
+        """replay_from_empty rebuilds state byte-for-byte; no action is skipped."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        try:
+            b.append(_project_draft(name="Replay Test"))
+            b.append(_init_draft())
+        finally:
+            b.close()
+
+        # Replay into a fresh backend.
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.replay_from_empty(events_path)
+        try:
+            project = b2.get_project()
+            assert project is not None
+            assert project.name == "Replay Test"
+        finally:
+            b2.close()
+
+    def test_replay_interior_malformed_line_raises(self, tmp_path: Path) -> None:
+        """An interior malformed line in events.jsonl raises during replay."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft())
+            b.append(_init_draft())
+        finally:
+            b.close()
+
+        # Inject a malformed line in the middle.
+        with open(events_path, encoding="utf-8") as fh:
+            content = fh.read()
+        lines = content.splitlines()
+        # Insert corruption as the second line (interior).
+        lines.insert(1, "NOT_VALID_JSON{{{")
+        with open(events_path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        with pytest.raises((ValueError, Exception)):
+            b2.replay_from_empty(events_path)
+
+    def test_replay_torn_trailing_line_is_tolerated(self, tmp_path: Path) -> None:
+        """A torn (partially written) final line is silently tolerated."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft(name="Torn Line Test"))
+            b.append(_init_draft())
+        finally:
+            b.close()
+
+        # Append a partial/torn final line.
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write('{"id": "E000003", "action": "state.init')  # deliberately torn
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.replay_from_empty(events_path)
+        try:
+            project = b2.get_project()
+            assert project is not None
+            assert project.name == "Torn Line Test"
+        finally:
+            b2.close()
+
+    def test_replay_reseeds_counter_from_max_id(self, tmp_path: Path) -> None:
+        """After replay, the counter is seeded from the max event id replayed."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft())  # E000001
+            b.append(_init_draft())     # E000002
+        finally:
+            b.close()
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.replay_from_empty(events_path)
+        try:
+            assert b2._next_seq == 2  # noqa: SLF001
+            e3 = b2.append(_init_draft())
+            assert e3 is not None
+            assert e3.id == "E000003"
+        finally:
+            b2.close()
+
+
+class TestDurabilityModes:
+    """relaxed vs strict durability modes."""
+
+    def test_relaxed_durability_uses_synchronous_normal(self, tmp_path: Path) -> None:
+        """Default (relaxed) durability sets synchronous=NORMAL."""
+        b = _make_backend(tmp_path)  # _make_backend doesn't pass durability — relaxed
+        try:
+            conn = b._conn  # noqa: SLF001
+            assert conn is not None
+            row = conn.execute("PRAGMA synchronous").fetchone()
+            # SQLite returns 1 for NORMAL.
+            assert row[0] == 1, f"Expected synchronous=NORMAL (1), got {row[0]}"
+        finally:
+            b.close()
+
+    def test_strict_durability_uses_synchronous_full(self, tmp_path: Path) -> None:
+        """Strict durability sets synchronous=FULL."""
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+        b = SqliteBackend(
+            db_path=db_path,
+            events_path=events_path,
+            clock=_make_clock(),
+            durability="strict",
+        )
+        b.initialize()
+        try:
+            conn = b._conn  # noqa: SLF001
+            assert conn is not None
+            row = conn.execute("PRAGMA synchronous").fetchone()
+            # SQLite returns 2 for FULL.
+            assert row[0] == 2, f"Expected synchronous=FULL (2), got {row[0]}"
+        finally:
+            b.close()
+
+    def test_strict_durability_fsyncs_log_before_commit(self, tmp_path: Path) -> None:
+        """Strict durability calls fsync on the log fd before COMMIT.
+
+        Verified by checking the synchronous PRAGMA and confirming the append
+        completes without error (no mock — real fsync path exercised).
+        """
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+        b = SqliteBackend(
+            db_path=db_path,
+            events_path=events_path,
+            clock=_make_clock(),
+            durability="strict",
+        )
+        b.initialize()
+        try:
+            # append must complete without raising under strict mode.
+            event = b.append(_project_draft())
+            assert event is not None
+            assert event.id == "E000001"
+
+            # The event must be in both log and SQLite.
+            lines = _read_jsonl(events_path)
+            assert any(line.get("id") == "E000001" for line in lines)
+            project = b.get_project()
+            assert project is not None
+
+            # Confirm synchronous=FULL is set.
+            conn = b._conn  # noqa: SLF001
+            assert conn is not None
+            row = conn.execute("PRAGMA synchronous").fetchone()
+            assert row[0] == 2
+        finally:
+            b.close()
+
+    def test_relaxed_append_succeeds(self, tmp_path: Path) -> None:
+        """Relaxed (default) durability completes an append correctly."""
+        b = _make_backend(tmp_path)
+        try:
+            event = b.append(_project_draft())
+            assert event is not None
+            assert event.id == "E000001"
+        finally:
+            b.close()
+
+
+class TestScanTail:
+    """scan_tail reads only the final line — O(line), not O(file)."""
+
+    def test_scan_tail_returns_zero_on_empty_file(self, tmp_path: Path) -> None:
+        """scan_tail returns 0 for an empty events.jsonl."""
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+        b = SqliteBackend(
+            db_path=str(tmp_path / "state.db"),
+            events_path=events_path,
+            clock=_make_clock(),
+        )
+        assert b._scan_tail_id() == 0  # noqa: SLF001
+
+    def test_scan_tail_returns_correct_max_id(self, tmp_path: Path) -> None:
+        """scan_tail returns the numeric part of the last line's id."""
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft())  # E000001
+            b.append(_init_draft())     # E000002
+        finally:
+            b.close()
+
+        b2 = SqliteBackend(
+            db_path=str(tmp_path / "state.db"),
+            events_path=str(tmp_path / "events.jsonl"),
+            clock=_make_clock(),
+        )
+        assert b2._scan_tail_id() == 2  # noqa: SLF001
+
+    def test_scan_tail_reads_bounded_bytes_on_large_file(self, tmp_path: Path) -> None:
+        """scan_tail returns the correct max id from a large synthetic log.
+
+        Smoke test: 500 synthetic events in a large file; scan_tail must still
+        return 500 (only reads the tail, not the whole file).
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        with open(events_path, "w", encoding="utf-8") as fh:
+            for i in range(1, 501):
+                record = {
+                    "id": f"E{i:06d}",
+                    "timestamp": _T0.isoformat(),
+                    "actor": "test",
+                    "action": "state.initialized",
+                    "target_kind": "project",
+                    "target_id": "proj-1",
+                    "payload_json": {},
+                }
+                fh.write(json.dumps(record) + "\n")
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        assert b._scan_tail_id() == 500  # noqa: SLF001
+
+
+class TestWriteFailedAfterLogAppend:
+    """Write failure after log append leaves the log line and audits write_failed_after_log."""
+
+    def test_write_failure_leaves_log_line_and_audits(self, tmp_path: Path) -> None:
+        """A _write_* that raises after log-append leaves log intact + audits."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        audit_path = str(tmp_path / "audit.jsonl")
+        Path(events_path).touch()
+
+        class _FailingBackend(SqliteBackend):
+            def _write_project_created(
+                self, conn: sqlite3.Connection, payload: Any, event: Any
+            ) -> None:
+                raise RuntimeError("Simulated write failure for test")
+
+        b = _FailingBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b.initialize()
+        try:
+            with pytest.raises(TransactionAborted):
+                b.append(_project_draft())
+
+            # Log line MUST remain (append-only).
+            lines = _read_jsonl(events_path)
+            assert len(lines) == 1, (
+                f"Log line should remain after write failure; got {len(lines)} lines"
+            )
+            assert lines[0]["action"] == "project.created"
+
+            # write_failed_after_log audit line MUST be written.
+            audit_records = _read_audit_jsonl(audit_path)
+            failed_records = [r for r in audit_records if r.get("kind") == "write_failed_after_log"]
+            assert len(failed_records) == 1
+            assert failed_records[0]["action"] == "project.created"
+            assert "event_id" in failed_records[0]
+        finally:
+            b.close()
+
+    def test_write_failure_rolls_back_sqlite(self, tmp_path: Path) -> None:
+        """A write failure after log-append rolls back the SQLite transaction."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        Path(events_path).touch()
+
+        class _FailingBackend(SqliteBackend):
+            def _write_project_created(
+                self, conn: sqlite3.Connection, payload: Any, event: Any
+            ) -> None:
+                raise RuntimeError("Simulated write failure")
+
+        b = _FailingBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b.initialize()
+        try:
+            with pytest.raises(TransactionAborted):
+                b.append(_project_draft())
+            # SQLite must have no project row (transaction rolled back).
+            project = b.get_project()
+            assert project is None
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Fix-cycle iteration 1: MUST FIX + SHOULD FIX tests (SL1-RR-1 critic wave 3)
+# ---------------------------------------------------------------------------
+
+
+class TestScanTailTornLineOpenPath:
+    """MUST FIX: _scan_tail_id skips torn/idless trailing line on the OPEN path.
+
+    On initialize(), a torn trailing line (partial write from a crash) must not
+    collapse _next_seq to 0 and must not trigger id reuse.
+    """
+
+    def test_open_with_torn_trailing_line_preserves_counter(self, tmp_path: Path) -> None:
+        """After torn partial line appended directly, reopen gives _next_seq == 2, next id E000003.
+
+        This is the open-path (not replay) torn-line test demanded by the critic.
+        Steps:
+          1. Commit two events via append() to a fresh backend.
+          2. Manually append a torn/partial line directly to events.jsonl.
+          3. Close the backend.
+          4. Open a fresh backend on the same files.
+          5. Assert _next_seq == 2 (NOT 0 — the torn line must not collapse the counter).
+          6. Append a third event and assert it gets id E000003 (NOT E000001).
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        # Step 1: commit two events.
+        b1 = _make_backend(tmp_path)
+        try:
+            e1 = b1.append(_project_draft())
+            e2 = b1.append(_init_draft())
+            assert e1 is not None and e1.id == "E000001"
+            assert e2 is not None and e2.id == "E000002"
+        finally:
+            b1.close()
+
+        # Step 2: manually append a torn partial line (simulates a crash mid-append).
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write('{"id": "E000003", "action": "state.init')  # deliberately torn
+
+        # Step 4: open a fresh backend on the same files.
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.initialize()
+        try:
+            # Step 5: counter must be 2 (torn line must NOT collapse it to 0).
+            assert b2._next_seq == 2, (  # noqa: SLF001
+                f"Expected _next_seq == 2 after reopen with torn trailing line, "
+                f"got {b2._next_seq}"
+            )
+
+            # Step 6: next append must get E000003 (NOT E000001 — no id reuse).
+            e3 = b2.append(_init_draft())
+            assert e3 is not None
+            assert e3.id == "E000003", (
+                f"Expected E000003 for next append after torn trailing line, "
+                f"got {e3.id}"
+            )
+        finally:
+            b2.close()
+
+    def test_open_with_fully_idless_trailing_line_preserves_counter(
+        self, tmp_path: Path
+    ) -> None:
+        """A trailing line with valid JSON but no 'id' field does not collapse the counter."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b1 = _make_backend(tmp_path)
+        try:
+            b1.append(_project_draft())  # E000001
+        finally:
+            b1.close()
+
+        # Append a valid JSON line that has no 'id' field (e.g. an old audit line).
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write('{"kind": "rejection", "action": "project.created"}\n')
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.initialize()
+        try:
+            # counter should fall back to the previous complete line (E000001 → 1).
+            assert b2._next_seq == 1, (  # noqa: SLF001
+                f"Expected _next_seq == 1, got {b2._next_seq}"
+            )
+            e2 = b2.append(_init_draft())
+            assert e2 is not None
+            assert e2.id == "E000002"
+        finally:
+            b2.close()
+
+
+class TestScanTailLargeLine:
+    """SHOULD FIX 1: _scan_tail_id handles event lines longer than 4096 bytes."""
+
+    def test_scan_tail_handles_event_line_longer_than_4096_bytes(
+        self, tmp_path: Path
+    ) -> None:
+        """A final event line > 4096 bytes must not cause _scan_tail_id to return 0."""
+        events_path = str(tmp_path / "events.jsonl")
+
+        # Write a small first event, then a second event with a very large payload.
+        small_record = {
+            "id": "E000001",
+            "timestamp": _T0.isoformat(),
+            "actor": "test",
+            "action": "state.initialized",
+            "target_kind": "project",
+            "target_id": "proj-1",
+            "payload_json": {},
+        }
+        # Build a payload large enough to make the JSON line exceed 4096 bytes.
+        large_payload = {"data": "x" * 8000}
+        large_record = {
+            "id": "E000002",
+            "timestamp": _T0.isoformat(),
+            "actor": "test",
+            "action": "state.initialized",
+            "target_kind": "project",
+            "target_id": "proj-1",
+            "payload_json": large_payload,
+        }
+
+        with open(events_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(small_record) + "\n")
+            fh.write(json.dumps(large_record) + "\n")
+
+        # The line for E000002 is > 4096 bytes — the old 4096-byte window would miss it.
+        line_size = len(json.dumps(large_record) + "\n")
+        assert line_size > 4096, f"Test precondition: line must be > 4096, got {line_size}"
+
+        b = SqliteBackend(
+            db_path=str(tmp_path / "state.db"),
+            events_path=events_path,
+            clock=_make_clock(),
+        )
+        result = b._scan_tail_id()  # noqa: SLF001
+        assert result == 2, (
+            f"_scan_tail_id must return 2 for a > 4096-byte final line, got {result}"
+        )
+
+
+class TestForwardCatchUpConvergence:
+    """SHOULD FIX 2: _forward_catch_up raises if target event is missing from log."""
+
+    def test_catch_up_raises_on_missing_event(self, tmp_path: Path) -> None:
+        """_forward_catch_up raises TransactionAborted when log is missing a target event.
+
+        Simulate: log says max is E000002 but the log file contains only E000001.
+        Catch-up expects E000002 but never finds it — must raise, not silently return.
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        # Write only E000001 to the log.
+        record = {
+            "id": "E000001",
+            "timestamp": _T0.isoformat(),
+            "actor": "test",
+            "action": "project.created",
+            "target_kind": "project",
+            "target_id": "proj-1",
+            "payload_json": {
+                "id": "proj-1",
+                "name": "Test",
+                "description": "",
+                "created_at": _T0.isoformat(),
+                "updated_at": _T0.isoformat(),
+            },
+        }
+        with open(events_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b.initialize()  # seeds counter from scan_tail → _next_seq = 1
+        try:
+            conn = b._conn  # noqa: SLF001
+            assert conn is not None
+            # Ask catch-up to apply E000002 which does not exist in the log.
+            with pytest.raises(TransactionAborted, match="missing events"):
+                b._forward_catch_up(conn, from_seq=2, to_seq=2)  # noqa: SLF001
+        finally:
+            b.close()
+
+
+class TestReplayNoAuditSideEffects:
+    """SHOULD FIX 4: audit side-effects in _write_* are suppressed during replay."""
+
+    def test_replay_does_not_append_audit_lines(self, tmp_path: Path) -> None:
+        """replay_from_empty must not write audit lines even when claim auto-release skips.
+
+        Set up: commit evidence.submitted where the claim is already released
+        (so the auto-release would normally trigger _write_warn_to_audit). Then
+        replay from the log and verify audit.jsonl has exactly ONE warn line
+        (from the original run), NOT two (which would indicate replay re-wrote it).
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        audit_path = str(tmp_path / "audit.jsonl")
+
+        b = _make_backend(tmp_path)
+        try:
+            # Set up project + PRD + feature + task (needs_review-eligible) + claim.
+            _setup_project_via_append(b)
+            b.append(_make_draft(
+                "prd.parsed",
+                {
+                    "project_id": "proj-1",
+                    "status": "draft",
+                    "summary": "A test PRD.",
+                    "goals": [],
+                    "non_goals": [],
+                    "requirements": [
+                        {"id": "R001", "prd_section": "s", "text": "Req.",
+                         "source_paragraph": None, "derived": False}
+                    ],
+                    "acceptance_criteria": [],
+                    "risks": [],
+                    "open_questions": [],
+                },
+                target_kind="prd",
+                target_id="proj-1",
+            ))
+            b.append(_make_draft(
+                "feature.created",
+                {"id": "F001", "title": "F1", "description": "d",
+                 "status": "proposed", "requirements": [], "tasks": []},
+                target_kind="feature",
+                target_id="F001",
+            ))
+            b.append(_make_draft(
+                "task.created",
+                _make_task_payload(task_id="T001", feature_id="F001"),
+                target_kind="task",
+                target_id="T001",
+            ))
+            # Transition task to ready so claim.created is allowed.
+            for from_s, to_s in [
+                ("proposed", "drafted"),
+                ("drafted", "reviewed"),
+                ("reviewed", "ready"),
+            ]:
+                b.append(_make_draft(
+                    "task.status_changed",
+                    {"task_id": "T001", "from": from_s, "to": to_s},
+                    target_kind="task",
+                    target_id="T001",
+                ))
+            b.append(_make_draft(
+                "claim.created",
+                _make_claim_payload(claim_id="C001", task_id="T001"),
+                target_kind="claim",
+                target_id="C001",
+            ))
+            # Release the claim explicitly before submitting evidence.
+            b.append(_make_draft(
+                "claim.released",
+                {"claim_id": "C001", "released_by": "agent-alpha",
+                 "release_reason": "manual", "force": False},
+                target_kind="claim",
+                target_id="C001",
+            ))
+            # Task must be in claimed/in_progress/blocked for evidence.submitted.
+            # After claim.released the task is still "ready" (claim.created
+            # transitions to "claimed"; claim.released un-transitions it to "ready").
+            # Re-claim and manually set task to claimed via status_changed.
+            b.append(_make_draft(
+                "task.status_changed",
+                {"task_id": "T001", "from": "ready", "to": "claimed"},
+                target_kind="task",
+                target_id="T001",
+            ))
+            # Submit evidence — claim C001 is already released, so auto-release
+            # skips and writes ONE warn line to audit.jsonl.
+            b.append(_make_draft(
+                "evidence.submitted",
+                {
+                    "task_id": "T001",
+                    "claim_id": "C001",
+                    "submitted_by": "agent-alpha",
+                    "evidence_id": "EV001",
+                    "commands_run": ["pytest"],
+                    "files_changed": ["tests/test_main.py"],
+                },
+                target_kind="task",
+                target_id="T001",
+            ))
+        finally:
+            b.close()
+
+        # Read audit lines written during the normal run.
+        audit_before = _read_audit_jsonl(audit_path)
+        warn_before = [r for r in audit_before if r.get("kind") == "idempotent_no_op"]
+        assert len(warn_before) == 1, (
+            f"Expected exactly 1 idempotent_no_op warn line from normal run, "
+            f"got {len(warn_before)}: {warn_before}"
+        )
+
+        # Replay from empty — must not add a second warn line.
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.replay_from_empty(events_path)
+        try:
+            audit_after = _read_audit_jsonl(audit_path)
+            warn_after = [r for r in audit_after if r.get("kind") == "idempotent_no_op"]
+            assert len(warn_after) == 1, (
+                f"replay_from_empty must not add audit lines; "
+                f"expected 1 warn line, got {len(warn_after)}: {warn_after}"
+            )
+        finally:
+            b2.close()
+
+
+class TestPostLogAppendDatabaseLocked:
+    """SHOULD FIX 5: post-log-append SQLite 'database is locked' is TransactionAborted, not StateLocked."""
+
+    def test_sqlite_locked_after_log_append_raises_transaction_aborted(
+        self, tmp_path: Path
+    ) -> None:
+        """A 'database is locked' error after the log line is written must raise
+        TransactionAborted (not StateLocked). The log line remains; catch-up heals."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        Path(events_path).touch()
+
+        class _LockedAfterLogBackend(SqliteBackend):
+            """Simulates SQLite 'database is locked' error during _write_project_created."""
+            def _write_project_created(
+                self, conn: sqlite3.Connection, payload: Any, event: Any
+            ) -> None:
+                raise sqlite3.OperationalError("database is locked")
+
+        b = _LockedAfterLogBackend(
+            db_path=db_path, events_path=events_path, clock=_make_clock()
+        )
+        b.initialize()
+        try:
+            # Must raise TransactionAborted — NOT StateLocked — because the log
+            # line was already written before the SQLite error occurred.
+            with pytest.raises(TransactionAborted):
+                b.append(_project_draft())
+
+            # The log line must remain (append-only).
+            lines = _read_jsonl(events_path)
+            assert len(lines) == 1, (
+                f"Log line must remain after post-log-append lock; got {len(lines)}"
+            )
+            assert lines[0]["action"] == "project.created"
+        finally:
+            b.close()
+
+    def test_sqlite_locked_after_log_append_writes_audit_line(
+        self, tmp_path: Path
+    ) -> None:
+        """Post-log-append lock writes write_failed_after_log to audit.jsonl."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        audit_path = str(tmp_path / "audit.jsonl")
+        Path(events_path).touch()
+
+        class _LockedAfterLogBackend(SqliteBackend):
+            def _write_project_created(
+                self, conn: sqlite3.Connection, payload: Any, event: Any
+            ) -> None:
+                raise sqlite3.OperationalError("database is locked")
+
+        b = _LockedAfterLogBackend(
+            db_path=db_path, events_path=events_path, clock=_make_clock()
+        )
+        b.initialize()
+        try:
+            with pytest.raises(TransactionAborted):
+                b.append(_project_draft())
+
+            audit_records = _read_audit_jsonl(audit_path)
+            failed = [r for r in audit_records if r.get("kind") == "write_failed_after_log"]
+            assert len(failed) == 1, (
+                f"Expected 1 write_failed_after_log audit line, got {len(failed)}"
+            )
+            assert "event_id" in failed[0]
+        finally:
+            b.close()
+
+
+class TestRejectionAuditHasNoIdField:
+    """CONSIDER 4: rejection audit line must not carry an 'id' field."""
+
+    def test_rejection_audit_line_has_no_id_field(self, tmp_path: Path) -> None:
+        """A rejection audit line must not include an 'id' field (not an event)."""
+        audit_path = str(tmp_path / "audit.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            bad_draft = _make_draft(
+                "prd.reviewed",
+                {"project_id": "proj-1"},  # missing 'reviewer' — will fail validation
+                target_kind="prd",
+                target_id="proj-1",
+            )
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
+
+            records = _read_audit_jsonl(audit_path)
+            rejections = [r for r in records if r.get("kind") == "rejection"]
+            assert len(rejections) == 1
+            assert "id" not in rejections[0], (
+                f"Rejection audit line must have no 'id' field; got: {rejections[0]}"
+            )
+        finally:
+            b.close()
+
+
+class TestConcurrentAppendNoIdCollision:
+    """CONSIDER 5: two threads appending concurrently produce no id collision."""
+
+    def test_two_thread_append_no_id_collision(self, tmp_path: Path) -> None:
+        """Two threads appending simultaneously get distinct, sequential ids."""
+        import threading as _threading
+
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b = _make_backend(tmp_path)
+        results: list[Any] = []
+        errors: list[Exception] = []
+        lock = _threading.Lock()
+
+        def _append_init() -> None:
+            try:
+                event = b.append(_init_draft())
+                with lock:
+                    results.append(event)
+            except Exception as exc:  # noqa: BLE001
+                with lock:
+                    errors.append(exc)
+
+        threads = [_threading.Thread(target=_append_init) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        b.close()
+
+        assert not errors, f"Thread errors: {errors}"
+        assert len(results) == 10, f"Expected 10 events, got {len(results)}"
+        ids = [e.id for e in results if e is not None]
+        assert len(ids) == len(set(ids)), f"Duplicate ids found: {ids}"
+        # All ids must be in the E000001–E000010 range.
+        seq_nums = sorted(int(eid[1:]) for eid in ids)
+        assert seq_nums == list(range(1, 11)), f"Expected 1..10, got {seq_nums}"

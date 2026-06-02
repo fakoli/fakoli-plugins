@@ -5,6 +5,13 @@ plus the exception hierarchy for backend failures.
 
 The SQLite implementation lives in state/sqlite.py (Wave 2).
 This file ships the contract only — no I/O, no imports of concrete modules.
+
+SL1-RR-1 (write-path rework): The ``append(EventDraft) -> Event | None``
+method replaces the retired ``apply_event`` entry point. ``EventDraft`` carries
+the intended mutation without an assigned id; the backend validates, assigns the
+next monotonic id from the log, appends log-first, then applies the mutation.
+``PENDING_EVENT_ID`` is retained here temporarily so the test suite (migrated in
+Task 6) continues to import without error; it is not used by the new write path.
 """
 
 from __future__ import annotations
@@ -16,6 +23,7 @@ if TYPE_CHECKING:
         PRD,
         Claim,
         Event,
+        EventDraft,
         Evidence,
         Feature,
         Project,
@@ -25,21 +33,14 @@ if TYPE_CHECKING:
         Task,
     )
 
+
 # ---------------------------------------------------------------------------
-# Sentinel for race-free event ID assignment
+# Deprecated sentinel — kept for test-suite import compatibility (Task 6 removes)
 # ---------------------------------------------------------------------------
 
-#: Pass as event.id to have the Backend assign a sequential ID inside the
-#: BEGIN IMMEDIATE lock, eliminating the read-before-lock race flagged by
-#: Critic-3 on PR #41.  The returned Event from apply_event() carries the
-#: assigned ID.  Use a real E%06d ID only on the replay path (where the
-#: original ID from JSONL must be preserved).
-#:
-#: Trade-off: for PENDING events the JSONL write moves AFTER the SQLite
-#: COMMIT (the ID is not known until inside the lock).  This weakens the
-#: "log-before-mutation" crash-recovery property for the live path, but
-#: eliminates the silent-drop race that is strictly worse.  The replay path
-#: uses non-PENDING IDs (event.id is a real ID from JSONL) and is unchanged.
+#: DEPRECATED. The SL1-RR-1 write-path rework retires this sentinel. Use
+#: ``EventDraft`` + ``append()`` instead. Kept here only so the test suite
+#: (migrated in Task 6) does not fail at import time.
 PENDING_EVENT_ID = "PENDING"
 
 
@@ -49,6 +50,11 @@ class Backend(Protocol):
     All mutating methods are expected to be atomic: the event is appended to the
     JSONL audit log and the SQLite state is updated in a single transaction.
     Replay from the event log must reproduce the exact same SQLite state.
+
+    SL1-RR-1 write-path: ``append(EventDraft)`` is the sole production write
+    entry point. The log is the id authority; ids are assigned from an in-memory
+    counter seeded from the log's max id on open, so ``next_event_id()`` is
+    removed from this protocol.
     """
 
     def initialize(self) -> None:
@@ -59,33 +65,40 @@ class Backend(Protocol):
         no arguments so impls with different connection models (in-memory,
         connection pool, etc.) can satisfy the Protocol without a path API.
 
+        On open, if the events table is behind the log (log-ahead skew from a
+        previous crash), the missing tail is re-applied via ``_write_*`` (forward
+        catch-up) and the in-memory counter is seeded from the log max.
+
         Raises:
             SchemaMismatch: If an existing DB has a user_version that does not
                 match the version this code expects.
         """
         ...
 
-    def apply_event(self, event: Event) -> Event:
-        """Atomically: append event to JSONL, mutate SQLite state. Single transaction.
+    def append(self, draft: EventDraft) -> Event | None:
+        """Validate, assign id, log-first, then apply mutation. Sole production write.
 
-        If event.id == PENDING_EVENT_ID the Backend assigns a fresh sequential
-        ID inside the BEGIN IMMEDIATE lock, eliminating the read-before-lock race
-        flagged by Critic-3 on PR #41.  The materialized event (with assigned ID)
-        is returned so callers can record it.
+        Steps (all inside the flock critical section):
+          1. ``_check_<action>`` — validation only; raises ``EventRejected`` on
+             an illegal transition / bad payload, or ``IdempotentNoOp`` when the
+             request is legal but already satisfied.
+          2. ``id = _next_seq()`` — increments the in-memory log-authority counter.
+          3. Append the materialized ``Event`` line to ``events.jsonl`` (log-first).
+          4. ``BEGIN IMMEDIATE; _write_<action>; _insert_event_row; COMMIT``.
 
-        If event.id is a real ID (e.g. from replay), it is honored as-is.
-
-        Trade-off: for PENDING events the JSONL write moves AFTER the SQLite
-        COMMIT (the ID is not known until inside the lock).  This weakens the
-        "log-before-mutation" crash-recovery property for the live path, but
-        eliminates the silent-drop race that is strictly worse.  The replay path
-        uses non-PENDING IDs (event.id is a real ID from JSONL) and is unchanged.
+        Returns:
+            The materialized ``Event`` (with assigned id) on success.
+            ``None`` for a legal idempotent no-op (audited in ``audit.jsonl``).
 
         Raises:
-            TransactionAborted: If the mutation could not complete. The event is
-                logged with action ``error.transaction_aborted``; state is unchanged.
-            StateLocked: If SQLite busy_timeout was exceeded.
-            SchemaMismatch: If the DB schema version does not match the expected version.
+            EventRejected: Illegal transition or bad payload. Nothing written to
+                ``events.jsonl``; one ``rejection`` line written to ``audit.jsonl``.
+            TransactionAborted: Unexpected infrastructure failure *after* the log
+                append (a ``_write_*`` or SQLite raise despite a passing check).
+                The log line remains (append-only); SQLite is rolled back; a
+                ``write_failed_after_log`` line is written to ``audit.jsonl``.
+                Forward catch-up heals the skew on the next ``initialize()``.
+            StateLocked: ``flock`` contention exceeded the timeout.
         """
         ...
 
@@ -184,9 +197,12 @@ class Backend(Protocol):
     def replay_from_empty(self, events_path: str) -> None:
         """Reconstruct state.db from events.jsonl. The audit-guarantee primitive.
 
-        Drops and recreates all tables, then replays every non-error event in
-        order. After replay the DB is byte-for-byte equivalent to the state
-        produced by the original sequence of apply_event() calls.
+        Drops and recreates all tables, then replays every event in order via
+        ``_write_*`` only — no validation, no logging, no skip-list. Every line
+        in ``events.jsonl`` is a fact; an interior malformed line raises. Only a
+        torn trailing line (from a crash mid-append) is tolerated. After replay
+        the DB is byte-for-byte equivalent to the state produced by the original
+        sequence of ``append()`` calls.
 
         Args:
             events_path: Absolute path to the JSONL event log to replay.
@@ -238,31 +254,14 @@ class Backend(Protocol):
     ) -> Event:
         """Convenience wrapper that emits a sync_mapping.upserted event.
 
-        Builds an Event with PENDING_EVENT_ID, calls apply_event(), and
-        returns the materialized Event (with the backend-assigned ID) so the
-        caller can record it. The underlying SQLite mutation is the upsert
-        described by ``_handle_sync_mapping_upserted``. ``actor`` is recorded
-        in the event audit row; defaults to ``"system"``.
+        Builds an ``EventDraft`` and calls ``append()``, returning the
+        materialized ``Event`` (with the backend-assigned id). The underlying
+        SQLite mutation is the upsert described by ``_write_sync_mapping_upserted``.
+        ``actor`` is recorded in the event audit row; defaults to ``"system"``.
         """
         raise NotImplementedError(
             "Backend.apply_sync_mapping() must be implemented by the concrete backend."
         )
-
-    def next_event_id(self) -> str:
-        """Return a hint of the next sequential event ID in canonical E%06d format.
-
-        Subject to races — do not use this to pre-assign IDs for new events.
-        Use PENDING_EVENT_ID + apply_event() for race-free ID assignment instead.
-        Kept for callers that need to preview the upcoming ID (e.g. tests that
-        check format) or for legacy compatibility.
-
-        Single source of truth for event IDs so the CLI and ClaimManager
-        cannot drift into incompatible schemes (the original Phase 4 bug:
-        CLI used E000003-style sequential, ClaimManager used 20-digit
-        microsecond IDs; once both landed in the same events table the
-        MAX-based sequential generator silently produced 20-digit IDs).
-        """
-        ...
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +274,18 @@ class BackendError(Exception):
 
 
 class TransactionAborted(BackendError):
-    """The event was logged as error.transaction_aborted; state is unchanged."""
+    """Unexpected infrastructure failure after the log append.
+
+    Under the SL1-RR-1 write-path rework this means only a genuine infra
+    failure (disk error, SQLite OperationalError, a bug in a ``_write_*``) that
+    occurs *after* the event line has been appended to ``events.jsonl``. The log
+    line stays (append-only); SQLite is rolled back; a ``write_failed_after_log``
+    line is written to ``audit.jsonl``. Forward catch-up on the next
+    ``initialize()`` heals the skew.
+
+    Distinct from :class:`EventRejected` (validation failure before any log
+    write) and :class:`StateLocked` (flock contention).
+    """
 
 
 class StateLocked(BackendError):

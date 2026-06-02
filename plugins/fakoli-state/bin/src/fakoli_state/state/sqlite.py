@@ -17,18 +17,20 @@ Phase 5 extends routing with: evidence.submitted, task.applied.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
 import sqlite3
 import sys
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import BaseModel
 
 from fakoli_state.state.backend import (
-    PENDING_EVENT_ID,
     BackendError,  # noqa: F401
     EventRejected,
     IdempotentNoOp,
@@ -41,6 +43,7 @@ from fakoli_state.state.models import (
     Claim,
     ClaimStatus,
     Event,
+    EventDraft,
     Feature,
     Project,
     Requirement,
@@ -112,12 +115,12 @@ class ActionSpec(NamedTuple):
     - ``write(conn, payload, event)`` performs the mutation and contains no
       validation that can raise a rejection — it assumes ``check`` passed.
 
-    This wave keeps ``apply_event``'s observable behavior unchanged: a
-    ``check`` raising ``EventRejected`` flows through ``apply_event``'s existing
-    except-block (abort tombstone + ``TransactionAborted``); an
-    ``IdempotentNoOp`` is mapped back to the prior warn-and-record behavior by
-    ``_apply_mutation``. The strict write-path rewire (``append`` / log-first /
-    ``audit.jsonl``) is Task 4.
+    The production write path is ``append()``, which calls ``spec.check`` and
+    ``spec.write`` directly within the flock critical section. On
+    ``EventRejected``, ``append`` writes a rejection line to ``audit.jsonl``
+    and re-raises. On ``IdempotentNoOp``, ``append`` writes an
+    ``idempotent_no_op`` line to ``audit.jsonl`` and returns ``None``. No
+    abort tombstones are written to ``events.jsonl``.
     """
 
     payload_model: type[BaseModel]
@@ -156,12 +159,16 @@ class SqliteBackend:
     events_path  : absolute path to the JSONL event-log file.
     clock        : Clock instance injected for all timestamp generation.
                    Never call datetime.now() directly in this class.
+    durability   : ``"relaxed"`` (default) — synchronous=NORMAL, no per-event
+                   fsync; ``"strict"`` — synchronous=FULL + fsync(log) before
+                   COMMIT. See SL1-RR-1 spec section 6.
 
-    Lifecycle
-    ---------
+    Lifecycle (SL1-RR-1 write-path)
+    ---------------------------------
     b = SqliteBackend(db_path=..., events_path=..., clock=...)
-    b.initialize()   # open connection, set PRAGMAs, create schema
-    b.apply_event(event)
+    b.initialize()   # open connection, set PRAGMAs, create schema,
+                     # seed _next_seq from log max, forward catch-up if needed
+    event = b.append(draft)  # validate → assign id → log-first → apply
     ...
     b.close()
     """
@@ -172,11 +179,23 @@ class SqliteBackend:
         db_path: str,
         events_path: str,
         clock: Clock,
+        durability: str = "relaxed",
     ) -> None:
         self._db_path = db_path
         self._events_path = events_path
         self._clock = clock
+        self._durability = durability
         self._conn: sqlite3.Connection | None = None
+        # In-memory monotonic counter; seeded from log max on initialize().
+        # Incremented at log-append time inside the flock critical section.
+        self._next_seq: int = 0
+        # In-process threading lock nested inside the flock for same-process
+        # MCP + CLI thread safety. The outer flock serializes cross-process appends.
+        self._proc_lock = threading.Lock()
+        # Set True during replay_from_empty and _forward_catch_up so that
+        # _write_* methods with audit side-effects (e.g. _write_evidence_submitted)
+        # suppress those writes — audit lines must not be appended during replay.
+        self._replaying: bool = False
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -187,6 +206,15 @@ class SqliteBackend:
 
         Idempotent — safe to call multiple times.  Raises SchemaMismatch if
         the on-disk user_version differs from SCHEMA_VERSION.
+
+        SL1-RR-1 additions on open:
+        1. Seed ``_next_seq`` from the log's max id (``scan_tail``). The log is
+           the id authority; SQLite ``MAX(id)`` is NOT consulted.
+        2. Forward catch-up: if the events table is behind the log (log-ahead
+           skew from a previous crash), re-apply the missing tail via
+           ``_write_*`` so the projection converges. This reuses the same
+           ``_write_*`` path as ``replay_from_empty`` — there is no third
+           apply implementation.
 
         Ordering note (P1-3): the pre-DDL ``user_version`` is captured
         BEFORE ``_apply_ddl`` runs because ``_apply_ddl`` unconditionally
@@ -212,7 +240,7 @@ class SqliteBackend:
 
         # WAL mode for concurrent readers + one writer.
         conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
+        # synchronous level is set by durability mode below.
         conn.execute("PRAGMA busy_timeout = 5000")
         conn.execute("PRAGMA foreign_keys = ON")
 
@@ -220,6 +248,12 @@ class SqliteBackend:
         conn.row_factory = sqlite3.Row
 
         self._conn = conn
+
+        # Apply durability-mode synchronous pragma.
+        if self._durability == "strict":
+            conn.execute("PRAGMA synchronous = FULL")
+        else:
+            conn.execute("PRAGMA synchronous = NORMAL")
 
         # Capture the on-disk version BEFORE _apply_ddl re-stamps it. The
         # v2→v3 migration relies on knowing the original version (the DDL
@@ -236,6 +270,26 @@ class SqliteBackend:
         # migration logic can decide what (if any) ALTER steps are needed.
         self._check_schema_version(pre_ddl_version=pre_ddl_version)
 
+        # SL1-RR-1: seed the in-memory counter from the log max (log is the
+        # id authority; we never read SQLite MAX(id) for this purpose).
+        log_max = self._scan_tail_id()
+        self._next_seq = log_max
+
+        # Forward catch-up: if projection is behind the log, re-apply the tail.
+        # Suppress audit side-effects during catch-up (same contract as replay).
+        # If _replaying is already True (we were called from replay_from_empty),
+        # do not reset it in our finally block — the outer caller owns the flag.
+        if log_max > 0:
+            table_max = self._table_max_id(conn)
+            if table_max < log_max:
+                already_replaying = self._replaying
+                self._replaying = True
+                try:
+                    self._forward_catch_up(conn, from_seq=table_max + 1, to_seq=log_max)
+                finally:
+                    if not already_replaying:
+                        self._replaying = False
+
     def close(self) -> None:
         """Close the SQLite connection cleanly.  Idempotent."""
         if self._conn is not None:
@@ -245,183 +299,118 @@ class SqliteBackend:
                 pass
             self._conn = None
 
-    def next_event_id(self) -> str:
-        """Return a hint of the next sequential event ID in E%06d format.
-
-        Queries MAX(id) on the events mirror table without holding a lock.
-        Subject to races — do NOT use this to pre-assign IDs for new events
-        (Critic-3 flagged the read-before-lock race on PR #41: two concurrent
-        processes calling next_event_id() + apply_event() can both observe
-        MAX=N, both attempt INSERT E{N+1}, and the second INSERT OR IGNORE
-        silently no-ops — event survives in JSONL but is missing from the
-        events table; replay produces diverging state.db).
-
-        For race-free ID assignment use PENDING_EVENT_ID + apply_event():
-            event = Event(id=PENDING_EVENT_ID, ...)
-            event = backend.apply_event(event)  # returns event with real ID
-
-        Kept as a hint/preview API for callers that need the upcoming ID
-        without mutating state (e.g., tests that check ID format, legacy
-        callers that have not yet been migrated to PENDING_EVENT_ID).
-
-        CL-13: callers must hold an open connection. The previous behavior of
-        returning a hardcoded ``"E000001"`` when ``self._conn is None`` was a
-        latent footgun — calling ``next_event_id()`` after ``close()`` would
-        return a plausible-looking but stale ID guaranteed to collide on the
-        next reopen. Route the no-conn branch through ``_require_conn`` like
-        every other Backend method so the error is loud and immediate.
-        """
-        conn = self._require_conn()
-        row = conn.execute(
-            "SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) FROM events"
-        ).fetchone()
-        max_num: int = row[0] if row and row[0] is not None else 0
-        return f"E{max_num + 1:06d}"
-
     # ------------------------------------------------------------------
-    # Core mutation
+    # Core mutation — SL1-RR-1 write path
     # ------------------------------------------------------------------
 
-    def apply_event(self, event: Event) -> Event:
-        """Atomically append event to JSONL and mutate SQLite state.
+    def append(self, draft: EventDraft) -> Event | None:
+        """Validate, assign id from log-authority counter, log-first, then apply.
 
-        ID assignment
-        -------------
-        If event.id == PENDING_EVENT_ID the Backend assigns a fresh sequential
-        ID inside the BEGIN IMMEDIATE lock — eliminating the read-before-lock race
-        flagged by Critic-3 on PR #41 (two concurrent processes calling
-        next_event_id() + apply_event() can both observe MAX=N and both attempt
-        INSERT E{N+1}; the second INSERT OR IGNORE silently no-ops, leaving the
-        event in JSONL but missing from the events table).
+        This is the sole production write entry point (SL1-RR-1). The entire
+        critical section is guarded by an flock on ``events.jsonl`` (cross-process
+        serialization) nested inside a threading.Lock (same-process serialization).
 
-        If event.id is a real ID it is honored as-is — required for the replay
-        path where the original ID must be preserved.
+        Ordering inside the critical section:
+          1. ``_check_<action>`` — raises ``EventRejected`` → audit rejection,
+             re-raise; raises ``IdempotentNoOp`` → audit idempotent_no_op, return None.
+          2. ``id = _next_seq()`` — increments the in-memory counter (log-owned).
+             Counter increments at log-append time, not at COMMIT, so a re-run
+             after a write failure gets the next id, and the failed event remains
+             accounted-for in the log.
+          3. Append the materialized Event line to ``events.jsonl`` (log-first).
+          4. If ``durability="strict"``: fsync the log file before COMMIT.
+          5. ``BEGIN IMMEDIATE; _write_<action>; _insert_event_row; COMMIT``.
 
-        Order of operations for non-PENDING (replay/legacy) events
-        -----------------------------------------------------------
-        1. Serialise event to JSON.
-        2. Append to events.jsonl.
-        3. BEGIN IMMEDIATE.
-        4. Dispatch to _apply_mutation().
-        5. INSERT the event row into events table.
-        6. COMMIT.
-
-        Order of operations for PENDING events (live path)
-        ---------------------------------------------------
-        Trade-off: JSONL write moves AFTER COMMIT because the ID is unknown until
-        inside the lock.  This weakens the "log-before-mutation" crash-recovery
-        property for PENDING events specifically — if the process dies after COMMIT
-        but before the JSONL write, the SQLite row exists but the JSONL line does
-        not.  This is strictly better than the alternative (silent event loss from
-        the race), and the replay path is not affected (it only uses non-PENDING IDs
-        from the existing JSONL log).
-
-        1. BEGIN IMMEDIATE.
-        2. Read MAX(id) inside the lock; compute assigned_id = E{max+1:06d}.
-        3. Rebuild event with the assigned ID.
-        4. Dispatch to _apply_mutation().
-        5. INSERT the event row into events table.
-        6. COMMIT.
-        7. Append the materialized event to events.jsonl.
-
-        Returns
-        -------
-        The materialized event (with assigned ID if PENDING was passed).  Callers
-        must use the returned value — do not rely on the input event having a
-        real ID after the call if PENDING_EVENT_ID was passed.
-
-        On any failure: ROLLBACK, append an error.transaction_aborted event to
-        JSONL, and re-raise as TransactionAborted.
+        On write failure after log append (step 3 succeeded, step 5 raised):
+          - ROLLBACK SQLite.
+          - Leave the log line (append-only — do NOT truncate).
+          - Write a ``write_failed_after_log`` line to ``audit.jsonl``.
+          - Raise ``TransactionAborted``.
+          - Forward catch-up on the next ``initialize()`` heals the skew.
         """
         conn = self._require_conn()
-        needs_id = event.id == PENDING_EVENT_ID
 
-        if needs_id:
-            # PENDING path: generate ID inside the lock.
-            try:
-                conn.execute("BEGIN IMMEDIATE")
-                row = conn.execute(
-                    "SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) FROM events"
-                ).fetchone()
-                max_num: int = row[0] if row and row[0] is not None else 0
-                assigned_id = f"E{max_num + 1:06d}"
-                # Rebuild event with the assigned ID (model_copy is pydantic v2).
-                event = event.model_copy(update={"id": assigned_id})
-                self._apply_mutation(conn, event)
-                self._insert_event_row(conn, event)
-                conn.execute("COMMIT")
-            except sqlite3.OperationalError as exc:
-                self._safe_rollback(conn)
-                if "database is locked" in str(exc).lower():
-                    raise StateLocked(
-                        f"SQLite busy_timeout exceeded assigning PENDING event "
-                        f"(action={event.action!r}): {exc}"
-                    ) from exc
-                # For PENDING events that failed before COMMIT, no JSONL line
-                # was written — append an abort tombstone using whatever partial
-                # event state we have so the audit log records the attempt.
-                self._append_abort_event(event, str(exc))
-                raise TransactionAborted(
-                    f"Transaction aborted for PENDING event (action={event.action!r}): {exc}"
-                ) from exc
-            except Exception as exc:
-                self._safe_rollback(conn)
-                self._append_abort_event(event, str(exc))
-                raise TransactionAborted(
-                    f"Transaction aborted for PENDING event (action={event.action!r}): {exc}"
-                ) from exc
-
-            # COMMIT succeeded — now write to JSONL (post-COMMIT ordering for PENDING).
-            # If this write fails, the mutation lives only in SQLite. This is a
-            # permanent audit gap: replay_from_empty deletes the SQLite file
-            # before rebuilding from JSONL, so this event will be lost on the
-            # next full replay. We accept the gap here because the alternative
-            # (raising TransactionAborted) would lie to the caller — SQLite has
-            # already committed. The best-effort tombstone below may also fail
-            # on disk-full; in that case _append_abort_event surfaces via the
-            # process logger so the divergence is at least operator-visible.
-            event_line = event.model_dump_json() + "\n"
-            try:
-                with open(self._events_path, "a", encoding="utf-8") as fh:
-                    fh.write(event_line)
-            except OSError as exc:
-                self._append_abort_event(
-                    event,
-                    f"JSONL write failed after successful COMMIT (audit gap): {exc}",
+        with self._append_lock():
+            # ---- Phase 1: validation (read-only) ----
+            action = draft.action
+            dispatch = self._get_action_dispatch()
+            if action not in dispatch:
+                raise EventRejected(
+                    f"append: action {action!r} is not in the dispatch table."
                 )
-        else:
-            # Non-PENDING (replay/legacy) path: write JSONL first, then SQLite.
-            # This is the original "log-before-mutation" ordering — if SQLite fails,
-            # the JSONL line is the recovery record.
-            event_line = event.model_dump_json() + "\n"
+            spec = dispatch[action]
             try:
-                with open(self._events_path, "a", encoding="utf-8") as fh:
-                    fh.write(event_line)
-            except OSError as exc:
-                raise TransactionAborted(
-                    f"Failed to write event {event.id!r} to JSONL log: {exc}"
-                ) from exc
+                typed_payload = spec.payload_model.model_validate(draft.payload_json)
+            except Exception as exc:
+                reason = f"payload validation failed for action {action!r}: {exc}"
+                self._append_audit_line("rejection", draft, reason)
+                raise EventRejected(reason) from exc
 
             try:
+                spec.check(conn, typed_payload, draft)  # type: ignore[arg-type]
+            except EventRejected as exc:
+                reason = str(exc)
+                self._append_audit_line("rejection", draft, reason)
+                raise
+            except IdempotentNoOp as exc:
+                reason = str(exc)
+                self._append_audit_line("idempotent_no_op", draft, reason)
+                return None
+
+            # ---- Phase 2: id assignment (log-owned counter) ----
+            self._next_seq += 1
+            event_id = f"E{self._next_seq:06d}"
+            event = Event(id=event_id, **draft.model_dump())
+
+            # ---- Phase 3: log-first append ----
+            event_line = event.model_dump_json() + "\n"
+            try:
+                with open(self._events_path, "a", encoding="utf-8") as log_fh:
+                    log_fh.write(event_line)
+                    # Phase 4: fsync before COMMIT in strict mode.
+                    if self._durability == "strict":
+                        log_fh.flush()
+                        os.fsync(log_fh.fileno())
+            except OSError as exc:
+                # Log write failed before COMMIT — counter was incremented but
+                # nothing was appended; reverse the counter so the id is not
+                # orphaned (the log has no record of it).
+                self._next_seq -= 1
+                raise TransactionAborted(
+                    f"append: failed to write event {event_id!r} to log: {exc}"
+                ) from exc
+
+            # ---- Phase 5: SQLite mutation ----
+            try:
                 conn.execute("BEGIN IMMEDIATE")
-                self._apply_mutation(conn, event)
+                spec.write(conn, typed_payload, event)
                 self._insert_event_row(conn, event)
                 conn.execute("COMMIT")
             except sqlite3.OperationalError as exc:
                 self._safe_rollback(conn)
-                if "database is locked" in str(exc).lower():
-                    raise StateLocked(
-                        f"SQLite busy_timeout exceeded for event {event.id!r}: {exc}"
-                    ) from exc
-                self._append_abort_event(event, str(exc))
+                # After the log line has been written (step 3 succeeded), any
+                # SQLite failure — including "database is locked" — is a genuine
+                # post-log-append failure. The event id is already committed to
+                # the log; a caller retry would write a NEW log line with a new
+                # id, leaving this one as a phantom. Surface as
+                # write_failed_after_log + TransactionAborted so the forward
+                # catch-up on the next initialize() can heal the skew.
+                #
+                # StateLocked is only appropriate BEFORE the log append
+                # (the flock-timeout path in _append_lock already handles that).
+                self._append_audit_line(
+                    "write_failed_after_log", draft, str(exc), event_id=event_id
+                )
                 raise TransactionAborted(
-                    f"Transaction aborted for event {event.id!r}: {exc}"
+                    f"Transaction aborted for event {event_id!r} (log line remains): {exc}"
                 ) from exc
             except Exception as exc:
                 self._safe_rollback(conn)
-                self._append_abort_event(event, str(exc))
+                self._append_audit_line(
+                    "write_failed_after_log", draft, str(exc), event_id=event_id
+                )
                 raise TransactionAborted(
-                    f"Transaction aborted for event {event.id!r}: {exc}"
+                    f"Transaction aborted for event {event_id!r} (log line remains): {exc}"
                 ) from exc
 
         return event
@@ -431,15 +420,18 @@ class SqliteBackend:
     # ------------------------------------------------------------------
 
     def replay_from_empty(self, events_path: str) -> None:
-        """Reconstruct state.db from events.jsonl.
+        """Reconstruct state.db from events.jsonl. Strict no-skip replay.
 
-        Steps
-        -----
-        1. Close and delete state.db.
+        Steps (SL1-RR-1)
+        ----------------
+        1. Close and delete state.db (+ WAL/SHM sidecars).
         2. Re-open and re-create schema (call initialize()).
-        3. Read events_path line-by-line.
-        4. Skip events with action == 'error.transaction_aborted'.
-        5. Apply each remaining event via apply_event().
+        3. Read every line of events_path. Every line is a canonical event fact —
+           there is no action-name skip-list. Apply each via ``_write_*`` only
+           (no validation, no JSONL logging).
+        4. Torn trailing line (from a crash mid-append) is tolerated and skipped.
+           Any interior malformed line raises — that is corruption, not a torn write.
+        5. Re-seed ``_next_seq`` from the max id seen during replay.
         """
         # Close existing connection.
         self.close()
@@ -450,46 +442,81 @@ class SqliteBackend:
             if os.path.exists(path):
                 os.remove(path)
 
-        # Re-open fresh.
-        self.initialize()
+        # Re-open fresh.  initialize() will also seed _next_seq via scan_tail
+        # and run forward catch-up — but since we are rebuilding from scratch
+        # the catch-up will be a no-op (table_max == log_max after replay).
+        # Set _replaying before initialize() so catch-up inside initialize()
+        # also suppresses audit side-effects.
+        self._replaying = True
+        try:
+            self.initialize()
 
-        if not os.path.exists(events_path):
-            return
+            if not os.path.exists(events_path):
+                return
 
-        with open(events_path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
+            conn = self._require_conn()
+            last_event_id = 0
+
+            with open(events_path, encoding="utf-8") as fh:
+                lines = fh.readlines()
+
+            for i, raw_line in enumerate(lines):
+                stripped = raw_line.strip()
+                if not stripped:
                     continue
+
+                # Determine if this is the last (possibly torn) line.
+                is_last = i == len(lines) - 1
+
                 try:
-                    raw: dict[str, Any] = json.loads(line)
-                except json.JSONDecodeError:
-                    # Corrupted line — skip silently (log files can have partial
-                    # writes on crash; in production we'd raise).
-                    continue
-
-                # Skip abort tombstones and informational warning lines.
-                # warn.idempotent_no_op entries (written by _append_warn_log
-                # whenever a claim release/stale is already-terminal) lack a
-                # canonical Event 'id' field — passing them to model_validate
-                # would crash mid-replay on any project that triggered a stale
-                # reaping cycle. Critic-3 flagged this on PR #41.
-                action = raw.get("action", "")
-                if action in ("error.transaction_aborted", "warn.idempotent_no_op"):
-                    continue
+                    raw: dict[str, Any] = json.loads(stripped)
+                except json.JSONDecodeError as exc:
+                    if is_last:
+                        # Torn trailing line — tolerate silently.
+                        logger.debug(
+                            "replay_from_empty: skipping torn trailing line (line %d): %s",
+                            i + 1,
+                            exc,
+                        )
+                        break
+                    # Interior malformed line — this is corruption.
+                    raise ValueError(
+                        f"replay_from_empty: malformed JSON on interior line {i + 1}: {exc}"
+                    ) from exc
 
                 try:
                     event = Event.model_validate(raw)
-                except Exception:
-                    # Defensive: any future non-canonical audit line (e.g. a
-                    # hook fallback that wrote a malformed entry) shouldn't
-                    # abort replay — log skip and move on. The byte-compare
-                    # test will fail on the next phase if a real action is
-                    # dropped silently, so this is safe forwards-compat.
-                    continue
-                # During replay we write only to SQLite; the JSONL is the source.
-                # We temporarily redirect apply_event to avoid re-appending to JSONL.
-                self._apply_event_sqlite_only(event)
+                except Exception as exc:
+                    if is_last:
+                        # Torn/corrupt trailing line — tolerate.
+                        logger.debug(
+                            "replay_from_empty: skipping invalid trailing event (line %d): %s",
+                            i + 1,
+                            exc,
+                        )
+                        break
+                    raise ValueError(
+                        f"replay_from_empty: cannot parse Event on interior line {i + 1}: {exc}"
+                    ) from exc
+
+                # Apply via _write_* only — no _check_*, no logging.
+                self._apply_write_only(conn, event)
+
+                # Track max id for counter re-sync.
+                try:
+                    seq = int(event.id[1:])
+                    if seq > last_event_id:
+                        last_event_id = seq
+                except (ValueError, IndexError):
+                    pass
+
+            # Re-seed counter from the max id replayed. scan_tail already seeded it
+            # from the log during initialize() above, but we keep it consistent with
+            # what we actually replayed.
+            if last_event_id > 0:
+                self._next_seq = last_event_id
+        finally:
+            self._replaying = False
 
     # ------------------------------------------------------------------
     # Query methods
@@ -781,20 +808,18 @@ class SqliteBackend:
         *,
         actor: str = "system",
     ) -> Event:
-        """Build a sync_mapping.upserted event and dispatch it via apply_event().
+        """Build a sync_mapping.upserted draft and dispatch via ``append()``.
 
         Convenience for callers that want to write a mapping without having to
-        construct the Event/payload boilerplate. Uses PENDING_EVENT_ID so the
-        Backend assigns a fresh sequential ID inside the BEGIN IMMEDIATE lock
-        (race-free); the returned Event carries the assigned ID.
+        construct the EventDraft/payload boilerplate. ``append`` assigns the id
+        from the log-authority counter.
 
         Serializes the mapping through the canonical
         :class:`SyncMappingUpsertedPayload` model EXPLICITLY — not via
         ``mapping.model_dump()`` — so a hypothetical extra field on
         ``SyncMapping`` that hasn't been added to the payload model fails
         fast at THIS call site with a ``ValidationError`` rather than
-        surfacing as ``TransactionAborted`` inside the BEGIN IMMEDIATE
-        lock. (Wave 1 critic fix MF-2.)
+        surfacing as ``TransactionAborted`` inside the lock. (Wave 1 critic fix MF-2.)
         """
         payload = SyncMappingUpsertedPayload(
             task_id=mapping.task_id,
@@ -806,8 +831,7 @@ class SqliteBackend:
             conflict_resolution_strategy=str(mapping.conflict_resolution_strategy),
             provider_metadata=dict(mapping.provider_metadata),
         )
-        event = Event(
-            id=PENDING_EVENT_ID,
+        draft = EventDraft(
             timestamp=self._clock.now(),
             actor=actor,
             action="sync_mapping.upserted",
@@ -815,7 +839,13 @@ class SqliteBackend:
             target_id=mapping.task_id,
             payload_json=payload.model_dump(mode="json"),
         )
-        return self.apply_event(event)
+        result = self.append(draft)
+        if result is None:  # pragma: no cover — idempotent no-op
+            raise TransactionAborted(
+                "apply_sync_mapping: append returned None (idempotent no-op); "
+                "this is unexpected for sync_mapping.upserted."
+            )
+        return result
 
     # ------------------------------------------------------------------
     # Internal helpers — DDL & version
@@ -922,6 +952,297 @@ class SqliteBackend:
                 "SqliteBackend.initialize() must be called before any query or mutation."
             )
         return self._conn
+
+    # ------------------------------------------------------------------
+    # Internal helpers — SL1-RR-1 log-authority / lock / audit
+    # ------------------------------------------------------------------
+
+    @contextmanager
+    def _append_lock(self) -> Iterator[None]:
+        """Serialize appends with a threading.Lock + flock on events.jsonl.
+
+        The threading.Lock serializes concurrent appends from different threads
+        in the same process (e.g., MCP server + CLI in one process). The flock
+        on ``events.jsonl`` serializes concurrent appends from different processes
+        (e.g., two CLI invocations). Together they guarantee no id collision and
+        no lost events.
+
+        The flock uses a 5-second contention timeout matching SQLite's
+        ``busy_timeout``; contention beyond it raises ``StateLocked``.
+        """
+        with self._proc_lock:
+            # Ensure the log file exists before we try to flock it.
+            log_path = self._events_path
+            if not os.path.exists(log_path):
+                open(log_path, "a", encoding="utf-8").close()  # noqa: WPS515
+            with open(log_path, "a", encoding="utf-8") as _lock_fh:
+                # Try a non-blocking LOCK_EX first; if contended, retry with
+                # a timeout by polling every 50 ms up to 5 seconds.
+                import time
+                deadline = time.monotonic() + 5.0
+                while True:
+                    try:
+                        fcntl.flock(_lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except OSError as lock_exc:
+                        if time.monotonic() >= deadline:
+                            raise StateLocked(
+                                "append: flock contention on events.jsonl exceeded 5 s timeout"
+                            ) from lock_exc
+                        time.sleep(0.05)
+                try:
+                    yield
+                finally:
+                    try:
+                        fcntl.flock(_lock_fh.fileno(), fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+
+    def _scan_tail_id(self) -> int:
+        """Return the numeric part of the last event id in events.jsonl.
+
+        Reads a window from the end of the file — O(window), not O(file size).
+        If the file does not exist or is empty, returns 0.
+
+        Torn-line tolerance (MUST FIX — SL1-RR-1 critic issue 1 + SHOULD FIX 1):
+        The final line of the file may be a torn partial write (crash mid-append).
+        A torn line will fail JSON parsing or carry no valid E###### id. We walk
+        backward through the candidate lines in the tail window and return the
+        *first* line that carries a valid E###### id — skipping the torn/idless
+        trailing line and falling back to the previous complete line.
+
+        Large-line tolerance (SHOULD FIX 1): if no newline separator is found in
+        the initial window, the final event line is longer than the window. We
+        double the window and retry, up to file_size, so events with large
+        ``prd.parsed`` / ``task.expanded`` payloads are handled correctly.
+        """
+        log_path = self._events_path
+        if not os.path.exists(log_path):
+            return 0
+        file_size = os.path.getsize(log_path)
+        if file_size == 0:
+            return 0
+
+        # Start with a 4096-byte window; double until we find at least one
+        # newline separator (ensuring we have at least two candidate lines to
+        # fall back between) or have read the entire file.
+        chunk_size = min(4096, file_size)
+        with open(log_path, "rb") as fh:
+            while True:
+                fh.seek(-chunk_size, 2)  # 2 = os.SEEK_END
+                chunk = fh.read(chunk_size)
+                # Strip trailing whitespace/newlines to ignore blank trailing lines.
+                stripped = chunk.rstrip(b"\n\r ")
+                # Check whether the stripped chunk contains at least one newline
+                # (meaning we have at least one complete prior line to fall back to).
+                if b"\n" in stripped or chunk_size >= file_size:
+                    break
+                # No newline found and we haven't read the full file yet — double.
+                chunk_size = min(chunk_size * 2, file_size)
+
+        # Split the stripped tail into candidate lines.
+        lines = stripped.split(b"\n")
+
+        # Walk from the last line backwards; return the first valid E###### id found.
+        # This skips a torn or id-less trailing line and falls back to the previous
+        # complete line, matching replay_from_empty's torn-trailing-line tolerance.
+        for candidate in reversed(lines):
+            candidate = candidate.strip()
+            if not candidate:
+                continue
+            try:
+                raw = json.loads(candidate.decode("utf-8"))
+                event_id: str = raw.get("id", "")
+                if event_id.startswith("E") and event_id[1:].isdigit():
+                    return int(event_id[1:])
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                continue
+
+        return 0
+
+    def _table_max_id(self, conn: sqlite3.Connection) -> int:
+        """Return the numeric part of the MAX event id in the SQLite events table."""
+        row = conn.execute(
+            "SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) FROM events"
+        ).fetchone()
+        return row[0] if row and row[0] is not None else 0
+
+    def _forward_catch_up(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        from_seq: int,
+        to_seq: int,
+    ) -> None:
+        """Re-apply log lines with ids in [from_seq, to_seq] to SQLite.
+
+        Used during ``initialize()`` when the log is ahead of the projection
+        (log-ahead skew from a crash after log-append but before COMMIT).
+        Applies via ``_write_*`` only (same code path as replay), so there is
+        no third apply implementation.
+
+        Raises ``TransactionAborted`` (integrity alarm) if any target id is
+        not found after scanning the entire log — the log is missing an event
+        the projection expected to converge on.
+
+        Audit side-effects in ``_write_*`` are suppressed during catch-up via
+        the ``_replaying`` flag set by the caller (``initialize()`` sets it
+        via ``replay_from_empty``, or ``initialize()`` sets it directly when
+        catch-up runs outside of replay).
+        """
+        if not os.path.exists(self._events_path):
+            if from_seq <= to_seq:
+                raise TransactionAborted(
+                    f"forward_catch_up: events.jsonl does not exist but "
+                    f"expected events {from_seq}–{to_seq}."
+                )
+            return
+
+        target_ids = {f"E{n:06d}" for n in range(from_seq, to_seq + 1)}
+
+        with open(self._events_path, encoding="utf-8") as fh:
+            for raw_line in fh:
+                stripped = raw_line.strip()
+                if not stripped:
+                    continue
+                try:
+                    raw: dict[str, Any] = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                event_id = raw.get("id", "")
+                if event_id not in target_ids:
+                    continue
+                try:
+                    event = Event.model_validate(raw)
+                except Exception as exc:
+                    raise TransactionAborted(
+                        f"forward_catch_up: cannot parse event {event_id!r}: {exc}"
+                    ) from exc
+                self._apply_write_only(conn, event)
+                target_ids.discard(event_id)
+                if not target_ids:
+                    break
+
+        if target_ids:
+            raise TransactionAborted(
+                f"forward_catch_up: log is missing events the projection expected "
+                f"to converge on: {sorted(target_ids)}"
+            )
+
+    def _apply_write_only(self, conn: sqlite3.Connection, event: Event) -> None:
+        """Apply a single event via ``_write_*`` only — no validation, no logging.
+
+        Used by ``replay_from_empty`` and ``_forward_catch_up``. Raises
+        ``TransactionAborted`` on any failure so the caller knows the
+        projection is inconsistent.
+        """
+        action = event.action
+        dispatch = self._get_action_dispatch()
+        if action not in dispatch:
+            raise TransactionAborted(
+                f"_apply_write_only: unsupported action {action!r} during replay/catch-up."
+            )
+        spec = dispatch[action]
+        try:
+            typed_payload = spec.payload_model.model_validate(event.payload_json)
+        except Exception as exc:
+            raise TransactionAborted(
+                f"_apply_write_only: payload parse failed for {action!r}: {exc}"
+            ) from exc
+
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            spec.write(conn, typed_payload, event)
+            self._insert_event_row(conn, event)
+            conn.execute("COMMIT")
+        except sqlite3.OperationalError as exc:
+            self._safe_rollback(conn)
+            if "database is locked" in str(exc).lower():
+                raise StateLocked(
+                    f"SQLite busy_timeout exceeded during replay of event {event.id!r}: {exc}"
+                ) from exc
+            raise TransactionAborted(
+                f"Transaction aborted during replay of event {event.id!r}: {exc}"
+            ) from exc
+        except TransactionAborted:
+            self._safe_rollback(conn)
+            raise
+        except Exception as exc:
+            self._safe_rollback(conn)
+            raise TransactionAborted(
+                f"Transaction aborted during replay of event {event.id!r}: {exc}"
+            ) from exc
+
+    def _append_audit_line(
+        self,
+        kind: str,
+        draft: EventDraft,
+        reason: str,
+        *,
+        event_id: str | None = None,
+    ) -> None:
+        """Append a line to audit.jsonl (sibling of events.jsonl, never replayed).
+
+        Shapes (spec section 4):
+          rejection:             {ts, kind, actor, attempted_action, target_id, reason}
+          idempotent_no_op:      {ts, kind, action, target_id, reason}
+          write_failed_after_log:{ts, kind, event_id, action, target_id, reason}
+
+        No ``id`` field — these are not events and never collide with the
+        ``E######`` space.
+        """
+        audit_path = self._audit_path()
+        now = self._clock.now().isoformat()
+        if kind == "rejection":
+            record: dict[str, Any] = {
+                "ts": now,
+                "kind": "rejection",
+                "actor": draft.actor,
+                "attempted_action": draft.action,
+                "target_id": draft.target_id,
+                "reason": reason,
+            }
+        elif kind == "idempotent_no_op":
+            record = {
+                "ts": now,
+                "kind": "idempotent_no_op",
+                "action": draft.action,
+                "target_id": draft.target_id,
+                "reason": reason,
+            }
+        elif kind == "write_failed_after_log":
+            record = {
+                "ts": now,
+                "kind": "write_failed_after_log",
+                "event_id": event_id or "",
+                "action": draft.action,
+                "target_id": draft.target_id,
+                "reason": reason,
+            }
+        else:
+            record = {
+                "ts": now,
+                "kind": kind,
+                "action": draft.action,
+                "target_id": draft.target_id,
+                "reason": reason,
+            }
+
+        try:
+            with open(audit_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record) + "\n")
+        except OSError as exc:
+            logger.error(
+                "Failed to write audit line (kind=%r, action=%r): %s",
+                kind,
+                draft.action,
+                exc,
+            )
+
+    def _audit_path(self) -> str:
+        """Return the path to audit.jsonl (sibling of events.jsonl)."""
+        events_dir = os.path.dirname(self._events_path)
+        return os.path.join(events_dir, "audit.jsonl")
 
     # ------------------------------------------------------------------
     # Internal helpers — event routing
@@ -1080,31 +1401,17 @@ class SqliteBackend:
     def _apply_mutation(self, conn: sqlite3.Connection, event: Event) -> None:
         """Validate via ``_check_*`` then mutate via ``_write_*``.
 
-        SL1-RR-1 architecture move #1: a dispatched action is now applied in
-        two phases. The payload is validated against its model, then the
-        action's ``check`` runs (read-only validation that may raise
-        ``EventRejected`` / ``IdempotentNoOp``), then its ``write`` performs the
-        mutation.
+        Internal helper retained for the ``_apply_event_sqlite_only`` replay
+        path (used by the legacy test suite until Task 6 migrates helpers).
 
-        This wave is behavior-preserving — the split is internal to
-        ``_apply_mutation``; the outcomes observed by ``apply_event`` /
-        ``replay_from_empty`` are exactly today's:
+        SL1-RR-1 note: the production write path is ``append()``, which calls
+        ``spec.check`` and ``spec.write`` directly within the flock critical
+        section. This method is no longer on the hot path.
 
-        - ``EventRejected`` (raised by a check that used to ``raise
-          TransactionAborted`` as a validation guard) is left to propagate.
-          ``apply_event``'s existing ``except Exception`` block treats it like
-          the validation failures it handled before: rollback, append an
-          ``error.transaction_aborted`` tombstone, re-raise ``TransactionAborted``.
-        - ``IdempotentNoOp`` (raised by a check where the handler used to
-          warn-and-return or return silently) is caught here and mapped back to
-          the prior behavior: emit the ``warn.idempotent_no_op`` line when the
-          original handler did, then return normally so the caller still records
-          the event row + JSONL line exactly as before.
-        - Genuine infra failures (``sqlite3.OperationalError`` from a ``write``)
-          keep flowing to the caller untouched.
-
-        Task 4 rewires error handling (log-first ``append`` + ``audit.jsonl``);
-        until then this mapping keeps the suite green.
+        ``IdempotentNoOp`` is re-raised here (unlike ``append``, there is no
+        audit-line write in this method — callers that need audit should use
+        ``append`` or ``_apply_write_only``).
+        ``EventRejected`` propagates to the caller.
         """
         action = event.action
         dispatch = self._get_action_dispatch()
@@ -1118,23 +1425,7 @@ class SqliteBackend:
         spec = dispatch[action]
         typed_payload = spec.payload_model.model_validate(event.payload_json)
 
-        try:
-            spec.check(conn, typed_payload, event)
-        except IdempotentNoOp as no_op:
-            # Already-satisfied request. Reproduce the prior behavior: some
-            # handlers emitted a warn.idempotent_no_op JSONL line, others
-            # returned silently. Either way the event row + JSONL line are still
-            # recorded by the caller (apply_event continues to _insert_event_row
-            # + COMMIT), so we return normally without running the write.
-            warn_action = getattr(no_op, "warn_action", None)
-            if warn_action is not None:
-                self._append_warn_log(
-                    action=warn_action,
-                    target_id=getattr(no_op, "warn_target_id", "") or "",
-                    reason=str(no_op),
-                )
-            return
-
+        spec.check(conn, typed_payload, event)
         spec.write(conn, typed_payload, event)
 
     # ------------------------------------------------------------------
@@ -2550,19 +2841,24 @@ class SqliteBackend:
         )
 
         if conn.execute("SELECT changes()").fetchone()[0] == 0:
-            # Claim already released or stale — idempotent; log warning only.
-            row = conn.execute(
-                "SELECT status FROM claims WHERE id = ?", (claim_id,)
-            ).fetchone()
-            current_status = row[0] if row else "not found"
-            self._append_warn_log(
-                action="evidence.submitted",
-                target_id=claim_id or "",
-                reason=(
-                    f"evidence.submitted: claim '{claim_id}' auto-release skipped; "
-                    f"current status is '{current_status}'."
-                ),
-            )
+            # Claim already released or stale — idempotent; log warning to audit.jsonl
+            # only during normal (non-replay) execution. During replay/catch-up the
+            # audit line was already written on the first run; re-writing it would
+            # cause unbounded audit.jsonl growth contradicting the "no logging during
+            # replay" contract.
+            if not self._replaying:
+                row = conn.execute(
+                    "SELECT status FROM claims WHERE id = ?", (claim_id,)
+                ).fetchone()
+                current_status = row[0] if row else "not found"
+                self._write_warn_to_audit(
+                    action="evidence.submitted",
+                    target_id=claim_id or "",
+                    reason=(
+                        f"evidence.submitted: claim '{claim_id}' auto-release skipped; "
+                        f"current status is '{current_status}'."
+                    ),
+                )
 
     def _check_task_applied(
         self,
@@ -2978,39 +3274,6 @@ class SqliteBackend:
         )
 
     # ------------------------------------------------------------------
-    # Internal helpers — replay (JSONL-only path)
-    # ------------------------------------------------------------------
-
-    def _apply_event_sqlite_only(self, event: Event) -> None:
-        """Apply a single event to SQLite without writing to JSONL.
-
-        Used exclusively during replay_from_empty().
-        """
-        conn = self._require_conn()
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            self._apply_mutation(conn, event)
-            self._insert_event_row(conn, event)
-            conn.execute("COMMIT")
-        except sqlite3.OperationalError as exc:
-            self._safe_rollback(conn)
-            if "database is locked" in str(exc).lower():
-                raise StateLocked(
-                    f"SQLite busy_timeout exceeded during replay of event {event.id!r}: {exc}"
-                ) from exc
-            raise TransactionAborted(
-                f"Transaction aborted during replay of event {event.id!r}: {exc}"
-            ) from exc
-        except NotImplementedError:
-            # During replay, unsupported actions are skipped gracefully.
-            self._safe_rollback(conn)
-        except Exception as exc:
-            self._safe_rollback(conn)
-            raise TransactionAborted(
-                f"Transaction aborted during replay of event {event.id!r}: {exc}"
-            ) from exc
-
-    # ------------------------------------------------------------------
     # Internal helpers — error handling
     # ------------------------------------------------------------------
 
@@ -3021,73 +3284,34 @@ class SqliteBackend:
         except Exception:  # noqa: BLE001
             pass
 
-    def _append_abort_event(self, failed_event: Event, reason: str) -> None:
-        """Append an error.transaction_aborted tombstone to the JSONL log."""
-        now = self._clock.now()
-        # If the failure happened on the PENDING path before ID assignment, the
-        # event still carries the sentinel. Synthesize a unique ABORT-PENDING-*
-        # id so tombstones don't collide and the audit line is correlatable.
-        if failed_event.id == PENDING_EVENT_ID:
-            ts_us = int(now.timestamp() * 1_000_000)
-            tombstone_id = f"ABORT-PENDING-{failed_event.action}-{ts_us}"
-        else:
-            tombstone_id = failed_event.id
-        abort_data = {
-            "id": tombstone_id,
-            "timestamp": now.isoformat(),
-            "actor": "system",
-            "action": "error.transaction_aborted",
-            "target_kind": failed_event.target_kind,
-            "target_id": failed_event.target_id,
-            "payload_json": {
-                "original_action": failed_event.action,
-                "reason": reason,
-            },
-        }
-        try:
-            with open(self._events_path, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(abort_data) + "\n")
-        except OSError as fs_exc:
-            # If we can't write the abort tombstone, surface via the process
-            # logger so the SQLite/JSONL divergence is at least visible to
-            # operators. Raising would mask the caller's TransactionAborted.
-            logger.error(
-                "Failed to write abort tombstone for event %r (action=%r, "
-                "original_reason=%r): %s",
-                tombstone_id,
-                failed_event.action,
-                reason,
-                fs_exc,
-            )
-
-    def _append_warn_log(
+    def _write_warn_to_audit(
         self,
         action: str,
         target_id: str,
         reason: str,
     ) -> None:
-        """Append a warn.idempotent_no_op entry to the JSONL log.
+        """Write an idempotent-no-op warning to audit.jsonl.
 
-        Used for idempotent no-ops (already-released / already-stale claims)
-        where we need an audit trail but must not raise TransactionAborted.
-        Unlike _append_abort_event this method does not require an Event object,
-        so it avoids constructing a model with a non-standard ID.
+        Used by ``_write_*`` methods that have post-mutation audit side-effects
+        (e.g. ``_write_evidence_submitted``'s conditional claim auto-release warn).
+        Unlike ``_append_audit_line`` this does not require an ``EventDraft``
+        object — the action + target_id are sufficient.
+
+        Writes to ``audit.jsonl`` (sibling of ``events.jsonl``); never to
+        ``events.jsonl``.
         """
-        now = self._clock.now()
-        warn_data = {
-            "timestamp": now.isoformat(),
-            "actor": "system",
-            "action": "warn.idempotent_no_op",
-            "target_kind": "claim",
+        audit_path = self._audit_path()
+        now = self._clock.now().isoformat()
+        record = {
+            "ts": now,
+            "kind": "idempotent_no_op",
+            "action": action,
             "target_id": target_id,
-            "payload_json": {
-                "original_action": action,
-                "reason": reason,
-            },
+            "reason": reason,
         }
         try:
-            with open(self._events_path, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(warn_data) + "\n")
+            with open(audit_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record) + "\n")
         except OSError:
             pass
 
