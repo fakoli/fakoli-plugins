@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-02T08:04:33Z",
+  "generatedAt": "2026-06-02T09:44:06Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -25,7 +25,7 @@
         },
         {
           "name": "fakoli-flow",
-          "version": "1.1.1",
+          "version": "1.2.0",
           "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
           "path": "plugins/fakoli-flow"
         },

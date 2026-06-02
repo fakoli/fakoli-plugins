@@ -69,18 +69,20 @@ If no spec file is provided, ask for it before proceeding. Do not plan from memo
 
 **If fakoli-crew is installed:** dispatch a scout agent before writing any task.
 
-First, derive a scratch path for this planning session. Use a `plan-` prefixed run ID:
+First, derive a scratch path for this planning session. Use a `plan-` prefixed run ID in the
+**canonical seconds-plus-nonce format** defined in `../../references/run-id.md` (a minute-only
+timestamp collides with same-minute phases and silently overwrites status files):
 
 ```
-<plan-run-id>  = plan-<spec-basename-without-extension>-<YYYYMMDDHHmm UTC>
+<plan-run-id>  = plan-<spec-basename-without-extension>-<YYYYMMDDHHmmss UTC>-<nonce4>
 <scout-status> = <project-root>/.fakoli/runs/<plan-run-id>/agent-scout-status.md
 ```
 
 Log the resolved path before dispatch:
 
 ```
-[plan] Run ID: plan-<spec-basename>-202606011545
-[plan] Scout status: /abs/project/.fakoli/runs/plan-<spec-basename>-202606011545/agent-scout-status.md
+[plan] Run ID: plan-<spec-basename>-20260601154512-a90c
+[plan] Scout status: /abs/project/.fakoli/runs/plan-<spec-basename>-20260601154512-a90c/agent-scout-status.md
 ```
 
 Then dispatch:

@@ -77,22 +77,39 @@ Read the plan file fully. Extract:
 
 If the plan file does not exist or cannot be found, ask the user for the path. Do not proceed without it.
 
+**Pre-flight plan validation (gate — run before forming waves).** A malformed plan must fail
+loudly here, not silently downstream. Reject and report (do not dispatch) if any of these hold:
+- A task is missing a required field: `Intent`, `Acceptance criteria`, `Agent`, or `Verify`.
+  (An empty `Verify` means the wave has no way to prove the task; treat as a hard error.)
+- A task names an `Agent` that is not a known crew agent (scout, guido, welder, smith, herald,
+  keeper, critic, sentinel) and not `general-purpose`.
+- The `Depends on` graph contains a **cycle** (A→B→A) or references a task id that does not
+  exist. Detect the cycle while building the dependency graph above; on detection, print the
+  offending chain and stop.
+
+Report all violations together (not one at a time), then ask the user to fix the plan. This
+gate is cheap and prevents circular waves, null verify commands, and misrouted dispatches.
+
 **Derive the run ID immediately after loading the plan.** The run ID is the single
-source of truth for all status-file paths in this execution:
+source of truth for all status-file paths in this execution. Use the **canonical
+seconds-plus-nonce format** defined in `references/run-id.md` (do not use a
+minute-only timestamp — same-minute phases collide and silently overwrite each other's
+status files):
 
 ```
-<run-id> = <plan-basename-without-extension>-<YYYYMMDDHHmm UTC>
+<run-id> = <plan-basename-without-extension>-<YYYYMMDDHHmmss UTC>-<nonce4>
 ```
 
-Example: plan file `docs/plans/2026-06-01-retry-mechanism.md` loaded at 14:30 UTC
-on 2026-06-01 → `run-id = 2026-06-01-retry-mechanism-202606011430`.
+Derive it once with the snippet in `references/run-id.md`, then reuse it. Example: plan file
+`docs/plans/2026-06-01-retry-mechanism.md` loaded at 14:30:07 UTC on 2026-06-01 →
+`run-id = 2026-06-01-retry-mechanism-20260601143007-3f1a`.
 
 **Default scratch root:** `.fakoli/runs/<run-id>/` (relative to the project root).
 Log the resolved absolute path once:
 
 ```
-[execute] Run ID: 2026-06-01-retry-mechanism-202606011430
-[execute] Scratch root: /abs/project/.fakoli/runs/2026-06-01-retry-mechanism-202606011430/
+[execute] Run ID: 2026-06-01-retry-mechanism-20260601143007-3f1a
+[execute] Scratch root: /abs/project/.fakoli/runs/2026-06-01-retry-mechanism-20260601143007-3f1a/
 ```
 
 All status-file references in this run use the absolute scratch root path. Every
@@ -224,6 +241,17 @@ After dispatching a wave, wait for all `<scratch-root>/agent-*-status.md` files 
 1. Read all `<scratch-root>/agent-*-status.md` files.
 2. If any shows `IN_PROGRESS`: wait 10 seconds and re-read.
 3. If still `IN_PROGRESS` after 5 minutes: surface to user as a timeout — "Agent `<name>` has been IN_PROGRESS for 5 minutes. Check for errors or re-dispatch."
+4. **Missing status file (agent never reported):** if a dispatched agent's status file does
+   not exist at all after 5 minutes, treat it as a failed dispatch, not a silent success —
+   surface to the user: "Agent `<name>` never wrote a status file (likely crashed or never
+   received its prompt). Re-dispatch or investigate." Never advance the wave while an expected
+   status file is absent.
+5. **Terminal-state wall clock:** a `BLOCKED` / `NEEDS_REVIEW` agent waits on a human, which is
+   legitimate — but it must not stall the rest of the wave. Continue polling the *other*
+   agents in the wave and let them reach terminal status; only the gate (critic) waits on the
+   full set. If a single escalation sits unresolved past a long deadline (default 30 minutes of
+   no user input), re-surface it once with an explicit "still waiting on your decision for
+   `<name>`" rather than blocking indefinitely and silently.
 
 Extract from each completed status file:
 - "Files Modified" — needed for the critic gate

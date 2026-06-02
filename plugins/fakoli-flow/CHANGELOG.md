@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.2.0 (2026-06-02)
+
+Multi-agent hardening pass (see `docs/roadmap/2026-06-02-multi-agent-hardening-spec.md`).
+
+### Added
+- `references/run-id.md` — canonical run-ID derivation, the single source of truth referenced
+  by `plan`, `execute`, and `verify`. Run IDs now use **seconds-granular timestamps plus a
+  4-hex nonce** (`…-YYYYMMDDHHmmss-<nonce4>`) instead of minute-only stamps, closing a
+  same-minute collision where two phases shared one `.fakoli/runs/` dir and silently
+  overwrote each other's status files. (Roadmap P0-1)
+
+### Changed
+- `execute`: added a **pre-flight plan validation gate** (required fields, valid agent names,
+  acyclic dependency graph) that fails loudly before forming waves. (Roadmap P1-7)
+- `execute`: polling protocol now handles a **status file that never appears** (crashed/never-
+  dispatched agent) and gives `BLOCKED`/`NEEDS_REVIEW` escalations a wall-clock re-surface so a
+  wave cannot stall silently. (Roadmap P1-6)
+- `finish`: now **surfaces the latest verify sentinel scorecard** (acceptance criteria +
+  `SHOULD_FIX`) alongside the fresh test re-run, so the verify gate's judgment is not silently
+  dropped at ship time. (Roadmap P1-5)
+
+---
+
 ## 1.1.1 (2026-06-01)
 
 ### Added

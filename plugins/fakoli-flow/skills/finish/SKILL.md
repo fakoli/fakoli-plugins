@@ -20,7 +20,21 @@ Ship work only after fresh verification. Present options. Execute the chosen one
 
 ## Step 1: Re-Run Tests (Fresh Evidence)
 
-Do not rely on the verify step's results. Re-run now, in this message.
+Do not rely on the verify step's results as the *only* gate. Re-run tests now, in this message
+(fresh evidence is required before shipping).
+
+**First, surface the most recent verify scorecard (do not discard it).** The `/flow:verify`
+sentinel checks *acceptance criteria*, which is broader than the test suite — and it may have
+logged `SHOULD_FIX` notes that the test run will not catch. Look for the latest sentinel status
+under `.fakoli/runs/verify-*/agent-sentinel-status.md` (most recent by timestamp). If found:
+- Show its PASS/FAIL acceptance-criteria verdict and any `SHOULD_FIX` items in the summary.
+- If it reported any criterion FAIL or any unresolved `SHOULD_FIX`, call that out before the
+  options — shipping over a known-failing acceptance criterion must be a deliberate user choice.
+- If no scorecard exists (e.g. verify was skipped), note "no verify scorecard found" and rely
+  on the fresh test run alone.
+
+This couples the two gates: the fresh test run proves the build is green *now*; the verify
+scorecard preserves the acceptance-criteria judgment so it is not silently dropped at ship time.
 
 Detect the project language first:
 

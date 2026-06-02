@@ -83,42 +83,44 @@ Multiple plans found for today:
 Which plan should I verify against?
 ```
 
-**After `/flow:quick` (no plan file):** Quick mode does not create a plan file. If verify is invoked after a quick session, ask the user for the original task description and verify the modified files against it. Use the same evidence gate — every PASS still requires a command output to cite. Because there is no plan file, use `verify-quick-<YYYYMMDDHHmm UTC>` as the run-id (e.g. `verify-quick-202606011545`) so the sentinel always gets a concrete, absolute status path.
+**After `/flow:quick` (no plan file):** Quick mode does not create a plan file. If verify is invoked after a quick session, ask the user for the original task description and verify the modified files against it. Use the same evidence gate — every PASS still requires a command output to cite. Because there is no plan file, use the `verify-quick-` prefixed canonical run-id (see `../../references/run-id.md`) so the sentinel always gets a concrete, absolute status path.
 
-**Derive a scratch path for this verify session.** Use a `verify-` prefixed run ID so the
-sentinel has an isolated, gitignored location to write its status file:
+**Derive a scratch path for this verify session.** Use a `verify-` prefixed run ID in the
+**canonical seconds-plus-nonce format** defined in `../../references/run-id.md` so the
+sentinel has an isolated, gitignored location to write its status file. A minute-only
+timestamp collides with a same-minute plan/execute phase and silently overwrites status files:
 
 ```
 # When a plan file exists:
-<verify-run-id>     = verify-<plan-basename-without-extension>-<YYYYMMDDHHmm UTC>
+<verify-run-id>     = verify-<plan-basename-without-extension>-<YYYYMMDDHHmmss UTC>-<nonce4>
 
 # When there is no plan file (quick mode):
-<verify-run-id>     = verify-quick-<YYYYMMDDHHmm UTC>
+<verify-run-id>     = verify-quick-<YYYYMMDDHHmmss UTC>-<nonce4>
 
 <verify-scratch>    = <project-root>/.fakoli/runs/<verify-run-id>/
 <sentinel-status>   = <verify-scratch>/agent-sentinel-status.md   (absolute path)
 ```
 
-Example (plan file): plan file `docs/plans/2026-06-01-retry-mechanism.md`, verify invoked at 15:45 UTC →
-`verify-run-id = verify-2026-06-01-retry-mechanism-202606011545`
+Example (plan file): plan file `docs/plans/2026-06-01-retry-mechanism.md`, verify invoked at 15:45:30 UTC →
+`verify-run-id = verify-2026-06-01-retry-mechanism-20260601154530-7b22`
 
-Example (quick mode): no plan file, verify invoked at 15:45 UTC →
-`verify-run-id = verify-quick-202606011545`
+Example (quick mode): no plan file, verify invoked at 15:45:30 UTC →
+`verify-run-id = verify-quick-20260601154530-7b22`
 
 Log the resolved paths before dispatch:
 
 ```
-[verify] Run ID: verify-2026-06-01-retry-mechanism-202606011545
-[verify] Scratch root: /abs/project/.fakoli/runs/verify-2026-06-01-retry-mechanism-202606011545/
-[verify] Sentinel status: /abs/project/.fakoli/runs/verify-2026-06-01-retry-mechanism-202606011545/agent-sentinel-status.md
+[verify] Run ID: verify-2026-06-01-retry-mechanism-20260601154530-7b22
+[verify] Scratch root: /abs/project/.fakoli/runs/verify-2026-06-01-retry-mechanism-20260601154530-7b22/
+[verify] Sentinel status: /abs/project/.fakoli/runs/verify-2026-06-01-retry-mechanism-20260601154530-7b22/agent-sentinel-status.md
 ```
 
 Quick-mode log example:
 
 ```
-[verify] Run ID: verify-quick-202606011545
-[verify] Scratch root: /abs/project/.fakoli/runs/verify-quick-202606011545/
-[verify] Sentinel status: /abs/project/.fakoli/runs/verify-quick-202606011545/agent-sentinel-status.md
+[verify] Run ID: verify-quick-20260601154530-7b22
+[verify] Scratch root: /abs/project/.fakoli/runs/verify-quick-20260601154530-7b22/
+[verify] Sentinel status: /abs/project/.fakoli/runs/verify-quick-20260601154530-7b22/agent-sentinel-status.md
 ```
 
 **Dispatch.** Use exactly ONE of the two dispatches below — the plan-file dispatch when a plan exists, the quick-mode dispatch when it does not. Do not combine them, and never paste a `docs/plans/<filename>` that does not exist.
