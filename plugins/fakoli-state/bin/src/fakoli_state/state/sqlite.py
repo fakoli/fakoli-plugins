@@ -213,6 +213,14 @@ class SqliteBackend:
         # _write_* methods with audit side-effects (e.g. _write_evidence_submitted)
         # suppress those writes — audit lines must not be appended during replay.
         self._replaying: bool = False
+        # Observable audit health (P1-9). A failed audit.jsonl append must not
+        # crash the write path (audit writes happen in the critical section,
+        # including the write_failed_after_log case where raising would mask the
+        # original error), but a silently-dropped audit line previously left the
+        # caller with no signal that the trail is now incomplete. These counters
+        # let a caller / health check observe degradation.
+        self._audit_write_failures: int = 0
+        self._last_audit_error: str | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -1276,12 +1284,43 @@ class SqliteBackend:
             with open(audit_path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record) + "\n")
         except OSError as exc:
+            # Do not raise: audit writes happen in the critical section (incl. the
+            # write_failed_after_log case), so raising would mask the real error.
+            # Instead record the failure so callers/health checks can observe a
+            # degraded audit trail rather than assuming it is complete (P1-9).
+            self._audit_write_failures += 1
+            self._last_audit_error = f"{type(exc).__name__}: {exc}"
             logger.error(
-                "Failed to write audit line (kind=%r, action=%r): %s",
+                "Failed to write audit line (kind=%r, action=%r, path=%r): %s "
+                "[audit trail now degraded; %d total failures this session]",
                 kind,
                 draft.action,
+                audit_path,
                 exc,
+                self._audit_write_failures,
             )
+
+    @property
+    def audit_degraded(self) -> bool:
+        """True if any audit.jsonl append has failed this session (P1-9).
+
+        A degraded audit trail means one or more rejection / idempotent / write-
+        failure lines could not be persisted. The canonical event log and SQLite
+        projection are unaffected (audit.jsonl is never replayed), but downstream
+        consumers that rely on the audit trail for forensics should treat it as
+        incomplete.
+        """
+        return self._audit_write_failures > 0
+
+    @property
+    def audit_write_failures(self) -> int:
+        """Count of audit.jsonl append failures this session (P1-9)."""
+        return self._audit_write_failures
+
+    @property
+    def last_audit_error(self) -> str | None:
+        """The most recent audit-write error string, or None if all succeeded (P1-9)."""
+        return self._last_audit_error
 
     def _audit_path(self) -> str:
         """Return the path to audit.jsonl (sibling of events.jsonl)."""

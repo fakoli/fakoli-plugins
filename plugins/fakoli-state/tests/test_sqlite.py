@@ -7794,6 +7794,43 @@ class TestWriteFailedAfterLogAppend:
             b.close()
 
 
+class TestAuditDegradationObservable:
+    """A failed audit.jsonl append is observable, not silently swallowed (P1-9)."""
+
+    def test_audit_write_failure_sets_degraded_flag(self, tmp_path: Path) -> None:
+        """When the audit append raises OSError, the backend records it and does not raise.
+
+        Forcing the failure: create a *directory* at the audit.jsonl path so that
+        opening it for append raises IsADirectoryError (an OSError). The audit
+        write must not crash the caller, and the degradation must be observable
+        via the new public accessors.
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        Path(events_path).touch()
+        # Make audit.jsonl un-openable for writing (it is a directory).
+        (tmp_path / "audit.jsonl").mkdir()
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b.initialize()
+        try:
+            assert b.audit_degraded is False
+            assert b.audit_write_failures == 0
+            assert b.last_audit_error is None
+
+            # Directly drive an audit line; must not raise despite the dir collision.
+            b._append_audit_line("rejection", _project_draft(), "forced failure")  # noqa: SLF001
+
+            assert b.audit_degraded is True
+            assert b.audit_write_failures == 1
+            assert b.last_audit_error is not None
+            # A second failure increments the counter.
+            b._append_audit_line("rejection", _project_draft(), "again")  # noqa: SLF001
+            assert b.audit_write_failures == 2
+        finally:
+            b.close()
+
+
 # ---------------------------------------------------------------------------
 # Fix-cycle iteration 1: MUST FIX + SHOULD FIX tests (SL1-RR-1 critic wave 3)
 # ---------------------------------------------------------------------------
