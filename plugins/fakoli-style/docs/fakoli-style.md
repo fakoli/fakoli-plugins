@@ -171,7 +171,7 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 - `plugins/fakoli-flow/skills/execute/SKILL.md` (fakoli-flow) — critic fix cycle is capped at 3 iterations then escalates; welder/verify fix cycle capped at 2; a 5-minute poll timeout surfaces to the user; escalations are never silently swallowed
 - `plugins/fakoli-crew/skills/crew-ops/references/wave-patterns.md` (fakoli-crew) — critic-gate fix cycle bounded at max 3 cycles before the orchestrator must proceed or surface
 
-**Open work.** Promote to proven with a harness that asserts a refinement loop terminates within its declared cap and emits an escalation event at the ceiling, rather than relying on the cap being honored by prompt instructions.
+**Open work.** Promote to proven with a harness that asserts a refinement loop terminates within its declared cap and emits an escalation event at the ceiling, rather than relying on the cap being honored by prompt instructions. Breadcrumb: the nearest real proof candidate is the git branch-collision ceiling (_MAX_COLLISION_ATTEMPTS=20) in plugins/fakoli-state/bin/src/fakoli_state/git_ops/branch.py — its termination half is already covered by test_git_ops.py::TestCreateBranchForTask::test_create_branch_handles_name_collision, but no test yet drives it to the ceiling to assert the 'too many branch collisions' escalation. Note that is a collision-avoidance loop escalating to its caller, so proving it would generalize P13 beyond refinement/fix loops; flow's prompt-driven critic/welder caps have no executable test today.
 
 ### P1 — Advisory and enforcing share one code path
 
