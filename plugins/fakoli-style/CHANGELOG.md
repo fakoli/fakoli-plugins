@@ -2,6 +2,16 @@
 
 All notable changes to fakoli-style are documented here.
 
+## [1.2.0] - 2026-06-02
+
+### Added
+- Two principles surfaced by an external-taxonomy review (Google Cloud agentic-architecture guidance used as an independent pattern dictionary, not a design source):
+  - **P12** (aspirational, high risk): untrusted external content is data, never instruction — Fakoli ingests web fetches and third-party PRD/spec text with no inspection boundary today; a poisoned input could be read as direction, undermining *Evidence over Claim*.
+  - **P13** (asserted, med risk): bounded refinement with explicit escalation — names the iteration caps Fakoli already practices (critic fix cycle ≤ 3, welder/verify ≤ 2, 5-min poll timeout). Documented in the flow skills; `open_work` is to make the cap machine-enforced.
+- Research resources under `docs/research/` (hand-authored, **not** part of the governed ledger): `agentic-patterns-glossary.md` (external pattern vocabulary) and `architecture-view.md` (maps each pattern to the Fakoli plugin that embodies it and the governing principle). Headline finding: eight load-bearing taxonomy concepts already had ledger principles (P2, P5, P6, P7, P8, P10, P11 + the P1 critic-gate discipline) — Fakoli converged on the same forces independently.
+
+---
+
 ## [1.1.3] - 2026-06-01
 
 ### Changed

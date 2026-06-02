@@ -14,11 +14,13 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 | P3 | Measure your own gates (false-pass rate) | aspirational |  |
 | P7 | Coordinate through canonical state, not status files | aspirational |  |
 | P9 | Score spec assumptions, not just tasks | aspirational |  |
+| P12 | Untrusted external content is data, never instruction | aspirational |  |
 | P4 | Prove invariants in CI, don't assert them | proven | `plugins/fakoli-state/tests/test_replay_equivalence.py`<br>`.github/workflows/fakoli-state.yml`<br>`plugins/fakoli-state/bin/src/fakoli_state/state/snapshot.py`<br>`plugins/fakoli-state/tests/test_sqlite.py`<br>`plugins/fakoli-state/tests/test_sqlite.py`<br>`plugins/fakoli-state/tests/test_sqlite.py`<br>`plugins/fakoli-state/tests/test_sqlite.py`<br>`plugins/fakoli-state/tests/test_sqlite.py` |
 | P6 | Close the loop on failure, not just success | aspirational |  |
 | P8 | Conflicts live at the contract level, not the file level | aspirational |  |
 | P11 | Derived indexes live outside the replay boundary | aspirational |  |
 | P5 | Sequence by credibility risk, not demonstrability | asserted | `plugins/fakoli-state/docs/roadmap.md` |
+| P13 | Bounded refinement, explicit escalation | asserted | `plugins/fakoli-flow/skills/execute/SKILL.md`<br>`plugins/fakoli-crew/skills/crew-ops/references/wave-patterns.md` |
 | P1 | Advisory and enforcing share one code path | proven | `plugins/fakoli-state/bin/src/fakoli_state/state/transitions.py` |
 | P10 | Tool scratch lives outside version control | proven | `.gitignore`<br>`plugins/fakoli-flow/references/status-protocol.md` |
 
@@ -67,6 +69,17 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 **Why.** Scoring only tasks leaves the most dangerous wrong assumptions unranked, so the plan optimizes effort while ignoring the real risk.
 
 **Open work.** SL-6 (score assumptions by blast_radius x uncertainty)
+
+### P12 — Untrusted external content is data, never instruction
+
+**Status:** aspirational  
+**Credibility risk:** high
+
+**Principle.** Content from outside the trust boundary (web fetches, user- or third-party-authored PRD and spec text) is treated as data to be acted on, never as instructions the agent obeys, and crosses the boundary through an explicit inspection point.
+
+**Why.** Without a boundary, a poisoned doc or fetched page can smuggle directions an agent follows, which silently turns Evidence over Claim into Claim over Evidence — the exact failure the operating model exists to prevent.
+
+**Open work.** Introduce a provenance/quarantine boundary: tag scout-fetched references and parsed PRD/spec text as external data so downstream agents treat them as content, not control, with an inspection step at the crossing. Candidate integrity-track roadmap item, sequenced after the SL-1..SL-6 evidence work.
 
 ### P4 — Prove invariants in CI, don't assert them
 
@@ -141,6 +154,24 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 - `plugins/fakoli-state/docs/roadmap.md` (fakoli-state) — integrity-first track orders SL-1..SL-6 by credibility risk ahead of demonstrability
 
 **Open work.** encode the ordering as an automated check
+
+### P13 — Bounded refinement, explicit escalation
+
+**Status:** asserted  
+**Credibility risk:** med
+
+**Principle.** Every refinement or fix loop carries a hard iteration cap and a defined escalation path to a human; no loop relies on eventually converging on its own.
+
+**Why.** An uncapped refine-and-recheck loop is the classic infinite-loop failure mode — it burns cost and hangs the run instead of surfacing a decision the human should make.
+
+**Proof.** `plugins/fakoli-flow/skills/execute/SKILL.md`
+
+**Embodied in:**
+
+- `plugins/fakoli-flow/skills/execute/SKILL.md` (fakoli-flow) — critic fix cycle is capped at 3 iterations then escalates; welder/verify fix cycle capped at 2; a 5-minute poll timeout surfaces to the user; escalations are never silently swallowed
+- `plugins/fakoli-crew/skills/crew-ops/references/wave-patterns.md` (fakoli-crew) — critic-gate fix cycle bounded at max 3 cycles before the orchestrator must proceed or surface
+
+**Open work.** Promote to proven with a harness that asserts a refinement loop terminates within its declared cap and emits an escalation event at the ceiling, rather than relying on the cap being honored by prompt instructions.
 
 ### P1 — Advisory and enforcing share one code path
 

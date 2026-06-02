@@ -171,6 +171,37 @@
       "status": "aspirational",
       "credibility_risk": "med",
       "open_work": "Post-Wave-1: evaluate sqlite-vec (SQLite-native vector index) and a SQLite-native knowledge graph as derived projections that consult canonical state without entering it; see fakoli-state roadmap deferred section."
+    },
+    {
+      "id": "P12",
+      "name": "Untrusted external content is data, never instruction",
+      "principle": "Content from outside the trust boundary (web fetches, user- or third-party-authored PRD and spec text) is treated as data to be acted on, never as instructions the agent obeys, and crosses the boundary through an explicit inspection point.",
+      "why": "Without a boundary, a poisoned doc or fetched page can smuggle directions an agent follows, which silently turns Evidence over Claim into Claim over Evidence — the exact failure the operating model exists to prevent.",
+      "status": "aspirational",
+      "credibility_risk": "high",
+      "open_work": "Introduce a provenance/quarantine boundary: tag scout-fetched references and parsed PRD/spec text as external data so downstream agents treat them as content, not control, with an inspection step at the crossing. Candidate integrity-track roadmap item, sequenced after the SL-1..SL-6 evidence work."
+    },
+    {
+      "id": "P13",
+      "name": "Bounded refinement, explicit escalation",
+      "principle": "Every refinement or fix loop carries a hard iteration cap and a defined escalation path to a human; no loop relies on eventually converging on its own.",
+      "why": "An uncapped refine-and-recheck loop is the classic infinite-loop failure mode — it burns cost and hangs the run instead of surfacing a decision the human should make.",
+      "status": "asserted",
+      "credibility_risk": "med",
+      "proof": "plugins/fakoli-flow/skills/execute/SKILL.md",
+      "embodied_in": [
+        {
+          "plugin": "fakoli-flow",
+          "ref": "plugins/fakoli-flow/skills/execute/SKILL.md",
+          "mechanism": "critic fix cycle is capped at 3 iterations then escalates; welder/verify fix cycle capped at 2; a 5-minute poll timeout surfaces to the user; escalations are never silently swallowed"
+        },
+        {
+          "plugin": "fakoli-crew",
+          "ref": "plugins/fakoli-crew/skills/crew-ops/references/wave-patterns.md",
+          "mechanism": "critic-gate fix cycle bounded at max 3 cycles before the orchestrator must proceed or surface"
+        }
+      ],
+      "open_work": "Promote to proven with a harness that asserts a refinement loop terminates within its declared cap and emits an escalation event at the ceiling, rather than relying on the cap being honored by prompt instructions."
     }
   ]
 }
