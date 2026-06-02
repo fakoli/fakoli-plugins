@@ -110,6 +110,13 @@
       "version": "1.0.5",
       "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
       "source": "./plugins/safe-fetch"
+    },
+    {
+      "name": "quick-notes",
+      "version": "1.0.0",
+      "description": "Dictation-friendly personal notes — capture by speaking to Claude, search by keyword/#tag/date, get stats, and export to Markdown, backed by an append-only event-sourced JSON Lines log kept outside the plugin.",
+      "category": "productivity",
+      "source": "./plugins/quick-notes"
     }
   ]
 }
