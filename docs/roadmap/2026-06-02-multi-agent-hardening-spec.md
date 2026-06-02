@@ -222,6 +222,41 @@ P0-1, P1-6, P1-5, P1-7 (flow, markdown) → P2-12 status-file lines (crew, markd
 P0-4, P1-9 (state, localized) → P0-2 (state, migration txn) → P0-3, P1-8 (state, schema/path).
 Anything that can't go green is reverted and documented here as *designed-not-applied*.
 
+### 8.1 Outcome of the unattended pass (2026-06-02)
+
+**Applied, tested, committed** (state suite green at 1257 throughout):
+
+| Item | Plugin | Commit |
+|------|--------|--------|
+| P0-1 run-id collision | flow | `73e9d3c` |
+| P1-5 verify→finish coupling | flow | `73e9d3c` |
+| P1-6 missing-status + escalation deadline | flow | `73e9d3c` |
+| P1-7 plan pre-flight validation | flow | `73e9d3c` |
+| P2-12 critic status-file contract | crew | `c206ce1` |
+| P0-4 bounded tail scan | state | `72218dc` |
+| P1-9 observable audit health | state | `7aa7270` |
+| P0-2 atomic + recoverable migration | state | `eadf94c` |
+| 1.21.0 release packaging | state | `b2fd460` |
+
+**Designed, NOT applied** — deferred as too risky to land unattended; both require
+threading new state through the correctness-critical event-sourced write path:
+
+- **P0-3 (claim id reissue guard).** Requires a v3→v4 `SCHEMA_VERSION` bump, a new migration
+  branch, and regeneration of the replay/snapshot fixtures. Also note a correction to §4: a
+  bare `UNIQUE(id, task_id)` does **not** fix the misroute — `PRIMARY KEY(id)` already makes
+  `id` unique, so `INSERT OR IGNORE` still drops a reissued id silently. The real fix is to
+  stop using blind `INSERT OR IGNORE` for claims and instead detect an id-reuse-against-
+  different-task at the check layer (`_check_claim_created`) and reject it explicitly. Land
+  this with full attention + fixture regen, not overnight.
+- **P1-8 (evidence file-scope).** The evidence gate (`transitions._evidence_complete`) sees
+  only `Task` + `Evidence`; the claim's `expected_files` is not in scope there. Surfacing an
+  out-of-scope-file warning means plumbing the active `Claim` into the evidence-submission
+  validation path — a cross-cutting change to the append/check flow. Do it deliberately with
+  a decision on warn-vs-reject policy and a config knob.
+
+Everything else in P2 (SSOT dedup, canonical protocol doc, version matrix, Codex tiering,
+tool-allowlist review) and S1 (flow↔state integration) remains open as documented.
+
 ## 9. Verification commands
 - state: `cd plugins/fakoli-state/bin && uv run pytest -q`
 - flow/crew markdown: structural review (no executable tests); changes are additive to skills.
