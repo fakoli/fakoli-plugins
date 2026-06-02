@@ -48,9 +48,22 @@ Total: 26 runtime bugs caught before they ever ran across all 6 phases. The cost
 
 ## Model Selection
 
-All agents default to `model: sonnet` in their frontmatter. For maximum capability:
-- Use the **sonnet** tier for most agents (fast, reliable)
-- Use the **opus** tier for critic on large codebases (deeper analysis, more context)
+Claude Code agents keep Claude-specific model tiers in `agents/*.md`:
+
+| Tier | Agents |
+|------|--------|
+| `opus` | `guido`, `critic` |
+| `sonnet` | `scout`, `smith`, `welder`, `herald`, `keeper` |
+| `haiku` | `sentinel` |
+
+OpenAI/Codex model selection lives in `.codex/agents/fakoli-*.toml` companion
+files so Claude ignores it. Those files map the same roles to OpenAI models:
+
+| OpenAI model | Agents |
+|--------------|--------|
+| `gpt-5.5` | `fakoli_guido`, `fakoli_critic` |
+| `gpt-5.4` | `fakoli_scout`, `fakoli_smith`, `fakoli_welder`, `fakoli_herald`, `fakoli_keeper` |
+| `gpt-5.4-mini` | `fakoli_sentinel` |
 
 ## Workflow Orchestration
 
