@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.5.1 (2026-06-02)
+
+### Fixed
+- `agents/critic.md` now documents the **status-file reporting** contract (write VERDICT +
+  grouped findings to the orchestrator-provided status path), matching every other crew agent.
+  Previously the critic — a standing wave gate — had no status-reporting instruction in its own
+  prompt, risking lost verdicts when the next wave gates on it. (Hardening roadmap P2-12)
+
+---
+
 ## 2.5.0 (2026-06-02)
 
 ### Added
