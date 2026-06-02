@@ -6316,6 +6316,76 @@ class TestV2ToV3MigrationAppliesColumnAdditions:
         finally:
             b.close()
 
+    def test_failed_v2_migration_rolls_back_atomically_and_is_recoverable(
+        self, tmp_path: Path,
+    ) -> None:
+        """A v2→v3 migration that fails mid-way leaves no partial schema and retries (P0-2).
+
+        Force the failure realistically: insert two sync_mapping rows that share
+        the same (external_system, external_id) so the v3 ``CREATE UNIQUE INDEX``
+        cannot be built. The migration must:
+          1. raise (loud failure, not a silent half-migration),
+          2. roll back the column additions atomically (no ``external_url`` left
+             on the table), and
+          3. leave ``user_version`` at 2 — NOT stamp 3 — so the migration re-runs
+             on the next open once the data conflict is resolved.
+        """
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        self._stand_up_v2_sync_mappings_table(db_path, events_path)
+
+        # Add T002 and a SECOND mapping colliding on (external_system, external_id).
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO tasks (id, feature_id, title, description, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("T002", "F001", "Other", "other", _T0.isoformat(), _T0.isoformat()),
+        )
+        conn.execute(
+            "INSERT INTO sync_mappings (task_id, external_system, "
+            "external_id, last_synced_at) VALUES (?, ?, ?, ?)",
+            ("T002", "github_issues", "gh-1", _T0.isoformat()),  # duplicate remote pair
+        )
+        conn.commit()
+        conn.close()
+
+        # The migration must raise (the unique index cannot be built on bad data).
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        with pytest.raises(Exception):  # noqa: B017 - sqlite IntegrityError/OperationalError
+            b.initialize()
+        b.close()
+
+        # Inspect on-disk state with a fresh raw connection.
+        raw = sqlite3.connect(db_path)
+        try:
+            version = raw.execute("PRAGMA user_version").fetchone()[0]
+            cols = {r[1] for r in raw.execute("PRAGMA table_info(sync_mappings)")}
+        finally:
+            raw.close()
+        # Recoverable: version NOT advanced to 3.
+        assert version == 2, f"failed migration must leave user_version at 2, got {version}"
+        # Atomic: the column additions were rolled back together.
+        assert "external_url" not in cols
+        assert "provider_metadata_json" not in cols
+
+        # Resolve the data conflict, then a fresh open completes the migration.
+        raw2 = sqlite3.connect(db_path)
+        raw2.execute("DELETE FROM sync_mappings WHERE task_id = 'T002'")
+        raw2.commit()
+        raw2.close()
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.initialize()  # must now succeed
+        try:
+            assert b2._conn is not None  # noqa: SLF001
+            v = b2._conn.execute("PRAGMA user_version").fetchone()[0]  # noqa: SLF001
+            assert v == 3
+            cols2 = {r[1] for r in b2._conn.execute("PRAGMA table_info(sync_mappings)")}  # noqa: SLF001
+            assert "external_url" in cols2
+            assert "provider_metadata_json" in cols2
+        finally:
+            b2.close()
+
 
 # ---------------------------------------------------------------------------
 # PR #49 P2-2 regression — multi-provider missing_sync_mapping scan

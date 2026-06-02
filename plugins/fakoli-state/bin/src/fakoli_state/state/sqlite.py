@@ -241,13 +241,13 @@ class SqliteBackend:
            ``_write_*`` path as ``replay_from_empty`` — there is no third
            apply implementation.
 
-        Ordering note (P1-3): the pre-DDL ``user_version`` is captured
-        BEFORE ``_apply_ddl`` runs because ``_apply_ddl`` unconditionally
-        stamps ``PRAGMA user_version = SCHEMA_VERSION`` at the end. If we
-        deferred reading until afterward, the v2→v3 migration branch
-        would never fire — every reopened db would look "already v3" to
-        ``_check_schema_version`` and the missing ALTERs would silently
-        not happen.
+        Ordering note (P1-3, revised P0-2): the pre-DDL ``user_version`` is
+        captured BEFORE ``_apply_ddl`` runs. ``_apply_ddl`` no longer stamps the
+        version (the stamp is owned solely by ``_check_schema_version``), but the
+        capture-before ordering is retained: it makes the migration branch depend
+        on the version observed at open time, independent of any future change to
+        when DDL touches the header. Capturing before also keeps the contract
+        identical if a later DDL revision re-introduces a stamp.
         """
         if self._conn is not None:
             # Already initialised — verify version and return.
@@ -884,20 +884,28 @@ class SqliteBackend:
     # ------------------------------------------------------------------
 
     def _apply_ddl(self) -> None:
-        """Execute the DDL script statement-by-statement."""
+        """Execute the DDL script statement-by-statement (CREATE … IF NOT EXISTS).
+
+        Does NOT stamp ``user_version`` (P0-2). Stamping the version here — before
+        ``_check_schema_version`` runs the v2→v3 migration — meant a migration that
+        failed partway left the db stamped at the *new* version with the migration
+        only half-applied; on the next open ``pre_ddl_version`` read the new stamp,
+        ``_check_schema_version`` saw "already current", and the ALTERs never
+        re-ran. The stamp is now owned solely by ``_check_schema_version``, whose
+        every success path sets it. A migration that rolls back therefore leaves
+        ``user_version`` at the old value and re-runs cleanly on the next open.
+        """
         conn = self._require_conn()
-        # Split on semicolons; filter blanks and PRAGMA user_version (set last).
+        # Split on semicolons; drop blanks and any user_version pragma embedded in
+        # the DDL (version stamping is owned by _check_schema_version, set outside
+        # any transaction — some SQLite versions disallow it inside a txn).
         statements = [s.strip() for s in DDL.split(";") if s.strip()]
-        # Separate the user_version pragma — it must be set outside a transaction
-        # on some SQLite versions, so we handle it explicitly at the end.
-        version_pragma = f"PRAGMA user_version = {SCHEMA_VERSION}"
         non_version = [s for s in statements if "user_version" not in s.lower()]
         conn.execute("BEGIN")
         for stmt in non_version:
             if stmt:
                 conn.execute(stmt)
         conn.execute("COMMIT")
-        conn.execute(version_pragma)
 
     def _check_schema_version(self, *, pre_ddl_version: int | None = None) -> None:
         """Raise SchemaMismatch if on-disk version is incompatible with SCHEMA_VERSION.
@@ -942,33 +950,52 @@ class SqliteBackend:
         if on_disk == 2 and SCHEMA_VERSION == 3:
             # v2 → v3: add the three v3 sync_mappings additions that the
             # IF NOT EXISTS DDL cannot retroactively apply to the v2 table.
-            # Each ALTER is wrapped because re-running the migration (e.g.
-            # crash-recovery) must remain idempotent — a "duplicate column"
-            # error means the ALTER already happened on a previous run.
+            #
+            # Atomicity (P0-2): wrap the schema changes in a single transaction.
+            # Previously each ALTER auto-committed independently, so a failure on
+            # the SECOND statement (e.g. disk I/O) left the FIRST column added —
+            # a half-applied schema. With BEGIN IMMEDIATE/COMMIT, a mid-migration
+            # failure rolls back every change; user_version is never stamped (it
+            # is set only after COMMIT below), so the next open re-runs the whole
+            # migration cleanly instead of observing a partial schema.
+            #
+            # Each ALTER still tolerates "duplicate column" so re-running the
+            # migration (crash-recovery / replay) is idempotent — verified safe
+            # to swallow inside the open transaction and continue.
+            conn.execute("BEGIN IMMEDIATE")
             try:
+                try:
+                    conn.execute(
+                        "ALTER TABLE sync_mappings ADD COLUMN external_url TEXT"
+                    )
+                except sqlite3.OperationalError as e:
+                    if "duplicate column" not in str(e).lower():
+                        raise
+                try:
+                    conn.execute(
+                        "ALTER TABLE sync_mappings ADD COLUMN "
+                        "provider_metadata_json TEXT"
+                    )
+                except sqlite3.OperationalError as e:
+                    if "duplicate column" not in str(e).lower():
+                        raise
+                # SQLite does not support adding a table-level UNIQUE constraint
+                # via ALTER TABLE, but a UNIQUE INDEX has the same enforcement
+                # semantics for query planning AND constraint violation. The
+                # IF NOT EXISTS makes the migration replay-safe.
                 conn.execute(
-                    "ALTER TABLE sync_mappings ADD COLUMN external_url TEXT"
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "idx_sync_mappings_external_unique "
+                    "ON sync_mappings (external_system, external_id)"
                 )
-            except sqlite3.OperationalError as e:
-                if "duplicate column" not in str(e).lower():
-                    raise
-            try:
-                conn.execute(
-                    "ALTER TABLE sync_mappings ADD COLUMN "
-                    "provider_metadata_json TEXT"
-                )
-            except sqlite3.OperationalError as e:
-                if "duplicate column" not in str(e).lower():
-                    raise
-            # SQLite does not support adding a table-level UNIQUE constraint
-            # via ALTER TABLE, but a UNIQUE INDEX has the same enforcement
-            # semantics for query planning AND constraint violation. The
-            # IF NOT EXISTS makes the migration replay-safe.
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS "
-                "idx_sync_mappings_external_unique "
-                "ON sync_mappings (external_system, external_id)"
-            )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            # Stamp user_version OUTSIDE the transaction: some SQLite versions
+            # disallow setting it inside a txn (mirrors _apply_ddl). Reached only
+            # after COMMIT succeeds, so a rolled-back migration leaves the on-disk
+            # version at 2 and the migration re-runs on the next open.
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             return
         raise SchemaMismatch(
