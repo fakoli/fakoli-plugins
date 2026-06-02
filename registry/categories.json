@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-02T09:45:40Z",
+  "generatedAt": "2026-06-02T10:00:20Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -43,7 +43,7 @@
         },
         {
           "name": "fakoli-state",
-          "version": "1.20.0",
+          "version": "1.21.0",
           "description": "Local-first, runtime-neutral project state for humans and AI coding agents — turn PRDs into lockable, evidence-backed work packets.",
           "path": "plugins/fakoli-state"
         },

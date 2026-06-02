@@ -10,6 +10,37 @@ _No unreleased changes._
 
 ---
 
+## [1.21.0] — 2026-06-02
+
+Multi-agent hardening pass (see `docs/roadmap/2026-06-02-multi-agent-hardening-spec.md`).
+
+### Fixed
+
+- **Schema migration is now atomic and recoverable (P0-2).** The v2→v3 `sync_mappings`
+  migration ran its `ALTER`s in independent autocommits, so a mid-migration failure left a
+  half-applied schema; worse, `_apply_ddl` pre-stamped `user_version` to the new version
+  *before* the migration ran, so a failed migration left the db marked "current" with columns
+  missing and it never re-ran. The migration is now wrapped in `BEGIN IMMEDIATE`/`COMMIT`
+  (rollback on error; `user_version` stamped outside the txn for portability), and the
+  redundant pre-stamp in `_apply_ddl` is removed — version stamping is owned solely by
+  `_check_schema_version`, so a rolled-back migration stays at the old version and retries on
+  the next open.
+- **`_scan_tail_id` is bounded by an OOM backstop (P0-4).** The tail scan grew its read window
+  to the full file size to tolerate a large trailing event line; a pathological/corrupt
+  trailing line could be read wholly into memory. Capped at `_MAX_TAIL_SCAN_BYTES` (64 MiB,
+  far larger than any real event); warns loudly if a single trailing line exceeds it.
+
+### Added
+
+- **Observable audit-trail health (P1-9).** A failed `audit.jsonl` append previously only
+  logged and continued, leaving callers no signal the trail was incomplete. New read-only
+  properties `audit_degraded`, `audit_write_failures`, and `last_audit_error` expose
+  degradation. The write path still does not raise on audit-write failure (audit writes happen
+  in the critical section, including `write_failed_after_log`, where raising would mask the
+  original error).
+
+---
+
 ## [1.20.0] — 2026-06-01
 
 ### Added / Changed — Event-Sourced Write Path (SL1-RR-1 closed)
