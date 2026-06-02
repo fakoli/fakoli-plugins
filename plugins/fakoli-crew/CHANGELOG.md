@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.5.0 (2026-06-02)
+
+### Added
+- Added OpenAI/Codex custom-agent companion files under `.codex/agents/` with OpenAI-specific `model` and `model_reasoning_effort` selections for all 8 crew roles.
+- Added a root regression test covering both Claude agent frontmatter model tiers and OpenAI/Codex custom-agent model mappings.
+
+### Changed
+- Restored Claude-specific agent frontmatter model tiers: `guido`/`critic` use `opus`, core build/research/docs/infra agents use `sonnet`, and `sentinel` uses `haiku`.
+- Updated `docs/getting-started.md` to document the split between Claude model selection and OpenAI/Codex model selection.
+
 ## 2.4.0 (2026-06-01)
 
 ### Changed
