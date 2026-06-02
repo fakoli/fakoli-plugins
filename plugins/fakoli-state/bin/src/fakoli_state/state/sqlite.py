@@ -87,6 +87,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# OOM backstop for the tail scan in ``_scan_tail_id``. The scan grows its read
+# window to find a newline so it can fall back past a torn trailing line and so
+# it can read a single event line larger than the initial 4 KiB window (large
+# ``prd.parsed`` / ``task.expanded`` payloads). Without an upper bound a
+# pathologically large or corrupt trailing line forces the window to grow to the
+# full file size — reading a multi-GB log entirely into memory. This cap bounds
+# the scan: for any normal log a newline is found in the first few KiB, so the
+# cap is never reached; it only fires on a single trailing line larger than the
+# cap, which is corruption, not a real event. Generous on purpose (64 MiB ≫ any
+# realistic single event) so it never rejects legitimate large payloads.
+_MAX_TAIL_SCAN_BYTES = 64 * 1024 * 1024
+
 # Maps the raw ``task.applied`` outcome strings stored in the reviews table to
 # their canonical ReviewDecision equivalents.  ``"rejected"`` maps to
 # ``needs_changes`` because a rejected task immediately auto-promotes back to
@@ -1025,8 +1037,10 @@ class SqliteBackend:
 
         Large-line tolerance (SHOULD FIX 1): if no newline separator is found in
         the initial window, the final event line is longer than the window. We
-        double the window and retry, up to file_size, so events with large
-        ``prd.parsed`` / ``task.expanded`` payloads are handled correctly.
+        double the window and retry, up to ``_MAX_TAIL_SCAN_BYTES``, so events
+        with large ``prd.parsed`` / ``task.expanded`` payloads are handled
+        correctly while a pathological/corrupt trailing line cannot force the
+        whole file to be read into memory.
         """
         log_path = self._events_path
         if not os.path.exists(log_path):
@@ -1035,10 +1049,15 @@ class SqliteBackend:
         if file_size == 0:
             return 0
 
+        # Bound the scan: never read more than the OOM backstop from the end,
+        # even if the file is larger. For any normal log a newline is found in
+        # the first few KiB, so this cap is never reached in practice.
+        scan_limit = min(file_size, _MAX_TAIL_SCAN_BYTES)
+
         # Start with a 4096-byte window; double until we find at least one
         # newline separator (ensuring we have at least two candidate lines to
-        # fall back between) or have read the entire file.
-        chunk_size = min(4096, file_size)
+        # fall back between) or have read up to the scan limit.
+        chunk_size = min(4096, scan_limit)
         with open(log_path, "rb") as fh:
             while True:
                 fh.seek(-chunk_size, 2)  # 2 = os.SEEK_END
@@ -1047,10 +1066,23 @@ class SqliteBackend:
                 stripped = chunk.rstrip(b"\n\r ")
                 # Check whether the stripped chunk contains at least one newline
                 # (meaning we have at least one complete prior line to fall back to).
-                if b"\n" in stripped or chunk_size >= file_size:
+                if b"\n" in stripped or chunk_size >= scan_limit:
                     break
-                # No newline found and we haven't read the full file yet — double.
-                chunk_size = min(chunk_size * 2, file_size)
+                # No newline found and we haven't hit the scan limit yet — double.
+                chunk_size = min(chunk_size * 2, scan_limit)
+
+        # If we exhausted the backstop without finding a newline AND the file is
+        # genuinely larger than the cap, the trailing line alone exceeds 64 MiB —
+        # that is corruption, not a real event. Warn loudly; we still attempt to
+        # parse what we read (and fall through to returning 0 if nothing valid),
+        # but we do not grow the read unbounded.
+        if chunk_size >= scan_limit and scan_limit < file_size and b"\n" not in stripped:
+            logger.warning(
+                "events.jsonl trailing line exceeds the %d-byte tail-scan backstop "
+                "(file_size=%d); log tail may be corrupt. Not reading further.",
+                _MAX_TAIL_SCAN_BYTES,
+                file_size,
+            )
 
         # Split the stripped tail into candidate lines.
         lines = stripped.split(b"\n")

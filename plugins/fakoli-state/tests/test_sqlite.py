@@ -7695,6 +7695,42 @@ class TestScanTail:
         b = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
         assert b._scan_tail_id() == 500  # noqa: SLF001
 
+    def test_scan_tail_bounded_by_backstop_still_correct(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Capping the tail window to less than file_size still returns the right id (P0-4).
+
+        With a small backstop and many short lines (file far larger than the
+        cap), the scan must still return the last id: a newline is found well
+        within the capped window, so the OOM backstop never harms a normal log.
+        Proves the cap added in P0-4 does not regress correctness.
+        """
+        import fakoli_state.state.sqlite as sqlite_mod
+
+        # Shrink the backstop so the file comfortably exceeds it.
+        monkeypatch.setattr(sqlite_mod, "_MAX_TAIL_SCAN_BYTES", 8192)
+
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        with open(events_path, "w", encoding="utf-8") as fh:
+            for i in range(1, 401):  # ~400 short lines, well over 8 KiB total
+                record = {
+                    "id": f"E{i:06d}",
+                    "timestamp": _T0.isoformat(),
+                    "actor": "test",
+                    "action": "state.initialized",
+                    "target_kind": "project",
+                    "target_id": "proj-1",
+                    "payload_json": {},
+                }
+                fh.write(json.dumps(record) + "\n")
+
+        assert os.path.getsize(events_path) > 8192  # file exceeds the backstop
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        # Correct id is still returned (a newline is found within the capped window).
+        assert b._scan_tail_id() == 400  # noqa: SLF001
+
 
 class TestWriteFailedAfterLogAppend:
     """Write failure after log append leaves the log line and audits write_failed_after_log."""
