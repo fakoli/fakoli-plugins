@@ -457,10 +457,9 @@ class TestWritePathErrors:
         PENDING_EVENT_ID has been removed from backend.py. EventDraft (no id field)
         is now the sole type passed to append(). The id is assigned by the backend.
         """
-        from fakoli_state.state.models import EventDraft
-
         # EventDraft has no id field — the backend assigns it.
-        import inspect
+
+        from fakoli_state.state.models import EventDraft
         fields = EventDraft.model_fields
         assert "id" not in fields, "EventDraft must not have an id field"
         assert "action" in fields

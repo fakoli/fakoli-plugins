@@ -46,7 +46,7 @@ from fakoli_state.sync.errors import (
     SyncConflict,
 )
 
-UTC = datetime.timezone.utc
+UTC = datetime.UTC
 
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,6 @@ from fakoli_state.state.models import (
     Verification,
 )
 
-
 _FROZEN = FrozenClock(datetime.datetime(2026, 5, 26, 12, 0, tzinfo=datetime.UTC))
 
 

@@ -21,14 +21,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
-
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
@@ -1557,8 +1555,8 @@ class TestParsePrd:
         assert resp["errors"] == []
         assert resp["prd_status"] == "draft"
         # Verify the PRD was actually persisted.
-        from fakoli_state.state.sqlite import SqliteBackend
         from fakoli_state.clock import SystemClock
+        from fakoli_state.state.sqlite import SqliteBackend
         b = SqliteBackend(
             db_path=str(state_dir / "state.db"),
             events_path=str(state_dir / "events.jsonl"),
