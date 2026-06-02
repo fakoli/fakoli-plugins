@@ -278,17 +278,16 @@ class SqliteBackend:
         # Forward catch-up: if projection is behind the log, re-apply the tail.
         # Suppress audit side-effects during catch-up (same contract as replay).
         # If _replaying is already True (we were called from replay_from_empty),
-        # do not reset it in our finally block — the outer caller owns the flag.
-        if log_max > 0:
+        # do not run catch-up — replay_from_empty will apply every event itself.
+        # Running catch-up AND replay would apply events twice.
+        if log_max > 0 and not self._replaying:
             table_max = self._table_max_id(conn)
             if table_max < log_max:
-                already_replaying = self._replaying
                 self._replaying = True
                 try:
                     self._forward_catch_up(conn, from_seq=table_max + 1, to_seq=log_max)
                 finally:
-                    if not already_replaying:
-                        self._replaying = False
+                    self._replaying = False
 
     def close(self) -> None:
         """Close the SQLite connection cleanly.  Idempotent."""
@@ -358,6 +357,19 @@ class SqliteBackend:
                 return None
 
             # ---- Phase 2: id assignment (log-owned counter) ----
+            # We are inside the flock, so the log tail is the authoritative
+            # source of the maximum assigned id.  Reconcile the in-memory
+            # counter with the log before incrementing so that two separate
+            # processes that both seeded _next_seq from the same stale log_max
+            # at initialize() time do NOT assign the same id.  This is the
+            # PR #41 Critic-3 cross-process id-collision fix (SL1-RR-1).
+            #
+            # _scan_tail_id() is O(last-line) and already tolerates a torn
+            # trailing line, so it is safe to call here under the flock.
+            # The in-memory counter remains a valid fast-path for the
+            # single-process case: if no other process has written since our
+            # last append, scan_tail returns _next_seq and max() is a no-op.
+            self._next_seq = max(self._next_seq, self._scan_tail_id())
             self._next_seq += 1
             event_id = f"E{self._next_seq:06d}"
             event = Event(id=event_id, **draft.model_dump())
@@ -386,7 +398,7 @@ class SqliteBackend:
                 spec.write(conn, typed_payload, event)
                 self._insert_event_row(conn, event)
                 conn.execute("COMMIT")
-            except sqlite3.OperationalError as exc:
+            except Exception as exc:
                 self._safe_rollback(conn)
                 # After the log line has been written (step 3 succeeded), any
                 # SQLite failure — including "database is locked" — is a genuine
@@ -398,14 +410,9 @@ class SqliteBackend:
                 #
                 # StateLocked is only appropriate BEFORE the log append
                 # (the flock-timeout path in _append_lock already handles that).
-                self._append_audit_line(
-                    "write_failed_after_log", draft, str(exc), event_id=event_id
-                )
-                raise TransactionAborted(
-                    f"Transaction aborted for event {event_id!r} (log line remains): {exc}"
-                ) from exc
-            except Exception as exc:
-                self._safe_rollback(conn)
+                # sqlite3.OperationalError is a subclass of Exception so the
+                # single branch covers both the "database is locked" case and
+                # any other unexpected mutation failure.
                 self._append_audit_line(
                     "write_failed_after_log", draft, str(exc), event_id=event_id
                 )
@@ -1398,36 +1405,6 @@ class SqliteBackend:
         self._action_dispatch_cache = table
         return table
 
-    def _apply_mutation(self, conn: sqlite3.Connection, event: Event) -> None:
-        """Validate via ``_check_*`` then mutate via ``_write_*``.
-
-        Internal helper retained for the ``_apply_event_sqlite_only`` replay
-        path (used by the legacy test suite until Task 6 migrates helpers).
-
-        SL1-RR-1 note: the production write path is ``append()``, which calls
-        ``spec.check`` and ``spec.write`` directly within the flock critical
-        section. This method is no longer on the hot path.
-
-        ``IdempotentNoOp`` is re-raised here (unlike ``append``, there is no
-        audit-line write in this method — callers that need audit should use
-        ``append`` or ``_apply_write_only``).
-        ``EventRejected`` propagates to the caller.
-        """
-        action = event.action
-        dispatch = self._get_action_dispatch()
-
-        if action not in dispatch:
-            raise NotImplementedError(
-                f"Event action {action!r} is not yet supported. "
-                "This action will be implemented in a later phase."
-            )
-
-        spec = dispatch[action]
-        typed_payload = spec.payload_model.model_validate(event.payload_json)
-
-        spec.check(conn, typed_payload, event)
-        spec.write(conn, typed_payload, event)
-
     # ------------------------------------------------------------------
     # Audit-only phases — shared by state.initialized, file_changed,
     # progress.noted, and every sync.* action. The JSONL row is the entire
@@ -1444,7 +1421,7 @@ class SqliteBackend:
         """No-op check for audit-only actions — always proceeds.
 
         Payload validation (the model + ``extra='forbid'``) already ran in
-        ``_apply_mutation``; an audit-only action has no state precondition that
+        An audit-only action has no state precondition that
         could reject it, so this phase never raises.
         """
         _ = (conn, payload, event)

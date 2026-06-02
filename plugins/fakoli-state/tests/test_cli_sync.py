@@ -207,15 +207,13 @@ def _seed_task(
     ``project_root`` is the directory containing ``.fakoli-state/``.
     """
     from fakoli_state.cli._helpers import _open_backend
-    from fakoli_state.state.backend import PENDING_EVENT_ID
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.models import EventDraft as _EventDraft
 
     state_dir = project_root / ".fakoli-state"
     b = _open_backend(state_dir)
     try:
         # Feature first.
-        b.apply_event(Event(
-            id=PENDING_EVENT_ID,
+        b.append(_EventDraft(
             timestamp=now,
             actor="test",
             action="feature.created",
@@ -231,8 +229,7 @@ def _seed_task(
             },
         ))
         # Task.
-        b.apply_event(Event(
-            id=PENDING_EVENT_ID,
+        b.append(_EventDraft(
             timestamp=now,
             actor="test",
             action="task.created",
@@ -643,9 +640,8 @@ class TestSyncConflictResolution:
         future, then bump the task's updated_at to also be in the future so
         both sides have moved since last_synced_at."""
         from fakoli_state.cli._helpers import _open_backend
-        from fakoli_state.state.backend import PENDING_EVENT_ID
-        from fakoli_state.state.models import Event
-
+        from fakoli_state.state.models import EventDraft as _EventDraft
+    
         _seed_task(project_root, now=_NOW - timedelta(hours=2))
         _seed_sync_mapping(
             project_root,
@@ -658,8 +654,7 @@ class TestSyncConflictResolution:
         # Bump local task by emitting task.status_changed (moves updated_at forward).
         b = _open_backend(state_dir)
         try:
-            b.apply_event(Event(
-                id=PENDING_EVENT_ID,
+            b.append(_EventDraft(
                 timestamp=_LATER,
                 actor="test",
                 action="task.status_changed",
@@ -1173,9 +1168,8 @@ class TestManualMergeReturnsFalseAndBatchExits2:
         manual_merge file is written — proving the batch was not halted
         mid-iteration by a raised typer.Exit."""
         from fakoli_state.cli._helpers import _open_backend
-        from fakoli_state.state.backend import PENDING_EVENT_ID
-        from fakoli_state.state.models import Event
-
+        from fakoli_state.state.models import EventDraft as _EventDraft
+    
         # T001 — diverged manual_merge mapping.
         _seed_task(initialized_project, task_id="T001", now=_NOW - timedelta(hours=2))
         _seed_sync_mapping(
@@ -1197,8 +1191,7 @@ class TestManualMergeReturnsFalseAndBatchExits2:
         state_dir = initialized_project / ".fakoli-state"
         b = _open_backend(state_dir)
         try:
-            b.apply_event(Event(
-                id=PENDING_EVENT_ID,
+            b.append(_EventDraft(
                 timestamp=_LATER,
                 actor="test",
                 action="task.status_changed",
@@ -2152,9 +2145,8 @@ class TestLocalMovedOnlyEmitsLocalAhead:
     ) -> None:
         """Bump the local Task's updated_at, pull, then assert mapping is local_ahead."""
         from fakoli_state.cli._helpers import _open_backend
-        from fakoli_state.state.backend import PENDING_EVENT_ID
-        from fakoli_state.state.models import Event
-
+        from fakoli_state.state.models import EventDraft as _EventDraft
+    
         # Seed: task at past, mapping at past+1h, remote last_modified at past.
         seed_time = _NOW - timedelta(hours=4)
         _seed_task(initialized_project, now=seed_time)
@@ -2170,8 +2162,7 @@ class TestLocalMovedOnlyEmitsLocalAhead:
         state_dir = initialized_project / ".fakoli-state"
         b = _open_backend(state_dir)
         try:
-            b.apply_event(Event(
-                id=PENDING_EVENT_ID,
+            b.append(_EventDraft(
                 timestamp=_LATER,
                 actor="test",
                 action="task.status_changed",
@@ -2230,9 +2221,8 @@ class TestLocalMovedOnlyEmitsLocalAhead:
         ``resolution="local_moved_no_push"`` so operators can grep for
         tasks awaiting a follow-up push."""
         from fakoli_state.cli._helpers import _open_backend
-        from fakoli_state.state.backend import PENDING_EVENT_ID
-        from fakoli_state.state.models import Event
-
+        from fakoli_state.state.models import EventDraft as _EventDraft
+    
         seed_time = _NOW - timedelta(hours=4)
         _seed_task(initialized_project, now=seed_time)
         _seed_sync_mapping(
@@ -2243,8 +2233,7 @@ class TestLocalMovedOnlyEmitsLocalAhead:
         state_dir = initialized_project / ".fakoli-state"
         b = _open_backend(state_dir)
         try:
-            b.apply_event(Event(
-                id=PENDING_EVENT_ID,
+            b.append(_EventDraft(
                 timestamp=_LATER,
                 actor="test",
                 action="task.status_changed",

@@ -10,8 +10,8 @@ SL1-RR-1 (write-path rework): The ``append(EventDraft) -> Event | None``
 method replaces the retired ``apply_event`` entry point. ``EventDraft`` carries
 the intended mutation without an assigned id; the backend validates, assigns the
 next monotonic id from the log, appends log-first, then applies the mutation.
-``PENDING_EVENT_ID`` is retained here temporarily so the test suite (migrated in
-Task 6) continues to import without error; it is not used by the new write path.
+``PENDING_EVENT_ID`` sentinel and ``apply_event`` / ``next_event_id`` are
+fully removed (Task 6 migration complete).
 """
 
 from __future__ import annotations
@@ -32,16 +32,6 @@ if TYPE_CHECKING:
         SyncMapping,
         Task,
     )
-
-
-# ---------------------------------------------------------------------------
-# Deprecated sentinel — kept for test-suite import compatibility (Task 6 removes)
-# ---------------------------------------------------------------------------
-
-#: DEPRECATED. The SL1-RR-1 write-path rework retires this sentinel. Use
-#: ``EventDraft`` + ``append()`` instead. Kept here only so the test suite
-#: (migrated in Task 6) does not fail at import time.
-PENDING_EVENT_ID = "PENDING"
 
 
 class Backend(Protocol):

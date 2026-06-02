@@ -451,11 +451,20 @@ class TestWritePathErrors:
         assert EventRejected is not TransactionAborted
         assert IdempotentNoOp is not StateLocked
 
-    def test_pending_event_id_still_exists(self) -> None:
-        """PENDING_EVENT_ID is not removed at this stage (deferred to Task 5)."""
-        from fakoli_state.state.backend import PENDING_EVENT_ID
+    def test_event_draft_exists_as_sole_write_type(self) -> None:
+        """SL1-RR-1 T6: PENDING_EVENT_ID is retired; EventDraft is the write type.
 
-        assert PENDING_EVENT_ID == "PENDING"
+        PENDING_EVENT_ID has been removed from backend.py. EventDraft (no id field)
+        is now the sole type passed to append(). The id is assigned by the backend.
+        """
+        from fakoli_state.state.models import EventDraft
+
+        # EventDraft has no id field — the backend assigns it.
+        import inspect
+        fields = EventDraft.model_fields
+        assert "id" not in fields, "EventDraft must not have an id field"
+        assert "action" in fields
+        assert "timestamp" in fields
 
 
 # ---------------------------------------------------------------------------
