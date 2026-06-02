@@ -106,17 +106,17 @@
       "source": "./plugins/notebooklm-enhanced"
     },
     {
+      "name": "quick-notes",
+      "version": "1.0.0",
+      "description": "Dictation-friendly personal notes. Capture a thought by speaking to Claude ('jot down...', 'note that...'); read back, search by keyword or #tag, filter by date, get stats, and export to Markdown. Notes are stored in an append-only, event-sourced JSON Lines log (add/edit/delete, never rewritten) kept outside the plugin so updates never touch your data.",
+      "category": "productivity",
+      "source": "./plugins/quick-notes"
+    },
+    {
       "name": "safe-fetch",
       "version": "1.0.5",
       "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
       "source": "./plugins/safe-fetch"
-    },
-    {
-      "name": "quick-notes",
-      "version": "1.0.0",
-      "description": "Dictation-friendly personal notes — capture by speaking to Claude, search by keyword/#tag/date, get stats, and export to Markdown, backed by an append-only event-sourced JSON Lines log kept outside the plugin.",
-      "category": "productivity",
-      "source": "./plugins/quick-notes"
     }
   ]
 }

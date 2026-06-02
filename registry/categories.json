@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-06-02T08:04:33Z",
+  "generatedAt": "2026-06-02T14:14:04Z",
   "categories": [
     {
       "category": "uncategorized",
-      "count": 13,
+      "count": 14,
       "plugins": [
         {
           "name": "cli-to-plugin",
@@ -76,6 +76,12 @@
           "version": "0.1.3",
           "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
           "path": "plugins/notebooklm-enhanced"
+        },
+        {
+          "name": "quick-notes",
+          "version": "1.0.0",
+          "description": "Dictation-friendly personal notes. Capture a thought by speaking to Claude ('jot down...', 'note that...'); read back, search by keyword or #tag, filter by date, get stats, and export to Markdown. Notes are stored in an append-only, event-sourced JSON Lines log (add/edit/delete, never rewritten) kept outside the plugin so updates never touch your data.",
+          "path": "plugins/quick-notes"
         },
         {
           "name": "safe-fetch",
