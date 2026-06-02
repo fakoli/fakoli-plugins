@@ -32,13 +32,9 @@ Items deferred from PR-level critic + Greptile reviews. Each entry links the ori
 
 ### SL1-RR-1 · A poison canonical line aborts a full replay
 
-**From**: SL-1 Wave 3 critic, surfaced by the replay-equivalence fixture work. **Status**: OPEN.
+**From**: SL-1 Wave 3 critic, surfaced by the replay-equivalence fixture work. **Status**: DONE (branch `feat/fakoli-state-sl1-rr-1-event-sourcing`).
 
-On the non-PENDING apply path, `apply_event` appends the canonical event line to `events.jsonl` **before** the SQLite mutation. If the mutation is then rejected (a handler raises), the canonical line is already persisted — so `replay_from_empty` re-applies it on every future replay and re-fails, aborting the entire replay. A single rejected non-PENDING event therefore poisons full replay of the log.
-
-SL-1 proves replay equivalence for well-formed logs (the fixture's `error.transaction_aborted` line is the clean `_append_abort_event` shape, which replay skips by action name with no poison predecessor). It does **not** cover this poison-line case.
-
-**Fix (needs its own spec — do not hack in):** either write the canonical event line only after the mutation commits, or make `replay_from_empty` tolerate a line that fails the same way it originally did. Both change a core event-application ordering invariant. Also tracked in fakoli-style principle **P4** `open_work`.
+The fix went beyond the original Option A (append-JSONL-only-after-COMMIT). It adopted the **full event-sourced write path**: a decide/apply split (`_check_*` / `_write_*` per action), `append(EventDraft) -> Event | None` as the sole production write entry point, log-as-id-authority via `flock` (closing the PR #41 Critic-3 cross-process id-collision race), append-only `events.jsonl` with a sibling `audit.jsonl` for rejections and idempotent no-ops, and strict no-skip-list replay via `_write_*` only. The design also closed the inverse post-COMMIT audit gap (crash between COMMIT and JSONL write). `apply_event`, `next_event_id`, and `PENDING_EVENT_ID` were removed. Tracked in fakoli-style principle **P4** `open_work` — that open work is now resolved.
 
 ---
 

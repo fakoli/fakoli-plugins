@@ -14,7 +14,7 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 | P3 | Measure your own gates (false-pass rate) | aspirational |  |
 | P7 | Coordinate through canonical state, not status files | aspirational |  |
 | P9 | Score spec assumptions, not just tasks | aspirational |  |
-| P4 | Prove invariants in CI, don't assert them | proven | `plugins/fakoli-state/tests/test_replay_equivalence.py`<br>`.github/workflows/fakoli-state.yml`<br>`plugins/fakoli-state/bin/src/fakoli_state/state/snapshot.py` |
+| P4 | Prove invariants in CI, don't assert them | proven | `plugins/fakoli-state/tests/test_replay_equivalence.py`<br>`.github/workflows/fakoli-state.yml`<br>`plugins/fakoli-state/bin/src/fakoli_state/state/snapshot.py`<br>`plugins/fakoli-state/tests/test_sqlite.py`<br>`plugins/fakoli-state/tests/test_sqlite.py`<br>`plugins/fakoli-state/tests/test_sqlite.py`<br>`plugins/fakoli-state/tests/test_sqlite.py`<br>`plugins/fakoli-state/tests/test_sqlite.py` |
 | P6 | Close the loop on failure, not just success | aspirational |  |
 | P8 | Conflicts live at the contract level, not the file level | aspirational |  |
 | P11 | Derived indexes live outside the replay boundary | aspirational |  |
@@ -84,8 +84,13 @@ Entries are ordered most load-bearing yet least-proven first — by credibility 
 - `plugins/fakoli-state/tests/test_replay_equivalence.py` (fakoli-state) — asserts serialize_state(normal apply path) == serialize_state(replay_from_empty) == committed golden snapshot
 - `.github/workflows/fakoli-state.yml` (fakoli-state) — runs the replay-equivalence test on every PR touching the plugin
 - `plugins/fakoli-state/bin/src/fakoli_state/state/snapshot.py` (fakoli-state) — serialize_state defines the canonical state compared for equivalence
+- `plugins/fakoli-state/tests/test_sqlite.py` (fakoli-state) — TestAppendValidationFailure: poison-line impossibility — validation rejection writes zero events.jsonl lines and one audit.jsonl rejection line
+- `plugins/fakoli-state/tests/test_sqlite.py` (fakoli-state) — TestCrossProcessConcurrency: two real subprocesses append concurrently via flock; verifies unique, contiguous ids with no collision (closes PR #41 Critic-3)
+- `plugins/fakoli-state/tests/test_sqlite.py` (fakoli-state) — TestSelfHeal / TestForwardCatchUpConvergence: backend self-heals on open by replaying any events.jsonl lines not yet in the DB projection (forward-catch-up)
+- `plugins/fakoli-state/tests/test_sqlite.py` (fakoli-state) — TestReplayStrict: replay_from_empty applies every line via _write_* only — no skip-list, no validation, structurally infallible for any well-formed log
+- `plugins/fakoli-state/tests/test_sqlite.py` (fakoli-state) — TestDecideApplyContract: per-action _check_* / _write_* contract — _check_* rejects illegal input with EventRejected and no side effects; _write_* succeeds whenever its matching _check_* passed
 
-**Open work.** SL1-RR-1 (latent, not live-reachable): the JSONL-first non-PENDING apply path can persist a poison canonical line that aborts full replay, but every live caller uses PENDING_EVENT_ID so no caller arms it in main today. Fix needs a spec: adopt Option A (append JSONL only after COMMIT on all paths, making 'log holds only committed events' the invariant) plus a poison-line regression fixture for the equivalence test. Tracked in tech-debt-backlog.
+**Open work.** SL1-RR-1 RESOLVED (branch feat/fakoli-state-sl1-rr-1-event-sourcing): the latent poison-line gap is closed by the full event-sourced write path (decide/apply split, append(EventDraft)->Event|None, log-as-id-authority via flock, append-only events.jsonl + sibling audit.jsonl, strict no-skip replay). The post-COMMIT audit gap and PR #41 Critic-3 cross-process id-collision race are also closed. apply_event and PENDING_EVENT_ID are retired.
 
 ### P6 — Close the loop on failure, not just success
 

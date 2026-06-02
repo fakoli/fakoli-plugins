@@ -10,6 +10,34 @@ _No unreleased changes._
 
 ---
 
+## [1.20.0] — 2026-06-01
+
+### Added / Changed — Event-Sourced Write Path (SL1-RR-1 closed)
+
+**Breaking internal API** (additive at the feature level; no CLI surface change):
+
+- **`append(EventDraft) -> Event | None`** replaces `apply_event` as the sole production write entry point. Returns a committed `Event` on success, `None` on idempotent no-op; raises `EventRejected` on validation failure. The old `apply_event`, `next_event_id`, and `PENDING_EVENT_ID` sentinel are removed.
+- **Decide/apply split (`_check_*` / `_write_*`).** Each of the ~17 action handlers is split into a read-only `_check_<action>` (raises `EventRejected` on any illegal transition; no side effects) and an infallible `_write_<action>` (mutates given a passing check). Dispatch table maps `action -> ActionSpec(payload_model, check, write)`.
+- **Log-as-id-authority via `flock`.** Event ids are assigned inside `append()` by scanning the tail of `events.jsonl` under an exclusive `flock`, not from `SELECT MAX(id)`. This closes the PR #41 Critic-3 cross-process id-collision race: two concurrent processes can no longer observe the same `MAX(id)` and collide on insert.
+- **Append-only `events.jsonl` + sibling `audit.jsonl`.** `events.jsonl` records only committed, successfully applied events. Validation rejections and idempotent no-ops are written exclusively to `audit.jsonl`, making a poison canonical line structurally impossible.
+- **Strict no-skip-list replay.** `replay_from_empty` applies every line via `_write_*` only — no validation, no logging, no skip-list. Any well-formed log replays infallibly.
+- **Forward-catch-up self-heal.** On open, the backend scans the tail of `events.jsonl` for lines not yet reflected in the SQLite projection and replays them forward, closing the post-COMMIT audit gap (crash between COMMIT and JSONL write no longer leaves the projection ahead of the log).
+- **Relaxed-default durability with strict opt-in.** `append()` accepts a `durability` parameter; the default relaxes `fsync` overhead for the common single-writer case; `strict` mode forces a full sync for multi-writer / crash-recovery scenarios.
+
+### Closed
+
+- **SL1-RR-1** (tech-debt-backlog): a rejected non-PENDING event can no longer persist a poison canonical line in `events.jsonl` — validation now happens entirely before any log write.
+- **Inverse post-COMMIT audit gap**: a crash between SQLite COMMIT and JSONL append is recovered on next open via forward-catch-up.
+- **PR #41 Critic-3 cross-process id-collision race**: closed by log-as-id-authority + `flock`.
+
+### Removed
+
+- `apply_event` (replaced by `append`)
+- `next_event_id` (id assignment is now internal to `append`)
+- `PENDING_EVENT_ID` sentinel (no longer needed; all callers use `append(EventDraft)`)
+
+---
+
 ## [1.19.0] — 2026-06-01
 
 ### Added
