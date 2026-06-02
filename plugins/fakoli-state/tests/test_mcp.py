@@ -21,14 +21,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
-
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
@@ -79,8 +77,7 @@ def _init_state_dir(tmp_path: Path, project_name: str = "Test Project") -> Path:
     factories from the sqlite test layer so we don't duplicate CLI coupling.
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.state.backend import PENDING_EVENT_ID
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.models import EventDraft
     from fakoli_state.state.sqlite import SqliteBackend
 
     state_dir = tmp_path / ".fakoli-state"
@@ -101,8 +98,7 @@ def _init_state_dir(tmp_path: Path, project_name: str = "Test Project") -> Path:
     b.initialize()
 
     project_id = "proj-test"
-    b.apply_event(Event(
-        id=PENDING_EVENT_ID,
+    b.append(EventDraft(
         timestamp=now,
         actor="test",
         action="project.created",
@@ -116,8 +112,7 @@ def _init_state_dir(tmp_path: Path, project_name: str = "Test Project") -> Path:
             "updated_at": now.isoformat(),
         },
     ))
-    b.apply_event(Event(
-        id=PENDING_EVENT_ID,
+    b.append(EventDraft(
         timestamp=now,
         actor="test",
         action="state.initialized",
@@ -1560,8 +1555,8 @@ class TestParsePrd:
         assert resp["errors"] == []
         assert resp["prd_status"] == "draft"
         # Verify the PRD was actually persisted.
-        from fakoli_state.state.sqlite import SqliteBackend
         from fakoli_state.clock import SystemClock
+        from fakoli_state.state.sqlite import SqliteBackend
         b = SqliteBackend(
             db_path=str(state_dir / "state.db"),
             events_path=str(state_dir / "events.jsonl"),

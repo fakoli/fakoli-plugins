@@ -9,10 +9,10 @@ import pytest
 from fakoli_state.clock import FrozenClock
 from fakoli_state.planning.llm import LLMResponse, RecordedLLMProvider
 from fakoli_state.planning.llm_planner import (
+    _SYSTEM_PROMPT,
     PlannerProviderUnavailable,
     TaskGenerationError,
     _build_user_prompt,
-    _SYSTEM_PROMPT,
     _validate_and_normalize,
     generate_tasks_markdown,
     resolve_planner_provider,

@@ -61,6 +61,7 @@ class TestLoadConfig:
         assert cfg.default_lease_minutes == 60
         assert cfg.default_heartbeat_minutes == 5
         assert cfg.git_ops_mode == "auto"
+        assert cfg.durability == "relaxed"
         assert cfg.sync_github_enabled is False
         assert cfg.sync_github_conflict_strategy == "prompt"
 
@@ -123,6 +124,7 @@ llm_model: 'claude-sonnet-4-6'
 default_lease_minutes: 120
 default_heartbeat_minutes: 10
 git_ops_mode: record_only
+durability: strict
 sync_github_enabled: true
 sync_github_conflict_strategy: local_wins
 """
@@ -133,6 +135,7 @@ sync_github_conflict_strategy: local_wins
         assert cfg.default_lease_minutes == 120
         assert cfg.default_heartbeat_minutes == 10
         assert cfg.git_ops_mode == "record_only"
+        assert cfg.durability == "strict"
         assert cfg.sync_github_enabled is True
         assert cfg.sync_github_conflict_strategy == "local_wins"
 
@@ -174,6 +177,14 @@ class TestLoadConfigErrors:
         yaml_content = _minimal_yaml() + "git_ops_mode: invalid_mode\n"
         config_path = _write_config(tmp_path / "config.yaml", yaml_content)
         with pytest.raises(ValueError, match="git_ops_mode"):
+            load_config(config_path)
+
+    def test_load_config_invalid_durability(self, tmp_path: Path) -> None:
+        """Invalid durability value raises the same ValueError that every
+        other literal-typed field raises (via _validate_literal)."""
+        yaml_content = _minimal_yaml() + "durability: paranoid\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="durability"):
             load_config(config_path)
 
     def test_load_config_invalid_conflict_strategy(self, tmp_path: Path) -> None:
@@ -251,6 +262,57 @@ class TestBranchPrefix:
         config_path = _write_config(tmp_path / "config.yaml", yaml_content)
         with pytest.raises(ValueError, match="branch_prefix"):
             load_config(config_path)
+
+
+# ---------------------------------------------------------------------------
+# durability (SL1-RR-1)
+# ---------------------------------------------------------------------------
+
+
+class TestDurability:
+    """SL1-RR-1: write-path durability knob. `relaxed` (default) skips the
+    per-event fsync; `strict` opts into synchronous=FULL + fsync(log) before
+    COMMIT. Consumed by the write path; the config layer only validates and
+    defaults the value."""
+
+    def test_default_durability_is_relaxed(self, tmp_path: Path) -> None:
+        """No durability key in YAML → defaults to 'relaxed' (back-compat:
+        configs written before this knob existed keep prior behaviour)."""
+        config_path = _write_config(tmp_path / "config.yaml", _minimal_yaml())
+        cfg = load_config(config_path)
+        assert cfg.durability == "relaxed"
+
+    def test_explicit_relaxed(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + "durability: relaxed\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        cfg = load_config(config_path)
+        assert cfg.durability == "relaxed"
+
+    def test_explicit_strict(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + "durability: strict\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        cfg = load_config(config_path)
+        assert cfg.durability == "strict"
+
+    def test_invalid_durability_raises(self, tmp_path: Path) -> None:
+        """Any value outside {relaxed, strict} raises ValueError naming the
+        field — same validation path as git_ops_mode / llm_tier."""
+        yaml_content = _minimal_yaml() + "durability: fsync_everything\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="durability"):
+            load_config(config_path)
+
+    def test_template_documents_durability(self) -> None:
+        """write_default_config / config_template output includes the
+        durability key documented with both legal values and the relaxed
+        default."""
+        template = config_template()
+        assert "durability: relaxed" in template
+        assert "relaxed" in template
+        assert "strict" in template
+        # The rendered template round-trips through load_config to "relaxed".
+        parsed = yaml.safe_load(template)
+        assert parsed.get("durability") == "relaxed"
 
 
 # ---------------------------------------------------------------------------

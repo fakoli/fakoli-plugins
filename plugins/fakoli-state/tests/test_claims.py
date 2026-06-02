@@ -28,7 +28,7 @@ from fakoli_state.claims.stale import detect_and_release_stale
 from fakoli_state.clock import FrozenClock
 from fakoli_state.state.models import (
     ClaimStatus,
-    Event,
+    EventDraft,
     TaskStatus,
 )
 from fakoli_state.state.sqlite import SqliteBackend
@@ -65,9 +65,9 @@ def _make_event(
     target_id: str = "T001",
     now: datetime = _T0,
     actor: str = "test",
-) -> Event:
-    return Event(
-        id=event_id,
+) -> EventDraft:
+    """Return an EventDraft (SL1-RR-1: id is assigned by backend)."""
+    return EventDraft(
         timestamp=now,
         actor=actor,
         action=action,
@@ -78,9 +78,8 @@ def _make_event(
 
 
 def _setup_project(b: SqliteBackend) -> None:
-    """Apply project.created + state.initialized."""
-    b.apply_event(Event(
-        id="E000001",
+    """Apply project.created + state.initialized via append()."""
+    b.append(EventDraft(
         timestamp=_T0,
         actor="test",
         action="project.created",
@@ -94,8 +93,7 @@ def _setup_project(b: SqliteBackend) -> None:
             "updated_at": _T0.isoformat(),
         },
     ))
-    b.apply_event(Event(
-        id="E000002",
+    b.append(EventDraft(
         timestamp=_T0,
         actor="test",
         action="state.initialized",
@@ -123,17 +121,17 @@ def _make_prd_payload(status: str = "draft") -> dict[str, Any]:
 
 
 def _setup_prd(b: SqliteBackend, *, approve: bool = False) -> None:
-    """Apply prd.parsed, prd.reviewed, and optionally prd.approved."""
-    b.apply_event(_make_event(
+    """Apply prd.parsed, prd.reviewed, and optionally prd.approved via append()."""
+    b.append(_make_event(
         "prd.parsed", _make_prd_payload(),
         event_id="E000003", target_kind="prd", target_id="proj-1",
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "prd.reviewed", {"project_id": "proj-1", "reviewer": "alice"},
         event_id="E000004", target_kind="prd", target_id="proj-1",
     ))
     if approve:
-        b.apply_event(_make_event(
+        b.append(_make_event(
             "prd.approved", {"project_id": "proj-1", "approver": "bob"},
             event_id="E000005", target_kind="prd", target_id="proj-1",
         ))
@@ -378,7 +376,7 @@ class TestClaim:
         try:
             _setup_project(b)
             # Only parse PRD — do NOT review it
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed", _make_prd_payload(),
                 event_id="E000003", target_kind="prd", target_id="proj-1",
             ))
@@ -1334,8 +1332,9 @@ class TestStaleDetectionEdgeCases:
     def test_stale_detector_exception_handling_per_claim(self, tmp_path: Path) -> None:
         """detect_and_release_stale per-claim exception path (logger.exception).
 
-        The test forces a per-claim failure by monkeypatching apply_event to
-        raise on the second call, covering the except block at stale.py:104-105.
+        The test forces a per-claim failure by monkeypatching append() to raise
+        on the second call, covering the except block in stale.py.
+        SL1-RR-1: stale.py now calls backend.append(EventDraft), not apply_event.
         """
         import unittest.mock as _mock
 
@@ -1362,15 +1361,15 @@ class TestStaleDetectionEdgeCases:
             from fakoli_state.state.backend import TransactionAborted as _TA
 
             call_count = {"n": 0}
-            original_apply = b.apply_event
+            original_append = b.append
 
-            def _raise_on_second(event: Any) -> None:
+            def _raise_on_second(draft: Any) -> Any:
                 call_count["n"] += 1
                 if call_count["n"] == 2:
                     raise _TA("Simulated per-claim failure")
-                return original_apply(event)
+                return original_append(draft)
 
-            with _mock.patch.object(b, "apply_event", side_effect=_raise_on_second):
+            with _mock.patch.object(b, "append", side_effect=_raise_on_second):
                 reaped = detect_and_release_stale(b, clock)
 
             # At least one claim was reaped (the first one); the second raised

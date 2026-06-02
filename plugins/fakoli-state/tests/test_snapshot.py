@@ -9,9 +9,9 @@ replay-equivalence test. These tests prove two properties:
    stale claims and review rows, proving it reads ``list_claims`` /
    ``list_reviews`` (ALL rows) and NOT the active-only variants.
 
-The backend is populated through the real event pipeline (apply_event), so the
-snapshot is exercised against genuine SQLite-backed state rather than hand-built
-models.
+The backend is populated through the real event pipeline (append(EventDraft)),
+so the snapshot is exercised against genuine SQLite-backed state rather than
+hand-built models. SL1-RR-1: apply_event is retired; append() is the sole write.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from fakoli_state.clock import FrozenClock
-from fakoli_state.state.models import Event
+from fakoli_state.state.models import EventDraft
 from fakoli_state.state.snapshot import serialize_state
 from fakoli_state.state.sqlite import SqliteBackend
 
@@ -47,12 +47,12 @@ def _event(
     action: str,
     payload: dict[str, Any],
     *,
-    event_id: str,
+    event_id: str = "unused",
     target_kind: str = "task",
     target_id: str = "T001",
-) -> Event:
-    return Event(
-        id=event_id,
+) -> EventDraft:
+    """Return an EventDraft (SL1-RR-1: id is assigned by backend, event_id ignored)."""
+    return EventDraft(
         timestamp=_T0,
         actor="test",
         action=action,
@@ -113,7 +113,7 @@ def _build_populated_backend(state_dir: Path) -> SqliteBackend:
     eid = iter(f"E{n:06d}" for n in range(1, 1000))
 
     # Project + state init.
-    b.apply_event(_event(
+    b.append(_event(
         "project.created",
         {
             "id": "proj-1",
@@ -124,7 +124,7 @@ def _build_populated_backend(state_dir: Path) -> SqliteBackend:
         },
         event_id=next(eid), target_kind="project", target_id="proj-1",
     ))
-    b.apply_event(_event(
+    b.append(_event(
         "state.initialized", {},
         event_id=next(eid), target_kind="project", target_id="proj-1",
     ))
@@ -144,17 +144,17 @@ def _build_populated_backend(state_dir: Path) -> SqliteBackend:
         "risks": [],
         "open_questions": [],
     }
-    b.apply_event(_event(
+    b.append(_event(
         "prd.parsed", prd_payload,
         event_id=next(eid), target_kind="prd", target_id="proj-1",
     ))
-    b.apply_event(_event(
+    b.append(_event(
         "prd.reviewed", {"project_id": "proj-1", "reviewer": "alice"},
         event_id=next(eid), target_kind="prd", target_id="proj-1",
     ))
 
     # Feature.
-    b.apply_event(_event(
+    b.append(_event(
         "feature.created",
         {
             "id": "F001",
@@ -169,7 +169,7 @@ def _build_populated_backend(state_dir: Path) -> SqliteBackend:
 
     # Two tasks, each promoted proposed → drafted → reviewed → ready.
     for task_id in ("T001", "T002"):
-        b.apply_event(_event(
+        b.append(_event(
             "task.created", _task_payload(task_id=task_id),
             event_id=next(eid), target_id=task_id,
         ))
@@ -178,7 +178,7 @@ def _build_populated_backend(state_dir: Path) -> SqliteBackend:
             ("drafted", "reviewed"),
             ("reviewed", "ready"),
         ):
-            b.apply_event(_event(
+            b.append(_event(
                 "task.status_changed",
                 {"task_id": task_id, "from": from_s, "to": to_s},
                 event_id=next(eid), target_id=task_id,
@@ -186,11 +186,11 @@ def _build_populated_backend(state_dir: Path) -> SqliteBackend:
 
     # T001: claim → evidence.submitted (auto-releases claim, inserts evidence) →
     # task.applied accepted (inserts a review row, task → done).
-    b.apply_event(_event(
+    b.append(_event(
         "claim.created", _claim_payload(claim_id="C001", task_id="T001"),
         event_id=next(eid), target_kind="claim", target_id="C001",
     ))
-    b.apply_event(_event(
+    b.append(_event(
         "evidence.submitted",
         {
             "task_id": "T001",
@@ -208,18 +208,18 @@ def _build_populated_backend(state_dir: Path) -> SqliteBackend:
         event_id=next(eid), target_id="T001",
     ))
     applied_event_id = next(eid)
-    b.apply_event(_event(
+    b.append(_event(
         "task.applied",
         {"task_id": "T001", "reviewer": "alice", "decision": "accepted", "notes": None},
         event_id=applied_event_id, target_id="T001",
     ))
 
     # T002: claim → claim.stale (stale claim, task returns to ready).
-    b.apply_event(_event(
+    b.append(_event(
         "claim.created", _claim_payload(claim_id="C002", task_id="T002"),
         event_id=next(eid), target_kind="claim", target_id="C002",
     ))
-    b.apply_event(_event(
+    b.append(_event(
         "claim.stale",
         {
             "claim_id": "C002",

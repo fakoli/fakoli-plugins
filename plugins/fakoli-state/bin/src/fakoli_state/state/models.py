@@ -57,6 +57,7 @@ __all__ = [
     "Evidence",
     "Decision",
     "Review",
+    "EventDraft",
     "Event",
     "SyncMapping",
     "ConflictGroup",
@@ -438,16 +439,26 @@ class Review(BaseModel):
         return _require_utc(v, "created_at")
 
 
-class Event(BaseModel):
-    """An immutable append-only log entry.
+class EventDraft(BaseModel):
+    """An intended mutation whose event id has not yet been assigned.
 
-    The event log is the audit trail; replaying it from scratch must reconstruct
-    canonical SQLite state exactly. Events are never updated or deleted.
+    A draft carries every field of an :class:`Event` *except* ``id``. It is the
+    input to the backend write path (``append(draft) -> Event``): the backend
+    validates the draft, assigns the next monotonic id from the log, and
+    materializes it into an :class:`Event`. The type system therefore prevents
+    handing an unassigned draft to replay, or a materialized ``Event`` to
+    ``append``.
+
+    Field set (the materialized ``Event`` adds only ``id`` on top of these):
+    - ``timestamp`` — UTC-aware; the moment the mutation was requested.
+    - ``actor`` — who requested it.
+    - ``action`` — the action name (e.g. ``"task.applied"``).
+    - ``target_kind`` / ``target_id`` — what the mutation is about.
+    - ``payload_json`` — the action-specific payload.
     """
 
     model_config = _MODEL_CONFIG
 
-    id: EventID  # monotonic: E000001, E000002, …
     timestamp: datetime.datetime
     actor: str
     action: str
@@ -460,16 +471,27 @@ class Event(BaseModel):
     def _validate_utc(cls, v: datetime.datetime) -> datetime.datetime:
         return _require_utc(v, "timestamp")
 
+
+class Event(EventDraft):
+    """An immutable append-only log entry — a draft assigned an id and applied.
+
+    The event log is the audit trail; replaying it from scratch must reconstruct
+    canonical SQLite state exactly. Events are never updated or deleted. An
+    ``Event`` is an :class:`EventDraft` plus the monotonic ``id`` assigned by the
+    backend at log-append time.
+    """
+
+    id: EventID  # monotonic: E000001, E000002, …
+
     @model_validator(mode="after")
     def _validate_event_id_format(self) -> Event:
-        # Allow the PENDING sentinel so callers can defer ID assignment to
-        # the Backend (apply_event assigns the ID inside the BEGIN IMMEDIATE
-        # lock — eliminating the read-before-lock race from Critic-3/PR #41).
-        if self.id == "PENDING":
-            return self
+        # SL1-RR-1 (write-path rework): the PENDING_EVENT_ID sentinel is retired.
+        # The ``append(EventDraft)`` path assigns ids from the log-authority
+        # counter inside the flock critical section, so every Event id must be
+        # in the canonical monotonic ``E000001`` format.
         if not self.id.startswith("E") or not self.id[1:].isdigit():
             raise ValueError(
-                f"Event.id must be in monotonic format 'E000001' or 'PENDING'; got {self.id!r}"
+                f"Event.id must be in monotonic format 'E000001'; got {self.id!r}"
             )
         return self
 

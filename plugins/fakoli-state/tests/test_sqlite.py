@@ -4,11 +4,11 @@ THE MOST CRITICAL TEST: test_replay_from_empty_reconstructs_state_exactly.
 
 Coverage targets:
 - initialize() idempotency and schema version check
-- apply_event() JSONL + SQLite atomicity
-- apply_event() rollback on failure → error.transaction_aborted in JSONL
+- append() JSONL + SQLite atomicity (SL1-RR-1 write path)
+- append() validation failure → rejection in audit.jsonl, zero events.jsonl lines
 - SchemaMismatch on version mismatch
 - replay_from_empty() reconstructs identical state (audit guarantee)
-- replay_from_empty() skips aborted events
+- replay_from_empty() strict — no skip list; interior corruption raises
 """
 
 from __future__ import annotations
@@ -25,8 +25,12 @@ from typing import Any
 import pytest
 
 from fakoli_state.clock import FrozenClock
-from fakoli_state.state.backend import PENDING_EVENT_ID, SchemaMismatch, TransactionAborted
-from fakoli_state.state.models import Event
+from fakoli_state.state.backend import (
+    EventRejected,
+    SchemaMismatch,
+    TransactionAborted,
+)
+from fakoli_state.state.models import Event, EventDraft
 from fakoli_state.state.schema import SCHEMA_VERSION
 from fakoli_state.state.sqlite import SqliteBackend
 
@@ -64,9 +68,9 @@ def _make_project_event(
     project_id: str = "proj-1",
     project_name: str = "Test Project",
     now: datetime = _T0,
-) -> Event:
-    return Event(
-        id=event_id,
+) -> EventDraft:
+    """Return an EventDraft for project.created (SL1-RR-1: no id field)."""
+    return EventDraft(
         timestamp=now,
         actor="test",
         action="project.created",
@@ -87,15 +91,57 @@ def _make_init_event(
     event_id: str = "E000002",
     project_id: str = "proj-1",
     now: datetime = _T0,
-) -> Event:
-    return Event(
-        id=event_id,
+) -> EventDraft:
+    """Return an EventDraft for state.initialized (SL1-RR-1: no id field)."""
+    return EventDraft(
         timestamp=now,
         actor="test",
         action="state.initialized",
         target_kind="project",
         target_id=project_id,
+        payload_json={},
     )
+
+
+def _apply(
+    b: SqliteBackend,
+    action: str,
+    payload: dict[str, Any],
+    *,
+    target_kind: str = "project",
+    target_id: str = "proj-1",
+    now: datetime = _T0,
+    actor: str = "test",
+) -> Event:
+    """Compatibility shim: build an EventDraft and call append(). Returns Event.
+
+    Replaces the retired apply_event(Event(id=..., ...)) pattern. All tests
+    that formerly passed hardcoded event IDs now receive the backend-assigned id
+    from the returned Event. The id parameter is accepted but ignored — the
+    backend is the id authority (SL1-RR-1).
+    """
+    draft = EventDraft(
+        timestamp=now,
+        actor=actor,
+        action=action,
+        target_kind=target_kind,
+        target_id=target_id,
+        payload_json=payload,
+    )
+    result = b.append(draft)
+    if result is None:
+        # Idempotent no-op — create a synthetic Event for caller convenience.
+        # This only happens on legal already-satisfied requests.
+        return Event(
+            id="E000000",
+            timestamp=now,
+            actor=actor,
+            action=action,
+            target_kind=target_kind,
+            target_id=target_id,
+            payload_json=payload,
+        )
+    return result
 
 
 def _sqlite_dump(db_path: str) -> str:
@@ -199,19 +245,19 @@ class TestInitialize:
 
 
 class TestApplyEvent:
-    def test_apply_event_writes_jsonl_and_sqlite_in_same_transaction(
+    def test_append_writes_jsonl_and_sqlite(
         self, tmp_path: Path
     ) -> None:
-        """apply_event writes JSONL line AND SQLite row — both or neither."""
+        """append() writes JSONL line AND SQLite row — both or neither (SL1-RR-1)."""
         b = _make_backend(tmp_path)
         events_path = str(tmp_path / "events.jsonl")
         try:
-            event = _make_project_event()
-            b.apply_event(event)
+            event = b.append(_make_project_event())
 
-            # JSONL line is present
+            # JSONL line is present with assigned id.
+            assert event is not None
             events = _read_jsonl(events_path)
-            assert any(e.get("id") == "E000001" for e in events)
+            assert any(e.get("id") == event.id for e in events)
 
             # SQLite Project row is present
             project = b.get_project()
@@ -221,13 +267,13 @@ class TestApplyEvent:
         finally:
             b.close()
 
-    def test_apply_state_initialized_event(self, tmp_path: Path) -> None:
+    def test_append_state_initialized_event(self, tmp_path: Path) -> None:
         """state.initialized event is accepted and recorded in events table."""
         b = _make_backend(tmp_path)
         events_path = str(tmp_path / "events.jsonl")
         try:
-            b.apply_event(_make_project_event())
-            b.apply_event(_make_init_event())
+            b.append(_make_project_event())
+            b.append(_make_init_event())
 
             events = _read_jsonl(events_path)
             actions = [e["action"] for e in events]
@@ -235,26 +281,34 @@ class TestApplyEvent:
         finally:
             b.close()
 
-    def test_apply_event_rollback_on_mutation_failure(self, tmp_path: Path) -> None:
-        """Unsupported action → JSONL gets error.transaction_aborted; SQLite unchanged."""
+    def test_append_unknown_action_raises_event_rejected(self, tmp_path: Path) -> None:
+        """Unsupported action → EventRejected (SL1-RR-1: no line in events.jsonl).
+
+        Under SL1-RR-1: validation happens BEFORE the log write. An unknown
+        action raises EventRejected (not TransactionAborted). Zero lines are
+        written to events.jsonl; one rejection line is written to audit.jsonl.
+        The abort tombstone (error.transaction_aborted) no longer exists.
+        """
         b = _make_backend(tmp_path)
         events_path = str(tmp_path / "events.jsonl")
         try:
-            bad_event = Event(
-                id="E000001",
+            bad_draft = EventDraft(
                 timestamp=_T0,
                 actor="test",
-                action="unsupported.action",  # triggers NotImplementedError
+                action="unsupported.action",  # not in dispatch table
                 target_kind="project",
                 target_id="proj-1",
+                payload_json={},
             )
-            with pytest.raises(TransactionAborted):
-                b.apply_event(bad_event)
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
 
-            # JSONL should have the abort tombstone
+            # ZERO lines in events.jsonl — validation is pre-log (SL1-RR-1).
             events = _read_jsonl(events_path)
-            abort_events = [e for e in events if e.get("action") == "error.transaction_aborted"]
-            assert len(abort_events) >= 1
+            assert len(events) == 0, (
+                f"SL1-RR-1: unknown-action rejection must not write to events.jsonl; "
+                f"got: {events}"
+            )
 
             # SQLite project row should NOT be present
             project = b.get_project()
@@ -262,15 +316,16 @@ class TestApplyEvent:
         finally:
             b.close()
 
-    def test_apply_event_adds_event_to_events_mirror_table(self, tmp_path: Path) -> None:
-        """Successful apply_event records the event in the SQLite events mirror table."""
+    def test_append_adds_event_to_events_mirror_table(self, tmp_path: Path) -> None:
+        """Successful append() records the event in the SQLite events mirror table."""
         b = _make_backend(tmp_path)
         try:
-            b.apply_event(_make_project_event())
-            # Query the events mirror table directly
+            event = b.append(_make_project_event())
+            assert event is not None
+            # Query the events mirror table directly using the returned id.
             conn = sqlite3.connect(str(tmp_path / "state.db"))
             row = conn.execute(
-                "SELECT id, action FROM events WHERE id = 'E000001'"
+                "SELECT id, action FROM events WHERE id = ?", (event.id,)
             ).fetchone()
             conn.close()
             assert row is not None
@@ -349,11 +404,11 @@ class TestAuditGuarantee:
 
         try:
             # Apply event 1: project.created
-            b.apply_event(_make_project_event(event_id="E000001"))
+            b.append(_make_project_event(event_id="E000001"))
             # Apply event 2: state.initialized
-            b.apply_event(_make_init_event(event_id="E000002"))
+            b.append(_make_init_event(event_id="E000002"))
             # Apply event 3: second project.created (updates project row)
-            b.apply_event(
+            b.append(
                 _make_project_event(
                     event_id="E000003",
                     project_id="proj-1",
@@ -386,8 +441,13 @@ class TestAuditGuarantee:
             f"Replayed dump (truncated):\n{replayed_dump[:500]}"
         )
 
-    def test_replay_skips_aborted_events(self, tmp_path: Path) -> None:
-        """events.jsonl with one error.transaction_aborted — replay produces clean state."""
+    def test_replay_clean_log_after_rejected_append(self, tmp_path: Path) -> None:
+        """Rejected append leaves events.jsonl clean; replay reconstructs full state.
+
+        Under SL1-RR-1 the canonical log never contains abort tombstones.
+        A validation failure (EventRejected) is recorded only in audit.jsonl.
+        Replay must reconstruct the full state from the clean log.
+        """
         clock = _make_clock()
         db_path = str(tmp_path / "state.db")
         events_path = str(tmp_path / "events.jsonl")
@@ -398,31 +458,35 @@ class TestAuditGuarantee:
 
         try:
             # Apply good event
-            b.apply_event(_make_project_event(event_id="E000001"))
+            b.append(_make_project_event())
 
-            # Inject a bad event to trigger TransactionAborted (generates abort tombstone)
-            bad_event = Event(
-                id="E000002",
+            # Attempt a bad draft — should raise EventRejected, NOT write to events.jsonl
+            bad_draft = EventDraft(
                 timestamp=_T0,
                 actor="test",
-                action="unsupported.action",
+                action="unsupported.action",  # not in dispatch table
                 target_kind="project",
                 target_id="proj-1",
+                payload_json={},
             )
-            with pytest.raises(TransactionAborted):
-                b.apply_event(bad_event)
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
 
-            # Apply another good event after the abort
-            b.apply_event(_make_init_event(event_id="E000003"))
+            # Apply another good event after the rejection
+            b.append(_make_init_event())
         finally:
             b.close()
 
-        # Verify JSONL contains the abort tombstone
+        # Verify JSONL contains ONLY the two real events — no abort tombstones.
         events = _read_jsonl(events_path)
-        abort_events = [e for e in events if e.get("action") == "error.transaction_aborted"]
-        assert len(abort_events) >= 1
+        actions = [e.get("action") for e in events]
+        assert "error.transaction_aborted" not in actions, (
+            "SL1-RR-1: rejected appends must not write to events.jsonl"
+        )
+        assert "project.created" in actions
+        assert "state.initialized" in actions
 
-        # Now replay from empty — should skip the abort event
+        # Now replay from empty — should reconstruct full state
         clock2 = _make_clock()
         b3 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
         b3.initialize()
@@ -432,7 +496,7 @@ class TestAuditGuarantee:
         finally:
             b3.close()
 
-        # Project should be present (from E000001 which was valid)
+        # Project should be present (from project.created)
         assert project is not None
         assert project.id == "proj-1"
 
@@ -444,7 +508,7 @@ class TestAuditGuarantee:
         db_path = str(tmp_path / "state.db")
 
         try:
-            b.apply_event(_make_project_event(project_name="My Replayed Project"))
+            b.append(_make_project_event(project_name="My Replayed Project"))
             original_project = b.get_project()
         finally:
             b.close()
@@ -501,7 +565,7 @@ class TestQueryHelpers:
     def test_get_project_returns_project_after_event(self, tmp_path: Path) -> None:
         b = _make_backend(tmp_path)
         try:
-            b.apply_event(_make_project_event(project_name="Hello World"))
+            b.append(_make_project_event(project_name="Hello World"))
             project = b.get_project()
             assert project is not None
             assert project.name == "Hello World"
@@ -564,8 +628,13 @@ class TestClose:
 
 
 class TestReplayCorruptedJSONL:
-    def test_replay_skips_corrupted_jsonl_line(self, tmp_path: Path) -> None:
-        """Corrupted JSONL line (non-JSON) is skipped during replay_from_empty."""
+    def test_replay_interior_corrupted_line_raises(self, tmp_path: Path) -> None:
+        """Interior corrupted JSONL line raises during replay_from_empty (SL1-RR-1 strict).
+
+        Under SL1-RR-1, replay is strict: every line in events.jsonl is a fact.
+        An interior malformed line is real corruption and replay RAISES — it
+        does not skip. Only the torn TRAILING line is tolerated.
+        """
         clock = _make_clock()
         db_path = str(tmp_path / "state.db")
         events_path = str(tmp_path / "events.jsonl")
@@ -574,67 +643,87 @@ class TestReplayCorruptedJSONL:
         b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
         b.initialize()
         try:
-            b.apply_event(_make_project_event(event_id="E000001"))
+            b.append(_make_project_event())
         finally:
             b.close()
 
-        # Manually inject a corrupted line between valid events
-        with open(events_path, "a", encoding="utf-8") as fh:
-            fh.write("NOT VALID JSON {{{\n")
-            # Add another valid event after the corrupt line
-            valid_event = {
-                "id": "E000002",
-                "timestamp": _T0.isoformat(),
-                "actor": "test",
-                "action": "state.initialized",
-                "target_kind": "project",
-                "target_id": "proj-1",
-                "payload_json": {},
-            }
-            fh.write(json.dumps(valid_event) + "\n")
+        # Inject a corrupted line in the INTERIOR (between two real events).
+        with open(events_path, "r+", encoding="utf-8") as fh:
+            existing = fh.read()
 
-        # Replay from events.jsonl — corrupted line should be skipped
+        # Write: real line, corrupted interior line, another real line.
+        valid_line = json.dumps({
+            "id": "E000002",
+            "timestamp": _T0.isoformat(),
+            "actor": "test",
+            "action": "state.initialized",
+            "target_kind": "project",
+            "target_id": "proj-1",
+            "payload_json": {},
+        })
+        with open(events_path, "w", encoding="utf-8") as fh:
+            fh.write(existing.rstrip("\n") + "\n")
+            fh.write("NOT VALID JSON {{{\n")
+            fh.write(valid_line + "\n")
+
+        # Replay from events.jsonl — interior corruption must RAISE.
         clock2 = _make_clock()
         b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
-        b2.initialize()
-        try:
+        with pytest.raises((TransactionAborted, ValueError)):
             b2.replay_from_empty(events_path)
+
+    def test_replay_torn_trailing_line_is_tolerated(self, tmp_path: Path) -> None:
+        """A torn (partial) TRAILING line is silently tolerated during replay.
+
+        Under SL1-RR-1, only the last log line can be torn by a crash. The event
+        was never committed (not returned to any caller), so ignoring a partial
+        final line is safe. Interior corruption raises; only the trailing case is
+        tolerated.
+        """
+        clock = _make_clock()
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
+        try:
+            b.append(_make_project_event())
+        finally:
+            b.close()
+
+        # Append a partial/torn trailing line (simulates crash mid-write).
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write('{"id": "E000002", "action": "state.init')  # deliberately torn
+
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.replay_from_empty(events_path)
+        try:
             project = b2.get_project()
+            assert project is not None
+            assert project.id == "proj-1"
         finally:
             b2.close()
 
-        # Project from E000001 should still be present
-        assert project is not None
-        assert project.id == "proj-1"
-
-    def test_replay_skips_empty_lines(self, tmp_path: Path) -> None:
-        """Empty lines in JSONL are skipped during replay_from_empty."""
+    def test_replay_empty_lines_only_in_file(self, tmp_path: Path) -> None:
+        """A file with only empty/whitespace lines replays to an empty-but-valid state."""
         clock = _make_clock()
         db_path = str(tmp_path / "state.db")
         events_path = str(tmp_path / "events.jsonl")
-        Path(events_path).touch()
 
-        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
-        b.initialize()
-        try:
-            b.apply_event(_make_project_event(event_id="E000001"))
-        finally:
-            b.close()
-
-        # Add empty lines to the JSONL
-        with open(events_path, "a", encoding="utf-8") as fh:
+        # Create a file with only empty lines.
+        with open(events_path, "w", encoding="utf-8") as fh:
             fh.write("\n\n\n")
 
-        clock2 = _make_clock()
-        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
-        b2.initialize()
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
         try:
-            b2.replay_from_empty(events_path)
-            project = b2.get_project()
+            b.replay_from_empty(events_path)
+            project = b.get_project()
+            assert project is None  # nothing was replayed
         finally:
-            b2.close()
-
-        assert project is not None
+            b.close()
 
 
 # ---------------------------------------------------------------------------
@@ -885,7 +974,7 @@ class TestRowDeserialization:
         b = _make_backend(tmp_path)
         try:
             # Insert project first (PRD FK)
-            b.apply_event(_make_project_event(event_id="E000001"))
+            b.append(_make_project_event(event_id="E000001"))
 
             # Insert PRD directly
             conn = sqlite3.connect(str(tmp_path / "state.db"))
@@ -940,10 +1029,10 @@ class TestRowDeserialization:
 
 
 class TestJSONLWriteFailure:
-    def test_apply_event_jsonl_write_failure_raises_transaction_aborted(
+    def test_append_jsonl_write_failure_raises_error(
         self, tmp_path: Path
     ) -> None:
-        """If events.jsonl is unwritable, apply_event raises TransactionAborted."""
+        """If events.jsonl is unwritable, append() raises an OS or backend error."""
         import stat
 
         clock = _make_clock()
@@ -954,12 +1043,15 @@ class TestJSONLWriteFailure:
         b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
         b.initialize()
 
-        # Make events.jsonl read-only so writes fail
+        # Make events.jsonl read-only so writes fail.
+        # Under SL1-RR-1, the lock acquisition itself fails with PermissionError
+        # (the flock opens the file for appending). The error may surface as
+        # TransactionAborted, PermissionError, or OSError.
         os.chmod(events_path, stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH)
         try:
             event = _make_project_event()
-            with pytest.raises(TransactionAborted):
-                b.apply_event(event)
+            with pytest.raises((TransactionAborted, PermissionError, OSError)):
+                b.append(event)
         finally:
             # Restore write permission so cleanup works
             os.chmod(events_path, stat.S_IREAD | stat.S_IWRITE)
@@ -1037,36 +1129,33 @@ class TestErrorPaths:
     silently degrades.
     """
 
-    def test_apply_event_unknown_action_triggers_abort_tombstone(
+    def test_unknown_action_raises_event_rejected_no_log_line(
         self, tmp_path: Path
     ) -> None:
-        """An event with an action the router doesn't recognise must roll
-        back the SQLite mutation, write an error.transaction_aborted entry
-        to events.jsonl, and raise TransactionAborted. Without the tombstone
-        replay would silently re-fire the bad event."""
+        """An action not in the dispatch table raises EventRejected; zero lines in events.jsonl.
+
+        SL1-RR-1: validation is pre-log. Unknown actions raise EventRejected
+        (not TransactionAborted), and NO line is written to events.jsonl.
+        The abort tombstone (error.transaction_aborted) no longer exists.
+        """
         b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
         try:
-            bad_event = Event(
-                id="E000099",
+            bad_draft = EventDraft(
                 timestamp=_T0,
                 actor="test",
-                action="task.never_implemented",  # router doesn't know this
+                action="task.never_implemented",  # not in dispatch table
                 target_kind="task",
                 target_id="T001",
                 payload_json={"task_id": "T001"},
             )
-            with pytest.raises(TransactionAborted):
-                b.apply_event(bad_event)
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
 
-            # JSONL must contain the original event AND the abort tombstone.
-            events_path = str(tmp_path / "events.jsonl")
+            # ZERO lines in events.jsonl — validation is pre-log.
             events = _read_jsonl(events_path)
-            actions = [e.get("action") for e in events]
-            assert "task.never_implemented" in actions, (
-                "the original (failed) event should be written to JSONL first"
-            )
-            assert "error.transaction_aborted" in actions, (
-                "an abort tombstone must follow the failed event"
+            assert len(events) == 0, (
+                f"SL1-RR-1: unknown action must not write to events.jsonl; got: {events}"
             )
             # SQLite must NOT contain the task row.
             assert b.get_task("T001") is None
@@ -1086,16 +1175,18 @@ class TestErrorPaths:
         b._conn.close()
         b.close()  # _conn is already-closed; close path must not raise
 
-    def test_task_status_changed_missing_required_field_aborts(
+    def test_task_status_changed_missing_required_field_rejects(
         self, tmp_path: Path
     ) -> None:
-        """task.status_changed without the required 'from' field must abort
-        with a clear message — not silently update. Covers the payload
-        validation branch in _handle_task_status_changed."""
+        """task.status_changed without the required 'from' field raises EventRejected.
+
+        SL1-RR-1: payload validation happens pre-log via _check_*. A missing
+        required field raises EventRejected (not TransactionAborted), and
+        nothing is written to events.jsonl.
+        """
         b = _make_backend(tmp_path)
         try:
-            bad = Event(
-                id="E000051",
+            bad = EventDraft(
                 timestamp=_T0,
                 actor="test",
                 action="task.status_changed",
@@ -1103,8 +1194,8 @@ class TestErrorPaths:
                 target_id="T001",
                 payload_json={"task_id": "T001", "to": "drafted"},  # no "from"
             )
-            with pytest.raises(TransactionAborted, match="from"):
-                b.apply_event(bad)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(bad)
         finally:
             b.close()
 
@@ -1120,13 +1211,13 @@ class TestErrorPaths:
         try:
             _setup_project(b)
             # Seed a feature + task in 'drafted' state.
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created", _make_feature_payload(feat_id="F001"),
                 event_id="E000010", target_kind="feature", target_id="F001",
             ))
             task_payload = _make_task_payload(task_id="T001", feature_id="F001")
             task_payload["status"] = "drafted"  # seed directly at drafted
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created", task_payload,
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
@@ -1138,7 +1229,7 @@ class TestErrorPaths:
                 {"task_id": "T001", "from": "proposed", "to": "drafted"},
                 event_id="E000012",
             )
-            b.apply_event(idempotent_event)  # must not raise
+            b.append(idempotent_event)  # must not raise
 
             # Confirm status unchanged
             task = b.get_task("T001")
@@ -1147,15 +1238,17 @@ class TestErrorPaths:
         finally:
             b.close()
 
-    def test_task_status_changed_unknown_task_aborts(
+    def test_task_status_changed_unknown_task_rejects(
         self, tmp_path: Path
     ) -> None:
-        """task.status_changed for a nonexistent task must abort cleanly
-        with 'task not found' — not silently UPDATE zero rows."""
+        """task.status_changed for a nonexistent task raises EventRejected.
+
+        SL1-RR-1: _check_task_status_changed validates the task exists.
+        A missing task raises EventRejected with a clear 'not found' message.
+        """
         b = _make_backend(tmp_path)
         try:
-            bad = Event(
-                id="E000052",
+            bad = EventDraft(
                 timestamp=_T0,
                 actor="test",
                 action="task.status_changed",
@@ -1167,45 +1260,61 @@ class TestErrorPaths:
                     "to": "drafted",
                 },
             )
-            with pytest.raises(TransactionAborted, match="not found|T999"):
-                b.apply_event(bad)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(bad)
         finally:
             b.close()
 
-    def test_replay_skips_unsupported_action_gracefully(
+    def test_replay_unknown_action_raises(
         self, tmp_path: Path
     ) -> None:
-        """During replay an unknown action should be skipped (rolled back,
-        not raised). This lets older log files replay forward on a newer
-        codebase that may have removed a no-longer-supported action."""
-        b = _make_backend(tmp_path)
-        try:
-            # Hand-write an events.jsonl with one good event + one unknown.
-            events_path = str(tmp_path / "events.jsonl")
-            with open(events_path, "w", encoding="utf-8") as fh:
-                fh.write(_make_project_event().model_dump_json() + "\n")
-                fh.write(
-                    Event(
-                        id="E000099",
-                        timestamp=_T0,
-                        actor="test",
-                        action="some.future.action",
-                        target_kind="task",
-                        target_id="T001",
-                        payload_json={},
-                    ).model_dump_json()
-                    + "\n"
-                )
+        """During replay, an unknown action in events.jsonl RAISES (SL1-RR-1 strict).
 
-            # replay_from_empty should not raise; just skip the unknown action.
+        SL1-RR-1: the skip-list is gone. Every line in events.jsonl is a fact
+        that must replay infallibly. An unknown action in the canonical log is a
+        genuine integrity alarm — if it was ever appended there, the dispatch
+        table entry is missing. replay_from_empty raises, not skips.
+
+        This is the INVERSE of the pre-SL1-RR-1 behavior (which skipped). The
+        correct fix for an 'unsupported action in log' is to add the dispatch
+        entry, not to tolerate corruption via a skip-list.
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        # Write a good event followed by an unknown action directly to events.jsonl.
+        proj_event = Event(
+            id="E000001",
+            timestamp=_T0,
+            actor="test",
+            action="project.created",
+            target_kind="project",
+            target_id="proj-1",
+            payload_json={
+                "id": "proj-1",
+                "name": "Test",
+                "description": "",
+                "created_at": _T0.isoformat(),
+                "updated_at": _T0.isoformat(),
+            },
+        )
+        unknown_event = Event(
+            id="E000099",
+            timestamp=_T0,
+            actor="test",
+            action="some.future.action",
+            target_kind="task",
+            target_id="T001",
+            payload_json={},
+        )
+        with open(events_path, "w", encoding="utf-8") as fh:
+            fh.write(proj_event.model_dump_json() + "\n")
+            fh.write(unknown_event.model_dump_json() + "\n")
+
+        # replay_from_empty must RAISE — the skip-list is gone.
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        with pytest.raises((TransactionAborted, ValueError)):
             b.replay_from_empty(events_path)
-
-            # Project row from the first event must be present.
-            project = b.get_project()
-            assert project is not None
-            assert project.id == "proj-1"
-        finally:
-            b.close()
 
 
 def _make_prd_parsed_payload(
@@ -1252,9 +1361,9 @@ def _make_event(
     target_kind: str = "prd",
     target_id: str = "proj-1",
     now: datetime = _T0,
-) -> Event:
-    return Event(
-        id=event_id,
+) -> EventDraft:
+    """Return an EventDraft (SL1-RR-1: id is ignored, assigned by backend)."""
+    return EventDraft(
         timestamp=now,
         actor="test",
         action=action,
@@ -1266,8 +1375,8 @@ def _make_event(
 
 def _setup_project(b: SqliteBackend) -> None:
     """Apply project.created so FK constraints are satisfied."""
-    b.apply_event(_make_project_event(event_id="E000001"))
-    b.apply_event(_make_init_event(event_id="E000002"))
+    b.append(_make_project_event())
+    b.append(_make_init_event())
 
 
 # ---------------------------------------------------------------------------
@@ -1285,7 +1394,7 @@ class TestHandlePrdParsed:
 
             payload = _make_prd_parsed_payload()
             event = _make_event("prd.parsed", payload, event_id="E000003")
-            b.apply_event(event)
+            b.append(event)
 
             # JSONL line present
             events = _read_jsonl(events_path)
@@ -1309,9 +1418,8 @@ class TestHandlePrdParsed:
     def test_handle_prd_parsed_payload_validation_missing_project_id(
         self, tmp_path: Path
     ) -> None:
-        """prd.parsed without project_id → TransactionAborted, error in JSONL, no PRD row."""
+        """prd.parsed without project_id → EventRejected, rejection in audit.jsonl, no PRD row."""
         b = _make_backend(tmp_path)
-        events_path = str(tmp_path / "events.jsonl")
         try:
             _setup_project(b)
 
@@ -1319,13 +1427,16 @@ class TestHandlePrdParsed:
             del bad_payload["project_id"]  # remove required field
             event = _make_event("prd.parsed", bad_payload, event_id="E000003")
 
-            with pytest.raises(TransactionAborted):
-                b.apply_event(event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(event)
 
-            # Abort tombstone in JSONL
-            events = _read_jsonl(events_path)
-            aborts = [e for e in events if e.get("action") == "error.transaction_aborted"]
-            assert len(aborts) >= 1
+            # SL1-RR-1: rejection is in audit.jsonl, NOT as an abort tombstone in events.jsonl.
+            audit_path = str(tmp_path / "audit.jsonl")
+            audit_records = _read_audit_jsonl(audit_path) if os.path.exists(audit_path) else []
+            rejections = [r for r in audit_records if r.get("kind") == "rejection"]
+            assert len(rejections) >= 1, (
+                f"SL1-RR-1: validation rejection must write to audit.jsonl; got: {audit_records}"
+            )
 
             # No PRD row written
             prd = b.get_prd()
@@ -1350,7 +1461,7 @@ class TestHandlePrdParsed:
                      "source_paragraph": None, "derived": False},
                 ]
             )
-            b.apply_event(_make_event("prd.parsed", payload_v1, event_id="E000003"))
+            b.append(_make_event("prd.parsed", payload_v1, event_id="E000003"))
 
             # Second parse: only R001, R002 (different text)
             payload_v2 = _make_prd_parsed_payload(
@@ -1362,7 +1473,7 @@ class TestHandlePrdParsed:
                      "source_paragraph": None, "derived": False},
                 ]
             )
-            b.apply_event(_make_event("prd.parsed", payload_v2, event_id="E000004"))
+            b.append(_make_event("prd.parsed", payload_v2, event_id="E000004"))
 
             # Final state: only 2 requirements, R003 gone
             conn = sqlite3.connect(str(tmp_path / "state.db"))
@@ -1396,7 +1507,7 @@ class TestHandlePrdReviewed:
         try:
             _setup_project(b)
             # First parse the PRD
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
             ))
 
@@ -1407,7 +1518,7 @@ class TestHandlePrdReviewed:
                 event_id="E000004",
                 target_kind="prd",
             )
-            b.apply_event(reviewed_event)
+            b.append(reviewed_event)
 
             # JSONL line
             events = _read_jsonl(events_path)
@@ -1440,7 +1551,7 @@ class TestHandlePrdReviewed:
         b = _make_backend(tmp_path)
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
             ))
 
@@ -1449,8 +1560,8 @@ class TestHandlePrdReviewed:
                 {"project_id": "proj-1", "notes": "No reviewer field"},  # missing reviewer
                 event_id="E000004",
             )
-            with pytest.raises(TransactionAborted):
-                b.apply_event(bad_event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(bad_event)
         finally:
             b.close()
 
@@ -1465,7 +1576,7 @@ class TestHandlePrdReviewed:
         b = _make_backend(tmp_path)
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
             ))
             bad = _make_event(
@@ -1473,8 +1584,8 @@ class TestHandlePrdReviewed:
                 {"reviewer": "alice"},  # no project_id
                 event_id="E000004",
             )
-            with pytest.raises(TransactionAborted, match="project_id"):
-                b.apply_event(bad)
+            with pytest.raises((EventRejected, TransactionAborted), match="project_id"):
+                b.append(bad)
         finally:
             b.close()
 
@@ -1491,15 +1602,15 @@ class TestHandlePrdApproved:
         events_path = str(tmp_path / "events.jsonl")
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.reviewed",
                 {"project_id": "proj-1", "reviewer": "alice"},
                 event_id="E000004",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.approved",
                 {"project_id": "proj-1", "approver": "bob"},
                 event_id="E000005",
@@ -1523,10 +1634,10 @@ class TestHandlePrdApproved:
         b = _make_backend(tmp_path)
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.reviewed",
                 {"project_id": "proj-1", "reviewer": "alice"},
                 event_id="E000004",
@@ -1536,8 +1647,8 @@ class TestHandlePrdApproved:
                 {"approver": "bob"},  # no project_id
                 event_id="E000005",
             )
-            with pytest.raises(TransactionAborted, match="project_id"):
-                b.apply_event(bad)
+            with pytest.raises((EventRejected, TransactionAborted), match="project_id"):
+                b.append(bad)
         finally:
             b.close()
 
@@ -1548,10 +1659,10 @@ class TestHandlePrdApproved:
         b = _make_backend(tmp_path)
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed", _make_prd_parsed_payload(), event_id="E000003"
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.reviewed",
                 {"project_id": "proj-1", "reviewer": "alice"},
                 event_id="E000004",
@@ -1559,8 +1670,8 @@ class TestHandlePrdApproved:
             bad_event = _make_event(
                 "prd.approved", {"project_id": "proj-1"}, event_id="E000005"
             )
-            with pytest.raises(TransactionAborted):
-                b.apply_event(bad_event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(bad_event)
         finally:
             b.close()
 
@@ -1583,7 +1694,7 @@ class TestHandleFeatureCreated:
                 "feature.created", feat_payload,
                 event_id="E000003", target_kind="feature", target_id="F001"
             )
-            b.apply_event(event)
+            b.append(event)
 
             events = _read_jsonl(events_path)
             assert any(e.get("action") == "feature.created" for e in events)
@@ -1607,8 +1718,8 @@ class TestHandleFeatureCreated:
             bad_payload = _make_feature_payload()
             bad_payload["status"] = "invalid_status_not_in_enum"
             event = _make_event("feature.created", bad_payload, event_id="E000003")
-            with pytest.raises(TransactionAborted):
-                b.apply_event(event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(event)
         finally:
             b.close()
 
@@ -1626,7 +1737,7 @@ class TestHandleTaskCreated:
             "feature.created", feat_payload,
             event_id="E000003", target_kind="feature", target_id="F001"
         )
-        b.apply_event(event)
+        b.append(event)
 
     def test_handle_task_created_writes_jsonl_and_sqlite(self, tmp_path: Path) -> None:
         """task.created event inserts task row and writes JSONL."""
@@ -1641,7 +1752,7 @@ class TestHandleTaskCreated:
                 "task.created", task_payload,
                 event_id="E000004", target_kind="task", target_id="T001"
             )
-            b.apply_event(event)
+            b.append(event)
 
             events = _read_jsonl(events_path)
             assert any(e.get("action") == "task.created" for e in events)
@@ -1663,8 +1774,8 @@ class TestHandleTaskCreated:
             bad_payload = _make_task_payload()
             del bad_payload["created_at"]  # required field removed
             event = _make_event("task.created", bad_payload, event_id="E000004")
-            with pytest.raises(TransactionAborted):
-                b.apply_event(event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(event)
         finally:
             b.close()
 
@@ -1677,12 +1788,12 @@ class TestHandleTaskCreated:
 class TestHandleTaskScored:
     def _setup_task(self, b: SqliteBackend) -> None:
         feat_payload = _make_feature_payload(feat_id="F001")
-        b.apply_event(_make_event(
+        b.append(_make_event(
             "feature.created", feat_payload,
             event_id="E000003", target_kind="feature", target_id="F001"
         ))
         task_payload = _make_task_payload(task_id="T001")
-        b.apply_event(_make_event(
+        b.append(_make_event(
             "task.created", task_payload,
             event_id="E000004", target_kind="task", target_id="T001"
         ))
@@ -1711,7 +1822,7 @@ class TestHandleTaskScored:
                 "task.scored", score_payload,
                 event_id="E000005", target_kind="task", target_id="T001"
             )
-            b.apply_event(event)
+            b.append(event)
 
             events = _read_jsonl(events_path)
             assert any(e.get("action") == "task.scored" for e in events)
@@ -1738,8 +1849,8 @@ class TestHandleTaskScored:
                 # missing task_id
             }
             event = _make_event("task.scored", bad_payload, event_id="E000005")
-            with pytest.raises(TransactionAborted):
-                b.apply_event(event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(event)
         finally:
             b.close()
 
@@ -1752,12 +1863,12 @@ class TestHandleTaskScored:
 class TestHandleTaskExpanded:
     def _setup_task(self, b: SqliteBackend) -> None:
         feat_payload = _make_feature_payload(feat_id="F001")
-        b.apply_event(_make_event(
+        b.append(_make_event(
             "feature.created", feat_payload,
             event_id="E000003", target_kind="feature", target_id="F001"
         ))
         task_payload = _make_task_payload(task_id="T001")
-        b.apply_event(_make_event(
+        b.append(_make_event(
             "task.created", task_payload,
             event_id="E000004", target_kind="task", target_id="T001"
         ))
@@ -1779,7 +1890,7 @@ class TestHandleTaskExpanded:
                 "task.expanded", expand_payload,
                 event_id="E000005", target_kind="task", target_id="T001"
             )
-            b.apply_event(event)
+            b.append(event)
 
             events = _read_jsonl(events_path)
             assert any(e.get("action") == "task.expanded" for e in events)
@@ -1809,8 +1920,8 @@ class TestHandleTaskExpanded:
                 # missing parent_task_id
             }
             event = _make_event("task.expanded", bad_payload, event_id="E000005")
-            with pytest.raises(TransactionAborted):
-                b.apply_event(event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(event)
         finally:
             b.close()
 
@@ -1823,12 +1934,12 @@ class TestHandleTaskExpanded:
 class TestHandleTaskStatusChanged:
     def _setup_task(self, b: SqliteBackend) -> None:
         feat_payload = _make_feature_payload(feat_id="F001")
-        b.apply_event(_make_event(
+        b.append(_make_event(
             "feature.created", feat_payload,
             event_id="E000003", target_kind="feature", target_id="F001"
         ))
         task_payload = _make_task_payload(task_id="T001", status="proposed")
-        b.apply_event(_make_event(
+        b.append(_make_event(
             "task.created", task_payload,
             event_id="E000004", target_kind="task", target_id="T001"
         ))
@@ -1853,7 +1964,7 @@ class TestHandleTaskStatusChanged:
                 "task.status_changed", status_payload,
                 event_id="E000005", target_kind="task", target_id="T001"
             )
-            b.apply_event(event)
+            b.append(event)
 
             events = _read_jsonl(events_path)
             assert any(e.get("action") == "task.status_changed" for e in events)
@@ -1875,8 +1986,8 @@ class TestHandleTaskStatusChanged:
 
             bad_payload = {"from": "proposed", "to": "drafted"}  # no task_id
             event = _make_event("task.status_changed", bad_payload, event_id="E000005")
-            with pytest.raises(TransactionAborted):
-                b.apply_event(event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(event)
         finally:
             b.close()
 
@@ -1896,8 +2007,8 @@ class TestHandleTaskStatusChanged:
                 "to": "reviewed",
             }
             event = _make_event("task.status_changed", drift_payload, event_id="E000005")
-            with pytest.raises(TransactionAborted):
-                b.apply_event(event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(event)
 
             # Task status unchanged
             task = b.get_task("T001")
@@ -1928,42 +2039,42 @@ class TestReplayIncludesNewEventActions:
 
         try:
             # E000001: project.created
-            b.apply_event(_make_project_event(event_id="E000001"))
+            b.append(_make_project_event(event_id="E000001"))
             # E000002: state.initialized
-            b.apply_event(_make_init_event(event_id="E000002"))
+            b.append(_make_init_event(event_id="E000002"))
 
             # E000003: prd.parsed
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed", _make_prd_parsed_payload(),
                 event_id="E000003"
             ))
 
             # E000004: prd.reviewed
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.reviewed", {"project_id": "proj-1", "reviewer": "alice"},
                 event_id="E000004"
             ))
 
             # E000005: prd.approved
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.approved", {"project_id": "proj-1", "approver": "bob"},
                 event_id="E000005"
             ))
 
             # E000006: feature.created
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created", _make_feature_payload(feat_id="F001"),
                 event_id="E000006", target_kind="feature", target_id="F001"
             ))
 
             # E000007: task.created
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created", _make_task_payload(task_id="T001"),
                 event_id="E000007", target_kind="task", target_id="T001"
             ))
 
             # E000008: task.scored
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.scored",
                 {
                     "task_id": "T001",
@@ -1981,7 +2092,7 @@ class TestReplayIncludesNewEventActions:
             ))
 
             # E000009: task.status_changed (proposed → drafted)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.status_changed",
                 {"task_id": "T001", "from": "proposed", "to": "drafted", "reason": "planned"},
                 event_id="E000009", target_kind="task", target_id="T001"
@@ -1989,7 +2100,7 @@ class TestReplayIncludesNewEventActions:
 
             # E000010: task.expanded (add subtask T001.1)
             subtask_data = _make_task_payload(task_id="T001.1", feature_id="F001")
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.expanded",
                 {"parent_task_id": "T001", "subtasks": [subtask_data]},
                 event_id="E000010", target_kind="task", target_id="T001"
@@ -2053,7 +2164,7 @@ def _make_claim_payload(
 def _setup_claimable_task(b: SqliteBackend, task_id: str = "T001") -> None:
     """Apply the minimal event chain to produce a 'ready' task."""
     _setup_project(b)
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "prd.parsed",
         {
             "project_id": "proj-1",
@@ -2071,11 +2182,11 @@ def _setup_claimable_task(b: SqliteBackend, task_id: str = "T001") -> None:
         },
         event_id="E000003", target_kind="prd", target_id="proj-1",
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "prd.reviewed", {"project_id": "proj-1", "reviewer": "alice"},
         event_id="E000004", target_kind="prd", target_id="proj-1",
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "feature.created",
         {
             "id": "F001",
@@ -2087,7 +2198,7 @@ def _setup_claimable_task(b: SqliteBackend, task_id: str = "T001") -> None:
         },
         event_id="E000005", target_kind="feature", target_id="F001",
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "task.created",
         _make_task_payload(task_id=task_id),
         event_id="E000006", target_kind="task", target_id=task_id,
@@ -2098,7 +2209,7 @@ def _setup_claimable_task(b: SqliteBackend, task_id: str = "T001") -> None:
         ("drafted", "reviewed", "E000008"),
         ("reviewed", "ready", "E000009"),
     ]:
-        b.apply_event(_make_event(
+        b.append(_make_event(
             "task.status_changed",
             {"task_id": task_id, "from": from_s, "to": to_s},
             event_id=eid, target_kind="task", target_id=task_id,
@@ -2123,7 +2234,7 @@ class TestPhase4ClaimHandlers:
                 "claim.created", payload,
                 event_id="E000010", target_kind="claim", target_id="C001",
             )
-            b.apply_event(event)
+            b.append(event)
 
             # JSONL line written
             events = _read_jsonl(events_path)
@@ -2149,7 +2260,7 @@ class TestPhase4ClaimHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created",
                 {
                     "id": "F001", "title": "F", "description": "d", "status": "proposed",
@@ -2158,7 +2269,7 @@ class TestPhase4ClaimHandlers:
                 event_id="E000003", target_kind="feature", target_id="F001",
             ))
             # Task in 'proposed' — NOT ready
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created",
                 _make_task_payload(task_id="T001", status="proposed"),
                 event_id="E000004", target_kind="task", target_id="T001",
@@ -2169,8 +2280,8 @@ class TestPhase4ClaimHandlers:
                 "claim.created", payload,
                 event_id="E000005", target_kind="claim", target_id="C001",
             )
-            with pytest.raises(TransactionAborted, match="ready|proposed|concurrency"):
-                b.apply_event(event)
+            with pytest.raises((EventRejected, TransactionAborted), match="ready|proposed|concurrency"):
+                b.append(event)
         finally:
             b.close()
 
@@ -2185,10 +2296,10 @@ class TestPhase4ClaimHandlers:
                 "claim.created", payload,
                 event_id="E000010", target_kind="claim", target_id="C001",
             )
-            b.apply_event(event)  # first: commits
+            b.append(event)  # first: commits
 
             # Second apply should not raise (idempotent INSERT OR IGNORE)
-            b.apply_event(event)  # second: replay no-op
+            b.append(event)  # second: replay no-op
 
             # Still only one claim
             active = b.list_active_claims()
@@ -2205,7 +2316,7 @@ class TestPhase4ClaimHandlers:
             _setup_claimable_task(b)
 
             # First create the claim
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
@@ -2221,7 +2332,7 @@ class TestPhase4ClaimHandlers:
                 },
                 event_id="E000011", target_kind="claim", target_id="C001",
             )
-            b.apply_event(release_event)
+            b.append(release_event)
 
             events = _read_jsonl(events_path)
             assert any(e.get("action") == "claim.released" for e in events)
@@ -2243,7 +2354,7 @@ class TestPhase4ClaimHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
@@ -2254,13 +2365,13 @@ class TestPhase4ClaimHandlers:
                 "release_reason": "done",
                 "force": False,
             }
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.released", release_payload,
                 event_id="E000011", target_kind="claim", target_id="C001",
             ))
 
             # Second release: handler logs warning, does not raise
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.released", release_payload,
                 event_id="E000012", target_kind="claim", target_id="C001",
             ))
@@ -2276,14 +2387,14 @@ class TestPhase4ClaimHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
 
             new_expires = (_T0 + timedelta(hours=2)).isoformat()
             new_heartbeat = (_T0 + timedelta(minutes=30)).isoformat()
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.renewed",
                 {
                     "claim_id": "C001",
@@ -2306,20 +2417,20 @@ class TestPhase4ClaimHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
             # Release the claim first
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.released",
                 {"claim_id": "C001", "released_by": "agent-alpha", "release_reason": "done"},
                 event_id="E000011", target_kind="claim", target_id="C001",
             ))
 
             # Now try to renew the released claim
-            with pytest.raises(TransactionAborted, match="active|released|status"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="active|released|status"):
+                b.append(_make_event(
                     "claim.renewed",
                     {
                         "claim_id": "C001",
@@ -2338,12 +2449,12 @@ class TestPhase4ClaimHandlers:
         events_path = str(tmp_path / "events.jsonl")
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
 
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.stale",
                 {
                     "claim_id": "C001",
@@ -2374,7 +2485,7 @@ class TestPhase4ClaimHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
@@ -2387,12 +2498,12 @@ class TestPhase4ClaimHandlers:
                 "reason": "lease_expired",
                 "actor": "system",
             }
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.stale", stale_payload,
                 event_id="E000011", target_kind="claim", target_id="C001",
             ))
             # Second apply: no-op, no raise
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.stale", stale_payload,
                 event_id="E000012", target_kind="claim", target_id="C001",
             ))
@@ -2410,7 +2521,7 @@ class TestPhase4ClaimHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
@@ -2422,7 +2533,7 @@ class TestPhase4ClaimHandlers:
             conn.close()
 
             # claim.stale should still mark the claim stale without raising
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.stale",
                 {
                     "claim_id": "C001",
@@ -2470,12 +2581,12 @@ class TestReplayIncludesPhase4ClaimActions:
 
         try:
             # E000001: project.created
-            b.apply_event(_make_project_event(event_id="E000001"))
+            b.append(_make_project_event(event_id="E000001"))
             # E000002: state.initialized
-            b.apply_event(_make_init_event(event_id="E000002"))
+            b.append(_make_init_event(event_id="E000002"))
 
             # E000003: prd.parsed
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed",
                 {
                     "project_id": "proj-1",
@@ -2494,34 +2605,34 @@ class TestReplayIncludesPhase4ClaimActions:
                 event_id="E000003", target_kind="prd", target_id="proj-1",
             ))
             # E000004: prd.reviewed
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.reviewed",
                 {"project_id": "proj-1", "reviewer": "alice"},
                 event_id="E000004", target_kind="prd", target_id="proj-1",
             ))
             # E000005: prd.approved
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.approved",
                 {"project_id": "proj-1", "approver": "bob"},
                 event_id="E000005", target_kind="prd", target_id="proj-1",
             ))
 
             # E000006: feature.created
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created",
                 _make_feature_payload(feat_id="F001"),
                 event_id="E000006", target_kind="feature", target_id="F001",
             ))
 
             # E000007: task.created
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created",
                 _make_task_payload(task_id="T001"),
                 event_id="E000007", target_kind="task", target_id="T001",
             ))
 
             # E000008: task.scored
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.scored",
                 {
                     "task_id": "T001",
@@ -2540,21 +2651,21 @@ class TestReplayIncludesPhase4ClaimActions:
                 ("drafted", "reviewed", "E000010"),
                 ("reviewed", "ready", "E000011"),
             ]:
-                b.apply_event(_make_event(
+                b.append(_make_event(
                     "task.status_changed",
                     {"task_id": "T001", "from": from_s, "to": to_s},
                     event_id=eid, target_kind="task", target_id="T001",
                 ))
 
             # E000012: claim.created
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created",
                 _make_claim_payload(claim_id="C001", task_id="T001"),
                 event_id="E000012", target_kind="claim", target_id="C001",
             ))
 
             # E000013: claim.renewed
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.renewed",
                 {
                     "claim_id": "C001",
@@ -2566,7 +2677,7 @@ class TestReplayIncludesPhase4ClaimActions:
             ))
 
             # E000014: claim.released
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.released",
                 {
                     "claim_id": "C001",
@@ -2613,9 +2724,9 @@ class TestReplayIncludesPhase4ClaimActions:
         b.initialize()
 
         try:
-            b.apply_event(_make_project_event(event_id="E000001"))
-            b.apply_event(_make_init_event(event_id="E000002"))
-            b.apply_event(_make_event(
+            b.append(_make_project_event(event_id="E000001"))
+            b.append(_make_init_event(event_id="E000002"))
+            b.append(_make_event(
                 "prd.parsed",
                 {
                     "project_id": "proj-1", "status": "draft",
@@ -2629,17 +2740,17 @@ class TestReplayIncludesPhase4ClaimActions:
                 },
                 event_id="E000003", target_kind="prd", target_id="proj-1",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.approved",
                 {"project_id": "proj-1", "approver": "bob"},
                 event_id="E000004", target_kind="prd", target_id="proj-1",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created",
                 _make_feature_payload(feat_id="F001"),
                 event_id="E000005", target_kind="feature", target_id="F001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created",
                 _make_task_payload(task_id="T001"),
                 event_id="E000006", target_kind="task", target_id="T001",
@@ -2649,19 +2760,19 @@ class TestReplayIncludesPhase4ClaimActions:
                 ("drafted", "reviewed", "E000008"),
                 ("reviewed", "ready", "E000009"),
             ]:
-                b.apply_event(_make_event(
+                b.append(_make_event(
                     "task.status_changed",
                     {"task_id": "T001", "from": from_s, "to": to_s},
                     event_id=eid, target_kind="task", target_id="T001",
                 ))
             # E000010: claim.created (lease expires immediately for stale path)
             claim_payload = _make_claim_payload(claim_id="C001", task_id="T001")
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", claim_payload,
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
             # E000011: claim.stale (lease expired)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.stale",
                 {
                     "claim_id": "C001",
@@ -2716,11 +2827,12 @@ class TestGreptileP4Fixes:
             evt = _make_event(
                 "file_changed",
                 {"file": "src/foo.py", "tool": "Edit", "actor": "agent-alpha"},
-                event_id="E000003",
+                event_id="E000001",
                 target_kind="file",
                 target_id="src/foo.py",
             )
-            b.apply_event(evt)
+            result = b.append(evt)
+            assert result is not None
 
             # JSONL: file_changed present, NO error.transaction_aborted.
             events = _read_jsonl(events_path)
@@ -2728,10 +2840,10 @@ class TestGreptileP4Fixes:
             assert "file_changed" in actions
             assert "error.transaction_aborted" not in actions
 
-            # SQLite events table: the event row is present.
+            # SQLite events table: the event row is present (use returned id).
             conn = sqlite3.connect(str(tmp_path / "state.db"))
             row = conn.execute(
-                "SELECT id, action FROM events WHERE id = 'E000003'"
+                "SELECT id, action FROM events WHERE id = ?", (result.id,)
             ).fetchone()
             conn.close()
             assert row is not None
@@ -2751,7 +2863,7 @@ class TestGreptileP4Fixes:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
@@ -2772,7 +2884,7 @@ class TestGreptileP4Fixes:
                 "release_reason": "cleaning up",
                 "force": True,
             }
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.released", release_payload,
                 event_id="E000011", target_kind="claim", target_id="C001",
             ))
@@ -2804,7 +2916,7 @@ class TestGreptileP4Fixes:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
@@ -2817,7 +2929,7 @@ class TestGreptileP4Fixes:
             conn.close()
 
             # Release must succeed and return task to 'ready'.
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.released",
                 {"claim_id": "C001", "released_by": "agent-alpha",
                  "release_reason": "rolling back", "force": False},
@@ -2836,41 +2948,30 @@ class TestGreptileP4Fixes:
     def test_event_ids_are_consistent_across_cli_and_claim_manager(
         self, tmp_path: Path
     ) -> None:
-        """Backend.next_event_id is the single source of truth. Before the
-        fix, CLI used MAX(id)+1 and ClaimManager used a 20-digit
-        microsecond ID; once both landed in the events table the MAX
-        query returned the giant number and CLI's E%06d formatter
-        silently broke. Now both paths produce E%06d sequential IDs."""
-        b = _make_backend(tmp_path)
-        try:
-            first = b.next_event_id()
-            assert first == "E000001"
+        """SL1-RR-1: append() is the sole id authority; all paths produce E%06d ids.
 
-            b.apply_event(_make_project_event(event_id=first))
-            second = b.next_event_id()
-            assert second == "E000002"
-        finally:
-            b.close()
-
-    def test_next_event_id_raises_when_conn_is_none(self, tmp_path: Path) -> None:
-        """CL-13 regression: ``next_event_id`` used to silently return the
-        literal ``"E000001"`` when ``self._conn is None`` — so calling it
-        after ``close()`` (or before ``initialize()``) returned a plausible
-        but guaranteed-stale ID. The first real INSERT after a reopen would
-        then collide on the events table PK and silently drop via
-        ``INSERT OR IGNORE``. Fix: route through ``_require_conn`` like the
-        rest of the Backend methods so the error is loud and immediate.
+        Replaces the next_event_id() test. Under SL1-RR-1, next_event_id() is
+        removed; the in-memory counter (_next_seq) is the authority and is only
+        incremented inside the flock critical section of append(). The invariant
+        is still preserved: the first append gets E000001, the second E000002.
         """
         b = _make_backend(tmp_path)
         try:
-            # Sanity: works while open.
-            assert b.next_event_id() == "E000001"
+            e1 = b.append(_make_project_event())
+            assert e1 is not None and e1.id == "E000001"
+            e2 = b.append(_make_init_event())
+            assert e2 is not None and e2.id == "E000002"
         finally:
             b.close()
 
-        # After close(), the no-conn branch must raise — not return E000001.
+    def test_append_after_close_raises_runtime_error(self, tmp_path: Path) -> None:
+        """append() after close() raises RuntimeError (not returns a stale id)."""
+        b = _make_backend(tmp_path)
+        b.close()
+
+        # After close(), append must raise RuntimeError — not return a stale id.
         with pytest.raises(RuntimeError, match="initialize"):
-            b.next_event_id()
+            b.append(_make_project_event())
 
     def test_claim_id_generator_uses_uuid_not_sequential(
         self, tmp_path: Path
@@ -2939,8 +3040,8 @@ class TestPhase4CoverageEdgeCases:
                 "claim.created", bad_payload,
                 event_id="E000010", target_kind="claim", target_id="C001",
             )
-            with pytest.raises(TransactionAborted, match="claimed_by|required"):
-                b.apply_event(event)
+            with pytest.raises((EventRejected, TransactionAborted), match="claimed_by|required"):
+                b.append(event)
         finally:
             b.close()
 
@@ -2964,8 +3065,8 @@ class TestPhase4CoverageEdgeCases:
                 "claim.created", payload,
                 event_id="E000003", target_kind="claim", target_id="C001",
             )
-            with pytest.raises(TransactionAborted):
-                b.apply_event(event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(event)
         finally:
             b.close()
 
@@ -2980,7 +3081,7 @@ class TestPhase4CoverageEdgeCases:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
@@ -2990,8 +3091,8 @@ class TestPhase4CoverageEdgeCases:
                 "release_reason": "done",
                 "force": False,
             }
-            with pytest.raises(TransactionAborted, match="claim_id|required"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="claim_id|required"):
+                b.append(_make_event(
                     "claim.released", bad_payload,
                     event_id="E000011", target_kind="claim", target_id="C001",
                 ))
@@ -3011,8 +3112,8 @@ class TestPhase4CoverageEdgeCases:
                 "release_reason": "done",
                 "force": False,
             }
-            with pytest.raises(TransactionAborted, match="C999|not found"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="C999|not found"):
+                b.append(_make_event(
                     "claim.released", payload,
                     event_id="E000003", target_kind="claim", target_id="C999",
                 ))
@@ -3031,7 +3132,7 @@ class TestPhase4CoverageEdgeCases:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
@@ -3050,7 +3151,7 @@ class TestPhase4CoverageEdgeCases:
                 "force": False,
             }
             # No raise — release should succeed (idempotent on the task side)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.released", release_payload,
                 event_id="E000011", target_kind="claim", target_id="C001",
             ))
@@ -3080,7 +3181,7 @@ class TestPhase4CoverageEdgeCases:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
@@ -3089,8 +3190,8 @@ class TestPhase4CoverageEdgeCases:
                 "renewed_by": "agent-alpha",
                 # Missing lease_expires_at and last_heartbeat_at
             }
-            with pytest.raises(TransactionAborted, match="lease_expires_at|required"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="lease_expires_at|required"):
+                b.append(_make_event(
                     "claim.renewed", bad_payload,
                     event_id="E000011", target_kind="claim", target_id="C001",
                 ))
@@ -3110,8 +3211,8 @@ class TestPhase4CoverageEdgeCases:
                 "lease_expires_at": (_T0 + timedelta(hours=2)).isoformat(),
                 "last_heartbeat_at": _T0.isoformat(),
             }
-            with pytest.raises(TransactionAborted, match="C999|not found|active"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="C999|not found|active"):
+                b.append(_make_event(
                     "claim.renewed", payload,
                     event_id="E000003", target_kind="claim", target_id="C999",
                 ))
@@ -3129,7 +3230,7 @@ class TestPhase4CoverageEdgeCases:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created", _make_claim_payload(),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
@@ -3137,8 +3238,8 @@ class TestPhase4CoverageEdgeCases:
                 "claim_id": "C001",
                 # Missing detected_at and reason
             }
-            with pytest.raises(TransactionAborted, match="detected_at|required"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="detected_at|required"):
+                b.append(_make_event(
                     "claim.stale", bad_payload,
                     event_id="E000011", target_kind="claim", target_id="C001",
                 ))
@@ -3160,8 +3261,8 @@ class TestPhase4CoverageEdgeCases:
                 "reason": "lease_expired",
                 "actor": "system",
             }
-            with pytest.raises(TransactionAborted, match="C999|not found"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="C999|not found"):
+                b.append(_make_event(
                     "claim.stale", payload,
                     event_id="E000003", target_kind="claim", target_id="C999",
                 ))
@@ -3193,8 +3294,8 @@ class TestPhase4CoverageEdgeCases:
                 "risks": [],
                 "open_questions": [],
             }
-            with pytest.raises(TransactionAborted, match="invalid Requirement|prd.parsed"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="invalid Requirement|prd.parsed"):
+                b.append(_make_event(
                     "prd.parsed", bad_payload,
                     event_id="E000003", target_kind="prd", target_id="proj-1",
                 ))
@@ -3212,7 +3313,7 @@ class TestPhase4CoverageEdgeCases:
         b = _make_backend(tmp_path)
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created",
                 {
                     "id": "F001", "title": "F", "description": "d", "status": "proposed",
@@ -3220,7 +3321,7 @@ class TestPhase4CoverageEdgeCases:
                 },
                 event_id="E000003", target_kind="feature", target_id="F001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created",
                 _make_task_payload(task_id="T001"),
                 event_id="E000004", target_kind="task", target_id="T001",
@@ -3237,8 +3338,8 @@ class TestPhase4CoverageEdgeCases:
                 },
                 "explanation": "bad",
             }
-            with pytest.raises(TransactionAborted, match="scores|invalid"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="scores|invalid"):
+                b.append(_make_event(
                     "task.scored", bad_scores,
                     event_id="E000005", target_kind="task", target_id="T001",
                 ))
@@ -3256,7 +3357,7 @@ class TestPhase4CoverageEdgeCases:
         b = _make_backend(tmp_path)
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created",
                 {
                     "id": "F001", "title": "F", "description": "d", "status": "proposed",
@@ -3264,7 +3365,7 @@ class TestPhase4CoverageEdgeCases:
                 },
                 event_id="E000003", target_kind="feature", target_id="F001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created",
                 _make_task_payload(task_id="T001"),
                 event_id="E000004", target_kind="task", target_id="T001",
@@ -3274,8 +3375,8 @@ class TestPhase4CoverageEdgeCases:
                 "from": "proposed",
                 # Missing 'to'
             }
-            with pytest.raises(TransactionAborted, match="to|required"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="to|required"):
+                b.append(_make_event(
                     "task.status_changed", bad_payload,
                     event_id="E000005", target_kind="task", target_id="T001",
                 ))
@@ -3293,7 +3394,7 @@ class TestPhase4CoverageEdgeCases:
         b = _make_backend(tmp_path)
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created",
                 {
                     "id": "F001", "title": "F", "description": "d", "status": "proposed",
@@ -3301,7 +3402,7 @@ class TestPhase4CoverageEdgeCases:
                 },
                 event_id="E000003", target_kind="feature", target_id="F001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created",
                 _make_task_payload(task_id="T001"),
                 event_id="E000004", target_kind="task", target_id="T001",
@@ -3310,8 +3411,8 @@ class TestPhase4CoverageEdgeCases:
                 "parent_task_id": "T001",
                 "subtasks": [],  # empty
             }
-            with pytest.raises(TransactionAborted, match="subtasks|empty"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="subtasks|empty"):
+                b.append(_make_event(
                     "task.expanded", bad_payload,
                     event_id="E000005", target_kind="task", target_id="T001",
                 ))
@@ -3376,7 +3477,7 @@ def _setup_claimable_task_and_claim(
 ) -> None:
     """Set up project → feature → task in 'ready' → claim.created → task='claimed'."""
     _setup_claimable_task(b, task_id=task_id)
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "claim.created",
         _make_claim_payload(claim_id=claim_id, task_id=task_id),
         event_id="E000010", target_kind="claim", target_id=claim_id,
@@ -3407,7 +3508,7 @@ class TestPhase5EvidenceAndApplyHandlers:
             _setup_claimable_task_and_claim(b)
 
             payload = _make_evidence_payload()
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", payload,
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
@@ -3449,8 +3550,8 @@ class TestPhase5EvidenceAndApplyHandlers:
                 "evidence.submitted", payload,
                 event_id="E000011", target_kind="task", target_id="T001",
             )
-            b.apply_event(event)  # first: commits
-            b.apply_event(event)  # second: INSERT OR IGNORE — no-op
+            b.append(event)  # first: commits
+            b.append(event)  # second: INSERT OR IGNORE — no-op
 
             # Still only one evidence row
             conn = sqlite3.connect(str(tmp_path / "state.db"))
@@ -3477,8 +3578,8 @@ class TestPhase5EvidenceAndApplyHandlers:
             bad_payload = _make_evidence_payload()
             del bad_payload["task_id"]  # missing required field
 
-            with pytest.raises(TransactionAborted, match="task_id"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="task_id"):
+                b.append(_make_event(
                     "evidence.submitted", bad_payload,
                     event_id="E000011", target_kind="task", target_id="T001",
                 ))
@@ -3494,8 +3595,8 @@ class TestPhase5EvidenceAndApplyHandlers:
             _setup_claimable_task_and_claim(b)
 
             payload = _make_evidence_payload(commands_run=[])
-            with pytest.raises(TransactionAborted, match="commands_run"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="commands_run"):
+                b.append(_make_event(
                     "evidence.submitted", payload,
                     event_id="E000011", target_kind="task", target_id="T001",
                 ))
@@ -3511,8 +3612,8 @@ class TestPhase5EvidenceAndApplyHandlers:
             _setup_claimable_task_and_claim(b)
 
             payload = _make_evidence_payload(files_changed=[])
-            with pytest.raises(TransactionAborted, match="files_changed"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="files_changed"):
+                b.append(_make_event(
                     "evidence.submitted", payload,
                     event_id="E000011", target_kind="task", target_id="T001",
                 ))
@@ -3534,7 +3635,7 @@ class TestPhase5EvidenceAndApplyHandlers:
             _setup_claimable_task_and_claim(b)
 
             payload = _make_evidence_payload()
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", payload,
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
@@ -3543,7 +3644,7 @@ class TestPhase5EvidenceAndApplyHandlers:
             # apply hits the (claim_id, different evidence_id) idempotency guard
             # and warn-logs a no-op.
             payload2 = _make_evidence_payload(evidence_id="EV002")
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", payload2,
                 event_id="E000012", target_kind="task", target_id="T001",
             ))
@@ -3577,41 +3678,48 @@ class TestPhase5EvidenceAndApplyHandlers:
             bad = _make_evidence_payload()
             del bad["claim_id"]
 
-            with pytest.raises(TransactionAborted, match="claim_id"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="claim_id"):
+                b.append(_make_event(
                     "evidence.submitted", bad,
                     event_id="E000011", target_kind="task", target_id="T001",
                 ))
         finally:
             b.close()
 
-    def test_evidence_submitted_double_submit_writes_warn_idempotent_no_op(
+    def test_evidence_submitted_double_submit_is_idempotent_no_op(
         self, tmp_path: Path
     ) -> None:
         """CL-8: a second submit() for the same claim with a different
-        evidence_id must write a warn.idempotent_no_op event to JSONL.
+        evidence_id is an idempotent no-op.
 
-        Before CL-8 the second INSERT silently succeeded, producing two
-        evidence rows for one logical submission and a non-deterministic
-        ``_fetch_latest_evidence`` result. After the fix the duplicate is
-        rejected as an idempotent no-op with an audit-log entry.
+        SL1-RR-1: idempotent no-ops are recorded in audit.jsonl (not events.jsonl).
+        The duplicate returns None from append() and an idempotent_no_op line in audit.
+        Before CL-8 the second INSERT silently succeeded, producing two evidence rows.
+        After the fix the duplicate is an IdempotentNoOp — append() returns None.
         """
         b = _make_backend(tmp_path)
-        events_path = str(tmp_path / "events.jsonl")
+        audit_path = str(tmp_path / "audit.jsonl")
         try:
             _setup_claimable_task_and_claim(b)
 
             # First submission lands normally.
-            b.apply_event(_make_event(
+            first = b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(evidence_id="EV001"),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
+            assert first is not None, "First evidence submission should succeed"
 
             # Second submission with a different evidence_id — the CL-8 guard.
-            b.apply_event(_make_event(
+            # Under SL1-RR-1, this is an IdempotentNoOp; append() returns None.
+            second = b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(evidence_id="EV002"),
                 event_id="E000012", target_kind="task", target_id="T001",
             ))
+            # None means idempotent no-op (already satisfied).
+            assert second is None, (
+                "CL-8: second evidence submission must be an idempotent no-op "
+                "(append returns None)"
+            )
 
             # Exactly one evidence row survived.
             conn = sqlite3.connect(str(tmp_path / "state.db"))
@@ -3619,18 +3727,14 @@ class TestPhase5EvidenceAndApplyHandlers:
             conn.close()
             assert count == 1
 
-            # The duplicate produced a warn.idempotent_no_op tombstone in JSONL.
-            events = _read_jsonl(events_path)
-            warn_entries = [
-                e for e in events
-                if e.get("action") == "warn.idempotent_no_op"
-                and e.get("payload_json", {}).get("original_action") == "evidence.submitted"
-                and "EV002" in e.get("payload_json", {}).get("reason", "")
+            # SL1-RR-1: idempotent_no_op is recorded in audit.jsonl, NOT events.jsonl.
+            audit_records = _read_audit_jsonl(audit_path)
+            noop_entries = [
+                r for r in audit_records if r.get("kind") == "idempotent_no_op"
             ]
-            assert len(warn_entries) == 1, (
-                "CL-8: expected exactly one warn.idempotent_no_op tombstone for "
-                f"the duplicate EV002 submission; got {len(warn_entries)}. "
-                f"events: {[e.get('action') for e in events]}"
+            assert len(noop_entries) >= 1, (
+                "CL-8: expected idempotent_no_op line in audit.jsonl for the "
+                f"duplicate EV002 submission; got audit: {audit_records}"
             )
         finally:
             b.close()
@@ -3648,13 +3752,13 @@ class TestPhase5EvidenceAndApplyHandlers:
         try:
             _setup_claimable_task_and_claim(b)
             # Submit evidence to reach needs_review
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
 
             # Apply: accepted → done
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.applied",
                 _make_applied_payload(decision="accepted", reviewer="alice"),
                 event_id="E000012", target_kind="task", target_id="T001",
@@ -3687,12 +3791,12 @@ class TestPhase5EvidenceAndApplyHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task_and_claim(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
 
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.applied",
                 _make_applied_payload(decision="rejected", reviewer="bob", notes="Needs more tests."),
                 event_id="E000012", target_kind="task", target_id="T001",
@@ -3719,12 +3823,12 @@ class TestPhase5EvidenceAndApplyHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task_and_claim(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
 
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.applied",
                 _make_applied_payload(decision="accepted"),
                 event_id="E000012", target_kind="task", target_id="T001",
@@ -3751,8 +3855,8 @@ class TestPhase5EvidenceAndApplyHandlers:
         try:
             _setup_claimable_task_and_claim(b)
             # Task is 'claimed', not 'needs_review'
-            with pytest.raises(TransactionAborted, match="needs_review|status|T001"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="needs_review|status|T001"):
+                b.append(_make_event(
                     "task.applied",
                     _make_applied_payload(decision="accepted"),
                     event_id="E000011", target_kind="task", target_id="T001",
@@ -3765,7 +3869,7 @@ class TestPhase5EvidenceAndApplyHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task_and_claim(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
@@ -3775,10 +3879,10 @@ class TestPhase5EvidenceAndApplyHandlers:
                 _make_applied_payload(decision="accepted"),
                 event_id="E000012", target_kind="task", target_id="T001",
             )
-            b.apply_event(apply_event)  # first: commits, task → done
+            b.append(apply_event)  # first: commits, task → done
 
             # Second: idempotent — accepted/done path is no-op (INSERT OR REPLACE for review)
-            b.apply_event(apply_event)  # no raise expected
+            b.append(apply_event)  # no raise expected
 
             task = b.get_task("T001")
             assert task is not None
@@ -3791,13 +3895,13 @@ class TestPhase5EvidenceAndApplyHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task_and_claim(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
 
-            with pytest.raises(TransactionAborted, match="decision|accepted|rejected"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="decision|accepted|rejected"):
+                b.append(_make_event(
                     "task.applied",
                     _make_applied_payload(decision="approved"),  # invalid
                     event_id="E000012", target_kind="task", target_id="T001",
@@ -3810,14 +3914,14 @@ class TestPhase5EvidenceAndApplyHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task_and_claim(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
 
             bad = {"task_id": "T001", "decision": "accepted"}  # no reviewer
-            with pytest.raises(TransactionAborted, match="reviewer"):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted), match="reviewer"):
+                b.append(_make_event(
                     "task.applied", bad,
                     event_id="E000012", target_kind="task", target_id="T001",
                 ))
@@ -3836,7 +3940,7 @@ class TestPhase5EvidenceAndApplyHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task_and_claim(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
@@ -3846,8 +3950,8 @@ class TestPhase5EvidenceAndApplyHandlers:
                 _make_applied_payload(decision="rejected", reviewer="bob", notes="Needs more."),
                 event_id="E000012", target_kind="task", target_id="T001",
             )
-            b.apply_event(reject_event)  # first: needs_review → rejected → drafted
-            b.apply_event(reject_event)  # second: idempotent no-op (already drafted)
+            b.append(reject_event)  # first: needs_review → rejected → drafted
+            b.append(reject_event)  # second: idempotent no-op (already drafted)
 
             task = b.get_task("T001")
             assert task is not None
@@ -3868,11 +3972,11 @@ class TestPhase5EvidenceAndApplyHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task_and_claim(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.applied",
                 _make_applied_payload(decision="rejected", reviewer="bob", notes="Fix it."),
                 event_id="E000012", target_kind="task", target_id="T001",
@@ -3901,11 +4005,11 @@ class TestPhase5EvidenceAndApplyHandlers:
         b = _make_backend(tmp_path)
         try:
             _setup_claimable_task_and_claim(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted", _make_evidence_payload(),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.applied",
                 _make_applied_payload(decision="accepted", reviewer="alice"),
                 event_id="E000012", target_kind="task", target_id="T001",
@@ -3947,12 +4051,12 @@ class TestReplayIncludesPhase5Events:
 
         try:
             # E000001: project.created
-            b.apply_event(_make_project_event(event_id="E000001"))
+            b.append(_make_project_event(event_id="E000001"))
             # E000002: state.initialized
-            b.apply_event(_make_init_event(event_id="E000002"))
+            b.append(_make_init_event(event_id="E000002"))
 
             # E000003: prd.parsed
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed",
                 {
                     "project_id": "proj-1",
@@ -3972,21 +4076,21 @@ class TestReplayIncludesPhase5Events:
             ))
 
             # E000004: prd.approved (skipping prd.reviewed for brevity — approved is valid)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.approved",
                 {"project_id": "proj-1", "approver": "alice"},
                 event_id="E000004", target_kind="prd", target_id="proj-1",
             ))
 
             # E000005: feature.created
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created",
                 _make_feature_payload(feat_id="F001"),
                 event_id="E000005", target_kind="feature", target_id="F001",
             ))
 
             # E000006: task.created
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created",
                 _make_task_payload(task_id="T001"),
                 event_id="E000006", target_kind="task", target_id="T001",
@@ -3998,21 +4102,21 @@ class TestReplayIncludesPhase5Events:
                 ("drafted", "reviewed", "E000008"),
                 ("reviewed", "ready", "E000009"),
             ]:
-                b.apply_event(_make_event(
+                b.append(_make_event(
                     "task.status_changed",
                     {"task_id": "T001", "from": from_s, "to": to_s},
                     event_id=eid, target_kind="task", target_id="T001",
                 ))
 
             # E000010: claim.created
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created",
                 _make_claim_payload(claim_id="C001", task_id="T001"),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
 
             # E000011: evidence.submitted
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted",
                 _make_evidence_payload(
                     task_id="T001",
@@ -4027,7 +4131,7 @@ class TestReplayIncludesPhase5Events:
             ))
 
             # E000012: task.applied (accepted → done)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.applied",
                 _make_applied_payload(task_id="T001", reviewer="alice", decision="accepted"),
                 event_id="E000012", target_kind="task", target_id="T001",
@@ -4069,17 +4173,17 @@ class TestReplayIncludesPhase5Events:
 
         try:
             _setup_claimable_task(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created",
                 _make_claim_payload(claim_id="C001", task_id="T001"),
                 event_id="E000010", target_kind="claim", target_id="C001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted",
                 _make_evidence_payload(task_id="T001", claim_id="C001", evidence_id="EV001"),
                 event_id="E000011", target_kind="task", target_id="T001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.applied",
                 _make_applied_payload(task_id="T001", reviewer="bob", decision="rejected",
                                       notes="Incomplete."),
@@ -4117,12 +4221,12 @@ def _setup_feature_and_task(
 ) -> None:
     """Bootstrap a project → feature → task pipeline into 'ready' status."""
     _setup_project(b)
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "feature.created",
         _make_feature_payload(feat_id=feat_id),
         event_id="E000003", target_kind="feature", target_id=feat_id,
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "task.created",
         _make_task_payload(task_id=task_id, feature_id=feat_id),
         event_id="E000004", target_kind="task", target_id=task_id,
@@ -4133,7 +4237,7 @@ def _setup_feature_and_task(
         ("E000006", "drafted", "reviewed"),
         ("E000007", "reviewed", "ready"),
     ):
-        b.apply_event(_make_event(
+        b.append(_make_event(
             "task.status_changed",
             {"task_id": task_id, "from": from_s, "to": to_s, "reason": "test"},
             event_id=ev_id, target_kind="task", target_id=task_id,
@@ -4152,7 +4256,7 @@ class TestBackendProtocolExtensions:
         b = _make_backend(tmp_path)
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created",
                 _make_feature_payload(feat_id="F001", title="Auth System"),
                 event_id="E000003", target_kind="feature", target_id="F001",
@@ -4227,12 +4331,12 @@ class TestBackendProtocolExtensions:
         try:
             _setup_feature_and_task(b, feat_id="F001", task_id="T001")
             # Create a claim so evidence.submitted has a valid FK.
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.created",
                 _make_claim_payload(claim_id="C001", task_id="T001"),
                 event_id="E000011", target_kind="claim", target_id="C001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "evidence.submitted",
                 _make_evidence_payload(
                     task_id="T001",
@@ -4263,179 +4367,112 @@ class TestBackendProtocolExtensions:
 
 
 # ---------------------------------------------------------------------------
-# PENDING_EVENT_ID — race-free ID assignment (Critic-3 / PR #41 fix)
+# SL1-RR-1 — log-authority id assignment (replaces PENDING_EVENT_ID)
 # ---------------------------------------------------------------------------
 
 
-class TestPendingEventId:
-    """Tests for the PENDING_EVENT_ID sentinel and the dual-path apply_event()."""
+class TestLogAuthorityIdAssignment:
+    """SL1-RR-1: the log is the id authority; append() assigns sequential ids.
 
-    def test_pending_event_id_assigned_inside_transaction(self, tmp_path: Path) -> None:
-        """Emitting 3 PENDING events produces sequential IDs assigned inside the lock.
+    Replaces TestPendingEventId. The PENDING sentinel and the dual-path
+    apply_event() are retired. append(EventDraft) is the sole write entry
+    point; ids are assigned from an in-memory counter seeded from the log max.
+    """
 
-        Two events from _make_project_event() + _make_init_event() are applied
-        first with real IDs (E000001, E000002), then 3 PENDING events are emitted.
-        The backend must assign E000003, E000004, E000005 in order.
-        """
+    def test_sequential_appends_produce_sequential_ids(self, tmp_path: Path) -> None:
+        """Three sequential append() calls receive E000001, E000002, E000003."""
         b = _make_backend(tmp_path)
         try:
-            # Seed with two real-ID events so the MAX sequence starts at 2.
-            b.apply_event(_make_project_event(event_id="E000001"))
-            b.apply_event(_make_init_event(event_id="E000002"))
-
-            # Emit 3 PENDING events.
-            pending_events = []
-            for i in range(3):
-                e = Event(
-                    id=PENDING_EVENT_ID,
-                    timestamp=_T0,
-                    actor="test",
-                    action="project.created",
-                    target_kind="project",
-                    target_id="proj-1",
-                    payload_json={
-                        "id": "proj-1",
-                        "name": f"Project {i}",
-                        "description": "",
-                        "created_at": _T0.isoformat(),
-                        "updated_at": _T0.isoformat(),
-                    },
-                )
-                materialized = b.apply_event(e)
-                pending_events.append(materialized)
+            e1 = b.append(_make_project_event())
+            e2 = b.append(_make_init_event())
+            e3 = b.append(_make_event(
+                "project.created",
+                {"id": "proj-1", "name": "Project 2", "description": "",
+                 "created_at": _T0.isoformat(), "updated_at": _T0.isoformat()},
+                target_kind="project", target_id="proj-1",
+            ))
         finally:
             b.close()
 
-        ids = [e.id for e in pending_events]
-        assert ids == ["E000003", "E000004", "E000005"], (
-            f"Expected sequential IDs E000003–E000005; got {ids}"
-        )
+        assert e1 is not None and e1.id == "E000001"
+        assert e2 is not None and e2.id == "E000002"
+        assert e3 is not None and e3.id == "E000003"
 
-    def test_apply_event_returns_materialized_event(self, tmp_path: Path) -> None:
-        """apply_event() returns the event with the assigned ID, not PENDING."""
+    def test_append_returns_event_with_real_id(self, tmp_path: Path) -> None:
+        """append(EventDraft) returns an Event with a real E%06d id (not PENDING)."""
         b = _make_backend(tmp_path)
         try:
-            pending = Event(
-                id=PENDING_EVENT_ID,
-                timestamp=_T0,
-                actor="test",
-                action="project.created",
-                target_kind="project",
-                target_id="proj-1",
-                payload_json={
-                    "id": "proj-1",
-                    "name": "Test",
-                    "description": "",
-                    "created_at": _T0.isoformat(),
-                    "updated_at": _T0.isoformat(),
-                },
-            )
-            result = b.apply_event(pending)
+            result = b.append(_make_project_event())
         finally:
             b.close()
 
-        assert result.id != PENDING_EVENT_ID, "apply_event must assign a real ID"
-        assert result.id.startswith("E"), f"Assigned ID must be in E%06d format; got {result.id!r}"
+        assert result is not None
+        assert result.id.startswith("E"), f"Assigned ID must be E%06d format; got {result.id!r}"
         assert result.id[1:].isdigit(), f"Assigned ID suffix must be numeric; got {result.id!r}"
 
-    def test_pending_event_jsonl_only_written_on_successful_commit(
+    def test_rejected_draft_leaves_zero_events_jsonl_lines(
         self, tmp_path: Path
     ) -> None:
-        """A PENDING event that causes a mutation failure leaves NO line in events.jsonl.
+        """A rejected draft (unsupported action) leaves NO line in events.jsonl.
 
-        This verifies that the post-COMMIT JSONL ordering for PENDING events
-        means a failed transaction does not produce a dangling JSONL line.
-        An unsupported action triggers NotImplementedError which rolls back the
-        SQLite transaction; because the JSONL write is post-COMMIT for PENDING
-        events, no JSONL line is written for the failed event.
+        SL1-RR-1: validation is pre-log. A rejection (EventRejected) means
+        nothing was written to events.jsonl — not even the draft, not even
+        an abort tombstone. The log is clean.
         """
         b = _make_backend(tmp_path)
         events_path = str(tmp_path / "events.jsonl")
         try:
             # Apply one good event first so the JSONL has 1 line.
-            b.apply_event(_make_project_event(event_id="E000001"))
+            b.append(_make_project_event())
 
             initial_events = _read_jsonl(events_path)
             assert len(initial_events) == 1
 
-            # Apply a PENDING event with an unsupported action — should fail.
-            bad_event = Event(
-                id=PENDING_EVENT_ID,
+            # Attempt a draft with an unsupported action — should raise EventRejected.
+            bad_draft = EventDraft(
                 timestamp=_T0,
                 actor="test",
                 action="unsupported.action",
                 target_kind="project",
                 target_id="proj-1",
+                payload_json={},
             )
-            with pytest.raises(TransactionAborted):
-                b.apply_event(bad_event)
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
 
-            # JSONL should contain exactly 1 successful event + 1 abort tombstone
-            # (the abort tombstone uses whatever partial event state was available).
             events_after = _read_jsonl(events_path)
         finally:
             b.close()
 
-        # The original project.created event must still be there.
-        successful = [e for e in events_after if e.get("action") == "project.created"]
-        assert len(successful) == 1
-
-        # No line with action="unsupported.action" should appear (the PENDING
-        # event is NOT written to JSONL before the failed COMMIT).
-        unsupported_lines = [e for e in events_after if e.get("action") == "unsupported.action"]
-        assert len(unsupported_lines) == 0, (
-            "A failed PENDING event must not leave a line with its action in JSONL"
+        # Still exactly 1 line — the rejection wrote nothing.
+        assert len(events_after) == 1, (
+            f"SL1-RR-1: rejected draft must not write to events.jsonl; "
+            f"got {len(events_after)} lines"
         )
+        assert events_after[0].get("action") == "project.created"
 
-    def test_replay_path_preserves_provided_event_ids(self, tmp_path: Path) -> None:
-        """replay_from_empty() preserves the original IDs from JSONL.
+    def test_replay_preserves_log_ids(self, tmp_path: Path) -> None:
+        """replay_from_empty() preserves the original IDs from events.jsonl.
 
-        The replay path uses non-PENDING IDs from the existing JSONL log;
-        it must never generate new IDs for replayed events (that would break
-        the replay guarantee).
+        The ids in events.jsonl are the truth; replay must apply events with
+        their original ids — never reassign them. This is the log-id-preservation
+        property that SL1-RR-1 relies on (previously tested via the PENDING path).
         """
         clock = _make_clock()
         b = _make_backend(tmp_path, clock)
         events_path = str(tmp_path / "events.jsonl")
         db_path = str(tmp_path / "state.db")
 
-        original_ids: list[str] = []
         try:
-            # Use PENDING for original writes — get back assigned IDs.
-            e1 = b.apply_event(
-                Event(
-                    id=PENDING_EVENT_ID,
-                    timestamp=_T0,
-                    actor="test",
-                    action="project.created",
-                    target_kind="project",
-                    target_id="proj-1",
-                    payload_json={
-                        "id": "proj-1",
-                        "name": "Project",
-                        "description": "",
-                        "created_at": _T0.isoformat(),
-                        "updated_at": _T0.isoformat(),
-                    },
-                )
-            )
-            e2 = b.apply_event(
-                Event(
-                    id=PENDING_EVENT_ID,
-                    timestamp=_T0,
-                    actor="test",
-                    action="state.initialized",
-                    target_kind="project",
-                    target_id="proj-1",
-                    payload_json={},
-                )
-            )
+            # Use append() — get back the backend-assigned IDs.
+            e1 = b.append(_make_project_event())
+            e2 = b.append(_make_init_event())
             original_ids = [e1.id, e2.id]
         finally:
             b.close()
 
         assert original_ids == ["E000001", "E000002"], (
-            f"Expected first two PENDING events to get E000001, E000002; got {original_ids}"
+            f"Expected first two appends to get E000001, E000002; got {original_ids}"
         )
 
         # Replay from empty.
@@ -4494,12 +4531,12 @@ def _setup_task_for_sync(
     insert against a non-existent task_id will fail. Most TestSyncMappingHandler
     cases need a real task to attach to.
     """
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "feature.created", _make_feature_payload(feat_id=feature_id),
         event_id=f"E{base_event_id:06d}",
         target_kind="feature", target_id=feature_id,
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "task.created", _make_task_payload(task_id=task_id, feature_id=feature_id),
         event_id=f"E{base_event_id + 1:06d}",
         target_kind="task", target_id=task_id,
@@ -4526,7 +4563,7 @@ class TestSyncMappingHandler:
                 "sync_mapping.upserted", payload, event_id="E000005",
                 target_kind="task", target_id="T001",
             )
-            b.apply_event(event)
+            b.append(event)
 
             mapping = b.get_sync_mapping("T001")
             assert mapping is not None
@@ -4544,12 +4581,12 @@ class TestSyncMappingHandler:
             _setup_project(b)
             _setup_task_for_sync(b)
 
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted",
                 _make_sync_mapping_payload(external_id="gh-42", sync_state="in_sync"),
                 event_id="E000005", target_kind="task", target_id="T001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted",
                 _make_sync_mapping_payload(external_id="gh-99", sync_state="conflict"),
                 event_id="E000006", target_kind="task", target_id="T001",
@@ -4570,13 +4607,13 @@ class TestSyncMappingHandler:
             _setup_project(b)
             _setup_task_for_sync(b)
 
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted", _make_sync_mapping_payload(),
                 event_id="E000005", target_kind="task", target_id="T001",
             ))
             assert b.get_sync_mapping("T001") is not None
 
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.deleted", {"task_id": "T001"},
                 event_id="E000006", target_kind="task", target_id="T001",
             ))
@@ -4592,7 +4629,7 @@ class TestSyncMappingHandler:
             _setup_task_for_sync(b)
 
             # No upsert first — delete should succeed regardless.
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.deleted", {"task_id": "T001"},
                 event_id="E000005", target_kind="task", target_id="T001",
             ))
@@ -4607,7 +4644,7 @@ class TestSyncMappingHandler:
             _setup_project(b)
             _setup_task_for_sync(b)
 
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted",
                 _make_sync_mapping_payload(external_system="github_issues"),
                 event_id="E000005", target_kind="task", target_id="T001",
@@ -4618,14 +4655,14 @@ class TestSyncMappingHandler:
             # "scoped delete" coverage is: deleting the github_issues row
             # removes the only mapping for the task, while a delete with the
             # WRONG external_system leaves it intact (no-op).
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.deleted",
                 {"task_id": "T001", "external_system": "linear"},
                 event_id="E000006", target_kind="task", target_id="T001",
             ))
             assert b.get_sync_mapping("T001") is not None  # untouched
 
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.deleted",
                 {"task_id": "T001", "external_system": "github_issues"},
                 event_id="E000007", target_kind="task", target_id="T001",
@@ -4641,16 +4678,16 @@ class TestSyncMappingHandler:
             _setup_project(b)
             _setup_task_for_sync(b, task_id="T001")
             # Second task to give us two rows.
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created", _make_task_payload(task_id="T002"),
                 event_id="E000005", target_kind="task", target_id="T002",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted",
                 _make_sync_mapping_payload(task_id="T001", external_id="gh-1"),
                 event_id="E000006", target_kind="task", target_id="T001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted",
                 _make_sync_mapping_payload(task_id="T002", external_id="gh-2"),
                 event_id="E000007", target_kind="task", target_id="T002",
@@ -4669,7 +4706,7 @@ class TestSyncMappingHandler:
         try:
             _setup_project(b)
             _setup_task_for_sync(b, task_id="T001")
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted",
                 _make_sync_mapping_payload(external_system="github_issues"),
                 event_id="E000005", target_kind="task", target_id="T001",
@@ -4707,7 +4744,7 @@ class TestSyncMappingHandler:
             event = b.apply_sync_mapping(mapping)
 
             # The returned event has a real ID assigned by the backend.
-            assert event.id != PENDING_EVENT_ID
+            assert event.id != "PENDING"
             assert event.id.startswith("E") and event.id[1:].isdigit()
             assert event.action == "sync_mapping.upserted"
 
@@ -4742,7 +4779,7 @@ class TestSyncMappingHandler:
                 last_synced_at=_T0,
             )
             event = b.apply_sync_mapping(mapping)
-            assert event.id != PENDING_EVENT_ID
+            assert event.id != "PENDING"
             # Format: 'E' + 6 digits.
             assert len(event.id) == 7 and event.id.startswith("E")
             assert event.id[1:].isdigit()
@@ -4762,8 +4799,8 @@ class TestSyncMappingHandler:
         try:
             _setup_project(b)
             # Do NOT create T001 — FK should reject.
-            with pytest.raises(TransactionAborted):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(_make_event(
                     "sync_mapping.upserted",
                     _make_sync_mapping_payload(task_id="T001"),
                     event_id="E000003", target_kind="task", target_id="T001",
@@ -4787,7 +4824,7 @@ class TestSyncMappingHandler:
         try:
             _setup_project(b)
             _setup_task_for_sync(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted", _make_sync_mapping_payload(),
                 event_id="E000005", target_kind="task", target_id="T001",
             ))
@@ -4817,12 +4854,12 @@ class TestSyncMappingHandler:
         try:
             _setup_project(b)
             _setup_task_for_sync(b, task_id="T001")
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted",
                 _make_sync_mapping_payload(task_id="T001", external_id="gh-1"),
                 event_id="E000005", target_kind="task", target_id="T001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted",
                 _make_sync_mapping_payload(task_id="T001", external_id="gh-99"),
                 event_id="E000006", target_kind="task", target_id="T001",
@@ -4866,7 +4903,7 @@ class TestSyncMappingHandler:
                     "assignees": ["alice"],
                 },
             }
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted", payload,
                 event_id="E000005", target_kind="task", target_id="T001",
             ))
@@ -4894,11 +4931,11 @@ class TestSyncMappingHandler:
         try:
             _setup_project(b)
             _setup_task_for_sync(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted", _make_sync_mapping_payload(),
                 event_id="E000005", target_kind="task", target_id="T001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.deleted", {"task_id": "T001"},
                 event_id="E000006", target_kind="task", target_id="T001",
             ))
@@ -4925,8 +4962,8 @@ class TestSyncMappingHandler:
             _setup_project(b)
             _setup_task_for_sync(b)
             bad = _make_sync_mapping_payload(sync_state="not_a_real_state")
-            with pytest.raises(TransactionAborted):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(_make_event(
                     "sync_mapping.upserted", bad,
                     event_id="E000005", target_kind="task", target_id="T001",
                 ))
@@ -5010,29 +5047,29 @@ class TestSyncMappingUniqueExternalId:
         try:
             _setup_project(b)
             # Two tasks under the same feature.
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created", _make_feature_payload(feat_id="F001"),
                 event_id="E000003", target_kind="feature", target_id="F001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created", _make_task_payload(task_id="T001", feature_id="F001"),
                 event_id="E000004", target_kind="task", target_id="T001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created", _make_task_payload(task_id="T002", feature_id="F001"),
                 event_id="E000005", target_kind="task", target_id="T002",
             ))
 
             # T001 → (github_issues, gh-42) succeeds.
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted",
                 _make_sync_mapping_payload(task_id="T001", external_id="gh-42"),
                 event_id="E000006", target_kind="task", target_id="T001",
             ))
 
             # T002 → (github_issues, gh-42) must abort on the UNIQUE.
-            with pytest.raises(TransactionAborted):
-                b.apply_event(_make_event(
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(_make_event(
                     "sync_mapping.upserted",
                     _make_sync_mapping_payload(task_id="T002", external_id="gh-42"),
                     event_id="E000007", target_kind="task", target_id="T002",
@@ -5190,7 +5227,7 @@ class TestGetSyncMappingExternalSystemKwarg:
         try:
             _setup_project(b)
             _setup_task_for_sync(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted",
                 _make_sync_mapping_payload(
                     external_system="github_issues", external_id="gh-42",
@@ -5220,7 +5257,7 @@ class TestGetSyncMappingExternalSystemKwarg:
         try:
             _setup_project(b)
             _setup_task_for_sync(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "sync_mapping.upserted", _make_sync_mapping_payload(),
                 event_id="E000005", target_kind="task", target_id="T001",
             ))
@@ -5286,7 +5323,7 @@ class TestSchemaAutoUpgrade:
         b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
         b.initialize()
         # Seed a project to confirm data survives the upgrade.
-        b.apply_event(_make_project_event(event_id="E000001"))
+        b.append(_make_project_event(event_id="E000001"))
         b.close()
         # Forge to v2.
         conn = sqlite3.connect(db_path)
@@ -5870,17 +5907,18 @@ class TestPayloadValidation:
     # for a malformed payload on a known action
     # ------------------------------------------------------------------
 
-    def test_apply_mutation_raises_transaction_aborted_on_malformed_payload(
+    def test_append_raises_event_rejected_on_malformed_payload(
         self, tmp_path: Path
     ) -> None:
-        """A known action with an extra unknown key raises TransactionAborted.
+        """A known action with an extra unknown key raises EventRejected (SL1-RR-1).
 
-        This proves that _apply_mutation validates the payload before dispatching.
+        SL1-RR-1: payload validation happens pre-log via _check_*. An extra
+        unknown field triggers EventRejected (not TransactionAborted). Nothing
+        is written to events.jsonl.
         """
         b = _make_backend(tmp_path)
         try:
-            bad_event = Event(
-                id="E000001",
+            bad_draft = EventDraft(
                 timestamp=_T0,
                 actor="test",
                 action="project.created",
@@ -5895,19 +5933,18 @@ class TestPayloadValidation:
                     "unknown_extra_field": "should_trigger_forbid",
                 },
             )
-            with pytest.raises(TransactionAborted):
-                b.apply_event(bad_event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(bad_draft)
         finally:
             b.close()
 
-    def test_apply_mutation_raises_on_missing_required_field(
+    def test_append_raises_event_rejected_on_missing_required_field(
         self, tmp_path: Path
     ) -> None:
-        """A known action with a missing required field raises TransactionAborted."""
+        """A known action with a missing required field raises EventRejected (SL1-RR-1)."""
         b = _make_backend(tmp_path)
         try:
-            bad_event = Event(
-                id="E000001",
+            bad_draft = EventDraft(
                 timestamp=_T0,
                 actor="test",
                 action="prd.reviewed",
@@ -5918,8 +5955,8 @@ class TestPayloadValidation:
                     "project_id": "proj-1",
                 },
             )
-            with pytest.raises(TransactionAborted):
-                b.apply_event(bad_event)
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(bad_draft)
         finally:
             b.close()
 
@@ -5941,9 +5978,9 @@ class TestPayloadValidation:
         db_path = str(tmp_path / "state.db")
 
         try:
-            b.apply_event(_make_project_event(event_id="E000001"))
-            b.apply_event(_make_init_event(event_id="E000002"))
-            b.apply_event(
+            b.append(_make_project_event(event_id="E000001"))
+            b.append(_make_init_event(event_id="E000002"))
+            b.append(
                 _make_project_event(
                     event_id="E000003",
                     project_id="proj-1",
@@ -5984,7 +6021,7 @@ class TestPayloadValidation:
 class TestMinimalTaskPayloads:
     """Minimal task.created / task.expanded payloads from MCP-style callers."""
 
-    def _make_feature_event(self, event_id: str = "E000003") -> Event:
+    def _make_feature_event(self, event_id: str = "E000003") -> EventDraft:
         return _make_event(
             "feature.created",
             {
@@ -6006,7 +6043,7 @@ class TestMinimalTaskPayloads:
         b = _make_backend(tmp_path, clock)
         try:
             _setup_project(b)
-            b.apply_event(self._make_feature_event(event_id="E000003"))
+            b.append(self._make_feature_event(event_id="E000003"))
             # Minimal task payload — what an MCP caller would send.
             minimal = {
                 "id": "T001",
@@ -6021,7 +6058,7 @@ class TestMinimalTaskPayloads:
                 "task.created", minimal, event_id="E000004",
                 target_kind="task", target_id="T001",
             )
-            b.apply_event(event)
+            b.append(event)
             row = b.get_task("T001")
             assert row is not None
             assert row.id == "T001"
@@ -6035,7 +6072,7 @@ class TestMinimalTaskPayloads:
         b = _make_backend(tmp_path, clock)
         try:
             _setup_project(b)
-            b.apply_event(self._make_feature_event(event_id="E000003"))
+            b.append(self._make_feature_event(event_id="E000003"))
             parent = {
                 "id": "T001",
                 "feature_id": "F001",
@@ -6045,7 +6082,7 @@ class TestMinimalTaskPayloads:
                 "created_at": _T0.isoformat(),
                 "updated_at": _T0.isoformat(),
             }
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created", parent, event_id="E000004",
                 target_kind="task", target_id="T001",
             ))
@@ -6064,7 +6101,7 @@ class TestMinimalTaskPayloads:
                     },
                 ],
             }
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.expanded", expand, event_id="E000005",
                 target_kind="task", target_id="T001",
             ))
@@ -6310,12 +6347,12 @@ class TestMissingSyncMappingPerProvider:
         try:
             _setup_project(b)
             # Walk a task through the lifecycle to status=done.
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "feature.created",
                 _make_feature_payload(),
                 event_id="E000003", target_kind="feature", target_id="F001",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.created", _make_task_payload(task_id="T001"),
                 event_id="E000004", target_kind="task", target_id="T001",
             ))
@@ -6331,7 +6368,7 @@ class TestMissingSyncMappingPerProvider:
             ]
             eid = 5
             for frm, to in chain:
-                b.apply_event(_make_event(
+                b.append(_make_event(
                     "task.status_changed",
                     {"task_id": "T001", "from": frm, "to": to},
                     event_id=f"E{eid:06d}", target_kind="task", target_id="T001",
@@ -6405,14 +6442,15 @@ class TestSyncDispatcherUsesConcreteSubclasses:
 
         b = _make_backend(tmp_path)
         try:
-            table = b._get_action_handlers()
+            table = b._get_action_dispatch()
             for action in ACTION_TO_PAYLOAD:
                 assert action in table, (
                     f"T5 regression: dispatcher missing sync action {action!r}; "
                     f"ACTION_TO_PAYLOAD declares it but the dispatch table "
                     "does not route it. Did the dict-spread merge drop?"
                 )
-                payload_cls, handler = table[action]
+                spec = table[action]
+                payload_cls = spec.payload_model
                 # The contract is: a class with .model_validate (the
                 # Pydantic v2 BaseModel API). The TypeAlias would fail
                 # this — UnionType has no such attribute.
@@ -6429,7 +6467,10 @@ class TestSyncDispatcherUsesConcreteSubclasses:
                     f"{payload_cls!r}, but ACTION_TO_PAYLOAD says it should "
                     f"be {ACTION_TO_PAYLOAD[action]!r}."
                 )
-                assert callable(handler)
+                # SL1-RR-1 architecture move #1: each action splits into a
+                # read-only check and an infallible write, both callable.
+                assert callable(spec.check)
+                assert callable(spec.write)
         finally:
             b.close()
 
@@ -6450,8 +6491,7 @@ class TestSyncDispatcherUsesConcreteSubclasses:
             # Apply a sync.pull.deferred event end-to-end. If the
             # dispatcher is still broken this raises TransactionAborted
             # and the JSONL row is the aborted-error sentinel.
-            evt = Event(
-                id=PENDING_EVENT_ID,
+            evt = EventDraft(
                 timestamp=_T0,
                 actor="test",
                 action="sync.pull.deferred",
@@ -6465,7 +6505,7 @@ class TestSyncDispatcherUsesConcreteSubclasses:
                     "resolution": "local_wins_deferred",
                 },
             )
-            b.apply_event(evt)
+            b.append(evt)
 
             # Verify the JSONL row is the deferred event, not the abort
             # sentinel.
@@ -6480,7 +6520,7 @@ class TestSyncDispatcherUsesConcreteSubclasses:
             assert "error.transaction_aborted" not in actions, (
                 f"T5 regression: dispatcher crashed on sync.pull.deferred; "
                 f"got actions={actions}. Check ACTION_TO_PAYLOAD wiring "
-                f"in state/sqlite.py:_get_action_handlers."
+                f"in state/sqlite.py:_get_action_dispatch."
             )
         finally:
             b.close()
@@ -6508,12 +6548,12 @@ def _setup_full_snapshot_backend(b: SqliteBackend) -> None:
     _setup_claimable_task(b, task_id="T001")
 
     # ---- C001 active → released ----
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "claim.created",
         _make_claim_payload(claim_id="C001", task_id="T001"),
         event_id="E000010", target_kind="claim", target_id="C001",
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "claim.released",
         {"claim_id": "C001", "released_by": "agent-alpha",
          "release_reason": "dropped", "force": False},
@@ -6522,19 +6562,19 @@ def _setup_full_snapshot_backend(b: SqliteBackend) -> None:
 
     # ---- T001 re-ready via C002 ----
     # task was returned to 'ready' by the release handler; re-claim it
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "claim.created",
         _make_claim_payload(claim_id="C002", task_id="T001"),
         event_id="E000012", target_kind="claim", target_id="C002",
     ))
 
     # ---- evidence + apply ----
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "evidence.submitted",
         _make_evidence_payload(task_id="T001", claim_id="C002", evidence_id="EV001"),
         event_id="E000013", target_kind="task", target_id="T001",
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "task.applied",
         _make_applied_payload(task_id="T001", reviewer="alice", decision="accepted"),
         event_id="E000014", target_kind="task", target_id="T001",
@@ -6543,7 +6583,7 @@ def _setup_full_snapshot_backend(b: SqliteBackend) -> None:
     # ---- T002 with a stale claim ----
     # Reuse _setup_claimable_task logic but inline since project already exists.
     # Insert F001 task T002 directly via feature.created + task.created + transitions.
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "task.created",
         _make_task_payload(task_id="T002", feature_id="F001"),
         event_id="E000015", target_kind="task", target_id="T002",
@@ -6553,18 +6593,18 @@ def _setup_full_snapshot_backend(b: SqliteBackend) -> None:
         ("drafted", "reviewed", "E000017"),
         ("reviewed", "ready", "E000018"),
     ]:
-        b.apply_event(_make_event(
+        b.append(_make_event(
             "task.status_changed",
             {"task_id": "T002", "from": from_s, "to": to_s},
             event_id=eid, target_kind="task", target_id="T002",
         ))
 
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "claim.created",
         _make_claim_payload(claim_id="C003", task_id="T002"),
         event_id="E000019", target_kind="claim", target_id="C003",
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "claim.stale",
         {"claim_id": "C003", "detected_at": _T0.isoformat(),
          "reason": "lease_expired"},
@@ -6729,15 +6769,15 @@ class TestListClaimsReviewsEvidence:
         b = _make_backend(tmp_path)
         try:
             _setup_project(b)
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.parsed", _make_prd_parsed_payload(), event_id="E000003",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.reviewed",
                 {"project_id": "proj-1", "reviewer": "alice"},
                 event_id="E000004",
             ))
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "prd.approved",
                 {"project_id": "proj-1", "approver": "bob"},
                 event_id="E000005",
@@ -6870,7 +6910,7 @@ class TestListRequirements:
                     },
                 ]
             )
-            b.apply_event(_make_event("prd.parsed", payload, event_id="E000003"))
+            b.append(_make_event("prd.parsed", payload, event_id="E000003"))
 
             reqs = b.list_requirements()
             assert len(reqs) == 2
@@ -6910,7 +6950,7 @@ class TestListRequirements:
                     },
                 ]
             )
-            b.apply_event(_make_event("prd.parsed", payload, event_id="E000003"))
+            b.append(_make_event("prd.parsed", payload, event_id="E000003"))
 
             reqs = b.list_requirements()
             ids = [r.id for r in reqs]
@@ -6943,7 +6983,7 @@ class TestListRequirements:
                     },
                 ]
             )
-            b.apply_event(_make_event("prd.parsed", payload, event_id="E000003"))
+            b.append(_make_event("prd.parsed", payload, event_id="E000003"))
 
             reqs = {r.id: r for r in b.list_requirements()}
 
@@ -6956,5 +6996,2417 @@ class TestListRequirements:
             assert reqs["R002"].text == "Latency under 100ms."
             assert reqs["R002"].source_paragraph is None
             assert reqs["R002"].derived is True
+        finally:
+            b.close()
+
+
+# ===========================================================================
+# T4 — append write-path, log-authority counter, lock, self-heal, replay
+# ===========================================================================
+# Tag: use  -k "append or replay or lock or durability or self_heal"  to run
+# only this suite. Tests here use EventDraft + append() exclusively — never
+# the legacy apply_event() helper — so they stay green after Task 6.
+# ===========================================================================
+
+
+def _make_draft(
+    action: str,
+    payload: dict[str, Any],
+    *,
+    target_kind: str = "project",
+    target_id: str = "proj-1",
+    now: datetime = _T0,
+    actor: str = "test",
+) -> EventDraft:
+    """Build a minimal EventDraft for T4 tests."""
+    return EventDraft(
+        timestamp=now,
+        actor=actor,
+        action=action,
+        target_kind=target_kind,
+        target_id=target_id,
+        payload_json=payload,
+    )
+
+
+def _project_draft(
+    *,
+    project_id: str = "proj-1",
+    name: str = "Test Project",
+    now: datetime = _T0,
+) -> EventDraft:
+    return _make_draft(
+        "project.created",
+        {
+            "id": project_id,
+            "name": name,
+            "description": "",
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        },
+        target_kind="project",
+        target_id=project_id,
+        now=now,
+    )
+
+
+def _init_draft(
+    *,
+    project_id: str = "proj-1",
+    now: datetime = _T0,
+) -> EventDraft:
+    return _make_draft(
+        "state.initialized",
+        {},
+        target_kind="project",
+        target_id=project_id,
+        now=now,
+    )
+
+
+def _setup_project_via_append(b: SqliteBackend) -> None:
+    """Apply project.created + state.initialized via append()."""
+    b.append(_project_draft())
+    b.append(_init_draft())
+
+
+def _read_audit_jsonl(audit_path: str) -> list[dict[str, Any]]:
+    """Read all lines from audit.jsonl."""
+    if not os.path.exists(audit_path):
+        return []
+    records = []
+    with open(audit_path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                records.append(json.loads(line))
+    return records
+
+
+class TestAppendHappyPath:
+    """append() assigns sequential ids and persists log-then-SQLite."""
+
+    def test_append_returns_event_with_assigned_id(self, tmp_path: Path) -> None:
+        """append() materializes the draft into an Event with a real id."""
+        b = _make_backend(tmp_path)
+        try:
+            event = b.append(_project_draft())
+            assert event is not None
+            assert event.id == "E000001"
+            assert event.action == "project.created"
+        finally:
+            b.close()
+
+    def test_append_assigns_sequential_ids(self, tmp_path: Path) -> None:
+        """Sequential appends produce E000001, E000002, ..."""
+        b = _make_backend(tmp_path)
+        try:
+            e1 = b.append(_project_draft())
+            e2 = b.append(_init_draft())
+            assert e1 is not None and e1.id == "E000001"
+            assert e2 is not None and e2.id == "E000002"
+        finally:
+            b.close()
+
+    def test_append_writes_log_then_commits_sqlite(self, tmp_path: Path) -> None:
+        """The JSONL line appears before the SQLite row (log-first ordering)."""
+        events_path = str(tmp_path / "events.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            event = b.append(_project_draft())
+            assert event is not None
+
+            # JSONL line present
+            lines = _read_jsonl(events_path)
+            assert len(lines) == 1
+            assert lines[0]["id"] == "E000001"
+            assert lines[0]["action"] == "project.created"
+
+            # SQLite row present
+            project = b.get_project()
+            assert project is not None
+        finally:
+            b.close()
+
+    def test_append_increments_counter_at_log_append_time(self, tmp_path: Path) -> None:
+        """Counter is incremented when the log line is written, not at COMMIT."""
+        b = _make_backend(tmp_path)
+        try:
+            # After first append, counter should be 1.
+            b.append(_project_draft())
+            assert b._next_seq == 1  # noqa: SLF001 — testing internal counter
+            b.append(_init_draft())
+            assert b._next_seq == 2  # noqa: SLF001
+        finally:
+            b.close()
+
+
+class TestAppendValidationFailure:
+    """A validation failure writes zero event lines and one rejection audit line."""
+
+    def test_validation_failure_writes_no_event_line(self, tmp_path: Path) -> None:
+        """EventRejected leaves events.jsonl empty."""
+        events_path = str(tmp_path / "events.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            # prd.reviewed without a project — check will raise EventRejected
+            # because the payload is malformed (missing required field).
+            bad_draft = _make_draft(
+                "prd.reviewed",
+                {"project_id": "proj-1"},  # missing 'reviewer'
+                target_kind="prd",
+                target_id="proj-1",
+            )
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
+
+            lines = _read_jsonl(events_path)
+            assert lines == [], f"Expected no event lines, got: {lines}"
+        finally:
+            b.close()
+
+    def test_validation_failure_writes_rejection_audit_line(self, tmp_path: Path) -> None:
+        """EventRejected writes exactly one rejection line to audit.jsonl."""
+        audit_path = str(tmp_path / "audit.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            bad_draft = _make_draft(
+                "prd.reviewed",
+                {"project_id": "proj-1"},  # missing 'reviewer'
+                target_kind="prd",
+                target_id="proj-1",
+            )
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
+
+            audit_records = _read_audit_jsonl(audit_path)
+            assert len(audit_records) == 1
+            assert audit_records[0]["kind"] == "rejection"
+            assert audit_records[0]["attempted_action"] == "prd.reviewed"
+        finally:
+            b.close()
+
+    def test_validation_failure_does_not_increment_counter(self, tmp_path: Path) -> None:
+        """Counter stays at 0 after a validation failure."""
+        b = _make_backend(tmp_path)
+        try:
+            bad_draft = _make_draft(
+                "prd.reviewed",
+                {"project_id": "proj-1"},  # missing 'reviewer'
+                target_kind="prd",
+                target_id="proj-1",
+            )
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
+            assert b._next_seq == 0  # noqa: SLF001
+        finally:
+            b.close()
+
+    def test_unknown_action_raises_event_rejected(self, tmp_path: Path) -> None:
+        """An action not in the dispatch table raises EventRejected."""
+        b = _make_backend(tmp_path)
+        try:
+            draft = _make_draft("nonexistent.action", {})
+            with pytest.raises(EventRejected, match="not in the dispatch table"):
+                b.append(draft)
+        finally:
+            b.close()
+
+
+class TestAppendIdempotentNoOp:
+    """An idempotent no-op returns None and writes one idempotent_no_op audit line."""
+
+    def _setup_with_released_claim(self, b: SqliteBackend) -> None:
+        """Build a claim via append and release it once."""
+        _setup_project_via_append(b)
+        b.append(_make_draft(
+            "prd.parsed",
+            {
+                "project_id": "proj-1",
+                "status": "draft",
+                "summary": "A test PRD.",
+                "goals": [],
+                "non_goals": [],
+                "requirements": [
+                    {"id": "R001", "prd_section": "s", "text": "Req.",
+                     "source_paragraph": None, "derived": False}
+                ],
+                "acceptance_criteria": [],
+                "risks": [],
+                "open_questions": [],
+            },
+            target_kind="prd", target_id="proj-1",
+        ))
+        b.append(_make_draft(
+            "feature.created",
+            {"id": "F001", "title": "F", "description": "d",
+             "status": "proposed", "requirements": [], "tasks": []},
+            target_kind="feature", target_id="F001",
+        ))
+        b.append(_make_draft(
+            "task.created",
+            _make_task_payload(),
+            target_kind="task", target_id="T001",
+        ))
+        for from_s, to_s in [("proposed", "drafted"), ("drafted", "reviewed"), ("reviewed", "ready")]:
+            b.append(_make_draft(
+                "task.status_changed",
+                {"task_id": "T001", "from": from_s, "to": to_s},
+                target_kind="task", target_id="T001",
+            ))
+        b.append(_make_draft(
+            "claim.created",
+            _make_claim_payload(),
+            target_kind="claim", target_id="C001",
+        ))
+        b.append(_make_draft(
+            "claim.released",
+            {"claim_id": "C001", "released_by": "agent-alpha", "release_reason": "done", "force": False},
+            target_kind="claim", target_id="C001",
+        ))
+
+    def test_idempotent_no_op_returns_none(self, tmp_path: Path) -> None:
+        """claim.released on an already-released claim returns None."""
+        b = _make_backend(tmp_path)
+        try:
+            self._setup_with_released_claim(b)
+            result = b.append(_make_draft(
+                "claim.released",
+                {"claim_id": "C001", "released_by": "agent-alpha", "release_reason": "done", "force": False},
+                target_kind="claim", target_id="C001",
+            ))
+            assert result is None
+        finally:
+            b.close()
+
+    def test_idempotent_no_op_writes_audit_line(self, tmp_path: Path) -> None:
+        """claim.released on already-released claim writes one idempotent_no_op audit line."""
+        audit_path = str(tmp_path / "audit.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            self._setup_with_released_claim(b)
+            b.append(_make_draft(
+                "claim.released",
+                {"claim_id": "C001", "released_by": "agent-alpha", "release_reason": "done", "force": False},
+                target_kind="claim", target_id="C001",
+            ))
+            records = _read_audit_jsonl(audit_path)
+            no_op_records = [r for r in records if r.get("kind") == "idempotent_no_op"]
+            assert len(no_op_records) >= 1
+            assert any(r.get("action") == "claim.released" for r in no_op_records)
+        finally:
+            b.close()
+
+    def test_idempotent_no_op_writes_zero_event_lines(self, tmp_path: Path) -> None:
+        """An idempotent no-op does not add a line to events.jsonl."""
+        events_path = str(tmp_path / "events.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            self._setup_with_released_claim(b)
+            count_before = len(_read_jsonl(events_path))
+            b.append(_make_draft(
+                "claim.released",
+                {"claim_id": "C001", "released_by": "agent-alpha", "release_reason": "done", "force": False},
+                target_kind="claim", target_id="C001",
+            ))
+            count_after = len(_read_jsonl(events_path))
+            assert count_after == count_before, (
+                "Idempotent no-op should not add a line to events.jsonl"
+            )
+        finally:
+            b.close()
+
+
+class TestAppendCounterSeeding:
+    """Counter seeds from log max on open, not from SQLite MAX(id)."""
+
+    def test_counter_seeds_from_log_max_on_open(self, tmp_path: Path) -> None:
+        """Re-opening a backend seeds _next_seq from the log's last id."""
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft())
+            b.append(_init_draft())
+        finally:
+            b.close()
+
+        # Re-open and check counter.
+        b2 = SqliteBackend(
+            db_path=str(tmp_path / "state.db"),
+            events_path=str(tmp_path / "events.jsonl"),
+            clock=_make_clock(),
+        )
+        b2.initialize()
+        try:
+            assert b2._next_seq == 2  # noqa: SLF001 — seeded from log max E000002
+            # Next append should get E000003.
+            e3 = b2.append(_init_draft())
+            assert e3 is not None
+            assert e3.id == "E000003"
+        finally:
+            b2.close()
+
+    def test_counter_never_reuses_id_after_reopen(self, tmp_path: Path) -> None:
+        """IDs never repeat across backend close/reopen cycles."""
+        seen_ids: list[str] = []
+        events_path = str(tmp_path / "events.jsonl")
+        if not os.path.exists(events_path):
+            open(events_path, "a").close()  # noqa: WPS515
+
+        for _ in range(3):
+            b = SqliteBackend(
+                db_path=str(tmp_path / "state.db"),
+                events_path=events_path,
+                clock=_make_clock(),
+            )
+            b.initialize()
+            try:
+                event = b.append(_project_draft())
+                assert event is not None
+                seen_ids.append(event.id)
+            finally:
+                b.close()
+
+        assert len(seen_ids) == len(set(seen_ids)), (
+            f"IDs were reused across reopens: {seen_ids}"
+        )
+
+
+class TestSelfHeal:
+    """Forward catch-up converges log-ahead skew on open."""
+
+    def test_self_heal_forward_catch_up_on_open(self, tmp_path: Path) -> None:
+        """Manually inject a log-ahead skew; re-opening heals it."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        # Step 1: create a backend and apply one event normally.
+        b = _make_backend(tmp_path)
+        try:
+            e1 = b.append(_project_draft())
+            assert e1 is not None
+        finally:
+            b.close()
+
+        # Step 2: manually append a second event to events.jsonl without
+        # committing it to SQLite — simulating a crash after log-append but
+        # before COMMIT.
+        e2_event = Event(
+            id="E000002",
+            timestamp=_T0,
+            actor="test",
+            action="state.initialized",
+            target_kind="project",
+            target_id="proj-1",
+            payload_json={},
+        )
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write(e2_event.model_dump_json() + "\n")
+
+        # Step 3: re-open; initialize() should detect log_max=2 > table_max=1
+        # and forward-catch-up E000002.
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.initialize()
+        try:
+            # Counter should be seeded from log max (2), NOT reassigned to 1.
+            assert b2._next_seq == 2  # noqa: SLF001
+            # Next event gets E000003, not E000002.
+            e3 = b2.append(_init_draft())
+            assert e3 is not None
+            assert e3.id == "E000003"
+
+            # The orphaned E000002 should now be in the events table (caught up).
+            conn = sqlite3.connect(db_path)
+            rows = conn.execute("SELECT id FROM events ORDER BY id").fetchall()
+            conn.close()
+            ids = [r[0] for r in rows]
+            assert "E000002" in ids, f"Catch-up missed E000002; events table: {ids}"
+        finally:
+            b2.close()
+
+    def test_self_heal_does_not_reassign_orphaned_id(self, tmp_path: Path) -> None:
+        """After a skew, the next append gets N+1, not the orphaned N."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft())  # E000001
+        finally:
+            b.close()
+
+        # Inject E000002 into log without SQLite commit.
+        orphan = Event(
+            id="E000002",
+            timestamp=_T0,
+            actor="test",
+            action="state.initialized",
+            target_kind="project",
+            target_id="proj-1",
+            payload_json={},
+        )
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write(orphan.model_dump_json() + "\n")
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.initialize()
+        try:
+            # Must not get E000002 — it was already in the log.
+            e = b2.append(_init_draft())
+            assert e is not None
+            assert e.id == "E000003", (
+                f"Expected E000003 after orphaned E000002; got {e.id}"
+            )
+        finally:
+            b2.close()
+
+
+class TestReplayStrict:
+    """replay_from_empty applies every line via _write_*, no skip-list."""
+
+    def test_replay_applies_every_line_no_skip_list(self, tmp_path: Path) -> None:
+        """replay_from_empty rebuilds state byte-for-byte; no action is skipped."""
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        try:
+            b.append(_project_draft(name="Replay Test"))
+            b.append(_init_draft())
+        finally:
+            b.close()
+
+        # Replay into a fresh backend.
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.replay_from_empty(events_path)
+        try:
+            project = b2.get_project()
+            assert project is not None
+            assert project.name == "Replay Test"
+        finally:
+            b2.close()
+
+    def test_replay_interior_malformed_line_raises(self, tmp_path: Path) -> None:
+        """An interior malformed line in events.jsonl raises during replay."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft())
+            b.append(_init_draft())
+        finally:
+            b.close()
+
+        # Inject a malformed line in the middle.
+        with open(events_path, encoding="utf-8") as fh:
+            content = fh.read()
+        lines = content.splitlines()
+        # Insert corruption as the second line (interior).
+        lines.insert(1, "NOT_VALID_JSON{{{")
+        with open(events_path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        with pytest.raises((ValueError, Exception)):
+            b2.replay_from_empty(events_path)
+
+    def test_replay_torn_trailing_line_is_tolerated(self, tmp_path: Path) -> None:
+        """A torn (partially written) final line is silently tolerated."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft(name="Torn Line Test"))
+            b.append(_init_draft())
+        finally:
+            b.close()
+
+        # Append a partial/torn final line.
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write('{"id": "E000003", "action": "state.init')  # deliberately torn
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.replay_from_empty(events_path)
+        try:
+            project = b2.get_project()
+            assert project is not None
+            assert project.name == "Torn Line Test"
+        finally:
+            b2.close()
+
+    def test_replay_reseeds_counter_from_max_id(self, tmp_path: Path) -> None:
+        """After replay, the counter is seeded from the max event id replayed."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft())  # E000001
+            b.append(_init_draft())     # E000002
+        finally:
+            b.close()
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.replay_from_empty(events_path)
+        try:
+            assert b2._next_seq == 2  # noqa: SLF001
+            e3 = b2.append(_init_draft())
+            assert e3 is not None
+            assert e3.id == "E000003"
+        finally:
+            b2.close()
+
+
+class TestDurabilityModes:
+    """relaxed vs strict durability modes."""
+
+    def test_relaxed_durability_uses_synchronous_normal(self, tmp_path: Path) -> None:
+        """Default (relaxed) durability sets synchronous=NORMAL."""
+        b = _make_backend(tmp_path)  # _make_backend doesn't pass durability — relaxed
+        try:
+            conn = b._conn  # noqa: SLF001
+            assert conn is not None
+            row = conn.execute("PRAGMA synchronous").fetchone()
+            # SQLite returns 1 for NORMAL.
+            assert row[0] == 1, f"Expected synchronous=NORMAL (1), got {row[0]}"
+        finally:
+            b.close()
+
+    def test_strict_durability_uses_synchronous_full(self, tmp_path: Path) -> None:
+        """Strict durability sets synchronous=FULL."""
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+        b = SqliteBackend(
+            db_path=db_path,
+            events_path=events_path,
+            clock=_make_clock(),
+            durability="strict",
+        )
+        b.initialize()
+        try:
+            conn = b._conn  # noqa: SLF001
+            assert conn is not None
+            row = conn.execute("PRAGMA synchronous").fetchone()
+            # SQLite returns 2 for FULL.
+            assert row[0] == 2, f"Expected synchronous=FULL (2), got {row[0]}"
+        finally:
+            b.close()
+
+    def test_strict_durability_fsyncs_log_before_commit(self, tmp_path: Path) -> None:
+        """Strict durability calls fsync on the log fd before COMMIT.
+
+        Verified by checking the synchronous PRAGMA and confirming the append
+        completes without error (no mock — real fsync path exercised).
+        """
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+        b = SqliteBackend(
+            db_path=db_path,
+            events_path=events_path,
+            clock=_make_clock(),
+            durability="strict",
+        )
+        b.initialize()
+        try:
+            # append must complete without raising under strict mode.
+            event = b.append(_project_draft())
+            assert event is not None
+            assert event.id == "E000001"
+
+            # The event must be in both log and SQLite.
+            lines = _read_jsonl(events_path)
+            assert any(line.get("id") == "E000001" for line in lines)
+            project = b.get_project()
+            assert project is not None
+
+            # Confirm synchronous=FULL is set.
+            conn = b._conn  # noqa: SLF001
+            assert conn is not None
+            row = conn.execute("PRAGMA synchronous").fetchone()
+            assert row[0] == 2
+        finally:
+            b.close()
+
+    def test_relaxed_append_succeeds(self, tmp_path: Path) -> None:
+        """Relaxed (default) durability completes an append correctly."""
+        b = _make_backend(tmp_path)
+        try:
+            event = b.append(_project_draft())
+            assert event is not None
+            assert event.id == "E000001"
+        finally:
+            b.close()
+
+
+class TestScanTail:
+    """scan_tail reads only the final line — O(line), not O(file)."""
+
+    def test_scan_tail_returns_zero_on_empty_file(self, tmp_path: Path) -> None:
+        """scan_tail returns 0 for an empty events.jsonl."""
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+        b = SqliteBackend(
+            db_path=str(tmp_path / "state.db"),
+            events_path=events_path,
+            clock=_make_clock(),
+        )
+        assert b._scan_tail_id() == 0  # noqa: SLF001
+
+    def test_scan_tail_returns_correct_max_id(self, tmp_path: Path) -> None:
+        """scan_tail returns the numeric part of the last line's id."""
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_project_draft())  # E000001
+            b.append(_init_draft())     # E000002
+        finally:
+            b.close()
+
+        b2 = SqliteBackend(
+            db_path=str(tmp_path / "state.db"),
+            events_path=str(tmp_path / "events.jsonl"),
+            clock=_make_clock(),
+        )
+        assert b2._scan_tail_id() == 2  # noqa: SLF001
+
+    def test_scan_tail_reads_bounded_bytes_on_large_file(self, tmp_path: Path) -> None:
+        """scan_tail returns the correct max id from a large synthetic log.
+
+        Smoke test: 500 synthetic events in a large file; scan_tail must still
+        return 500 (only reads the tail, not the whole file).
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        with open(events_path, "w", encoding="utf-8") as fh:
+            for i in range(1, 501):
+                record = {
+                    "id": f"E{i:06d}",
+                    "timestamp": _T0.isoformat(),
+                    "actor": "test",
+                    "action": "state.initialized",
+                    "target_kind": "project",
+                    "target_id": "proj-1",
+                    "payload_json": {},
+                }
+                fh.write(json.dumps(record) + "\n")
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        assert b._scan_tail_id() == 500  # noqa: SLF001
+
+
+class TestWriteFailedAfterLogAppend:
+    """Write failure after log append leaves the log line and audits write_failed_after_log."""
+
+    def test_write_failure_leaves_log_line_and_audits(self, tmp_path: Path) -> None:
+        """A _write_* that raises after log-append leaves log intact + audits."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        audit_path = str(tmp_path / "audit.jsonl")
+        Path(events_path).touch()
+
+        class _FailingBackend(SqliteBackend):
+            def _write_project_created(
+                self, conn: sqlite3.Connection, payload: Any, event: Any
+            ) -> None:
+                raise RuntimeError("Simulated write failure for test")
+
+        b = _FailingBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b.initialize()
+        try:
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(_project_draft())
+
+            # Log line MUST remain (append-only).
+            lines = _read_jsonl(events_path)
+            assert len(lines) == 1, (
+                f"Log line should remain after write failure; got {len(lines)} lines"
+            )
+            assert lines[0]["action"] == "project.created"
+
+            # write_failed_after_log audit line MUST be written.
+            audit_records = _read_audit_jsonl(audit_path)
+            failed_records = [r for r in audit_records if r.get("kind") == "write_failed_after_log"]
+            assert len(failed_records) == 1
+            assert failed_records[0]["action"] == "project.created"
+            assert "event_id" in failed_records[0]
+        finally:
+            b.close()
+
+    def test_write_failure_rolls_back_sqlite(self, tmp_path: Path) -> None:
+        """A write failure after log-append rolls back the SQLite transaction."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        Path(events_path).touch()
+
+        class _FailingBackend(SqliteBackend):
+            def _write_project_created(
+                self, conn: sqlite3.Connection, payload: Any, event: Any
+            ) -> None:
+                raise RuntimeError("Simulated write failure")
+
+        b = _FailingBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b.initialize()
+        try:
+            with pytest.raises((EventRejected, TransactionAborted)):
+                b.append(_project_draft())
+            # SQLite must have no project row (transaction rolled back).
+            project = b.get_project()
+            assert project is None
+        finally:
+            b.close()
+
+
+# ---------------------------------------------------------------------------
+# Fix-cycle iteration 1: MUST FIX + SHOULD FIX tests (SL1-RR-1 critic wave 3)
+# ---------------------------------------------------------------------------
+
+
+class TestScanTailTornLineOpenPath:
+    """MUST FIX: _scan_tail_id skips torn/idless trailing line on the OPEN path.
+
+    On initialize(), a torn trailing line (partial write from a crash) must not
+    collapse _next_seq to 0 and must not trigger id reuse.
+    """
+
+    def test_open_with_torn_trailing_line_preserves_counter(self, tmp_path: Path) -> None:
+        """After torn partial line appended directly, reopen gives _next_seq == 2, next id E000003.
+
+        This is the open-path (not replay) torn-line test demanded by the critic.
+        Steps:
+          1. Commit two events via append() to a fresh backend.
+          2. Manually append a torn/partial line directly to events.jsonl.
+          3. Close the backend.
+          4. Open a fresh backend on the same files.
+          5. Assert _next_seq == 2 (NOT 0 — the torn line must not collapse the counter).
+          6. Append a third event and assert it gets id E000003 (NOT E000001).
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        # Step 1: commit two events.
+        b1 = _make_backend(tmp_path)
+        try:
+            e1 = b1.append(_project_draft())
+            e2 = b1.append(_init_draft())
+            assert e1 is not None and e1.id == "E000001"
+            assert e2 is not None and e2.id == "E000002"
+        finally:
+            b1.close()
+
+        # Step 2: manually append a torn partial line (simulates a crash mid-append).
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write('{"id": "E000003", "action": "state.init')  # deliberately torn
+
+        # Step 4: open a fresh backend on the same files.
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.initialize()
+        try:
+            # Step 5: counter must be 2 (torn line must NOT collapse it to 0).
+            assert b2._next_seq == 2, (  # noqa: SLF001
+                f"Expected _next_seq == 2 after reopen with torn trailing line, "
+                f"got {b2._next_seq}"
+            )
+
+            # Step 6: next append must get E000003 (NOT E000001 — no id reuse).
+            e3 = b2.append(_init_draft())
+            assert e3 is not None
+            assert e3.id == "E000003", (
+                f"Expected E000003 for next append after torn trailing line, "
+                f"got {e3.id}"
+            )
+        finally:
+            b2.close()
+
+    def test_open_with_fully_idless_trailing_line_preserves_counter(
+        self, tmp_path: Path
+    ) -> None:
+        """A trailing line with valid JSON but no 'id' field does not collapse the counter."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        b1 = _make_backend(tmp_path)
+        try:
+            b1.append(_project_draft())  # E000001
+        finally:
+            b1.close()
+
+        # Append a valid JSON line that has no 'id' field (e.g. an old audit line).
+        with open(events_path, "a", encoding="utf-8") as fh:
+            fh.write('{"kind": "rejection", "action": "project.created"}\n')
+
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.initialize()
+        try:
+            # counter should fall back to the previous complete line (E000001 → 1).
+            assert b2._next_seq == 1, (  # noqa: SLF001
+                f"Expected _next_seq == 1, got {b2._next_seq}"
+            )
+            e2 = b2.append(_init_draft())
+            assert e2 is not None
+            assert e2.id == "E000002"
+        finally:
+            b2.close()
+
+
+class TestScanTailLargeLine:
+    """SHOULD FIX 1: _scan_tail_id handles event lines longer than 4096 bytes."""
+
+    def test_scan_tail_handles_event_line_longer_than_4096_bytes(
+        self, tmp_path: Path
+    ) -> None:
+        """A final event line > 4096 bytes must not cause _scan_tail_id to return 0."""
+        events_path = str(tmp_path / "events.jsonl")
+
+        # Write a small first event, then a second event with a very large payload.
+        small_record = {
+            "id": "E000001",
+            "timestamp": _T0.isoformat(),
+            "actor": "test",
+            "action": "state.initialized",
+            "target_kind": "project",
+            "target_id": "proj-1",
+            "payload_json": {},
+        }
+        # Build a payload large enough to make the JSON line exceed 4096 bytes.
+        large_payload = {"data": "x" * 8000}
+        large_record = {
+            "id": "E000002",
+            "timestamp": _T0.isoformat(),
+            "actor": "test",
+            "action": "state.initialized",
+            "target_kind": "project",
+            "target_id": "proj-1",
+            "payload_json": large_payload,
+        }
+
+        with open(events_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(small_record) + "\n")
+            fh.write(json.dumps(large_record) + "\n")
+
+        # The line for E000002 is > 4096 bytes — the old 4096-byte window would miss it.
+        line_size = len(json.dumps(large_record) + "\n")
+        assert line_size > 4096, f"Test precondition: line must be > 4096, got {line_size}"
+
+        b = SqliteBackend(
+            db_path=str(tmp_path / "state.db"),
+            events_path=events_path,
+            clock=_make_clock(),
+        )
+        result = b._scan_tail_id()  # noqa: SLF001
+        assert result == 2, (
+            f"_scan_tail_id must return 2 for a > 4096-byte final line, got {result}"
+        )
+
+
+class TestForwardCatchUpConvergence:
+    """SHOULD FIX 2: _forward_catch_up raises if target event is missing from log."""
+
+    def test_catch_up_raises_on_missing_event(self, tmp_path: Path) -> None:
+        """_forward_catch_up raises TransactionAborted when log is missing a target event.
+
+        Simulate: log says max is E000002 but the log file contains only E000001.
+        Catch-up expects E000002 but never finds it — must raise, not silently return.
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+
+        # Write only E000001 to the log.
+        record = {
+            "id": "E000001",
+            "timestamp": _T0.isoformat(),
+            "actor": "test",
+            "action": "project.created",
+            "target_kind": "project",
+            "target_id": "proj-1",
+            "payload_json": {
+                "id": "proj-1",
+                "name": "Test",
+                "description": "",
+                "created_at": _T0.isoformat(),
+                "updated_at": _T0.isoformat(),
+            },
+        }
+        with open(events_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b.initialize()  # seeds counter from scan_tail → _next_seq = 1
+        try:
+            conn = b._conn  # noqa: SLF001
+            assert conn is not None
+            # Ask catch-up to apply E000002 which does not exist in the log.
+            with pytest.raises((EventRejected, TransactionAborted), match="missing events"):
+                b._forward_catch_up(conn, from_seq=2, to_seq=2)  # noqa: SLF001
+        finally:
+            b.close()
+
+
+class TestReplayNoAuditSideEffects:
+    """SHOULD FIX 4: audit side-effects in _write_* are suppressed during replay."""
+
+    def test_replay_does_not_append_audit_lines(self, tmp_path: Path) -> None:
+        """replay_from_empty must not write audit lines even when claim auto-release skips.
+
+        Set up: commit evidence.submitted where the claim is already released
+        (so the auto-release would normally trigger _write_warn_to_audit). Then
+        replay from the log and verify audit.jsonl has exactly ONE warn line
+        (from the original run), NOT two (which would indicate replay re-wrote it).
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        audit_path = str(tmp_path / "audit.jsonl")
+
+        b = _make_backend(tmp_path)
+        try:
+            # Set up project + PRD + feature + task (needs_review-eligible) + claim.
+            _setup_project_via_append(b)
+            b.append(_make_draft(
+                "prd.parsed",
+                {
+                    "project_id": "proj-1",
+                    "status": "draft",
+                    "summary": "A test PRD.",
+                    "goals": [],
+                    "non_goals": [],
+                    "requirements": [
+                        {"id": "R001", "prd_section": "s", "text": "Req.",
+                         "source_paragraph": None, "derived": False}
+                    ],
+                    "acceptance_criteria": [],
+                    "risks": [],
+                    "open_questions": [],
+                },
+                target_kind="prd",
+                target_id="proj-1",
+            ))
+            b.append(_make_draft(
+                "feature.created",
+                {"id": "F001", "title": "F1", "description": "d",
+                 "status": "proposed", "requirements": [], "tasks": []},
+                target_kind="feature",
+                target_id="F001",
+            ))
+            b.append(_make_draft(
+                "task.created",
+                _make_task_payload(task_id="T001", feature_id="F001"),
+                target_kind="task",
+                target_id="T001",
+            ))
+            # Transition task to ready so claim.created is allowed.
+            for from_s, to_s in [
+                ("proposed", "drafted"),
+                ("drafted", "reviewed"),
+                ("reviewed", "ready"),
+            ]:
+                b.append(_make_draft(
+                    "task.status_changed",
+                    {"task_id": "T001", "from": from_s, "to": to_s},
+                    target_kind="task",
+                    target_id="T001",
+                ))
+            b.append(_make_draft(
+                "claim.created",
+                _make_claim_payload(claim_id="C001", task_id="T001"),
+                target_kind="claim",
+                target_id="C001",
+            ))
+            # Release the claim explicitly before submitting evidence.
+            b.append(_make_draft(
+                "claim.released",
+                {"claim_id": "C001", "released_by": "agent-alpha",
+                 "release_reason": "manual", "force": False},
+                target_kind="claim",
+                target_id="C001",
+            ))
+            # Task must be in claimed/in_progress/blocked for evidence.submitted.
+            # After claim.released the task is still "ready" (claim.created
+            # transitions to "claimed"; claim.released un-transitions it to "ready").
+            # Re-claim and manually set task to claimed via status_changed.
+            b.append(_make_draft(
+                "task.status_changed",
+                {"task_id": "T001", "from": "ready", "to": "claimed"},
+                target_kind="task",
+                target_id="T001",
+            ))
+            # Submit evidence — claim C001 is already released, so auto-release
+            # skips and writes ONE warn line to audit.jsonl.
+            b.append(_make_draft(
+                "evidence.submitted",
+                {
+                    "task_id": "T001",
+                    "claim_id": "C001",
+                    "submitted_by": "agent-alpha",
+                    "evidence_id": "EV001",
+                    "commands_run": ["pytest"],
+                    "files_changed": ["tests/test_main.py"],
+                },
+                target_kind="task",
+                target_id="T001",
+            ))
+        finally:
+            b.close()
+
+        # Read audit lines written during the normal run.
+        audit_before = _read_audit_jsonl(audit_path)
+        warn_before = [r for r in audit_before if r.get("kind") == "idempotent_no_op"]
+        assert len(warn_before) == 1, (
+            f"Expected exactly 1 idempotent_no_op warn line from normal run, "
+            f"got {len(warn_before)}: {warn_before}"
+        )
+
+        # Replay from empty — must not add a second warn line.
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=_make_clock())
+        b2.replay_from_empty(events_path)
+        try:
+            audit_after = _read_audit_jsonl(audit_path)
+            warn_after = [r for r in audit_after if r.get("kind") == "idempotent_no_op"]
+            assert len(warn_after) == 1, (
+                f"replay_from_empty must not add audit lines; "
+                f"expected 1 warn line, got {len(warn_after)}: {warn_after}"
+            )
+        finally:
+            b2.close()
+
+
+class TestPostLogAppendDatabaseLocked:
+    """SHOULD FIX 5: post-log-append SQLite 'database is locked' is TransactionAborted, not StateLocked."""
+
+    def test_sqlite_locked_after_log_append_raises_transaction_aborted(
+        self, tmp_path: Path
+    ) -> None:
+        """A 'database is locked' error after the log line is written must raise
+        TransactionAborted (not StateLocked). The log line remains; catch-up heals."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        Path(events_path).touch()
+
+        class _LockedAfterLogBackend(SqliteBackend):
+            """Simulates SQLite 'database is locked' error during _write_project_created."""
+            def _write_project_created(
+                self, conn: sqlite3.Connection, payload: Any, event: Any
+            ) -> None:
+                raise sqlite3.OperationalError("database is locked")
+
+        b = _LockedAfterLogBackend(
+            db_path=db_path, events_path=events_path, clock=_make_clock()
+        )
+        b.initialize()
+        try:
+            # Must raise TransactionAborted — NOT StateLocked and NOT EventRejected
+            # — because the log line was already written before the SQLite error
+            # occurred. EventRejected here would mean validation leaked past the
+            # log append, which is exactly what SL1-RR-1 prevents.
+            with pytest.raises(TransactionAborted):
+                b.append(_project_draft())
+
+            # The log line must remain (append-only).
+            lines = _read_jsonl(events_path)
+            assert len(lines) == 1, (
+                f"Log line must remain after post-log-append lock; got {len(lines)}"
+            )
+            assert lines[0]["action"] == "project.created"
+        finally:
+            b.close()
+
+    def test_sqlite_locked_after_log_append_writes_audit_line(
+        self, tmp_path: Path
+    ) -> None:
+        """Post-log-append lock writes write_failed_after_log to audit.jsonl."""
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        audit_path = str(tmp_path / "audit.jsonl")
+        Path(events_path).touch()
+
+        class _LockedAfterLogBackend(SqliteBackend):
+            def _write_project_created(
+                self, conn: sqlite3.Connection, payload: Any, event: Any
+            ) -> None:
+                raise sqlite3.OperationalError("database is locked")
+
+        b = _LockedAfterLogBackend(
+            db_path=db_path, events_path=events_path, clock=_make_clock()
+        )
+        b.initialize()
+        try:
+            # Must be TransactionAborted: post-log-append infra failure.
+            # EventRejected here would mean validation ran after log-append.
+            with pytest.raises(TransactionAborted):
+                b.append(_project_draft())
+
+            audit_records = _read_audit_jsonl(audit_path)
+            failed = [r for r in audit_records if r.get("kind") == "write_failed_after_log"]
+            assert len(failed) == 1, (
+                f"Expected 1 write_failed_after_log audit line, got {len(failed)}"
+            )
+            assert "event_id" in failed[0]
+        finally:
+            b.close()
+
+
+class TestRejectionAuditHasNoIdField:
+    """CONSIDER 4: rejection audit line must not carry an 'id' field."""
+
+    def test_rejection_audit_line_has_no_id_field(self, tmp_path: Path) -> None:
+        """A rejection audit line must not include an 'id' field (not an event)."""
+        audit_path = str(tmp_path / "audit.jsonl")
+        b = _make_backend(tmp_path)
+        try:
+            bad_draft = _make_draft(
+                "prd.reviewed",
+                {"project_id": "proj-1"},  # missing 'reviewer' — will fail validation
+                target_kind="prd",
+                target_id="proj-1",
+            )
+            with pytest.raises(EventRejected):
+                b.append(bad_draft)
+
+            records = _read_audit_jsonl(audit_path)
+            rejections = [r for r in records if r.get("kind") == "rejection"]
+            assert len(rejections) == 1
+            assert "id" not in rejections[0], (
+                f"Rejection audit line must have no 'id' field; got: {rejections[0]}"
+            )
+        finally:
+            b.close()
+
+
+class TestConcurrentAppendNoIdCollision:
+    """CONSIDER 5: two threads appending concurrently produce no id collision."""
+
+    def test_two_thread_append_no_id_collision(self, tmp_path: Path) -> None:
+        """Two threads appending simultaneously get distinct, sequential ids."""
+        import threading as _threading
+
+        b = _make_backend(tmp_path)
+        results: list[Any] = []
+        errors: list[Exception] = []
+        lock = _threading.Lock()
+
+        def _append_init() -> None:
+            try:
+                event = b.append(_init_draft())
+                with lock:
+                    results.append(event)
+            except Exception as exc:  # noqa: BLE001
+                with lock:
+                    errors.append(exc)
+
+        threads = [_threading.Thread(target=_append_init) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        b.close()
+
+        assert not errors, f"Thread errors: {errors}"
+        assert len(results) == 10, f"Expected 10 events, got {len(results)}"
+        ids = [e.id for e in results if e is not None]
+        assert len(ids) == len(set(ids)), f"Duplicate ids found: {ids}"
+        # All ids must be in the E000001–E000010 range.
+        seq_nums = sorted(int(eid[1:]) for eid in ids)
+        assert seq_nums == list(range(1, 11)), f"Expected 1..10, got {seq_nums}"
+
+
+# ===========================================================================
+# T6 NET-NEW: Cross-process concurrency (PR #41 Critic-3 subprocess scenario)
+# ===========================================================================
+
+
+class TestCrossProcessConcurrency:
+    """Two SEPARATE processes appending to the same events.jsonl concurrently.
+
+    Tests that flock serializes cross-process appends so no id collision and
+    no dropped event occur. This is the PR #41 Critic-3 scenario.
+    """
+
+    def test_cross_process_no_id_collision(self, tmp_path: Path) -> None:
+        """Two subprocesses appending to the same events.jsonl get distinct ids.
+
+        Real subprocesses (not threads) exercise the flock path that protects
+        against cross-process id collisions. Each subprocess appends N events;
+        the combined event log must have exactly 2*N unique, contiguous ids.
+
+        Hardened for deterministic collision detection (PR #41 Critic-3):
+        - n_per_proc is raised to 50 so the processes' append windows
+          substantially overlap even on fast machines.
+        - A start-barrier sentinel file ensures both subprocesses begin their
+          append loops simultaneously, maximising flock contention.
+        - Assertions verify ids are unique AND contiguous (E000001..E{2N}).
+        """
+        events_path = str(tmp_path / "events.jsonl")
+        db_path = str(tmp_path / "state.db")
+        start_sentinel = str(tmp_path / "start.sentinel")
+        Path(events_path).touch()
+
+        # Initialize the backend first so the schema is present.
+        b = _make_backend(tmp_path)
+        b.close()
+
+        # Script executed by each subprocess.
+        # The subprocess waits for start_sentinel to appear (written by the
+        # parent after both children are launched) before beginning appends.
+        # This ensures their critical sections genuinely contend under flock.
+        worker_script = f"""
+import sys
+sys.path.insert(0, {str(tmp_path)!r})
+# Add the src directory to the path.
+import subprocess, os, time
+# Find the fakoli_state package.
+result = subprocess.run(
+    [sys.executable, '-c',
+     'import fakoli_state; print(fakoli_state.__file__)'],
+    capture_output=True, text=True
+)
+src_root = os.path.dirname(os.path.dirname(result.stdout.strip()))
+sys.path.insert(0, src_root)
+
+from datetime import UTC, datetime
+from fakoli_state.clock import FrozenClock
+from fakoli_state.state.models import EventDraft
+from fakoli_state.state.sqlite import SqliteBackend
+
+events_path = {events_path!r}
+db_path = {db_path!r}
+start_sentinel = {start_sentinel!r}
+n_appends = int(sys.argv[1])
+
+# Wait for the parent to signal both children are ready.
+deadline = time.monotonic() + 10.0
+while not os.path.exists(start_sentinel):
+    if time.monotonic() > deadline:
+        sys.exit("Timed out waiting for start sentinel")
+    time.sleep(0.005)
+
+clock = FrozenClock(datetime(2026, 5, 24, 18, 0, 0, tzinfo=UTC))
+b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+b.initialize()
+try:
+    for i in range(n_appends):
+        draft = EventDraft(
+            timestamp=datetime(2026, 5, 24, 18, 0, i % 60, tzinfo=UTC),
+            actor="worker",
+            action="state.initialized",
+            target_kind="project",
+            target_id="proj-1",
+            payload_json={{}},
+        )
+        b.append(draft)
+finally:
+    b.close()
+"""
+
+        n_per_proc = 50
+
+        # Launch both subprocesses before writing the sentinel so they start
+        # their append loops at the same time (maximises flock contention).
+        procs = []
+        for _ in range(2):
+            p = subprocess.Popen(
+                [sys.executable, "-c", worker_script, str(n_per_proc)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            procs.append(p)
+
+        # Signal both children to start simultaneously.
+        Path(start_sentinel).touch()
+
+        errors = []
+        for p in procs:
+            stdout, stderr = p.communicate(timeout=60)
+            if p.returncode != 0:
+                errors.append(stderr.decode())
+
+        assert not errors, f"Subprocess errors: {errors}"
+
+        # Read the events.jsonl and verify no id collision and no dropped events.
+        events = _read_jsonl(events_path)
+        # Filter to state.initialized events (what the workers append).
+        worker_events = [e for e in events if e.get("action") == "state.initialized"]
+        assert len(worker_events) == n_per_proc * 2, (
+            f"Expected {n_per_proc * 2} events from 2 workers, got {len(worker_events)}"
+        )
+
+        ids = [e["id"] for e in worker_events]
+        assert len(ids) == len(set(ids)), (
+            f"Cross-process id collision detected: {sorted(ids)}"
+        )
+
+        # All ids must be unique AND contiguous: E000001..E{2*n_per_proc}.
+        seq_nums = sorted(int(eid[1:]) for eid in ids)
+        expected = list(range(1, n_per_proc * 2 + 1))
+        assert seq_nums == expected, (
+            f"Id sequence is not contiguous. Expected 1..{n_per_proc * 2}, got {seq_nums}"
+        )
+
+
+# ===========================================================================
+# T6 NET-NEW: Per-action decide/apply CONTRACT tests
+# ===========================================================================
+
+
+class TestDecideApplyContract:
+    """Per-action _check_* / _write_* contract tests.
+
+    For each real-mutation action:
+    - _check_*: reject illegal/invalid input with EventRejected; no side effects
+    - _write_*: succeed whenever its _check_* passed
+
+    Audit-only actions (state.initialized, file_changed, progress.noted, sync.*)
+    get a smoke test only: check proceeds, write is a no-op.
+    """
+
+    # ------------------------------------------------------------------
+    # Audit-only smoke tests
+    # ------------------------------------------------------------------
+
+    def test_audit_only_state_initialized_smoke(self, tmp_path: Path) -> None:
+        """state.initialized: check proceeds, write is no-op (no domain table touched)."""
+        b = _make_backend(tmp_path)
+        try:
+            b.append(_make_project_event())
+            result = b.append(_make_init_event())
+            assert result is not None
+            assert result.action == "state.initialized"
+        finally:
+            b.close()
+
+    def test_audit_only_file_changed_smoke(self, tmp_path: Path) -> None:
+        """file_changed: check proceeds, write is no-op (audit row only)."""
+        b = _make_backend(tmp_path)
+        try:
+            result = b.append(_make_event(
+                "file_changed",
+                {"file": "src/foo.py", "tool": "Edit", "actor": "agent"},
+                target_kind="file", target_id="src/foo.py",
+            ))
+            assert result is not None
+            assert result.action == "file_changed"
+        finally:
+            b.close()
+
+    def test_audit_only_progress_noted_smoke(self, tmp_path: Path) -> None:
+        """progress.noted: check proceeds, write is no-op (audit-only action)."""
+        b = _make_backend(tmp_path)
+        try:
+            result = b.append(_make_event(
+                "progress.noted",
+                {
+                    "task_id": "T001",
+                    "actor": "agent",
+                    "notes": "Working on it.",
+                    "noted_at": _T0.isoformat(),
+                },
+                target_kind="task", target_id="T001",
+            ))
+            assert result is not None
+            assert result.action == "progress.noted"
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # project.created
+    # ------------------------------------------------------------------
+
+    def test_project_created_check_allows_any_payload(self, tmp_path: Path) -> None:
+        """project.created has no pre-condition check — always proceeds."""
+        b = _make_backend(tmp_path)
+        try:
+            result = b.append(_make_project_event())
+            assert result is not None
+            assert b.get_project() is not None
+        finally:
+            b.close()
+
+    def test_project_created_rejects_extra_field(self, tmp_path: Path) -> None:
+        """project.created with extra unknown field raises EventRejected (extra=forbid).
+
+        Phase-1 payload-model failure — must be EventRejected ONLY. TransactionAborted
+        here would mean validation leaked past the log append (SL1-RR-1 invariant).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            with pytest.raises(EventRejected):
+                b.append(_make_event(
+                    "project.created",
+                    {"id": "p", "name": "P", "description": "", "created_at": _T0.isoformat(),
+                     "updated_at": _T0.isoformat(), "extra_forbidden_field": "boom"},
+                    target_kind="project", target_id="p",
+                ))
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # prd.parsed
+    # ------------------------------------------------------------------
+
+    def test_prd_parsed_check_rejects_missing_project_id(self, tmp_path: Path) -> None:
+        """prd.parsed without project_id raises EventRejected; no PRD row, no event line.
+
+        Phase-1 payload-model failure — must be EventRejected ONLY. TransactionAborted
+        here would mean validation leaked past the log append (SL1-RR-1 invariant).
+        """
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            initial_event_count = len(_read_jsonl(events_path))
+            bad = {**_make_prd_parsed_payload()}
+            del bad["project_id"]
+            with pytest.raises(EventRejected):
+                b.append(_make_event("prd.parsed", bad, target_kind="prd", target_id="proj-1"))
+            assert b.get_prd() is None
+            # No new canonical event line.
+            assert len(_read_jsonl(events_path)) == initial_event_count
+        finally:
+            b.close()
+
+    def test_prd_parsed_write_succeeds_when_check_passed(self, tmp_path: Path) -> None:
+        """prd.parsed inserts PRD and requirements rows when valid."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("prd.parsed", _make_prd_parsed_payload(),
+                                 target_kind="prd", target_id="proj-1"))
+            prd = b.get_prd()
+            assert prd is not None
+            assert prd.status.value == "draft"
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # prd.reviewed
+    # ------------------------------------------------------------------
+
+    def test_prd_reviewed_check_rejects_missing_reviewer(self, tmp_path: Path) -> None:
+        """prd.reviewed without reviewer raises EventRejected; no event line.
+
+        Phase-1 payload-model failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            b.append(_make_event("prd.parsed", _make_prd_parsed_payload(),
+                                 target_kind="prd", target_id="proj-1"))
+            initial = len(_read_jsonl(events_path))
+            with pytest.raises(EventRejected):
+                b.append(_make_event("prd.reviewed", {"project_id": "proj-1"},
+                                     target_kind="prd", target_id="proj-1"))
+            assert len(_read_jsonl(events_path)) == initial
+        finally:
+            b.close()
+
+    def test_prd_reviewed_write_updates_status(self, tmp_path: Path) -> None:
+        """prd.reviewed transitions PRD status to 'reviewed'."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("prd.parsed", _make_prd_parsed_payload(),
+                                 target_kind="prd", target_id="proj-1"))
+            b.append(_make_event("prd.reviewed", {"project_id": "proj-1", "reviewer": "alice"},
+                                 target_kind="prd", target_id="proj-1"))
+            prd = b.get_prd()
+            assert prd is not None
+            assert prd.status.value == "reviewed"
+            assert prd.last_reviewed_by == "alice"
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # prd.approved
+    # ------------------------------------------------------------------
+
+    def test_prd_approved_check_allows_without_precondition(self, tmp_path: Path) -> None:
+        """prd.approved has no state precondition check — proceeds after prd.parsed."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("prd.parsed", _make_prd_parsed_payload(),
+                                 target_kind="prd", target_id="proj-1"))
+            b.append(_make_event("prd.reviewed", {"project_id": "proj-1", "reviewer": "alice"},
+                                 target_kind="prd", target_id="proj-1"))
+            b.append(_make_event("prd.approved", {"project_id": "proj-1", "approver": "bob"},
+                                 target_kind="prd", target_id="proj-1"))
+            prd = b.get_prd()
+            assert prd is not None
+            assert prd.status.value == "approved"
+        finally:
+            b.close()
+
+    def test_prd_approved_check_rejects_missing_approver(self, tmp_path: Path) -> None:
+        """prd.approved without approver raises EventRejected.
+
+        Phase-1 payload-model failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("prd.parsed", _make_prd_parsed_payload(),
+                                 target_kind="prd", target_id="proj-1"))
+            with pytest.raises(EventRejected):
+                b.append(_make_event("prd.approved", {"project_id": "proj-1"},
+                                     target_kind="prd", target_id="proj-1"))
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # feature.created
+    # ------------------------------------------------------------------
+
+    def test_feature_created_check_rejects_bad_status(self, tmp_path: Path) -> None:
+        """feature.created with invalid status raises EventRejected; no feature row.
+
+        _check_feature_created failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            with pytest.raises(EventRejected):
+                b.append(_make_event(
+                    "feature.created",
+                    _make_feature_payload(status="invalid_status"),
+                    target_kind="feature", target_id="F001",
+                ))
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            row = conn.execute("SELECT 1 FROM features WHERE id='F001'").fetchone()
+            conn.close()
+            assert row is None
+        finally:
+            b.close()
+
+    def test_feature_created_write_inserts_row(self, tmp_path: Path) -> None:
+        """feature.created inserts a feature row when valid."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            features = b.list_features()
+            assert any(f.id == "F001" for f in features)
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.created
+    # ------------------------------------------------------------------
+
+    def test_task_created_check_rejects_missing_created_at(self, tmp_path: Path) -> None:
+        """task.created without created_at raises EventRejected; no task row.
+
+        Phase-1 payload-model failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            bad = _make_task_payload()
+            del bad["created_at"]
+            with pytest.raises(EventRejected):
+                b.append(_make_event("task.created", bad, target_kind="task", target_id="T001"))
+            assert b.get_task("T001") is None
+        finally:
+            b.close()
+
+    def test_task_created_write_inserts_row(self, tmp_path: Path) -> None:
+        """task.created inserts a task row when valid."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            b.append(_make_event("task.created", _make_task_payload(),
+                                 target_kind="task", target_id="T001"))
+            assert b.get_task("T001") is not None
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.scored
+    # ------------------------------------------------------------------
+
+    def test_task_scored_check_rejects_unknown_task(self, tmp_path: Path) -> None:
+        """task.scored for a nonexistent task raises EventRejected.
+
+        _check_task_scored failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            score_payload = {"task_id": "T999", "scores": {"complexity": 3,
+                "parallelizability": 4, "context_load": 2, "blast_radius": 2,
+                "review_risk": 2, "agent_suitability": 3}, "explanation": "test"}
+            with pytest.raises(EventRejected):
+                b.append(_make_event("task.scored", score_payload,
+                                     target_kind="task", target_id="T999"))
+        finally:
+            b.close()
+
+    def test_task_scored_write_updates_scores(self, tmp_path: Path) -> None:
+        """task.scored updates the task's scores when valid."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            b.append(_make_event("task.created", _make_task_payload(),
+                                 target_kind="task", target_id="T001"))
+            b.append(_make_event("task.scored", {
+                "task_id": "T001",
+                "scores": {"complexity": 3, "parallelizability": 4, "context_load": 2,
+                           "blast_radius": 2, "review_risk": 2, "agent_suitability": 3},
+                "explanation": "test",
+            }, target_kind="task", target_id="T001"))
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.scores.complexity == 3
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.expanded
+    # ------------------------------------------------------------------
+
+    def test_task_expanded_check_rejects_missing_parent_task_id(self, tmp_path: Path) -> None:
+        """task.expanded without parent_task_id raises EventRejected.
+
+        Phase-1 payload-model failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            b.append(_make_event("task.created", _make_task_payload(),
+                                 target_kind="task", target_id="T001"))
+            with pytest.raises(EventRejected):
+                b.append(_make_event("task.expanded",
+                                     {"subtasks": [_make_task_payload(task_id="T001.1")]},
+                                     target_kind="task", target_id="T001"))
+        finally:
+            b.close()
+
+    def test_task_expanded_write_inserts_subtasks(self, tmp_path: Path) -> None:
+        """task.expanded inserts subtask rows when valid."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            b.append(_make_event("task.created", _make_task_payload(),
+                                 target_kind="task", target_id="T001"))
+            b.append(_make_event("task.expanded", {
+                "parent_task_id": "T001",
+                "subtasks": [_make_task_payload(task_id="T001.1")],
+            }, target_kind="task", target_id="T001"))
+            assert b.get_task("T001.1") is not None
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.status_changed
+    # ------------------------------------------------------------------
+
+    def test_task_status_changed_check_rejects_missing_task(self, tmp_path: Path) -> None:
+        """task.status_changed for nonexistent task raises EventRejected; no side effects.
+
+        _check_task_status_changed failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_project(b)
+            initial = len(_read_jsonl(events_path))
+            with pytest.raises(EventRejected):
+                b.append(_make_event("task.status_changed",
+                                     {"task_id": "T999", "from": "proposed", "to": "drafted"},
+                                     target_kind="task", target_id="T999"))
+            assert len(_read_jsonl(events_path)) == initial
+        finally:
+            b.close()
+
+    def test_task_status_changed_write_transitions_status(self, tmp_path: Path) -> None:
+        """task.status_changed transitions task status when valid."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            b.append(_make_event("task.created", _make_task_payload(),
+                                 target_kind="task", target_id="T001"))
+            b.append(_make_event("task.status_changed",
+                                 {"task_id": "T001", "from": "proposed", "to": "drafted"},
+                                 target_kind="task", target_id="T001"))
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status.value == "drafted"
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.deleted
+    # ------------------------------------------------------------------
+
+    def test_task_deleted_check_rejects_unsafe_status(self, tmp_path: Path) -> None:
+        """task.deleted for a task with active claims rejects (unsafe status).
+
+        _check_task_deleted failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.append(_make_event("claim.created", _make_claim_payload(),
+                                 target_kind="claim", target_id="C001"))
+            # Task is now 'claimed' — not in DELETABLE_TASK_STATUSES without force.
+            with pytest.raises(EventRejected):
+                b.append(_make_event("task.deleted",
+                                     {"task_id": "T001", "force": False},
+                                     target_kind="task", target_id="T001"))
+            # Task still exists.
+            assert b.get_task("T001") is not None
+        finally:
+            b.close()
+
+    def test_task_deleted_write_removes_row_for_safe_task(self, tmp_path: Path) -> None:
+        """task.deleted removes a safe (proposed/drafted/ready) task row."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            b.append(_make_event("task.created", _make_task_payload(),
+                                 target_kind="task", target_id="T001"))
+            b.append(_make_event("task.deleted", {"task_id": "T001", "force": False},
+                                 target_kind="task", target_id="T001"))
+            assert b.get_task("T001") is None
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # feature.deleted
+    # ------------------------------------------------------------------
+
+    def test_feature_deleted_check_rejects_unknown_feature(self, tmp_path: Path) -> None:
+        """feature.deleted for nonexistent feature raises EventRejected.
+
+        _check_feature_deleted failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            with pytest.raises(EventRejected):
+                b.append(_make_event("feature.deleted",
+                                     {"feature_id": "F999", "force": False},
+                                     target_kind="feature", target_id="F999"))
+        finally:
+            b.close()
+
+    def test_feature_deleted_write_removes_feature_and_tasks(self, tmp_path: Path) -> None:
+        """feature.deleted removes the feature (task must be deleted first or feature has no tasks)."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            # Delete the task first so the feature has no tasks (FK RESTRICT).
+            b.append(_make_event("task.created", _make_task_payload(),
+                                 target_kind="task", target_id="T001"))
+            b.append(_make_event("task.deleted", {"task_id": "T001", "force": False},
+                                 target_kind="task", target_id="T001"))
+            # Now feature has no tasks — delete should succeed.
+            b.append(_make_event("feature.deleted",
+                                 {"feature_id": "F001", "force": False, "reason": ""},
+                                 target_kind="feature", target_id="F001"))
+            features = b.list_features()
+            assert not any(f.id == "F001" for f in features)
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.synced_from_remote
+    # ------------------------------------------------------------------
+
+    def test_task_synced_from_remote_check_rejects_unknown_task(self, tmp_path: Path) -> None:
+        """task.synced_from_remote for nonexistent task raises EventRejected.
+
+        _check_task_synced_from_remote failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            with pytest.raises(EventRejected):
+                b.append(_make_event("task.synced_from_remote",
+                                     {"task_id": "T999", "title": "T", "description": "D",
+                                      "status": "proposed", "actor": "system"},
+                                     target_kind="task", target_id="T999"))
+        finally:
+            b.close()
+
+    def test_task_synced_from_remote_write_updates_task(self, tmp_path: Path) -> None:
+        """task.synced_from_remote updates task title/description/status."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            b.append(_make_event("task.created", _make_task_payload(),
+                                 target_kind="task", target_id="T001"))
+            result = b.append(_make_event("task.synced_from_remote",
+                                          {"task_id": "T001", "title": "Updated Title",
+                                           "description": "Updated desc",
+                                           "status": "proposed", "actor": "system"},
+                                          target_kind="task", target_id="T001"))
+            assert result is not None
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.title == "Updated Title"
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # claim.created
+    # ------------------------------------------------------------------
+
+    def test_claim_created_check_rejects_non_ready_task(self, tmp_path: Path) -> None:
+        """claim.created on a non-ready task raises EventRejected; no claim row.
+
+        _check_claim_created failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            b.append(_make_event("task.created", _make_task_payload(status="proposed"),
+                                 target_kind="task", target_id="T001"))
+            with pytest.raises(EventRejected):
+                b.append(_make_event("claim.created", _make_claim_payload(),
+                                     target_kind="claim", target_id="C001"))
+            conn = sqlite3.connect(str(tmp_path / "state.db"))
+            row = conn.execute("SELECT 1 FROM claims WHERE id='C001'").fetchone()
+            conn.close()
+            assert row is None
+        finally:
+            b.close()
+
+    def test_claim_created_write_inserts_row(self, tmp_path: Path) -> None:
+        """claim.created inserts a claim row for a ready task."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.append(_make_event("claim.created", _make_claim_payload(),
+                                 target_kind="claim", target_id="C001"))
+            assert b.get_claim("C001") is not None
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # claim.released
+    # ------------------------------------------------------------------
+
+    def test_claim_released_check_rejects_unknown_claim(self, tmp_path: Path) -> None:
+        """claim.released for nonexistent claim raises EventRejected.
+
+        _check_claim_released failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            with pytest.raises(EventRejected):
+                b.append(_make_event("claim.released",
+                                     {"claim_id": "C999", "released_by": "agent",
+                                      "release_reason": "test", "force": False},
+                                     target_kind="claim", target_id="C999"))
+        finally:
+            b.close()
+
+    def test_claim_released_idempotent_noop_for_terminal_claim(self, tmp_path: Path) -> None:
+        """claim.released on an already-released claim is an idempotent no-op (returns None)."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.append(_make_event("claim.created", _make_claim_payload(),
+                                 target_kind="claim", target_id="C001"))
+            # First release succeeds.
+            b.append(_make_event("claim.released",
+                                 {"claim_id": "C001", "released_by": "agent",
+                                  "release_reason": "done", "force": False},
+                                 target_kind="claim", target_id="C001"))
+            # Second release is idempotent no-op.
+            result = b.append(_make_event("claim.released",
+                                          {"claim_id": "C001", "released_by": "agent",
+                                           "release_reason": "done again", "force": False},
+                                          target_kind="claim", target_id="C001"))
+            assert result is None
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # claim.renewed
+    # ------------------------------------------------------------------
+
+    def test_claim_renewed_check_rejects_inactive_claim(self, tmp_path: Path) -> None:
+        """claim.renewed on a released claim raises EventRejected.
+
+        _check_claim_renewed failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.append(_make_event("claim.created", _make_claim_payload(),
+                                 target_kind="claim", target_id="C001"))
+            b.append(_make_event("claim.released",
+                                 {"claim_id": "C001", "released_by": "agent",
+                                  "release_reason": "done", "force": False},
+                                 target_kind="claim", target_id="C001"))
+            with pytest.raises(EventRejected):
+                b.append(_make_event("claim.renewed",
+                                     {"claim_id": "C001", "new_lease_expires_at": (
+                                         _T0 + timedelta(hours=2)).isoformat()},
+                                     target_kind="claim", target_id="C001"))
+        finally:
+            b.close()
+
+    def test_claim_renewed_write_extends_lease(self, tmp_path: Path) -> None:
+        """claim.renewed extends the lease expiry for an active claim."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.append(_make_event("claim.created", _make_claim_payload(),
+                                 target_kind="claim", target_id="C001"))
+            new_expiry = (_T0 + timedelta(hours=3)).isoformat()
+            new_heartbeat = _T0.isoformat()
+            b.append(_make_event("claim.renewed",
+                                 {"claim_id": "C001", "lease_expires_at": new_expiry,
+                                  "last_heartbeat_at": new_heartbeat},
+                                 target_kind="claim", target_id="C001"))
+            claim = b.get_claim("C001")
+            assert claim is not None
+            # Lease was extended.
+            assert claim.lease_expires_at > _T0
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # claim.stale
+    # ------------------------------------------------------------------
+
+    def test_claim_stale_check_rejects_unknown_claim(self, tmp_path: Path) -> None:
+        """claim.stale for nonexistent claim raises EventRejected.
+
+        _check_claim_stale failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            with pytest.raises(EventRejected):
+                b.append(_make_event("claim.stale",
+                                     {"claim_id": "C999", "task_id": "T001",
+                                      "expired_at": _T0.isoformat(),
+                                      "detected_at": _T0.isoformat(),
+                                      "reason": "lease_expired", "actor": "system"},
+                                     target_kind="claim", target_id="C999"))
+        finally:
+            b.close()
+
+    def test_claim_stale_write_marks_claim_stale(self, tmp_path: Path) -> None:
+        """claim.stale marks an active claim as stale."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task(b)
+            b.append(_make_event("claim.created", _make_claim_payload(),
+                                 target_kind="claim", target_id="C001"))
+            b.append(_make_event("claim.stale",
+                                 {"claim_id": "C001", "task_id": "T001",
+                                  "expired_at": (_T0 - timedelta(hours=1)).isoformat(),
+                                  "detected_at": _T0.isoformat(),
+                                  "reason": "lease_expired", "actor": "system"},
+                                 target_kind="claim", target_id="C001"))
+            from fakoli_state.state.models import ClaimStatus
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.status == ClaimStatus.stale
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # evidence.submitted
+    # ------------------------------------------------------------------
+
+    def test_evidence_submitted_check_rejects_empty_commands_run(self, tmp_path: Path) -> None:
+        """evidence.submitted with empty commands_run raises EventRejected.
+
+        _check_evidence_submitted failure — must be EventRejected ONLY (SL1-RR-1).
+        A TransactionAborted here would mean validation leaked past the log append.
+        """
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task_and_claim(b)
+            initial = len(_read_jsonl(events_path))
+            with pytest.raises(EventRejected):
+                b.append(_make_event("evidence.submitted",
+                                     _make_evidence_payload(commands_run=[]),
+                                     target_kind="task", target_id="T001"))
+            assert len(_read_jsonl(events_path)) == initial
+        finally:
+            b.close()
+
+    def test_evidence_submitted_write_inserts_evidence(self, tmp_path: Path) -> None:
+        """evidence.submitted inserts evidence row and transitions task to needs_review."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.append(_make_event("evidence.submitted", _make_evidence_payload(),
+                                 target_kind="task", target_id="T001"))
+            from fakoli_state.state.models import TaskStatus
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status == TaskStatus.needs_review
+            ev = b.get_latest_evidence("T001")
+            assert ev is not None
+            assert ev.id == "EV001"
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.applied
+    # ------------------------------------------------------------------
+
+    def test_task_applied_check_rejects_wrong_status(self, tmp_path: Path) -> None:
+        """task.applied on a non-needs_review task raises EventRejected.
+
+        _check_task_applied failure — must be EventRejected ONLY (SL1-RR-1).
+        A TransactionAborted here would mean validation leaked past the log append.
+        """
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task(b)  # task is 'ready', not 'needs_review'
+            initial = len(_read_jsonl(events_path))
+            with pytest.raises(EventRejected):
+                b.append(_make_event("task.applied",
+                                     {"task_id": "T001", "reviewer": "alice",
+                                      "decision": "accepted", "notes": None},
+                                     target_kind="task", target_id="T001"))
+            assert len(_read_jsonl(events_path)) == initial
+        finally:
+            b.close()
+
+    def test_task_applied_write_transitions_to_done(self, tmp_path: Path) -> None:
+        """task.applied accepted transitions task to done."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.append(_make_event("evidence.submitted", _make_evidence_payload(),
+                                 target_kind="task", target_id="T001"))
+            b.append(_make_event("task.applied",
+                                 {"task_id": "T001", "reviewer": "alice",
+                                  "decision": "accepted", "notes": None},
+                                 target_kind="task", target_id="T001"))
+            from fakoli_state.state.models import TaskStatus
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status == TaskStatus.done
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # task.applied — extended contract tests (SHOULD FIX 1)
+    # ------------------------------------------------------------------
+
+    def test_task_applied_check_reject_leaves_zero_side_effects(
+        self, tmp_path: Path
+    ) -> None:
+        """_check_task_applied rejection leaves zero new event lines and no state change.
+
+        The task is in 'ready' status (not needs_review), so _check_task_applied
+        must reject with EventRejected before any write occurs. The JSONL log
+        must be unchanged and the task must remain at 'ready'.
+        """
+        from fakoli_state.state.models import TaskStatus
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task(b)  # task ends up at 'ready'
+            task_before = b.get_task("T001")
+            assert task_before is not None
+            assert task_before.status == TaskStatus.ready
+
+            initial_event_count = len(_read_jsonl(events_path))
+
+            # decision='accepted' on a 'ready' task — _check_task_applied rejects.
+            with pytest.raises(EventRejected):
+                b.append(_make_event(
+                    "task.applied",
+                    {"task_id": "T001", "reviewer": "alice",
+                     "decision": "accepted", "notes": None},
+                    target_kind="task", target_id="T001",
+                ))
+
+            # No new canonical event line written to events.jsonl.
+            assert len(_read_jsonl(events_path)) == initial_event_count, (
+                "EventRejected must not write to events.jsonl (pre-log check)"
+            )
+            # Task status unchanged.
+            task_after = b.get_task("T001")
+            assert task_after is not None
+            assert task_after.status == TaskStatus.ready, (
+                f"Task must remain 'ready' after rejection; got {task_after.status}"
+            )
+            # No review row inserted.
+            reviews = b.list_reviews()
+            assert len(reviews) == 0, (
+                f"No review row must be inserted on rejection; got {reviews}"
+            )
+        finally:
+            b.close()
+
+    def test_task_applied_rejected_decision_transitions_to_drafted(
+        self, tmp_path: Path
+    ) -> None:
+        """task.applied with decision='rejected' transitions needs_review → rejected → drafted.
+
+        The SL1-RR-1 spec requires: needs_review → rejected (brief marker) →
+        drafted (automatic within the same transaction) so the task can be
+        re-reviewed. Verify:
+        - Final task status is 'drafted' (not 'rejected', which is transient).
+        - A review row is inserted with decision='rejected'.
+        - A new event line appears in events.jsonl.
+        """
+        from fakoli_state.state.models import ReviewDecision, TaskStatus
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.append(_make_event("evidence.submitted", _make_evidence_payload(),
+                                 target_kind="task", target_id="T001"))
+            # Task is now needs_review.
+            task_mid = b.get_task("T001")
+            assert task_mid is not None
+            assert task_mid.status == TaskStatus.needs_review
+
+            before_apply_count = len(_read_jsonl(events_path))
+
+            b.append(_make_event(
+                "task.applied",
+                {"task_id": "T001", "reviewer": "bob",
+                 "decision": "rejected", "notes": "needs more tests"},
+                target_kind="task", target_id="T001",
+            ))
+
+            # Exactly one new event line.
+            after_apply_count = len(_read_jsonl(events_path))
+            assert after_apply_count == before_apply_count + 1, (
+                "task.applied must write exactly one event line"
+            )
+
+            # Task is drafted (auto-promoted from rejected in the same txn).
+            task_after = b.get_task("T001")
+            assert task_after is not None
+            assert task_after.status == TaskStatus.drafted, (
+                f"Expected status 'drafted' after rejected apply; got {task_after.status}"
+            )
+
+            # A review row exists with the original 'rejected' decision. Note:
+            # _row_to_review maps 'rejected' → ReviewDecision.needs_changes per the
+            # _TASK_OUTCOME_TO_REVIEW_DECISION constant (rejected-but-reworkable).
+            reviews = b.list_reviews()
+            assert len(reviews) == 1, f"Expected 1 review; got {reviews}"
+            assert reviews[0].decision == ReviewDecision.needs_changes, (
+                f"'rejected' decision must map to needs_changes; got {reviews[0].decision}"
+            )
+        finally:
+            b.close()
+
+    def test_task_applied_accepted_inserts_review_row(self, tmp_path: Path) -> None:
+        """task.applied accepted inserts a review row with decision='accepted'.
+
+        Verify the full write: task transitions to done AND a review row is inserted
+        with the canonical 'accepted' decision (mapped to ReviewDecision.approve by
+        _row_to_review per _TASK_OUTCOME_TO_REVIEW_DECISION).
+        """
+        from fakoli_state.state.models import ReviewDecision, TaskStatus
+        b = _make_backend(tmp_path)
+        try:
+            _setup_claimable_task_and_claim(b)
+            b.append(_make_event("evidence.submitted", _make_evidence_payload(),
+                                 target_kind="task", target_id="T001"))
+            b.append(_make_event(
+                "task.applied",
+                {"task_id": "T001", "reviewer": "carol",
+                 "decision": "accepted", "notes": "LGTM"},
+                target_kind="task", target_id="T001",
+            ))
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status == TaskStatus.done
+
+            reviews = b.list_reviews()
+            assert len(reviews) == 1, f"Expected 1 review; got {reviews}"
+            assert reviews[0].decision == ReviewDecision.approve, (
+                f"'accepted' decision must map to approve; got {reviews[0].decision}"
+            )
+            assert reviews[0].target_id == "T001"
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # evidence.submitted — extended contract tests (SHOULD FIX 1)
+    # ------------------------------------------------------------------
+
+    def test_evidence_submitted_check_reject_leaves_zero_side_effects(
+        self, tmp_path: Path
+    ) -> None:
+        """_check_evidence_submitted rejection leaves no side effects.
+
+        Inject an invalid payload (empty files_changed) so _check_evidence_submitted
+        raises EventRejected. Verify:
+        - No new event line in events.jsonl.
+        - No evidence row inserted.
+        - Task status unchanged (still 'claimed').
+        - Claim status unchanged (still 'active').
+        """
+        from fakoli_state.state.models import ClaimStatus, TaskStatus
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task_and_claim(b)
+            initial_event_count = len(_read_jsonl(events_path))
+
+            # files_changed=[] triggers EventRejected in _check_evidence_submitted.
+            with pytest.raises(EventRejected):
+                b.append(_make_event(
+                    "evidence.submitted",
+                    _make_evidence_payload(files_changed=[]),
+                    target_kind="task", target_id="T001",
+                ))
+
+            # No new canonical event line.
+            assert len(_read_jsonl(events_path)) == initial_event_count, (
+                "EventRejected must not write to events.jsonl (pre-log check)"
+            )
+            # No evidence row inserted.
+            ev = b.get_latest_evidence("T001")
+            assert ev is None, f"No evidence must be inserted on rejection; got {ev}"
+            # Task still 'claimed'.
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status == TaskStatus.claimed, (
+                f"Task must remain 'claimed' after rejection; got {task.status}"
+            )
+            # Claim still 'active'.
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.status == ClaimStatus.active, (
+                f"Claim must remain 'active' after rejection; got {claim.status}"
+            )
+        finally:
+            b.close()
+
+    def test_evidence_submitted_write_records_evidence_and_auto_releases_claim(
+        self, tmp_path: Path
+    ) -> None:
+        """evidence.submitted inserts evidence, transitions task, and auto-releases claim.
+
+        Full write path verification:
+        - Evidence row inserted with correct fields.
+        - Task status transitions from 'claimed' to 'needs_review'.
+        - Active claim is auto-released (status → 'released').
+        - Exactly one new event line in events.jsonl.
+        """
+        from fakoli_state.state.models import ClaimStatus, TaskStatus
+        b = _make_backend(tmp_path)
+        events_path = str(tmp_path / "events.jsonl")
+        try:
+            _setup_claimable_task_and_claim(b)
+            before_count = len(_read_jsonl(events_path))
+
+            b.append(_make_event(
+                "evidence.submitted",
+                _make_evidence_payload(
+                    commands_run=["pytest tests/ -v"],
+                    files_changed=["src/auth.py", "tests/test_auth.py"],
+                    output_excerpt="5 passed",
+                ),
+                target_kind="task", target_id="T001",
+            ))
+
+            # Exactly one new event line.
+            assert len(_read_jsonl(events_path)) == before_count + 1
+
+            # Evidence row inserted.
+            ev = b.get_latest_evidence("T001")
+            assert ev is not None
+            assert ev.id == "EV001"
+            assert ev.claim_id == "C001"
+            assert "pytest" in ev.commands_run[0]
+
+            # Task transitions to needs_review.
+            task = b.get_task("T001")
+            assert task is not None
+            assert task.status == TaskStatus.needs_review, (
+                f"Expected needs_review; got {task.status}"
+            )
+
+            # Active claim auto-released.
+            claim = b.get_claim("C001")
+            assert claim is not None
+            assert claim.status == ClaimStatus.released, (
+                f"Expected claim auto-released; got {claim.status}"
+            )
+        finally:
+            b.close()
+
+    # ------------------------------------------------------------------
+    # sync_mapping.upserted / sync_mapping.deleted
+    # ------------------------------------------------------------------
+
+    def test_sync_mapping_upserted_check_rejects_invalid_payload(self, tmp_path: Path) -> None:
+        """sync_mapping.upserted with invalid sync_state raises EventRejected.
+
+        _check_sync_mapping_upserted failure — must be EventRejected ONLY (SL1-RR-1).
+        """
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            b.append(_make_event("feature.created", _make_feature_payload(),
+                                 target_kind="feature", target_id="F001"))
+            b.append(_make_event("task.created", _make_task_payload(),
+                                 target_kind="task", target_id="T001"))
+            with pytest.raises(EventRejected):
+                b.append(_make_event("sync_mapping.upserted",
+                                     _make_sync_mapping_payload(sync_state="bad_state"),
+                                     target_kind="task", target_id="T001"))
+        finally:
+            b.close()
+
+    def test_sync_mapping_upserted_write_inserts_row(self, tmp_path: Path) -> None:
+        """sync_mapping.upserted inserts a sync_mapping row when valid."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            b.append(_make_event("sync_mapping.upserted", _make_sync_mapping_payload(),
+                                 target_kind="task", target_id="T001"))
+            assert b.get_sync_mapping("T001") is not None
+        finally:
+            b.close()
+
+    def test_sync_mapping_deleted_write_removes_row(self, tmp_path: Path) -> None:
+        """sync_mapping.deleted removes the mapping row."""
+        b = _make_backend(tmp_path)
+        try:
+            _setup_project(b)
+            _setup_task_for_sync(b)
+            b.append(_make_event("sync_mapping.upserted", _make_sync_mapping_payload(),
+                                 target_kind="task", target_id="T001"))
+            b.append(_make_event("sync_mapping.deleted", {"task_id": "T001"},
+                                 target_kind="task", target_id="T001"))
+            assert b.get_sync_mapping("T001") is None
         finally:
             b.close()

@@ -1962,8 +1962,8 @@ class TestSubmitCommand:
         `screenshots=[]` and any task requiring 'screenshots' evidence could
         never pass the apply gate from the CLI.
         """
-        import sqlite3 as _sqlite3
         import json as _json
+        import sqlite3 as _sqlite3
 
         _do_init_and_plan(tmp_path, with_git=False)
         task_id = _get_first_ready_task_id(tmp_path)
@@ -2042,8 +2042,8 @@ class TestSubmitCommand:
         the evidence gate must report INCOMPLETE. Submit still exits 0
         (gate feedback is informational), but the gate summary must call out
         the missing item."""
-        import sqlite3 as _sqlite3
         import json as _json
+        import sqlite3 as _sqlite3
 
         _do_init_and_plan(tmp_path, with_git=False)
         task_id = _get_first_ready_task_id(tmp_path)

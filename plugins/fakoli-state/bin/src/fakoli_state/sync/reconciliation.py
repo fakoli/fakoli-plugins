@@ -673,12 +673,10 @@ class ReconciliationEngine:
         backend's idempotent path handles the case where the claim was
         already terminal between scan and fix.
         """
-        from fakoli_state.state.backend import PENDING_EVENT_ID
-        from fakoli_state.state.models import Event
+        from fakoli_state.state.models import EventDraft
 
         claim_id = d.payload.get("claim_id") or d.target_id
-        event = Event(
-            id=PENDING_EVENT_ID,
+        draft = EventDraft(
             timestamp=self._clock.now(),
             actor="reconciliation",
             action="claim.released",
@@ -691,7 +689,9 @@ class ReconciliationEngine:
                 "force": True,
             },
         )
-        self._backend.apply_event(event)
+        # append() may return None for an idempotent no-op (already-released
+        # claim) — treat as success; the claim state is already correct.
+        self._backend.append(draft)
 
 
 # ---------------------------------------------------------------------------

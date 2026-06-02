@@ -17,6 +17,7 @@ import datetime
 
 import pytest
 
+from fakoli_state.review.gates import evidence_complete
 from fakoli_state.state.models import (
     PRD,
     Claim,
@@ -28,7 +29,6 @@ from fakoli_state.state.models import (
     TaskStatus,
     Verification,
 )
-from fakoli_state.review.gates import evidence_complete
 from fakoli_state.state.transitions import (
     TransitionError,
     prd_draft_to_reviewed,

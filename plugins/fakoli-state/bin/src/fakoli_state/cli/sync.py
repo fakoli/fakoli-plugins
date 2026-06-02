@@ -45,7 +45,6 @@ from fakoli_state.cli._helpers import (
     _require_state_dir,
     _resolve_state_dir,
 )
-from fakoli_state.state.backend import PENDING_EVENT_ID
 
 if TYPE_CHECKING:
     from fakoli_state.state.models import Task
@@ -1027,9 +1026,8 @@ def _apply_remote_to_local(
        flagging the same drift).
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.state.backend import PENDING_EVENT_ID
     from fakoli_state.state.models import (
-        Event,
+        EventDraft,
         SyncMapping,
         SyncState,
         TaskStatus,
@@ -1054,8 +1052,7 @@ def _apply_remote_to_local(
     actor = f"sync.{provider.provider_id}"
 
     # 1. Rewrite the local Task.
-    sync_event = Event(
-        id=PENDING_EVENT_ID,
+    sync_draft = EventDraft(
         timestamp=clock.now(),
         actor=actor,
         action="task.synced_from_remote",
@@ -1069,7 +1066,7 @@ def _apply_remote_to_local(
             "actor": actor,
         },
     )
-    backend.apply_event(sync_event)
+    backend.append(sync_draft)
 
     # 2. Refresh the SyncMapping — clear conflict state, bump
     # last_synced_at to now.
@@ -1520,7 +1517,7 @@ def _emit_audit(
     target_kind: str,
     target_id: str,
 ) -> None:
-    """Append a sync.* audit event via apply_event().
+    """Append a sync.* audit event via append().
 
     Strips None fields before dispatch.  After the Phase 9 T3 discriminated
     union, ``SyncAuditPayload`` is no longer a single all-optional model:
@@ -1537,7 +1534,7 @@ def _emit_audit(
     ``jq 'has("audit_note")'`` filters.  The dispatcher in
     ``state/sqlite.py:_apply_mutation`` validates the cleaned dict against
     ``ACTION_TO_PAYLOAD[action]`` so any genuinely-missing REQUIRED field
-    surfaces as ``ValidationError`` from ``apply_event`` and propagates —
+    surfaces as ``ValidationError`` from ``append`` and propagates —
     silently dropping it would be the wrong fix.
 
     Audit emission failures are non-fatal: a sync that succeeded but
@@ -1548,12 +1545,11 @@ def _emit_audit(
     swallow real bugs.
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.state.backend import StateLocked, TransactionAborted
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.backend import EventRejected, StateLocked, TransactionAborted
+    from fakoli_state.state.models import EventDraft
 
     clean: dict[str, Any] = {k: v for k, v in payload.items() if v is not None}
-    event = Event(
-        id=PENDING_EVENT_ID,
+    draft = EventDraft(
         timestamp=SystemClock().now(),
         actor="sync-cli",
         action=action,
@@ -1562,11 +1558,23 @@ def _emit_audit(
         payload_json=clean,
     )
     try:
-        backend.apply_event(event)
+        backend.append(draft)
     except (TransactionAborted, StateLocked, OSError) as exc:
+        # Infra / contention: the sync itself already succeeded, so losing the
+        # audit line is acceptable — warn and move on.
         typer.echo(
             f"  warning: failed to emit audit event {action!r}: "
             f"{type(exc).__name__}: {exc}",
+            err=True,
+        )
+    except EventRejected as exc:
+        # A rejected audit payload is a programmer error in THIS module's
+        # payload construction (a malformed *_payload), not a user-input
+        # problem — surface it loudly so a regression is not mistaken for
+        # transient lock contention.
+        typer.echo(
+            f"  ERROR: audit event {action!r} rejected by validation "
+            f"(malformed payload — this is a bug): {exc}",
             err=True,
         )
 

@@ -2,8 +2,8 @@
 
 Design contract
 ---------------
-ClaimManager produces Events; the Backend's _handle_claim_* SQLite handlers
-(welder Wave 1) do the actual mutation atomically via apply_event().
+ClaimManager produces EventDrafts; the Backend's _check_claim_*/_write_claim_*
+phases do the actual mutation atomically via append().
 
 This module never calls datetime.now() directly. All timestamps flow through
 self._clock.now() so every time-sensitive code path is deterministically testable
@@ -33,7 +33,7 @@ from fakoli_state.state.models import (
     Claim,
     ClaimStatus,
     ClaimType,
-    Event,
+    EventDraft,
     Task,
     TaskPriority,
     TaskStatus,
@@ -98,8 +98,8 @@ class ClaimManager:
     """Stateless orchestrator for claim/lock/lease operations.
 
     Takes a Backend + Clock + actor identity. Issues events to the Backend;
-    the Backend's _handle_claim_* handlers do the actual SQLite mutation
-    atomically inside apply_event().
+    the Backend's _check_claim_*/_write_claim_* phases do the actual SQLite
+    mutation atomically inside append().
 
     Args:
         backend:                  Backend instance (SQLite or in-memory).
@@ -345,8 +345,7 @@ class ClaimManager:
         )
 
         # Emit claim.created event.
-        claim_event = Event(
-            id=self._generate_event_id(),
+        claim_draft = EventDraft(
             timestamp=now,
             actor=self._actor,
             action="claim.created",
@@ -354,7 +353,7 @@ class ClaimManager:
             target_id=claim_id,
             payload_json=claim.model_dump(mode="json"),
         )
-        self._backend.apply_event(claim_event)
+        self._backend.append(claim_draft)
 
         # DO NOT emit a separate task.status_changed event here.
         # _handle_claim_created already transitions the task to 'claimed'
@@ -444,8 +443,10 @@ class ClaimManager:
         now = self._clock.now()
 
         # Emit claim.released event.
-        release_event = Event(
-            id=self._generate_event_id(),
+        # append() may return None for an idempotent no-op (already-released
+        # claim) — this is a legal outcome, not an error. The claim was
+        # already released, so the task state is already correct.
+        release_draft = EventDraft(
             timestamp=now,
             actor=self._actor,
             action="claim.released",
@@ -459,7 +460,7 @@ class ClaimManager:
                 "force": force,
             },
         )
-        self._backend.apply_event(release_event)
+        self._backend.append(release_draft)
 
         # DO NOT emit a separate task.status_changed event here.
         # _handle_claim_released already transitions the task back to 'ready'
@@ -534,8 +535,9 @@ class ClaimManager:
         new_expires = now + datetime.timedelta(minutes=self._default_lease)
 
         # Emit claim.renewed event.
-        renew_event = Event(
-            id=self._generate_event_id(),
+        # append() may return None for an idempotent no-op (already-renewed
+        # with same expiry) — treat as success; the lease is already extended.
+        renew_draft = EventDraft(
             timestamp=now,
             actor=self._actor,
             action="claim.renewed",
@@ -548,7 +550,7 @@ class ClaimManager:
                 "lease_expires_at": new_expires.isoformat(),
             },
         )
-        self._backend.apply_event(renew_event)
+        self._backend.append(renew_draft)
 
         # Return the locally-updated Claim model so callers don't need an
         # extra get_claim() round-trip.
@@ -630,21 +632,6 @@ class ClaimManager:
         internal identifier.
         """
         return "C" + uuid.uuid4().hex[:8].upper()
-
-    def _generate_event_id(self) -> str:
-        """Return the PENDING sentinel so apply_event() assigns the ID inside
-        the BEGIN IMMEDIATE lock — eliminating the read-before-lock race
-        flagged by Critic-3 on PR #41.
-
-        Previously delegated to backend.next_event_id() (which fixed the
-        Phase 4 bug where ClaimManager generated 20-digit microsecond IDs
-        that collided with the CLI's sequential generator).  The next
-        correctness step is moving ID generation inside the lock entirely
-        via PENDING_EVENT_ID.
-        """
-        from fakoli_state.state.backend import PENDING_EVENT_ID
-
-        return PENDING_EVENT_ID
 
     def _build_claim_model(
         self,

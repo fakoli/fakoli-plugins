@@ -155,14 +155,12 @@ def _apply_init_event(
     initialisation in the append-only audit log.
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.state.backend import PENDING_EVENT_ID
-    from fakoli_state.state.models import Event
+    from fakoli_state.state.models import EventDraft
 
     clock = SystemClock()
     now = clock.now()
 
-    project_event = Event(
-        id=PENDING_EVENT_ID,
+    project_draft = EventDraft(
         timestamp=now,
         actor="fakoli-state-cli",
         action="project.created",
@@ -176,10 +174,9 @@ def _apply_init_event(
             "updated_at": now.isoformat(),
         },
     )
-    backend.apply_event(project_event)
+    backend.append(project_draft)
 
-    init_event = Event(
-        id=PENDING_EVENT_ID,
+    init_draft = EventDraft(
         timestamp=now,
         actor="fakoli-state-cli",
         action="state.initialized",
@@ -187,7 +184,7 @@ def _apply_init_event(
         target_id=project_id,
         payload_json={},
     )
-    backend.apply_event(init_event)
+    backend.append(init_draft)
 
 
 # ---------------------------------------------------------------------------

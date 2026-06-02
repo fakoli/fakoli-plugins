@@ -26,8 +26,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from fakoli_state.clock import Clock
-from fakoli_state.state.backend import PENDING_EVENT_ID
-from fakoli_state.state.models import ClaimStatus, Event
+from fakoli_state.state.models import ClaimStatus, EventDraft
 
 if TYPE_CHECKING:
     from fakoli_state.state.backend import Backend
@@ -54,7 +53,7 @@ def detect_and_release_stale(
     reaped.
 
     Args:
-        backend: Backend instance to query and mutate via apply_event.
+        backend: Backend instance to query and mutate via append().
         clock:   Clock instance — all timestamp generation goes through this.
         actor:   Identity for the emitted events (default: "system").
 
@@ -77,8 +76,7 @@ def detect_and_release_stale(
             continue
 
         try:
-            stale_event = Event(
-                id=PENDING_EVENT_ID,
+            stale_draft = EventDraft(
                 timestamp=now,
                 actor=actor,
                 action="claim.stale",
@@ -93,7 +91,7 @@ def detect_and_release_stale(
                     "actor": actor,
                 },
             )
-            backend.apply_event(stale_event)
+            backend.append(stale_draft)
             reaped.append(claim.id)
             logger.info(
                 "Reaped stale claim %r (task %r, expired %s)",

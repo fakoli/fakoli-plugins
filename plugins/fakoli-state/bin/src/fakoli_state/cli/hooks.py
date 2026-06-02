@@ -13,7 +13,6 @@ import typer
 from fakoli_state.cli._helpers import (
     _resolve_state_dir,
 )
-from fakoli_state.state.backend import PENDING_EVENT_ID
 
 hook_app = typer.Typer(
     name="hook",
@@ -106,7 +105,7 @@ def hook_record_file_change(
     # Defer all imports — this hook fires on every file write; keep startup fast.
     try:
         from fakoli_state.clock import SystemClock as _SystemClock
-        from fakoli_state.state.models import Event as _Event
+        from fakoli_state.state.models import EventDraft as _EventDraft
         from fakoli_state.state.sqlite import SqliteBackend as _SqliteBackend
 
         state_dir = _resolve_state_dir(cwd)
@@ -124,8 +123,7 @@ def hook_record_file_change(
         backend.initialize()
         try:
             now = clock.now()
-            event = _Event(
-                id=PENDING_EVENT_ID,
+            draft = _EventDraft(
                 timestamp=now,
                 actor=actor or "hook",
                 action="file_changed",
@@ -138,7 +136,7 @@ def hook_record_file_change(
                     "changed_at": now.isoformat(),
                 },
             )
-            backend.apply_event(event)
+            backend.append(draft)
         finally:
             backend.close()
     except SystemExit:

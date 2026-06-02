@@ -17,8 +17,7 @@ from typing import Any
 import pytest
 
 from fakoli_state.clock import FrozenClock
-from fakoli_state.state.backend import PENDING_EVENT_ID
-from fakoli_state.state.models import Event, SyncMapping
+from fakoli_state.state.models import EventDraft, SyncMapping
 from fakoli_state.state.sqlite import SqliteBackend
 from fakoli_state.sync.reconciliation import (
     Discrepancy,
@@ -80,13 +79,13 @@ def _make_event(
     action: str,
     payload: dict[str, Any],
     *,
-    event_id: str,
+    event_id: str = "unused",
     target_kind: str,
     target_id: str,
     now: datetime = _T0,
-) -> Event:
-    return Event(
-        id=event_id,
+) -> EventDraft:
+    """Return an EventDraft (SL1-RR-1: id is assigned by backend, event_id ignored)."""
+    return EventDraft(
         timestamp=now,
         actor="test",
         action=action,
@@ -130,7 +129,7 @@ def _make_task_payload(
 
 def _setup_project(b: SqliteBackend, now: datetime = _T0) -> None:
     """Seed project + state.initialized so FK constraints are satisfied."""
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "project.created",
         {
             "id": "proj-1",
@@ -144,7 +143,7 @@ def _setup_project(b: SqliteBackend, now: datetime = _T0) -> None:
         target_id="proj-1",
         now=now,
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "state.initialized", {},
         event_id="E000002", target_kind="project", target_id="proj-1",
         now=now,
@@ -160,7 +159,7 @@ def _setup_task(
     base_event_id: int = 3,
 ) -> None:
     """Create a feature + a task in the given status."""
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "feature.created",
         {
             "id": feature_id, "title": "F", "description": "",
@@ -169,7 +168,7 @@ def _setup_task(
         event_id=f"E{base_event_id:06d}",
         target_kind="feature", target_id=feature_id,
     ))
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "task.created",
         _make_task_payload(task_id=task_id, feature_id=feature_id, status=status),
         event_id=f"E{base_event_id + 1:06d}",
@@ -189,7 +188,7 @@ def _create_active_claim(
     """Insert a claim.created event whose task must be in 'ready' state."""
     if lease_expires_at is None:
         lease_expires_at = now + timedelta(hours=1)
-    b.apply_event(_make_event(
+    b.append(_make_event(
         "claim.created",
         {
             "id": claim_id,
@@ -548,7 +547,7 @@ class TestStaleClaim:
                 lease_expires_at=_T0 - timedelta(hours=1),
             )
             # Release the claim — now active_claims is empty.
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "claim.released",
                 {
                     "claim_id": "C001",
@@ -622,7 +621,7 @@ class TestMissingSyncMapping:
         ]
         next_eid = 5
         for frm, to in chain:
-            b.apply_event(_make_event(
+            b.append(_make_event(
                 "task.status_changed",
                 {"task_id": task_id, "from": frm, "to": to},
                 event_id=f"E{next_eid:06d}",
@@ -1080,7 +1079,7 @@ class TestSuggestedFixMatchesCliSyntax:
             ]
             next_eid = 5
             for frm, to in chain:
-                b.apply_event(_make_event(
+                b.append(_make_event(
                     "task.status_changed",
                     {"task_id": "T001", "from": frm, "to": to},
                     event_id=f"E{next_eid:06d}",

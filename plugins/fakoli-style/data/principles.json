@@ -26,7 +26,7 @@
       "why": "An invariant that is only asserted drifts silently the first time someone changes one of its two sides without anyone noticing.",
       "status": "proven",
       "credibility_risk": "high",
-      "open_work": "SL1-RR-1 (latent, not live-reachable): the JSONL-first non-PENDING apply path can persist a poison canonical line that aborts full replay, but every live caller uses PENDING_EVENT_ID so no caller arms it in main today. Fix needs a spec: adopt Option A (append JSONL only after COMMIT on all paths, making 'log holds only committed events' the invariant) plus a poison-line regression fixture for the equivalence test. Tracked in tech-debt-backlog.",
+      "open_work": "SL1-RR-1 RESOLVED (branch feat/fakoli-state-sl1-rr-1-event-sourcing): the latent poison-line gap is closed by the full event-sourced write path (decide/apply split, append(EventDraft)->Event|None, log-as-id-authority via flock, append-only events.jsonl + sibling audit.jsonl, strict no-skip replay). The post-COMMIT audit gap and PR #41 Critic-3 cross-process id-collision race are also closed. apply_event and PENDING_EVENT_ID are retired.",
       "proof": "plugins/fakoli-state/tests/test_replay_equivalence.py::test_normal_and_replay_match_each_other_and_the_golden",
       "embodied_in": [
         {
@@ -43,6 +43,31 @@
           "plugin": "fakoli-state",
           "ref": "plugins/fakoli-state/bin/src/fakoli_state/state/snapshot.py",
           "mechanism": "serialize_state defines the canonical state compared for equivalence"
+        },
+        {
+          "plugin": "fakoli-state",
+          "ref": "plugins/fakoli-state/tests/test_sqlite.py",
+          "mechanism": "TestAppendValidationFailure: poison-line impossibility — validation rejection writes zero events.jsonl lines and one audit.jsonl rejection line"
+        },
+        {
+          "plugin": "fakoli-state",
+          "ref": "plugins/fakoli-state/tests/test_sqlite.py",
+          "mechanism": "TestCrossProcessConcurrency: two real subprocesses append concurrently via flock; verifies unique, contiguous ids with no collision (closes PR #41 Critic-3)"
+        },
+        {
+          "plugin": "fakoli-state",
+          "ref": "plugins/fakoli-state/tests/test_sqlite.py",
+          "mechanism": "TestSelfHeal / TestForwardCatchUpConvergence: backend self-heals on open by replaying any events.jsonl lines not yet in the DB projection (forward-catch-up)"
+        },
+        {
+          "plugin": "fakoli-state",
+          "ref": "plugins/fakoli-state/tests/test_sqlite.py",
+          "mechanism": "TestReplayStrict: replay_from_empty applies every line via _write_* only — no skip-list, no validation, structurally infallible for any well-formed log"
+        },
+        {
+          "plugin": "fakoli-state",
+          "ref": "plugins/fakoli-state/tests/test_sqlite.py",
+          "mechanism": "TestDecideApplyContract: per-action _check_* / _write_* contract — _check_* rejects illegal input with EventRejected and no side effects; _write_* succeeds whenever its matching _check_* passed"
         }
       ]
     },
