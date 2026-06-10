@@ -292,22 +292,26 @@ def expand_task(
     task: Task,
     *,
     provider: LLMProvider | None = None,
+    threshold: int = _EXPAND_COMPLEXITY_THRESHOLD,
 ) -> list[SubtaskProposal]:
     """Propose 2-5 sub-tasks for a complex Task using an LLM.
 
-    Deterministic baseline (provider=None or complexity < 4): returns ``[]``.
-    The deterministic engine never proposes sub-tasks — that responsibility
-    lies with the PRD author (manual subtask entries in prd.md).
+    Deterministic baseline (provider=None or complexity < *threshold*):
+    returns ``[]``.  The deterministic engine never proposes sub-tasks — that
+    responsibility lies with the PRD author (manual subtask entries in prd.md).
 
-    With ``provider=`` and ``task.scores.complexity >= 4`` the provider is
-    asked to return a JSON array of {title, description, acceptance_criteria,
-    likely_files}.  On any failure (provider error, JSON parse error, schema
-    mismatch) a warning is printed to stderr and ``[]`` is returned — failures
-    NEVER raise.
+    With ``provider=`` and ``task.scores.complexity >= threshold`` the
+    provider is asked to return a JSON array of {title, description,
+    acceptance_criteria, likely_files}.  On any failure (provider error, JSON
+    parse error, schema mismatch) a warning is printed to stderr and ``[]``
+    is returned — failures NEVER raise.
 
     Args:
         task: The Task to expand.  Must already be scored.
         provider: Optional LLM provider.
+        threshold: Inclusive complexity cut-off below which the task is
+            deemed simple enough to ship as-is.  Defaults to 4; callers with
+            a loaded config pass ``Config.auto_expand_threshold`` (v1.21.0).
 
     Returns:
         A list of :class:`SubtaskProposal` (possibly empty).  Never raises.
@@ -316,7 +320,7 @@ def expand_task(
         return []
 
     complexity = task.scores.complexity
-    if complexity is None or complexity < _EXPAND_COMPLEXITY_THRESHOLD:
+    if complexity is None or complexity < threshold:
         return []
 
     # Local import — keeps the optional LLM dep out of the main import graph.

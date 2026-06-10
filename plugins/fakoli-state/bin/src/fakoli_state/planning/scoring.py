@@ -26,14 +26,18 @@ import re
 import sys
 from typing import TYPE_CHECKING, NamedTuple
 
+from fakoli_state.config import DEFAULT_AUTO_EXPAND_THRESHOLD
 from fakoli_state.state.models import Score, Task
 
 if TYPE_CHECKING:
     from fakoli_state.planning.llm import LLMProvider
 
 __all__ = [
+    "ExpansionCandidate",
+    "build_expansion_queue",
     "score_task",
     "score_all",
+    "suggested_subtask_count",
 ]
 
 # ---------------------------------------------------------------------------
@@ -314,6 +318,81 @@ def score_all(
         task.model_copy(update={"scores": score_task(task, provider=provider)})
         for task in tasks
     ]
+
+
+# ---------------------------------------------------------------------------
+# Expansion queue (v1.21.0) — complexity score → auto-expansion loop
+# ---------------------------------------------------------------------------
+
+# Suggested-subtask envelope. Mirrors the expand engine's contract
+# (``inference._EXPAND_MIN_SUBTASKS`` / ``_EXPAND_MAX_SUBTASKS``): the LLM is
+# asked for 2-5 sub-tasks, so the deterministic suggestion never leaves that
+# range either.
+_SUGGESTED_SUBTASKS_MIN = 2
+_SUGGESTED_SUBTASKS_MAX = 5
+
+
+class ExpansionCandidate(NamedTuple):
+    """One task queued for sub-task expansion after scoring.
+
+    Produced by :func:`build_expansion_queue` — *queue entries only*, never
+    written to the backend by this module. The callers (CLI ``score``, MCP
+    ``score_tasks``) render the queue; the LLM-side decomposition itself only
+    happens when ``fakoli-state expand TASK_ID --use-llm`` runs.
+    """
+
+    task_id: str
+    title: str
+    complexity: int
+    suggested_subtasks: int
+
+
+def suggested_subtask_count(complexity: int) -> int:
+    """Return a deterministic suggested sub-task count for *complexity*.
+
+    Heuristic: ``complexity - 1``, clamped to the expand engine's 2-5
+    envelope — complexity 4 → 3 sub-tasks, complexity 5 → 4. A suggestion,
+    not a contract: the LLM in ``expand --use-llm`` decides the final split
+    within the same envelope.
+    """
+    return _clamp(
+        complexity - 1, _SUGGESTED_SUBTASKS_MIN, _SUGGESTED_SUBTASKS_MAX
+    )
+
+
+def build_expansion_queue(
+    tasks: list[Task],
+    *,
+    threshold: int = DEFAULT_AUTO_EXPAND_THRESHOLD,
+) -> list[ExpansionCandidate]:
+    """Return every scored task whose complexity is at/above *threshold*.
+
+    Pure function — no I/O, no mutation. Tasks without a complexity score
+    (not yet scored) are skipped; the queue only ever contains tasks the
+    scoring engine has actually assessed.
+
+    Args:
+        tasks: Task models to filter (typically ``backend.list_tasks()``
+            after a scoring run).
+        threshold: Inclusive complexity cut-off, normally
+            ``Config.auto_expand_threshold`` (default 4).
+
+    Returns:
+        Candidates sorted by complexity descending, then task id ascending —
+        the most decomposition-worthy work first, deterministic throughout.
+    """
+    candidates: list[ExpansionCandidate] = []
+    for task in tasks:
+        complexity = task.scores.complexity
+        if complexity is None or complexity < threshold:
+            continue
+        candidates.append(ExpansionCandidate(
+            task_id=task.id,
+            title=task.title,
+            complexity=complexity,
+            suggested_subtasks=suggested_subtask_count(complexity),
+        ))
+    return sorted(candidates, key=lambda c: (-c.complexity, c.task_id))
 
 
 # ---------------------------------------------------------------------------

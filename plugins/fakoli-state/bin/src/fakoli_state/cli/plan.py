@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from fakoli_state.config import Config
     from fakoli_state.planning.inference import SubtaskProposal
     from fakoli_state.planning.llm import LLMProvider
+    from fakoli_state.planning.scoring import ExpansionCandidate
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +107,55 @@ def _resolve_llm_provider(
         typer.echo(f"Error: --use-llm cannot resolve a provider.\n{exc}", err=True)
         raise typer.Exit(code=1) from exc
     return provider
+
+
+def _resolve_auto_expand(config: Config | None) -> tuple[bool, int]:
+    """Return the effective ``(auto_expand, auto_expand_threshold)`` pair.
+
+    v1.21.0: a missing config (scratch projects, CI without a checked-in
+    config.yaml) falls back to the same defaults the Config dataclass
+    declares — auto-expansion on, threshold 4 — so the score → expand loop
+    closes everywhere, not just for fully-configured projects.
+    """
+    from fakoli_state.config import DEFAULT_AUTO_EXPAND_THRESHOLD
+
+    if config is None:
+        return True, DEFAULT_AUTO_EXPAND_THRESHOLD
+    return config.auto_expand, config.auto_expand_threshold
+
+
+def _render_expansion_queue(
+    queue: list[ExpansionCandidate],
+    *,
+    threshold: int,
+) -> None:
+    """Print the EXPANSION QUEUE section after a scoring run.
+
+    One block per candidate: id, complexity, suggested sub-task count,
+    title, then the exact follow-up command to run. Silent when the queue
+    is empty — no noise for projects whose tasks are all right-sized.
+    """
+    if not queue:
+        return
+
+    header = f"EXPANSION QUEUE (complexity >= {threshold})"
+    typer.echo(f"\n{header}")
+    typer.echo("-" * len(header))
+    for candidate in queue:
+        typer.echo(
+            f"  {candidate.task_id:<12} "
+            f"complexity={candidate.complexity}  "
+            f"suggested-subtasks={candidate.suggested_subtasks}  "
+            f"{candidate.title}"
+        )
+        typer.echo(
+            f"    $ fakoli-state expand {candidate.task_id} --use-llm"
+        )
+    typer.echo(
+        f"\n{len(queue)} task(s) queued for expansion. Run the command(s) "
+        "above to decompose, or set `auto_expand: false` in "
+        ".fakoli-state/config.yaml to silence this section."
+    )
 
 # review sub-app — registered in __init__.py as app.add_typer(review_app, name="review")
 review_app = typer.Typer(
@@ -542,9 +592,16 @@ def score(
     sentence trade-off summary from the LLM.  Numeric scores are unaffected.
 
     Emits a task.scored event per task and prints a summary table.
+
+    v1.21.0: when ``auto_expand`` is enabled (config default: true), the
+    summary table is followed by an EXPANSION QUEUE section listing every
+    task whose complexity is at/above ``auto_expand_threshold`` (config
+    default: 4) with the exact ``fakoli-state expand TXXX --use-llm``
+    follow-up command per task.  Queueing is deterministic — the LLM-side
+    decomposition only happens when the expand command runs.
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.planning.scoring import score_task
+    from fakoli_state.planning.scoring import build_expansion_queue, score_task
     from fakoli_state.state.models import EventDraft
 
     state_dir = _resolve_state_dir(cwd)
@@ -603,6 +660,18 @@ def score(
             )
             backend.append(draft)
             scored_tasks.append((task, computed_score))
+
+        # v1.21.0 — re-fetch AFTER the task.scored events landed so the
+        # expansion queue covers every task at/above threshold (including
+        # ones scored in earlier runs), not just this run's batch.
+        auto_expand, expand_threshold = _resolve_auto_expand(config)
+        expansion_queue = (
+            build_expansion_queue(
+                backend.list_tasks(), threshold=expand_threshold
+            )
+            if auto_expand
+            else []
+        )
     finally:
         backend.close()
 
@@ -629,6 +698,8 @@ def score(
             f"{str(s.agent_suitability):>5}"
         )
     typer.echo(f"\nScored {len(scored_tasks)} task(s).")
+
+    _render_expansion_queue(expansion_queue, threshold=expand_threshold)
 
 
 # ---------------------------------------------------------------------------
@@ -728,8 +799,9 @@ def expand(
         "--use-llm",
         help=(
             "Use LLM augmentation (Anthropic) to propose 2-5 sub-tasks. "
-            "Requires ANTHROPIC_API_KEY. Only tasks with complexity >= 4 "
-            "are decomposed; lower-complexity tasks return no proposals."
+            "Requires ANTHROPIC_API_KEY. Only tasks with complexity at/above "
+            "the configured `auto_expand_threshold` (default 4) are "
+            "decomposed; lower-complexity tasks return no proposals."
         ),
     ),
     format: str = typer.Option(  # noqa: B008, A002 — Typer convention; A002 ok for CLI flag
@@ -751,7 +823,8 @@ def expand(
 
     With ``--use-llm`` the LLM is asked for 2-5 independently-claimable
     sub-task proposals.  Proposals are printed for the human to paste into
-    prd.md; this command does NOT mutate state.  Tasks with complexity < 4
+    prd.md; this command does NOT mutate state.  Tasks below the configured
+    ``auto_expand_threshold`` (default 4; see ``.fakoli-state/config.yaml``)
     are deemed simple enough to ship as-is.
 
     With ``--format prd`` the output is rendered as ready-to-paste markdown
@@ -784,6 +857,10 @@ def expand(
     config = _load_config_optional(state_dir)
     provider = _resolve_llm_provider(use_llm, config)
 
+    # v1.21.0 — the expansion gate honors the project's configured
+    # threshold instead of the historical hardcoded ``complexity >= 4``.
+    _auto_expand, expand_threshold = _resolve_auto_expand(config)
+
     backend = _open_backend(state_dir)
     try:
         task = backend.get_task(task_id)
@@ -793,7 +870,7 @@ def expand(
     finally:
         backend.close()
 
-    proposals = expand_task(task, provider=provider)
+    proposals = expand_task(task, provider=provider, threshold=expand_threshold)
 
     if not proposals:
         complexity = task.scores.complexity
@@ -802,10 +879,11 @@ def expand(
                 f"Task {task_id} has no complexity score yet — "
                 "run `fakoli-state score` first.",
             )
-        elif complexity < 4:
+        elif complexity < expand_threshold:
             typer.echo(
                 f"Task {task_id} complexity={complexity} is below the "
-                "expansion threshold (>= 4). No sub-tasks proposed.",
+                f"expansion threshold (>= {expand_threshold}). "
+                "No sub-tasks proposed.",
             )
         else:
             typer.echo(

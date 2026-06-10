@@ -36,7 +36,7 @@ Phase 3 commands used in this skill:
 |---|---|---|
 | `fakoli-state plan` | Phase 3 | available |
 | `fakoli-state score [TASK_ID]` | Phase 3 | available |
-| `fakoli-state expand TASK_ID` | Phase 7 (pending; scaffolded) | limited |
+| `fakoli-state expand TASK_ID --use-llm` | Phase 7 | available |
 | `fakoli-state review tasks` | Phase 3 | available |
 | `fakoli-state list [--status X]` | Phase 3 | available |
 | `fakoli-state show TASK_ID` | Phase 3 | available |
@@ -126,11 +126,9 @@ For Claude Code runtimes, use the `AskUserQuestion` tool so the user gets a stru
 
 Always: agent generates the question, proposes 2-4 candidate answers when the surrounding context allows, accepts the pick, applies the choice (edit `prd.md`, re-parse, etc.). One decision per turn — do NOT batch three decisions into one question.
 
-When the LLM flagged tasks for expansion (complexity ≥ 4), present them as a Q&A too rather than a list-with-recommendation:
+When the LLM flagged tasks for expansion, do **not** open a per-task Q&A here — expansion is no longer a decision the user makes task-by-task. Scoring (Step 2) emits an EXPANSION QUEUE for every task at/above the configured `auto_expand_threshold`, and Step 3 auto-expands the whole queue with one summary checkpoint at the end. Only surface expansion as a question if the project has opted out (`auto_expand: false` in `.fakoli-state/config.yaml`) or the user has said they want to pick manually.
 
-> 6 tasks scored complexity ≥ 4 and should be expanded into subtasks before being claimed. Should I run `fakoli-state expand` on them now? (all of them / let me pick which / not yet — score them first)
-
-The same rule applies whenever the post-plan output surfaces structural concerns about the PRD (e.g., "R010 vs F003 drift"). Each concern is one Q&A turn with proposed fix options, not a wall of "issues to consider."
+The one-decision-per-turn rule still applies whenever the post-plan output surfaces structural concerns about the PRD (e.g., "R010 vs F003 drift"). Each concern is one Q&A turn with proposed fix options, not a wall of "issues to consider."
 
 ---
 
@@ -153,48 +151,58 @@ Populates all six dimensions on each `Task`. The scorer is rule-based — no LLM
 | `review_risk` | 1–5 | How carefully a human reviewer needs to inspect the output |
 | `agent_suitability` | 1–5 | How well-suited a typical frontier model is to this task |
 
-After scoring, run `fakoli-state list` yourself and read the scored output. Surface anything that needs attention before continuing:
+When tasks score at/above the configured `auto_expand_threshold` (default 4) and `auto_expand` is enabled (default true), the CLI output ends with an **EXPANSION QUEUE** section — one entry per oversized task with its complexity, a suggested sub-task count, and the exact follow-up command:
 
-- **`complexity >= 4`**: flag for expand (Step 3). These tasks are too large for a single agent session.
+```
+EXPANSION QUEUE (complexity >= 4)
+---------------------------------
+  T001         complexity=5  suggested-subtasks=4  Storage backend refactor
+    $ fakoli-state expand T001 --use-llm
+  T003         complexity=4  suggested-subtasks=3  Auth middleware
+    $ fakoli-state expand T003 --use-llm
+
+2 task(s) queued for expansion. ...
+```
+
+**The queue drives Step 3 automatically — do not ask the user per task.** Unless the user opted out (`auto_expand: false` in `.fakoli-state/config.yaml`, or they said so in chat), proceed straight to Step 3 and expand every queued task. The queue replaces the old "flag for expand and ask" dance: the score already made the decision; your job is to execute it and present one summary afterward.
+
+Two score signals still warrant explicit attention in chat (these are NOT auto-handled):
+
 - **`agent_suitability <= 2`**: flag for human attention. Low suitability means the task involves judgment calls, ambiguous requirements, or architecturally broad changes that a model is likely to get wrong.
 - **`blast_radius >= 4`**: flag for careful claim ordering. High blast-radius tasks touch foundational code and should not run in parallel with other tasks that share files.
 
-Present these findings explicitly in chat. Do not silently continue if multiple high-complexity tasks appear — pause and ask:
-
-> Scoring done. Three tasks need a decision before we promote:
-> - T001 complexity: 5 (storage backend) — expand into subtasks?
-> - T003 complexity: 4 (auth middleware) — expand?
-> - T007 complexity: 4 (data migration) — expand?
-> - T002 agent_suitability: 2 (API contract) — want human eyes before claiming?
->
-> Want me to expand T001/T003/T007 now, or proceed with `review tasks` as-is?
-
 ---
 
-### Step 3 — Expand oversized tasks
+### Step 3 — Auto-expand the queued tasks (v1.21.0)
 
-For each task with `complexity >= 4` that the user wants split, invoke `fakoli-state expand TASK_ID` yourself:
-
-```bash
-fakoli-state expand TASK_ID
-```
-
-**Phase 7 limitation:** in Phase 3, `expand` scaffolds the subtask structure but refuses to auto-generate subtask content without `--use-llm`. Invoking `fakoli-state expand T001` will return an error similar to:
-
-```
-Error: LLM augmentation required for expand. Re-run with --use-llm once Phase 7 ships.
-```
-
-**Phase 3 workaround — drive it inline.** Propose `T001.1` and `T001.2` subtask blocks directly in the conversation (acceptance criteria, verification commands, likely files), apply them to `.fakoli-state/prd.md` yourself once the user confirms, then re-run the pipeline yourself:
+**Default behavior: expand every task in the EXPANSION QUEUE automatically — no per-task user Q&A.** Dispatch the planner agent (`agents/planner.md`) to work the queue, or drive the commands yourself when the runtime has a shell:
 
 ```bash
-# After applying the subtask edits to prd.md:
+fakoli-state expand T001 --use-llm --format prd
+```
+
+For each queued task: run the expand command, take the returned `### T00X.N` blocks, apply them to the `## Tasks` section of `.fakoli-state/prd.md` (drop or keep the parent block per the parser's behavior — confirm before removing), then re-run the pipeline once at the end:
+
+```bash
 fakoli-state prd parse
 fakoli-state plan
 fakoli-state score
 ```
 
-Surface each step's output inline. The parent task `T001` can be dropped from `prd.md` once its subtasks are defined — or left as a logical grouping if the parser supports it. Confirm parser behavior before removing parent task blocks.
+**Skip auto-expansion only when the user opted out** — `auto_expand: false` in `.fakoli-state/config.yaml` (the queue section will not even render), or an explicit instruction in chat ("don't split anything yet"). In the opt-out case, fall back to asking once: "N tasks scored at/above the expansion threshold — want me to expand them?"
+
+**One summary checkpoint after the queue is drained.** Do not narrate each expansion as a separate decision; collect the results and present a single recap before moving to Step 4:
+
+> Auto-expanded 3 queued tasks:
+> - T001 (complexity 5) → T001.1–T001.4 (storage backend split by layer)
+> - T003 (complexity 4) → T003.1–T003.3 (auth middleware: parse / verify / wire)
+> - T007 (complexity 4) → T007.1–T007.3 (migration: schema / backfill / cutover)
+>
+> Re-scored: no remaining tasks at/above threshold. Anything you want re-merged or re-split before I run `review tasks`?
+
+If a re-score still queues a task (a sub-task scored at/above threshold again), surface it in the same checkpoint rather than silently looping — repeated expansion of the same lineage is a sign the PRD block needs human restructuring, not another LLM pass.
+
+If the LLM call fails (no API key, network failure), surface the error and fall back to proposing subtask blocks inline in the conversation, applying them to `prd.md` after the user confirms.
 
 ---
 
@@ -280,7 +288,7 @@ Ending this skill with a numbered list like "1. Run `score` 2. Expand T001 3. Ru
 | Before this skill | `/fakoli-state:prd` — PRD must be at least `reviewed` |
 | After Step 1 (plan) | `/fakoli-state:state-ops` — inspect the raw task graph before scoring |
 | After Step 5 (ready queue confirmed) | `/fakoli-state:execute` (Phase 5) — agents can now claim and work tasks |
-| If `show TASK_ID` reveals `complexity >= 4` | Expand in Step 3, then re-run `score` and `review tasks` |
+| If `show TASK_ID` reveals complexity at/above `auto_expand_threshold` | Expand in Step 3, then re-run `score` and `review tasks` |
 
 ---
 
@@ -293,7 +301,7 @@ Ending this skill with a numbered list like "1. Run `score` 2. Expand T001 3. Ru
 | `fakoli-state review tasks` | Phase 3 | available |
 | `fakoli-state list` | Phase 3 | available |
 | `fakoli-state show TASK_ID` | Phase 3 | available |
-| `fakoli-state expand TASK_ID` (auto-generate subtasks) | Phase 7 | pending — use manual prd.md workaround |
+| `fakoli-state expand TASK_ID --use-llm` (auto-generate subtasks) | Phase 7 | available — driven automatically by the Step 2 EXPANSION QUEUE |
 | `fakoli-state score --use-llm` (LLM-augmented scoring) | Phase 7 | pending — rule-based scoring is default |
 | `fakoli-state next` (pick highest-priority claimable task) | Phase 4 | pending — use `list --status ready` instead |
 | Planner agent (`agents/planner.md`) | Phase 3 | available — dispatched by plan when needed |

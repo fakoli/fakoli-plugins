@@ -10,6 +10,20 @@ _No unreleased changes._
 
 ---
 
+## [1.21.0] — 2026-06-10
+
+### Added
+- **Complexity score → auto-expansion loop.** After scoring, every task whose `complexity` is at/above the configurable threshold is queued for decomposition instead of just sitting in a report (idea adopted from claude-task-master):
+  - New config knobs: `auto_expand` (default `true`) and `auto_expand_threshold` (default 4, validated 1–5; booleans explicitly rejected so `true` cannot silently become threshold 1)
+  - CLI `score` now prints an **EXPANSION QUEUE** section — task id, complexity, deterministic suggested sub-task count (`complexity - 1`, clamped to the expand engine's 2–5 envelope), and the exact `fakoli-state expand TXXX --use-llm` follow-up per task
+  - MCP `score_tasks` response gains an `expansion_queue` field with the same data (queueing stays deterministic; LLM-side decomposition still only runs via `expand --use-llm` or the planner agent)
+  - `expand` threshold no longer hardcoded — `planning.inference.expand_task` accepts the config threshold
+  - `skills/plan/SKILL.md`: after scoring, the orchestrator auto-dispatches planner expansion for queued tasks (one summary checkpoint, no per-task Q&A) unless `auto_expand: false`
+  - New pure helpers in `planning/scoring.py`: `build_expansion_queue()` / `suggested_subtask_count()` / `ExpansionCandidate`
+  - 18 new tests (queue filtering/ordering/edge cases, config knob validation, template coverage)
+
+---
+
 ## [1.20.2] — 2026-06-10
 
 ### Fixed

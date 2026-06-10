@@ -1901,6 +1901,25 @@ class TaskScoreEntry(BaseModel):
     agent_suitability: int
 
 
+class ExpansionQueueEntry(BaseModel):
+    """One task queued for sub-task expansion (complexity >= threshold).
+
+    v1.21.0 — the deterministic side of the score → expand loop. The entry
+    carries everything an orchestrating agent needs to act: the task
+    identity, why it queued (complexity), a deterministic suggested split
+    size, and the exact CLI follow-up command. The LLM-side expansion
+    itself happens via the planner agent / ``expand --use-llm``, never here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    title: str
+    complexity: int
+    suggested_subtasks: int
+    expand_command: str
+
+
 class ScoreTasksResponse(BaseModel):
     """Result of score_tasks."""
 
@@ -1908,6 +1927,12 @@ class ScoreTasksResponse(BaseModel):
 
     scored: list[TaskScoreEntry]
     skipped_already_scored: int
+    # v1.21.0 — auto-expansion queue. ``expansion_queue`` lists every task
+    # at/above ``auto_expand_threshold`` (config default 4) when
+    # ``auto_expand`` is enabled (config default true); empty when disabled.
+    auto_expand: bool
+    auto_expand_threshold: int
+    expansion_queue: list[ExpansionQueueEntry]
 
 
 @mcp.tool
@@ -1926,6 +1951,13 @@ def score_tasks(
     - ``task_id`` is None → only tasks whose Score is not yet complete are
       scored. Already-scored tasks count toward ``skipped_already_scored``.
 
+    v1.21.0: the response carries an ``expansion_queue`` — every task whose
+    complexity is at/above the project's ``auto_expand_threshold`` (config
+    default 4) when ``auto_expand`` is enabled (config default true), each
+    with the exact ``fakoli-state expand TXXX --use-llm`` follow-up command.
+    The queue is deterministic; the LLM-side expansion happens via the
+    planner agent, never inside this tool.
+
     Args:
         task_id: Specific task to score (always re-scored). When None, scores
                  every task whose Score is not yet complete.
@@ -1933,7 +1965,8 @@ def score_tasks(
     """
     from fakoli_state.cli._helpers import _scores_complete
     from fakoli_state.clock import SystemClock
-    from fakoli_state.planning.scoring import score_task
+    from fakoli_state.config import DEFAULT_AUTO_EXPAND_THRESHOLD
+    from fakoli_state.planning.scoring import build_expansion_queue, score_task
     from fakoli_state.state.backend import EventRejected
     from fakoli_state.state.models import EventDraft
 
@@ -1943,6 +1976,37 @@ def score_tasks(
             f"fakoli-state not initialized in {state_dir.parent}. "
             "Call init_project first.",
         )
+
+    # v1.21.0 — soft-load config for the auto-expansion knobs. Mirrors the
+    # plan_tasks pattern above: a missing or malformed config never blocks
+    # the tool; we fall back to the defaults (auto_expand on, threshold 4).
+    auto_expand = True
+    auto_expand_threshold = DEFAULT_AUTO_EXPAND_THRESHOLD
+    config_path = state_dir / "config.yaml"
+    if config_path.exists():
+        try:
+            from fakoli_state.config import load_config as _load_config
+
+            _config = _load_config(config_path)
+            auto_expand = _config.auto_expand
+            auto_expand_threshold = _config.auto_expand_threshold
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(
+                f"score_tasks: config.yaml load failed "
+                f"({type(exc).__name__}: {exc}); falling back to default "
+                "auto-expansion settings.",
+                file=sys.stderr,
+            )
+        except Exception as exc:  # noqa: BLE001 — last-resort guard, never re-raise
+            # yaml.YAMLError and any other unexpected error: warn and fall
+            # back. Distinct prefix so the debug log distinguishes this
+            # from the narrow-handler path above.
+            print(
+                f"score_tasks: unexpected config.yaml load error "
+                f"({type(exc).__name__}: {exc}); falling back to default "
+                "auto-expansion settings.",
+                file=sys.stderr,
+            )
 
     backend = _open_backend(state_dir)
     try:
@@ -1996,9 +2060,32 @@ def score_tasks(
                 agent_suitability=computed.agent_suitability,
             ))
 
+        # v1.21.0 — re-fetch AFTER the task.scored events landed so the
+        # queue covers every task at/above threshold (including ones scored
+        # in earlier runs), not just this call's batch.
+        expansion_queue: list[ExpansionQueueEntry] = []
+        if auto_expand:
+            expansion_queue = [
+                ExpansionQueueEntry(
+                    task_id=candidate.task_id,
+                    title=candidate.title,
+                    complexity=candidate.complexity,
+                    suggested_subtasks=candidate.suggested_subtasks,
+                    expand_command=(
+                        f"fakoli-state expand {candidate.task_id} --use-llm"
+                    ),
+                )
+                for candidate in build_expansion_queue(
+                    backend.list_tasks(), threshold=auto_expand_threshold
+                )
+            ]
+
         return ScoreTasksResponse(
             scored=scored,
             skipped_already_scored=skipped,
+            auto_expand=auto_expand,
+            auto_expand_threshold=auto_expand_threshold,
+            expansion_queue=expansion_queue,
         )
     finally:
         backend.close()

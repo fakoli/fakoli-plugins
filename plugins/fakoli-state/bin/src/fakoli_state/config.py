@@ -13,9 +13,16 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Final, Literal
 
 import yaml
+
+# v1.21.0 — complexity score at/above which a task is queued for sub-task
+# expansion. Single source of truth: the Config dataclass default, the
+# scoring engine's expansion-queue builder, and every CLI/MCP call site that
+# runs without a config.yaml all read this constant. Mirrors the historical
+# hardcoded ``complexity >= 4`` gate in ``planning.inference.expand_task``.
+DEFAULT_AUTO_EXPAND_THRESHOLD: Final[int] = 4
 
 
 @dataclass(frozen=True)
@@ -126,6 +133,25 @@ class Config:
     # explicit opt-out and produces an unprefixed `<task>-<slug>` branch.
     branch_prefix: str = "agent"
 
+    # v1.21.0 — complexity score → auto-expansion loop.
+    #
+    # After scoring, every task whose ``complexity`` is at/above
+    # ``auto_expand_threshold`` is surfaced in an EXPANSION QUEUE section
+    # (CLI ``score``) and in the ``expansion_queue`` field of the MCP
+    # ``score_tasks`` response, each with the exact follow-up command
+    # (``fakoli-state expand TXXX --use-llm``). The same threshold replaces
+    # the previously hardcoded ``complexity >= 4`` gate in
+    # ``fakoli-state expand``.
+    #
+    #   auto_expand: true            # default; emit the queue after scoring
+    #   auto_expand: false           # opt out: scores are reported, no queue
+    #   auto_expand_threshold: 4     # default; valid range 1-5 (score scale)
+    #
+    # Queueing is deterministic — the LLM-side expansion itself still only
+    # happens when ``expand --use-llm`` (or the planner agent) runs.
+    auto_expand: bool = True
+    auto_expand_threshold: int = DEFAULT_AUTO_EXPAND_THRESHOLD
+
     sync_github_enabled: bool = False
     sync_github_conflict_strategy: Literal[
         "local_wins", "remote_wins", "prompt", "manual_merge"
@@ -234,6 +260,24 @@ def load_config(path: str | Path) -> Config:
             f"({resolved}). Use e.g. 'feature' or 'fix' or 'feature/agent'."
         )
 
+    # v1.21.0 — auto-expansion knobs. ``auto_expand`` follows the same loose
+    # bool coercion as ``sync_github_enabled``; the threshold is validated
+    # strictly (int, 1-5) so a typo'd ``auto_expand_threshold: 9`` surfaces
+    # at load time rather than silently queueing nothing (no score is >5) or
+    # everything (every score is >=1).
+    auto_expand_raw = data.get("auto_expand", True)
+    if not isinstance(auto_expand_raw, bool):
+        raise ValueError(
+            f"auto_expand must be a boolean, got "
+            f"{type(auto_expand_raw).__name__} ({resolved})."
+        )
+    auto_expand = auto_expand_raw
+
+    auto_expand_threshold = _validate_auto_expand_threshold(
+        data.get("auto_expand_threshold", DEFAULT_AUTO_EXPAND_THRESHOLD),
+        resolved,
+    )
+
     sync_conflict_strategy = _validate_literal(
         data.get("sync_github_conflict_strategy", "prompt"),
         ("local_wins", "remote_wins", "prompt", "manual_merge"),
@@ -283,6 +327,8 @@ def load_config(path: str | Path) -> Config:
         git_ops_mode=git_ops_mode,  # type: ignore[arg-type]
         durability=durability,  # type: ignore[arg-type]
         branch_prefix=branch_prefix,
+        auto_expand=auto_expand,
+        auto_expand_threshold=auto_expand_threshold,
         sync_github_enabled=bool(data.get("sync_github_enabled", False)),
         sync_github_conflict_strategy=sync_conflict_strategy,  # type: ignore[arg-type]
         sync_providers=sync_providers,
@@ -355,6 +401,35 @@ def _validate_literal(
             f"Allowed values: {allowed}."
         )
     return s
+
+
+def _validate_auto_expand_threshold(value: object, config_path: Path) -> int:
+    """Return *value* as an int in [1, 5], else raise ValueError.
+
+    YAML integers arrive as ``int``; a quoted ``"4"`` arrives as ``str`` and
+    is accepted for symmetry with ``default_lease_minutes`` (which coerces via
+    ``int(str(...))``). Booleans are rejected explicitly — in Python
+    ``bool`` is an ``int`` subclass, so ``auto_expand_threshold: true`` would
+    otherwise silently become 1 (queue everything).
+    """
+    if isinstance(value, bool):
+        raise ValueError(
+            f"auto_expand_threshold must be an integer 1-5, got boolean "
+            f"{value!r} ({config_path})."
+        )
+    try:
+        threshold = int(str(value))
+    except ValueError as exc:
+        raise ValueError(
+            f"auto_expand_threshold must be an integer 1-5, got "
+            f"{value!r} ({config_path})."
+        ) from exc
+    if not 1 <= threshold <= 5:
+        raise ValueError(
+            f"auto_expand_threshold must be in the range 1-5 (the complexity "
+            f"score scale), got {threshold} ({config_path})."
+        )
+    return threshold
 
 
 def _str_or_none(value: object) -> str | None:
@@ -518,6 +593,21 @@ durability: relaxed
 # Nested prefixes (e.g. `feature/agent`) are also accepted verbatim.
 # ---------------------------------------------------------------------------
 branch_prefix: agent
+
+# ---------------------------------------------------------------------------
+# Auto-expansion (v1.21.0)
+#
+# After `fakoli-state score`, every task whose complexity score is at or
+# above `auto_expand_threshold` is listed in an EXPANSION QUEUE section
+# with the exact follow-up command (`fakoli-state expand TXXX --use-llm`).
+# The same threshold gates `fakoli-state expand` itself. Queueing is
+# deterministic; the LLM-side decomposition only runs via expand --use-llm.
+#
+#   auto_expand: true            # default; set false to silence the queue
+#   auto_expand_threshold: 4     # 1-5 (complexity score scale)
+# ---------------------------------------------------------------------------
+auto_expand: true
+auto_expand_threshold: 4
 
 # ---------------------------------------------------------------------------
 # GitHub sync (optional)

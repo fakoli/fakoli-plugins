@@ -516,3 +516,60 @@ class TestSyncProvidersConfig:
         config_path = _write_config(tmp_path / "config.yaml", yaml_content)
         with pytest.raises(ValueError, match="'sync'"):
             load_config(config_path)
+
+
+# ---------------------------------------------------------------------------
+# Auto-expansion knobs (v1.21.0)
+# ---------------------------------------------------------------------------
+
+
+class TestAutoExpandConfig:
+    def test_defaults_when_keys_absent(self, tmp_path: Path) -> None:
+        """Minimal config: auto-expansion on, threshold 4."""
+        config_path = _write_config(tmp_path / "config.yaml", _minimal_yaml())
+        cfg = load_config(config_path)
+        assert cfg.auto_expand is True
+        assert cfg.auto_expand_threshold == 4
+
+    def test_explicit_values_parse(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + "auto_expand: false\nauto_expand_threshold: 5\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        cfg = load_config(config_path)
+        assert cfg.auto_expand is False
+        assert cfg.auto_expand_threshold == 5
+
+    def test_quoted_threshold_coerces_like_lease_minutes(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + "auto_expand_threshold: '3'\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        assert load_config(config_path).auto_expand_threshold == 3
+
+    def test_threshold_below_range_raises(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + "auto_expand_threshold: 0\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="auto_expand_threshold"):
+            load_config(config_path)
+
+    def test_threshold_above_range_raises(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + "auto_expand_threshold: 9\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="auto_expand_threshold"):
+            load_config(config_path)
+
+    def test_boolean_threshold_rejected_not_coerced(self, tmp_path: Path) -> None:
+        """``true`` must not silently become threshold 1 (queue everything)."""
+        yaml_content = _minimal_yaml() + "auto_expand_threshold: true\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="boolean"):
+            load_config(config_path)
+
+    def test_non_boolean_auto_expand_raises(self, tmp_path: Path) -> None:
+        yaml_content = _minimal_yaml() + "auto_expand: 'yes'\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="auto_expand"):
+            load_config(config_path)
+
+    def test_template_documents_the_knobs(self, tmp_path: Path) -> None:
+        """config_template ships the knobs with library defaults."""
+        parsed = yaml.safe_load(config_template(project_name="X"))
+        assert parsed["auto_expand"] is True
+        assert parsed["auto_expand_threshold"] == 4
