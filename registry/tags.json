@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-06-01T03:22:36Z",
-  "totalTags": 107,
+  "generatedAt": "2026-06-02T14:14:04Z",
+  "totalTags": 115,
   "tags": [
     {
       "tag": "agents",
@@ -35,6 +35,10 @@
       "count": 2
     },
     {
+      "tag": "productivity",
+      "count": 2
+    },
+    {
       "tag": "slides",
       "count": 2
     },
@@ -52,6 +56,10 @@
     },
     {
       "tag": "ai-images",
+      "count": 1
+    },
+    {
+      "tag": "append-only",
       "count": 1
     },
     {
@@ -127,6 +135,10 @@
       "count": 1
     },
     {
+      "tag": "dictation",
+      "count": 1
+    },
+    {
       "tag": "docs",
       "count": 1
     },
@@ -144,6 +156,10 @@
     },
     {
       "tag": "event-coordinator",
+      "count": 1
+    },
+    {
+      "tag": "event-sourced",
       "count": 1
     },
     {
@@ -219,6 +235,10 @@
       "count": 1
     },
     {
+      "tag": "jsonl",
+      "count": 1
+    },
+    {
       "tag": "keep",
       "count": 1
     },
@@ -239,6 +259,10 @@
       "count": 1
     },
     {
+      "tag": "markdown-export",
+      "count": 1
+    },
+    {
       "tag": "marketplace",
       "count": 1
     },
@@ -255,11 +279,19 @@
       "count": 1
     },
     {
+      "tag": "note-taking",
+      "count": 1
+    },
+    {
       "tag": "notebook",
       "count": 1
     },
     {
       "tag": "notebooklm",
+      "count": 1
+    },
+    {
+      "tag": "notes",
       "count": 1
     },
     {
@@ -296,10 +328,6 @@
     },
     {
       "tag": "principles",
-      "count": 1
-    },
-    {
-      "tag": "productivity",
       "count": 1
     },
     {
@@ -376,6 +404,10 @@
     },
     {
       "tag": "streaming",
+      "count": 1
+    },
+    {
+      "tag": "tags",
       "count": 1
     },
     {
