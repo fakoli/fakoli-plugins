@@ -13,6 +13,7 @@ Coverage targets:
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import sqlite3
@@ -28,11 +29,18 @@ from fakoli_state.clock import FrozenClock
 from fakoli_state.state.backend import (
     EventRejected,
     SchemaMismatch,
+    StateLocked,
     TransactionAborted,
 )
 from fakoli_state.state.models import Event, EventDraft
 from fakoli_state.state.schema import SCHEMA_VERSION
-from fakoli_state.state.sqlite import SqliteBackend
+from fakoli_state.state.sqlite import (
+    _FLOCK_BACKOFF_CAP_S,
+    _FLOCK_BACKOFF_INITIAL_S,
+    _FLOCK_TIMEOUT_S,
+    SqliteBackend,
+    _flock_backoff_delays,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -9410,3 +9418,91 @@ class TestDecideApplyContract:
             assert b.get_sync_mapping("T001") is None
         finally:
             b.close()
+
+
+# ===========================================================================
+# _append_lock contention backoff (jittered exponential, 5 s budget)
+# ===========================================================================
+
+
+class TestAppendLockBackoff:
+    """Backoff schedule for flock contention in _append_lock.
+
+    Under a coordinated multi-agent wave (10+ concurrent claimants), the old
+    fixed-interval poll woke every waiter on the same tick: early winners
+    re-acquired in lockstep and late arrivals burned their whole 5 s budget
+    without ever winning a release, surfacing as spurious StateLocked. These
+    tests pin the replacement schedule: exponential from 10 ms, capped at
+    500 ms, ±10% jitter, same 5 s overall timeout.
+
+    No real sleeping and no monkey-patching: the injected sleep_fn advances a
+    FrozenClock, following the project's Clock-protocol pattern.
+    """
+
+    def test_schedule_doubles_from_initial_to_cap(self) -> None:
+        """With jitter pinned at its midpoint the schedule is pure doubling."""
+        delays = _flock_backoff_delays(rand=lambda: 0.5)  # 2*0.5-1 == 0 → no jitter
+        got = [next(delays) for _ in range(9)]
+        assert got == pytest.approx(
+            [0.010, 0.020, 0.040, 0.080, 0.160, 0.320, 0.500, 0.500, 0.500]
+        )
+
+    def test_jitter_stays_within_ten_percent(self) -> None:
+        """rand() at 0.0 / 1.0 produces the extreme delays: base ∓ / ± 10%."""
+        low = _flock_backoff_delays(rand=lambda: 0.0)
+        high = _flock_backoff_delays(rand=lambda: 1.0)
+        assert next(low) == pytest.approx(_FLOCK_BACKOFF_INITIAL_S * 0.9)
+        assert next(high) == pytest.approx(_FLOCK_BACKOFF_INITIAL_S * 1.1)
+        # The cap applies to the un-jittered base, so a jittered delay may
+        # exceed the cap by at most 10%.
+        for _ in range(20):
+            next(high)
+        assert next(high) == pytest.approx(_FLOCK_BACKOFF_CAP_S * 1.1)
+
+    def test_contended_append_backs_off_then_raises_state_locked(
+        self, tmp_path: Path
+    ) -> None:
+        """A held flock drives the full backoff schedule, then StateLocked.
+
+        The injected sleep_fn records each delay and advances the FrozenClock
+        instead of blocking, so the whole 5 s contention window runs in
+        microseconds and the recorded schedule is assertable.
+        """
+        events_path = tmp_path / "events.jsonl"
+        events_path.touch()
+        clock = _make_clock()
+        slept: list[float] = []
+
+        def fake_sleep(seconds: float) -> None:
+            slept.append(seconds)
+            clock.advance(seconds=seconds)
+
+        b = SqliteBackend(
+            db_path=str(tmp_path / "state.db"),
+            events_path=str(events_path),
+            clock=clock,
+            sleep_fn=fake_sleep,
+        )
+        # Hold LOCK_EX on an independent fd: flock locks belong to the open
+        # file description, so a second open() of the same path contends even
+        # within a single process.
+        holder = open(events_path, "a", encoding="utf-8")
+        try:
+            fcntl.flock(holder.fileno(), fcntl.LOCK_EX)
+            with pytest.raises(StateLocked), b._append_lock():
+                pass  # unreachable — the lock is never acquired
+        finally:
+            fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
+            holder.close()
+
+        # Every sleep is clamped to the time remaining, so the recorded
+        # delays consume the 5 s budget exactly (± timedelta µs rounding).
+        assert sum(slept) == pytest.approx(_FLOCK_TIMEOUT_S, abs=1e-4)
+        # Each un-clamped delay obeys the schedule: within ±10% of
+        # min(10 ms * 2^i, 500 ms). The final delay may be clamped shorter.
+        for i, delay in enumerate(slept[:-1]):
+            base = min(_FLOCK_BACKOFF_INITIAL_S * 2**i, _FLOCK_BACKOFF_CAP_S)
+            assert base * 0.9 <= delay <= base * 1.1, f"delay {i}: {delay}"
+        # Exponential, not fixed: the old 50 ms poll took ~100 wake-ups to
+        # exhaust 5 s; the backoff schedule gets there in 13-18 larger steps.
+        assert 10 <= len(slept) <= 20

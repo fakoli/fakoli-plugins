@@ -10,6 +10,15 @@ _No unreleased changes._
 
 ---
 
+## [1.20.1] — 2026-06-10
+
+### Fixed
+
+- **Jittered exponential backoff for event-log flock contention.** `_append_lock` retried a contended `flock` on `events.jsonl` with a fixed-interval sleep, which woke every waiter on the same tick. Under a coordinated multi-agent wave (10+ concurrent claimants) early winners re-acquired the lock in lockstep and late arrivals exhausted the 5 s budget without ever winning a release, surfacing as spurious `StateLocked`. Retries now follow an exponential schedule — 10 ms initial, doubling to a 500 ms cap, ±10% jitter — under the same 5 s overall timeout, so wake-ups are de-synchronized and each lock release is contested by waiters at staggered offsets.
+- **`_append_lock` now follows the Clock-protocol convention.** The contention deadline is computed via the injected `Clock` (previously a raw inline `time.monotonic()`), and the retry sleep is injectable via a new keyword-only `SqliteBackend(sleep_fn=...)` constructor parameter (defaults to `time.sleep`). The backoff schedule and timeout path are covered by deterministic unit tests using `FrozenClock` — no real sleeping, no monkey-patching.
+
+---
+
 ## [1.20.0] — 2026-06-01
 
 ### Added / Changed — Event-Sourced Write Path (SL1-RR-1 closed)

@@ -21,11 +21,14 @@ import fcntl
 import json
 import logging
 import os
+import random
 import sqlite3
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import BaseModel
@@ -155,6 +158,39 @@ def _idempotent_no_op(
     return exc
 
 
+# ---------------------------------------------------------------------------
+# flock contention backoff — used by _append_lock
+# ---------------------------------------------------------------------------
+
+# Overall contention budget matches SQLite's busy_timeout (5 s).
+_FLOCK_TIMEOUT_S = 5.0
+_FLOCK_BACKOFF_INITIAL_S = 0.010
+_FLOCK_BACKOFF_CAP_S = 0.500
+_FLOCK_BACKOFF_JITTER = 0.10
+
+
+def _flock_backoff_delays(
+    rand: Callable[[], float] = random.random,
+) -> Iterator[float]:
+    """Yield flock retry delays: exponential from 10 ms to a 500 ms cap, ±10% jitter.
+
+    Fixed-interval polling starves late arrivals under a coordinated
+    multi-agent wave: every waiter wakes on the same tick, the same few
+    claimants win repeatedly, and the rest burn their whole 5 s budget in
+    lockstep. Exponential growth keeps early retries cheap while the jitter
+    de-synchronizes the wake-ups so each release is contested by waiters at
+    staggered offsets.
+
+    ``rand`` must return a uniform float in [0, 1); it is injectable so tests
+    can pin the jitter (0.5 → exact midpoint schedule) without patching the
+    ``random`` module.
+    """
+    base = _FLOCK_BACKOFF_INITIAL_S
+    while True:
+        yield base * (1.0 + _FLOCK_BACKOFF_JITTER * (2.0 * rand() - 1.0))
+        base = min(base * 2.0, _FLOCK_BACKOFF_CAP_S)
+
+
 class SqliteBackend:
     """Concrete SQLite + JSONL implementation of the Backend protocol.
 
@@ -167,6 +203,9 @@ class SqliteBackend:
     durability   : ``"relaxed"`` (default) — synchronous=NORMAL, no per-event
                    fsync; ``"strict"`` — synchronous=FULL + fsync(log) before
                    COMMIT. See SL1-RR-1 spec section 6.
+    sleep_fn     : injectable sleep used by the flock contention backoff in
+                   ``_append_lock``. Defaults to ``time.sleep``; tests inject
+                   a fake that advances a FrozenClock instead of blocking.
 
     Lifecycle (SL1-RR-1 write-path)
     ---------------------------------
@@ -185,11 +224,13 @@ class SqliteBackend:
         events_path: str,
         clock: Clock,
         durability: str = "relaxed",
+        sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         self._db_path = db_path
         self._events_path = events_path
         self._clock = clock
         self._durability = durability
+        self._sleep_fn = sleep_fn
         self._conn: sqlite3.Connection | None = None
         # In-memory monotonic counter; seeded from log max on initialize().
         # Incremented at log-append time inside the flock critical section.
@@ -980,7 +1021,9 @@ class SqliteBackend:
         no lost events.
 
         The flock uses a 5-second contention timeout matching SQLite's
-        ``busy_timeout``; contention beyond it raises ``StateLocked``.
+        ``busy_timeout``; contention beyond it raises ``StateLocked``. Retries
+        follow the jittered exponential schedule of ``_flock_backoff_delays``
+        so a coordinated wave of claimants does not poll in lockstep.
         """
         with self._proc_lock:
             # Ensure the log file exists before we try to flock it.
@@ -989,19 +1032,22 @@ class SqliteBackend:
                 open(log_path, "a", encoding="utf-8").close()  # noqa: WPS515
             with open(log_path, "a", encoding="utf-8") as _lock_fh:
                 # Try a non-blocking LOCK_EX first; if contended, retry with
-                # a timeout by polling every 50 ms up to 5 seconds.
-                import time
-                deadline = time.monotonic() + 5.0
+                # jittered exponential backoff until the 5 s budget is spent.
+                delays = _flock_backoff_delays()
+                deadline = self._clock.now() + timedelta(seconds=_FLOCK_TIMEOUT_S)
                 while True:
                     try:
                         fcntl.flock(_lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                         break
                     except OSError as lock_exc:
-                        if time.monotonic() >= deadline:
+                        remaining = (deadline - self._clock.now()).total_seconds()
+                        if remaining <= 0:
                             raise StateLocked(
-                                "append: flock contention on events.jsonl exceeded 5 s timeout"
+                                "append: flock contention on events.jsonl exceeded "
+                                f"{_FLOCK_TIMEOUT_S:g} s timeout"
                             ) from lock_exc
-                        time.sleep(0.05)
+                        # Clamp so the final sleep cannot overshoot the budget.
+                        self._sleep_fn(min(next(delays), remaining))
                 try:
                     yield
                 finally:
