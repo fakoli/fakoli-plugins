@@ -54,10 +54,17 @@ case "$SUBAGENT" in
     ;;
 esac
 
+# Emit both the current PreToolUse contract (hookSpecificOutput.permissionDecision)
+# and the legacy top-level decision/reason fields for older Claude Code versions.
 cat <<'EOF'
 {
   "decision": "block",
-  "reason": "fakoli-flow critic gate is PENDING: a code-writing wave completed and the critic has not reviewed it yet. Dispatch fakoli-crew:critic on the wave's modified files (or fakoli-crew:welder for verification/fix cycles) before dispatching any other agent. If this block is wrong for your situation, disarm enforcement with: rm .fakoli/gate-armed (or set FAKOLI_FLOW_NO_GATE=1)."
+  "reason": "fakoli-flow critic gate is PENDING: a code-writing wave completed and the critic has not reviewed it yet. Dispatch fakoli-crew:critic on the wave's modified files (or fakoli-crew:welder for verification/fix cycles) before dispatching any other agent. If this block is wrong for your situation, disarm enforcement with: rm .fakoli/gate-armed (or set FAKOLI_FLOW_NO_GATE=1).",
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "fakoli-flow critic gate is PENDING: a code-writing wave completed and the critic has not reviewed it yet. Dispatch fakoli-crew:critic on the wave's modified files (or fakoli-crew:welder for verification/fix cycles) before dispatching any other agent. If this block is wrong for your situation, disarm enforcement with: rm .fakoli/gate-armed (or set FAKOLI_FLOW_NO_GATE=1)."
+  }
 }
 EOF
 exit 0

@@ -40,14 +40,22 @@ except Exception:
 
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+# State writes go through json.dumps so a subagent_type containing quotes or
+# backslashes can never produce malformed JSON (which would make gate-check
+# silently fail open).
+write_state() {
+  python3 -c "
+import json, sys
+print(json.dumps({'pending': sys.argv[1] == 'true', sys.argv[2]: sys.argv[3], 'updated': sys.argv[4]}))
+" "$1" "$2" "$3" "$NOW" > "${STATE_FILE}.tmp" 2>/dev/null && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+}
+
 case "$SUBAGENT" in
   *guido|*smith|*welder)
-    printf '{"pending": true, "last_writer": "%s", "updated": "%s"}\n' \
-      "$SUBAGENT" "$NOW" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+    write_state true last_writer "$SUBAGENT"
     ;;
   *critic)
-    printf '{"pending": false, "cleared_by": "critic", "updated": "%s"}\n' \
-      "$NOW" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+    write_state false cleared_by critic
     ;;
 esac
 

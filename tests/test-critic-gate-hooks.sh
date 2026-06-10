@@ -42,8 +42,20 @@ dispatch_json() {
 }
 
 is_blocked() {
-    # A block is any non-empty stdout containing "decision": "block"
-    grep -q '"decision": "block"'
+    # A real block must satisfy the PreToolUse contract Claude Code enforces:
+    # hookSpecificOutput.permissionDecision == "deny". The legacy top-level
+    # decision field alone is NOT sufficient (it is ignored by current
+    # Claude Code versions — checking only for it would let the gate be
+    # silently inoperative while tests pass).
+    python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+h = d.get('hookSpecificOutput', {})
+ok = (h.get('hookEventName') == 'PreToolUse'
+      and h.get('permissionDecision') == 'deny'
+      and bool(h.get('permissionDecisionReason')))
+sys.exit(0 if ok else 1)
+" 2>/dev/null
 }
 
 # --- 1. Unarmed: everything passes through silently
@@ -104,6 +116,26 @@ OUT=$(echo 'not json' | bash "$CHECK"); RC=$?
 
 echo 'not json' | bash "$TRACK"; RC=$?
 [ "$RC" -eq 0 ] && pass "malformed input fails open in gate-track" || fail "gate-track did not fail open"
+
+# --- 9. JSON-injection-shaped subagent_type cannot corrupt the state file
+printf '{"tool_input":{"subagent_type":"fakoli-crew:welder\\" , \\\\evil"}}' | bash "$TRACK"
+python3 -c "import json; json.load(open('.fakoli/gate-state.json'))" 2>/dev/null \
+    && pass "quote/backslash in subagent_type still produces valid JSON state" \
+    || fail "state file corrupted by special characters in subagent_type"
+
+# --- 10. Stale-arm expiry (abandoned-run protection): armed file >24h old is ignored
+dispatch_json "fakoli-crew:welder" | bash "$TRACK"   # ensure pending=true with fresh arm
+touch -t 202601010000 .fakoli/gate-armed              # backdate arming to Jan 1 (>24h)
+OUT=$(dispatch_json "fakoli-crew:guido" | bash "$CHECK"); RC=$?
+[ -z "$OUT" ] && [ "$RC" -eq 0 ] \
+    && pass "stale armed file (>24h) fails open in gate-check" \
+    || fail "stale armed file still blocked dispatch"
+
+rm -f .fakoli/gate-state.json
+dispatch_json "fakoli-crew:welder" | bash "$TRACK"
+[ ! -f .fakoli/gate-state.json ] \
+    && pass "stale armed file (>24h) is ignored by gate-track" \
+    || fail "gate-track wrote state despite stale arming"
 
 # --- Summary
 echo ""
