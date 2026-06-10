@@ -1,5 +1,5 @@
 {
-  "description": "Detects project language and fakoli-crew availability at session start",
+  "description": "Detects project context at session start; mechanically enforces the critic gate during /flow:execute runs",
   "hooks": {
     "SessionStart": [
       {
@@ -7,6 +7,30 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/detect-context.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/gate-check.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/gate-track.sh",
             "timeout": 5
           }
         ]

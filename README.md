@@ -67,6 +67,8 @@ A separate companion plugin, [**systems-thinking**](plugins/systems-thinking), r
 
 Install any combination — each works standalone. The full trinity gives you a complete multi-agent development pipeline: intent-driven planning, parallel agent execution against canonical state, and evidence-based verification with enforced claim/lock discipline.
 
+How does the trinity compare to Beads, claude-task-master, spec-kit, superpowers, and Claude Code's native Agent Teams? The honest prior-art analysis — what fakoli invented, what it reinvented, and where the moat is — lives in [docs/POSITIONING.md](docs/POSITIONING.md).
+
 ---
 
 ## Available Plugins

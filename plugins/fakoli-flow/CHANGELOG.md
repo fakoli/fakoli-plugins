@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0 (2026-06-09)
+
+### Added
+- **System-enforced critic gate.** New `hooks/gate-track.sh` (PostToolUse) and `hooks/gate-check.sh` (PreToolUse) on agent dispatch: while a run is armed via `.fakoli/gate-armed`, completing a code-writing crew agent (guido/smith/welder) sets the gate PENDING, and only critic or welder dispatches are permitted until a critic review completes. A welder fix re-pends the gate, so fix cycles mechanically require critic re-review. Fail-open (24h stale-arm expiry, `FAKOLI_FLOW_NO_GATE=1`, `rm .fakoli/gate-armed`). The gate moves from prompt-level convention to hook-level enforcement — closing the gap flagged in the design review between what the docs claim ("cannot be skipped") and what the system guaranteed
+- Execute skill: arm/disarm protocol in Step 1 and Final Summary; critic dispatch prompt upgraded to two-stage review (Stage 1 spec compliance with `[SPEC]`-labeled MUST FIX, Stage 2 code quality) — adopted from superpowers' two-stage review split
+- Execute + verify skills: sentinel dispatch prompts now require a machine-readable fenced-JSON verdict block (`{"verdict", "pass", "fail", "na", "failures": [{"check", "fix_owner"}]}`) so the orchestrator can branch on results without scraping prose
+
+### Changed
+- Run-ID format gains seconds (`YYYYMMDDHHmmss`) plus explicit basename sanitization rules (lowercase, `[a-z0-9-]`, collapse dashes) — same-minute runs of one plan no longer collide on a scratch root
+- `hooks/detect-context.sh`: crew version detection no longer hard-codes the `fakoli-plugins` marketplace cache path; falls back through plugin-list output → any cache/marketplace location
+
+---
+
 ## 1.1.1 (2026-06-01)
 
 ### Added

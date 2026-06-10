@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-02T08:04:33Z",
+  "generatedAt": "2026-06-10T06:51:19Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -19,13 +19,13 @@
         },
         {
           "name": "fakoli-crew",
-          "version": "2.5.0",
+          "version": "2.7.0",
           "description": "Eight specialist AI agents for software engineering — generalist roles (polyglot architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) with TDD enforcement, systematic debugging, and verification gates. Plugin-surface critics (agent/skill/hook/mcp/structure) moved to fakoli-plugin-critic in 2.3.0.",
           "path": "plugins/fakoli-crew"
         },
         {
           "name": "fakoli-flow",
-          "version": "1.1.1",
+          "version": "1.2.0",
           "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
           "path": "plugins/fakoli-flow"
         },
