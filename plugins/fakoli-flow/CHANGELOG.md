@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.1 (2026-06-10)
+
+### Changed
+- Generic-fallback substitution table (graceful degradation without fakoli-crew) gains a `warden` row, so the security-audit gate degrades to a `general-purpose` security reviewer instead of being silently dropped when fakoli-crew is absent.
+
+---
+
 ## 1.3.0 (2026-06-10)
 
 ### Added

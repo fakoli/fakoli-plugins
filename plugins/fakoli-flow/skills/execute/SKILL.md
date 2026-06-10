@@ -441,6 +441,7 @@ Substitution table:
 | `fakoli-crew:welder` | `general-purpose` with prompt: "You are a senior engineer integrating code into existing systems." |
 | `fakoli-crew:scout` | `general-purpose` with prompt: "You are researching a codebase. Read files and report findings only — make no changes." |
 | `fakoli-crew:critic` | `general-purpose` with prompt: "You are a Staff Engineer doing a code review. Report MUST FIX, SHOULD FIX, CONSIDER, and NIT findings." |
+| `fakoli-crew:warden` | `general-purpose` with prompt: "You are a security auditor. Review only for exploitability — injection, secret leakage, supply-chain risk, auth bypass, plugin permission surfaces. Report findings by severity (CRITICAL/HIGH block, MEDIUM/LOW advise) with file:line and the attack story. Report, do not fix." |
 | `fakoli-crew:sentinel` | `general-purpose` with prompt: "You are verifying that all acceptance criteria are met. Run each check command and report the exact output." |
 | `fakoli-crew:smith` | `general-purpose` with prompt: "You are creating plugin manifests and command files." |
 | `fakoli-crew:herald` | `general-purpose` with prompt: "You are writing documentation and README files." |

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.9.1 (2026-06-10)
+
+### Changed
+- Ripple sweep for the nine-agent roster: `crew-ops` SKILL.md `/crew` line and frontmatter agent list now include warden; root marketplace README updated (9 agents, security auditor named). Also corrected long-standing README drift in the fakoli-state row (stale `v1.11.0` pin and `13 MCP tools` count removed in favor of capability description that can't go stale on a number) and added warden to fakoli-flow's generic-fallback substitution table.
+
+---
+
 ## 2.9.0 (2026-06-10)
 
 ### Added

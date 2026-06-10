@@ -1,6 +1,6 @@
 ---
 name: crew-ops
-description: "This skill should be used when coordinating multiple fakoli-crew agents on a single project — assembling crews, planning waves, assigning file ownership, or routing work across guido, critic, scout, smith, welder, herald, keeper, and sentinel. Provides wave patterns, file-ownership rules, status-file protocol, and language-style references shared across the crew. Trigger phrases: \"assemble a crew\", \"who owns this file\", \"plan the waves\", \"run the crew on X\", \"coordinate agents to Y\", \"which agent should handle\", \"multi-agent orchestration\". Each agent writes its status to the path the orchestrator provides; the default scratch root is `.fakoli/runs/<run-id>/`."
+description: "This skill should be used when coordinating multiple fakoli-crew agents on a single project — assembling crews, planning waves, assigning file ownership, or routing work across guido, critic, warden, scout, smith, welder, herald, keeper, and sentinel. Provides wave patterns, file-ownership rules, status-file protocol, and language-style references shared across the crew. Trigger phrases: \"assemble a crew\", \"who owns this file\", \"plan the waves\", \"run the crew on X\", \"coordinate agents to Y\", \"which agent should handle\", \"multi-agent orchestration\". Each agent writes its status to the path the orchestrator provides; the default scratch root is `.fakoli/runs/<run-id>/`."
 ---
 # Crew Operations
 
@@ -19,7 +19,7 @@ See `skills/crew-ops/references/agent-roster.md` for the full 8-agent roster wit
 
 ## Companion Command
 
-`/crew` — list all 8 agents and suggest crew compositions for a given task.
+`/crew` — list all 9 agents and suggest crew compositions for a given task.
 
 ## Related Skill
 
