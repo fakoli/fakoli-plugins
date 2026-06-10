@@ -442,12 +442,16 @@ def build_expansion_queue(
     not an actionable unit, so re-queuing it for expansion would be the TM-#250
     "main task isn't actionable" trap. See :func:`is_expanded`.
     """
+    # Precompute the set of parent ids in one pass so the per-task container
+    # check is O(1) — calling is_expanded() inside the loop would re-scan the
+    # whole list each iteration (O(n^2)).
+    expanded_ids = {t.parent_task_id for t in tasks if t.parent_task_id is not None}
     candidates: list[ExpansionCandidate] = []
     for task in tasks:
         complexity = task.scores.complexity
         if complexity is None or complexity < threshold:
             continue
-        if is_expanded(task, tasks):
+        if task.id in expanded_ids:
             continue
         candidates.append(ExpansionCandidate(
             task_id=task.id,
@@ -512,12 +516,15 @@ def build_recursive_expansion_queue(
     first), then complexity descending, then task id.
     """
     by_id = {t.id: t for t in tasks}
+    # One pass for the parent-id set (O(1) container check per task) and the
+    # id→task map (O(1) parent lookups in _depth_of) — keeps the walk O(n).
+    expanded_ids = {t.parent_task_id for t in tasks if t.parent_task_id is not None}
     candidates: list[RecursiveExpansionCandidate] = []
     for task in tasks:
         complexity = task.scores.complexity
         if complexity is None or complexity < threshold:
             continue
-        if is_expanded(task, tasks):
+        if task.id in expanded_ids:
             continue  # container — its children are the actionable units
         depth = _depth_of(task, by_id, depth_cap)
         if depth is None or depth > depth_cap:

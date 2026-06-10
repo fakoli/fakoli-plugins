@@ -85,7 +85,10 @@ class TestRecursiveFrontier:
             chain.append(_task(name, 5, prev))
             prev = name
         frontier = build_recursive_expansion_queue(chain, depth_cap=2)
-        # Only the single leaf 'd' is a leaf; its depth is 4 > cap 2 → dropped.
+        # 'd' is the only leaf; walking its parents reaches depth 4. With cap 2,
+        # _depth_of's runaway guard (`depth > depth_cap + 1` → 4 > 3) returns
+        # None, so 'd' is dropped by the `depth is None` branch — i.e. anything
+        # past the cap is excluded from the auto-queue.
         assert frontier == []
 
     def test_leaf_at_exactly_cap_is_kept(self):
@@ -97,8 +100,29 @@ class TestRecursiveFrontier:
     def test_default_depth_cap_is_three(self):
         assert DEFAULT_RECURSION_DEPTH_CAP == 3
 
+    def test_terminates_on_cyclic_parents_via_public_api(self):
+        """Public-API proof of termination: a parent cycle must not hang.
+
+        A ↔ B both point at each other, so both are containers and roll up — the
+        observable result is an empty frontier and, critically, the call
+        returns at all. (The cycle guard inside ``_depth_of`` is not reachable
+        through this path precisely because the container check excludes both
+        nodes first; ``TestDepthGuards`` covers that internal guard directly.)
+        """
+        cyclic = [_task("A", 5, "B"), _task("B", 5, "A")]
+        assert build_recursive_expansion_queue(cyclic) == []
+
 
 class TestDepthGuards:
+    """Direct unit tests for the _depth_of termination guards.
+
+    These exercise _depth_of by name on purpose: the cycle/runaway guards are
+    defense-in-depth that the public queue builders cannot reach (a node in a
+    cycle always has a child, so the container check excludes it before
+    _depth_of is called). A direct test is the only way to verify the
+    termination invariant the guards provide.
+    """
+
     def test_top_level_task_depth_zero(self):
         t = _task("T", 5)
         assert _depth_of(t, {"T": t}, 3) == 0
