@@ -150,3 +150,35 @@ Recommend option 2 as the safest. Awaiting orchestrator decision.
 Status files are run-local scratch under `.fakoli/runs/<run-id>/` (gitignored). They have no value once a run completes and must NOT be moved into a tracked directory such as `archive/` — doing so would re-commit scratch and violate P10 (tool scratch lives outside version control). Let them be discarded with the run directory. Only durable plan and spec docs under `docs/plans/` and `docs/specs/` are version-controlled.
 
 Active run directories under `.fakoli/runs/<run-id>/` contain in-progress or recent sessions. The orchestrator is responsible for pointing agents at the correct run directory.
+
+## Status File Schema
+
+The format above is the contract. This section makes it checkable — orchestrators
+should validate upstream status files against this schema before consuming them,
+and treat a malformed file as NEEDS_REVIEW rather than silently proceeding.
+
+```yaml
+status_file:
+  required:
+    - status          # exactly one of: IN_PROGRESS | COMPLETE | NEEDS_REVIEW | BLOCKED
+    - wave            # integer 1-5
+    - timestamp       # UTC, human-readable
+    - files_modified  # list; "- None." for read-only agents
+    - decisions       # numbered list; "None." if genuinely empty
+  optional:
+    - files_read
+    - blockers        # required when status is BLOCKED
+    - notes_for_specific_agents
+  rules:
+    - Decisions are structured facts (signatures, paths, invariants), not prose
+      narration — a downstream agent must be able to act on each one verbatim.
+    - BLOCKED without a Blockers section is malformed: the orchestrator cannot
+      route what it cannot read.
+    - A writing agent that modified zero files and claims COMPLETE is suspect —
+      orchestrators should surface it, not accept it.
+```
+
+`BLOCKED` is a valid terminal status (it was missing from the format list above in
+earlier versions — fakoli-flow's wave engine has always polled for it). When an agent
+is blocked, it stops, writes the blocker, and waits; it does not improvise around
+the obstacle.

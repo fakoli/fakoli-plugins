@@ -1,6 +1,17 @@
 # Changelog
 
-## 2.7.0 (2026-06-09)
+## 2.8.0 (2026-06-10)
+
+### Added
+- `references/status-file-schema` section in `communication.md`: formal required/optional fields, valid statuses, and orchestrator validation rules — malformed status files become NEEDS_REVIEW instead of silently consumed. Also fixes a real drift: `BLOCKED` was missing from the documented status enum even though fakoli-flow's wave engine has always polled for it
+- `references/scout-template.md`: standard structure for scout reference files (VERIFIED vs DOCUMENTED fact marking, exact-strings-over-paraphrase rules); scout now points at it
+- `references/critic-checklist.md`: the full evolvable review checklist, extracted from the critic prompt; new SHOULD FIX items (silent fail-open, concurrency assumptions)
+
+### Changed
+- **critic**: prompt slims to the inline MUST FIX safety floor + an instruction to Read the full checklist reference before each review — checklist growth no longer requires an agent version bump, and the safety floor applies even if the reference is unavailable
+- **sentinel**: documented the Haiku model choice and the orchestrator's sonnet-override escape hatch for oversized validations (partial-output reads must be declared, never verdicted on)
+- **guido**: polyglot detection quantified — ≥80% one language auto-detects silently, 50–79% auto-detects with a statement, below 50% asks; replaces the ambiguous "comparable file counts" heuristic
+- **keeper**: Iron Rule boundary clarified — files you edit (in full) plus files your edit directly references; not transitive reads of everything a workflow invokes
 
 ### Added
 - **critic**: two-stage review order — Stage 1 spec compliance (each acceptance criterion located in code and cited file:line; unmet criteria are MUST FIX labeled `[SPEC]`), Stage 2 the existing code-quality checklist. Adopted from superpowers' spec-compliance/code-quality review split: leading with quality lets a review polish its way past a missing requirement

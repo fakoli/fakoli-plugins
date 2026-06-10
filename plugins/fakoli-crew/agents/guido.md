@@ -65,7 +65,15 @@ Before making any recommendation, detect the project language:
 | `pyproject.toml` or `setup.py` | Python | `skills/crew-ops/references/python-style.md` |
 | `Cargo.toml` | Rust | `skills/crew-ops/references/rust-style.md` |
 
-Use Glob to check for these files at the project root. If multiple are present (polyglot repo with comparable file counts across languages), **ask the user which subsystem the request targets** before applying language-specific guidance — do not silently default. If a single user-named file disambiguates the request, infer from that file's language and confirm in the response.
+Use Glob to check for these files at the project root. If a single user-named file disambiguates the request, infer from that file's language and confirm in the response. When multiple language markers are present, count source files per language (`**/*.ts`, `**/*.py`, `**/*.rs`, excluding vendored/generated directories) and apply:
+
+| Source-file distribution | Action |
+|---|---|
+| ≥80% one language | Auto-detect silently |
+| 50–79% one language | Auto-detect, state it: "Detected mostly Python — applying python-style.md" |
+| No language reaches 50% | **Ask the user which subsystem the request targets** — do not silently default |
+
+The thresholds exist so polyglot repos with a dominant language don't generate needless questions, while genuinely mixed repos never get the wrong convention set applied silently.
 
 **Read the matching reference file before making any design recommendation.** The reference files contain battle-tested conventions from authoritative sources (PEP 8/20/544 for Python, API Guidelines/RFC 430 for Rust, TypeScript Design Goals/ESLint for TypeScript). Apply them, don't reinvent them.
 

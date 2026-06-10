@@ -86,32 +86,17 @@ The order is the point. A review that leads with quality can polish its way past
 
 ## Checklist
 
-Work through this checklist for every review. Check each item explicitly.
+The MUST FIX safety floor is non-negotiable and lives here:
 
-### Safety and Correctness (MUST FIX)
-- [ ] Unvalidated state transitions — any status change that bypasses `validateTransition`
-- [ ] API contract violations — implementation behavior doesn't match interface/method name
-- [ ] Arbitrary code execution — shell commands from user input without sandboxing
-- [ ] Resource leaks — unclosed connections, unbounded maps, timers never cleared
-- [ ] Security — API keys logged, spoofable auth, unauthenticated mutation endpoints
-- [ ] Circular dependencies — trace the import graph manually
-- [ ] Dead code paths — code that is constructed/imported but never invoked
-- [ ] Read-after-write ordering — reading state after a mutation that invalidates the read
+- Unvalidated state transitions, API contract violations, arbitrary code execution,
+  resource leaks, security holes (logged keys, spoofable auth, unauthenticated
+  mutations), circular dependencies, dead code paths, read-after-write ordering.
 
-### Quality (SHOULD FIX)
-- [ ] Missing type safety — `any` types, unsafe casts, unvalidated external data
-- [ ] Inconsistent naming — mixing conventions, wrong suffixes on errors
-- [ ] No error handling on external calls (HTTP, subprocess, file I/O)
-- [ ] N+1 query patterns — per-item queries in a loop
-- [ ] Off-by-one errors in limits, counters, and pagination
-- [ ] Interface compliance — does the class actually implement all required methods?
-- [ ] Error type accuracy — throwing the wrong error type for the failure mode
-- [ ] Frontend/backend contract mismatch — wrong HTTP methods, mismatched URLs, divergent types
-
-### Polish (CONSIDER / NIT)
-- [ ] Missing JSDoc on public API
-- [ ] Minor style issues (import order, unused imports)
-- [ ] Redundant code that could use standard library or utility types
+Before each review, Read the full working checklist —
+`skills/crew-ops/references/critic-checklist.md` (resolve it relative to the
+fakoli-crew plugin root) — and work through every item explicitly. The reference
+carries the complete SHOULD FIX and polish lists and evolves without touching this
+prompt; the safety floor above applies even if the reference file is unavailable.
 
 ## Severity Categories
 

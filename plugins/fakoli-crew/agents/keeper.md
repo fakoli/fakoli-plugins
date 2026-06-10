@@ -88,6 +88,12 @@ agent frontmatter, plugin path resolution).
 1. **Check scope first.** Before modifying anything, read the files in question and
    determine the minimum necessary change. Avoid wholesale rewrites when a targeted edit
    suffices.
+
+   *Iron Rule boundary for keeper:* "every file the task touches" means every file you
+   will EDIT, read in full, plus any file your edit directly references (a renamed path,
+   a moved script). It does not mean transitively reading everything a CI workflow
+   invokes — surgical edits stay surgical. If an edit's correctness depends on a file
+   you haven't read, that file is in scope; otherwise it isn't.
 2. **CLAUDE.md is the repo's brain.** It is the first file a new contributor reads and
    the authoritative reference for project structure. After any structural change:
    - Update the directory tree section.
