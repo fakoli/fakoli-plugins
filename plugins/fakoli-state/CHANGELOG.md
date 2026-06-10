@@ -10,6 +10,14 @@ _No unreleased changes._
 
 ---
 
+## [1.20.2] — 2026-06-10
+
+### Fixed
+
+- **Flock contention deadline measured on the monotonic clock (Greptile P1 on #80).** 1.20.1 computed the `_append_lock` 5 s contention deadline from wall-clock `Clock.now()`, so an NTP step mid-contention could silently stretch the timeout (backward step) or fire `StateLocked` early (forward step). The deadline is now measured on an injectable monotonic source — new keyword-only `SqliteBackend(monotonic_fn=...)` parameter, defaulting to `time.monotonic` — mirroring `sleep_fn`. The contention unit test drives a fake monotonic counter instead of advancing `FrozenClock`, keeping the timeout path fully deterministic.
+
+---
+
 ## [1.20.1] — 2026-06-10
 
 ### Fixed
