@@ -40,6 +40,7 @@ from fakoli_state.state.backend import (
     StateLocked,
     TransactionAborted,
 )
+from fakoli_state.state.hashing import hash_event_id
 from fakoli_state.state.models import (
     PRD,
     Claim,
@@ -202,6 +203,12 @@ class SqliteBackend:
     durability   : ``"relaxed"`` (default) — synchronous=NORMAL, no per-event
                    fsync; ``"strict"`` — synchronous=FULL + fsync(log) before
                    COMMIT. See SL1-RR-1 spec section 6.
+    events_storage : ``"local"`` (default) — monotonic E{N} event ids, strict
+                   sequential replay, pre-1.22.0 behaviour byte-for-byte;
+                   ``"git"`` — hash-chained event ids + Lamport counter in the
+                   envelope and order-tolerant replay, so events.jsonl can be
+                   committed and merged with ``merge=union`` (git-backed
+                   events Phase A, docs/specs/2026-06-10-git-backed-events.md).
     sleep_fn     : injectable sleep used by the flock contention backoff in
                    ``_append_lock``. Defaults to ``time.sleep``; tests inject
                    a fake that advances a fake monotonic counter instead of
@@ -228,6 +235,7 @@ class SqliteBackend:
         events_path: str,
         clock: Clock,
         durability: str = "relaxed",
+        events_storage: str = "local",
         sleep_fn: Callable[[float], None] = time.sleep,
         monotonic_fn: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -235,12 +243,19 @@ class SqliteBackend:
         self._events_path = events_path
         self._clock = clock
         self._durability = durability
+        self._events_storage = events_storage
         self._sleep_fn = sleep_fn
         self._monotonic_fn = monotonic_fn
         self._conn: sqlite3.Connection | None = None
         # In-memory monotonic counter; seeded from log max on initialize().
         # Incremented at log-append time inside the flock critical section.
+        # Local mode only — git mode derives ids from content hashes.
         self._next_seq: int = 0
+        # Git mode (v1.22.0): Lamport high-water mark across every event this
+        # process has seen — seeded by the full-log scan in initialize()/replay,
+        # advanced on each append. The writer assigns max-seen + 1; ties across
+        # writers are legal and broken deterministically at replay by (ts, id).
+        self._max_lamport: int = 0
         # In-process threading lock nested inside the flock for same-process
         # MCP + CLI thread safety. The outer flock serializes cross-process appends.
         self._proc_lock = threading.Lock()
@@ -332,7 +347,17 @@ class SqliteBackend:
         # If _replaying is already True (we were called from replay_from_empty),
         # do not run catch-up — replay_from_empty will apply every event itself.
         # Running catch-up AND replay would apply events twice.
-        if log_max > 0 and not self._replaying:
+        if self._events_storage == "git":
+            # Git mode (v1.22.0, Phase A): a `git pull`/merge can splice
+            # events ANYWHERE into the file, not just at the tail, so the
+            # local-mode assumption behind surgical catch-up — that the
+            # projection is a strict prefix of the log — no longer holds.
+            # Convergence is instead judged by event-id SET equality and
+            # healed by a full order-tolerant rebuild (which is the only way
+            # to apply a merged-in interior event at its correct HLC position).
+            if not self._replaying:
+                self._git_converge_projection()
+        elif log_max > 0 and not self._replaying:
             table_max = self._table_max_id(conn)
             if table_max < log_max:
                 self._replaying = True
@@ -408,26 +433,53 @@ class SqliteBackend:
                 self._append_audit_line("idempotent_no_op", draft, reason)
                 return None
 
-            # ---- Phase 2: id assignment (log-owned counter) ----
-            # We are inside the flock, so the log tail is the authoritative
-            # source of the maximum assigned id.  Reconcile the in-memory
-            # counter with the log before incrementing so that two separate
-            # processes that both seeded _next_seq from the same stale log_max
-            # at initialize() time do NOT assign the same id.  This is the
-            # PR #41 Critic-3 cross-process id-collision fix (SL1-RR-1).
-            #
-            # _scan_tail_id() is O(last-line) and already tolerates a torn
-            # trailing line, so it is safe to call here under the flock.
-            # The in-memory counter remains a valid fast-path for the
-            # single-process case: if no other process has written since our
-            # last append, scan_tail returns _next_seq and max() is a no-op.
-            self._next_seq = max(self._next_seq, self._scan_tail_id())
-            self._next_seq += 1
-            event_id = f"E{self._next_seq:06d}"
-            event = Event(id=event_id, **draft.model_dump())
+            # ---- Phase 2: id assignment ----
+            if self._events_storage == "git":
+                # Git mode (v1.22.0): hash-chained id + Lamport counter. The
+                # chain parent is the last event in FILE order as seen by this
+                # writer — we hold the flock, so the tail is stable and covers
+                # appends by other processes since we opened. The Lamport value
+                # is max-seen + 1, where "seen" is the in-memory high-water
+                # mark (full-log scan at initialize()/replay) reconciled with
+                # the tail line. A merged-in INTERIOR line could in theory
+                # carry a higher lamport than both — harmless: replay breaks
+                # lamport ties deterministically by (ts, id), so the counter
+                # only needs to be a causal lower bound, not a global maximum.
+                parent_event_id, tail_lamport = self._scan_tail_envelope()
+                event_id = hash_event_id(
+                    parent_event_id=parent_event_id,
+                    payload=draft.payload_json,
+                    actor=draft.actor,
+                    ts=draft.timestamp.isoformat(),
+                )
+                event = Event(
+                    id=event_id,
+                    parent_event_id=parent_event_id,
+                    lamport=max(self._max_lamport, tail_lamport) + 1,
+                    **draft.model_dump(),
+                )
+            else:
+                # Local mode (log-owned counter). We are inside the flock, so
+                # the log tail is the authoritative source of the maximum
+                # assigned id.  Reconcile the in-memory counter with the log
+                # before incrementing so that two separate processes that both
+                # seeded _next_seq from the same stale log_max at initialize()
+                # time do NOT assign the same id.  This is the PR #41 Critic-3
+                # cross-process id-collision fix (SL1-RR-1).
+                #
+                # _scan_tail_id() is O(last-line) and already tolerates a torn
+                # trailing line, so it is safe to call here under the flock.
+                # The in-memory counter remains a valid fast-path for the
+                # single-process case: if no other process has written since
+                # our last append, scan_tail returns _next_seq and max() is a
+                # no-op.
+                self._next_seq = max(self._next_seq, self._scan_tail_id())
+                self._next_seq += 1
+                event_id = f"E{self._next_seq:06d}"
+                event = Event(id=event_id, **draft.model_dump())
 
             # ---- Phase 3: log-first append ----
-            event_line = event.model_dump_json() + "\n"
+            event_line = self._serialize_event_line(event)
             try:
                 with open(self._events_path, "a", encoding="utf-8") as log_fh:
                     log_fh.write(event_line)
@@ -436,19 +488,42 @@ class SqliteBackend:
                         log_fh.flush()
                         os.fsync(log_fh.fileno())
             except OSError as exc:
-                # Log write failed before COMMIT — counter was incremented but
-                # nothing was appended; reverse the counter so the id is not
-                # orphaned (the log has no record of it).
-                self._next_seq -= 1
+                # Log write failed before COMMIT — nothing was appended. In
+                # local mode the counter was already incremented; reverse it
+                # so the id is not orphaned (the log has no record of it).
+                # Git mode mutates no counter before a successful write — the
+                # hash id simply never entered the log.
+                if self._events_storage != "git":
+                    self._next_seq -= 1
                 raise TransactionAborted(
                     f"append: failed to write event {event_id!r} to log: {exc}"
                 ) from exc
+
+            if self._events_storage == "git" and event.lamport is not None:
+                # Advance the high-water mark HERE — after the log append, not
+                # after COMMIT — because the event now exists in the log
+                # regardless of how the SQLite mutation below fares, and the
+                # next append's "max-seen" must account for it.
+                self._max_lamport = event.lamport
 
             # ---- Phase 5: SQLite mutation ----
             try:
                 conn.execute("BEGIN IMMEDIATE")
                 spec.write(conn, typed_payload, event)
-                self._insert_event_row(conn, event)
+                # Git mode: a live append is, by construction, the newest
+                # event this machine has seen, so it takes the next display
+                # seq; a post-merge replay reassigns seq globally in HLC
+                # order. Local mode leaves seq NULL — the monotonic id IS the
+                # display order.
+                self._insert_event_row(
+                    conn,
+                    event,
+                    seq=(
+                        self._next_display_seq(conn)
+                        if self._events_storage == "git"
+                        else None
+                    ),
+                )
                 conn.execute("COMMIT")
             except Exception as exc:
                 self._safe_rollback(conn)
@@ -492,6 +567,14 @@ class SqliteBackend:
            Any interior malformed line raises — that is corruption, not a torn write.
         5. Re-seed ``_next_seq`` from the max id seen during replay.
         """
+        if self._events_storage == "git":
+            # v1.22.0 — order-tolerant replay; see _replay_from_empty_git.
+            # The strict-sequence body below is the LOCAL path and stays
+            # byte-for-byte as shipped (its replay byte-equality guarantee is
+            # frozen per the git-backed-events spec, Risks table).
+            self._replay_from_empty_git(events_path)
+            return
+
         # Close existing connection.
         self.close()
 
@@ -574,6 +657,102 @@ class SqliteBackend:
             # what we actually replayed.
             if last_event_id > 0:
                 self._next_seq = last_event_id
+        finally:
+            self._replaying = False
+
+    def _replay_from_empty_git(self, events_path: str) -> None:
+        """Order-tolerant rebuild for ``events_storage: git`` (v1.22.0 Phase A).
+
+        Differences from the strict local replay, each forced by the
+        ``merge=union`` git layout:
+
+        1. **Dedupe by event id.** A union merge can duplicate a line (the
+           same event present on both sides of the merge). Identical id ⇒
+           identical content — the id is a content hash — so the first
+           occurrence applies and the rest are skipped (idempotent replay).
+        2. **Order by (lamport, ts, event_id)**, not file order. Line order
+           across a merge point is arbitrary; the hybrid-logical-clock sort
+           makes the rebuild deterministic no matter how two branches'
+           suffixes interleaved. Competing events that do not commute (two
+           ``claim.created`` on one task) therefore resolve the same way on
+           every machine: earliest (lamport, ts, id) applies first and wins
+           the task transition. (Materializing the loser as
+           ``claim.superseded`` is the Phase B reconciler's job.)
+        3. **seq assignment.** Events are applied in HLC order and numbered
+           1..N into the projection's ``seq`` column — derived display state,
+           never written back to the log.
+
+        Torn-trailing-line tolerance matches the local path exactly: only the
+        final line may fail to parse (crash mid-append); interior damage
+        raises — that is corruption, not a torn write.
+        """
+        # Close and delete state.db (+ WAL/SHM sidecars), same as local replay.
+        self.close()
+        for suffix in ("", "-wal", "-shm"):
+            path = self._db_path + suffix
+            if os.path.exists(path):
+                os.remove(path)
+
+        # Set _replaying before initialize() so the git convergence check is
+        # skipped (we ARE the convergence) and audit side-effects in _write_*
+        # stay suppressed, same contract as the local path.
+        self._replaying = True
+        try:
+            self.initialize()
+
+            if not os.path.exists(events_path):
+                return
+
+            conn = self._require_conn()
+
+            with open(events_path, encoding="utf-8") as fh:
+                lines = fh.readlines()
+
+            events_by_id: dict[str, Event] = {}
+            for i, raw_line in enumerate(lines):
+                stripped = raw_line.strip()
+                if not stripped:
+                    continue
+                is_last = i == len(lines) - 1
+                try:
+                    raw: dict[str, Any] = json.loads(stripped)
+                    event = Event.model_validate(raw)
+                except Exception as exc:
+                    # JSON decode and envelope validation share one tolerance
+                    # rule: a damaged FINAL line is a torn write, anything
+                    # interior is corruption.
+                    if is_last:
+                        logger.debug(
+                            "git replay: skipping torn trailing line (line %d): %s",
+                            i + 1,
+                            exc,
+                        )
+                        break
+                    raise ValueError(
+                        f"git replay: malformed event on interior line {i + 1}: {exc}"
+                    ) from exc
+                if event.id in events_by_id:
+                    # merge=union duplicated this line — applying once is the
+                    # correct semantics by construction (spec Risks table).
+                    logger.debug("git replay: duplicate event %s skipped", event.id)
+                    continue
+                events_by_id[event.id] = event
+
+            # Hybrid-logical-clock order. A missing lamport (hand-edited or
+            # not-yet-migrated line) sorts first as 0 rather than crashing
+            # the rebuild; timestamps are tz-aware (model-enforced) so the
+            # datetime comparison is total.
+            ordered = sorted(
+                events_by_id.values(),
+                key=lambda e: (e.lamport or 0, e.timestamp, e.id),
+            )
+
+            max_lamport = 0
+            for seq, event in enumerate(ordered, start=1):
+                self._apply_write_only(conn, event, seq=seq)
+                if event.lamport is not None and event.lamport > max_lamport:
+                    max_lamport = event.lamport
+            self._max_lamport = max_lamport
         finally:
             self._replaying = False
 
@@ -929,25 +1108,35 @@ class SqliteBackend:
     def _check_schema_version(self, *, pre_ddl_version: int | None = None) -> None:
         """Raise SchemaMismatch if on-disk version is incompatible with SCHEMA_VERSION.
 
-        Auto-upgrade behaviour (Phase 8 SF-6, refined by P1-3):
+        Auto-upgrade behaviour (Phase 8 SF-6, refined by P1-3; v4 added in
+        v1.22.0 for git-backed events Phase A):
 
-        - ``v0 / v1 → v3``: purely additive. The IF NOT EXISTS DDL created
-          the v3-shaped ``sync_mappings`` table from scratch (those versions
-          had no such table). Just bump ``user_version``.
-        - ``v2 → v3``: NOT purely additive. The v2 db has a real
+        - ``v0 / v1 → v4``: ``sync_mappings`` never existed pre-v2, so the
+          IF NOT EXISTS DDL created the current-shaped table from scratch;
+          only the v4 ``events.seq`` column must be retrofitted onto the
+          pre-existing ``events`` table.
+        - ``v2 → v4``: NOT purely additive. The v2 db has a real
           ``sync_mappings`` table that ``CREATE TABLE IF NOT EXISTS``
           cannot retroactively modify — we must explicitly ALTER it to
           add ``external_url``, ``provider_metadata_json``, and the v3
           UNIQUE(external_system, external_id) index. Pre-fix this branch
           was a no-op stamp; queries against the new columns raised
-          ``OperationalError`` until the v3 ALTERs landed.
+          ``OperationalError`` until the v3 ALTERs landed. The v4
+          ``events.seq`` ALTER rides along.
+        - ``v3 → v4``: purely additive for local mode — ``events`` gains the
+          nullable ``seq`` display-order column. The legacy table's strict
+          id CHECK (``E[0-9]*``) is deliberately left in place: SQLite
+          cannot ALTER a CHECK, local mode never writes a hash id, and the
+          git-mode entry path (``migrate-events`` → projection rebuild)
+          recreates the table from the v4 DDL with the widened CHECK.
 
         ``pre_ddl_version`` carries the user_version that was on disk
-        BEFORE ``_apply_ddl`` re-stamped it. Required for the v2→v3 path:
-        without it we'd always observe the post-DDL stamp (always equal
-        to SCHEMA_VERSION) and the migration branch would never fire.
+        BEFORE ``_apply_ddl`` re-stamped it. Required for every upgrade
+        path: without it we'd always observe the post-DDL stamp (always
+        equal to SCHEMA_VERSION) and the migration branches would never
+        fire.
 
-        Older gaps (e.g. a v3 db opened by code that expects v4) still
+        Future gaps (e.g. a v4 db opened by code that expects v5) still
         raise. See docs/migrations.md.
         """
         conn = self._require_conn()
@@ -961,13 +1150,15 @@ class SqliteBackend:
             on_disk = row[0] if row else 0
         if on_disk == SCHEMA_VERSION:
             return
-        if on_disk in (0, 1) and SCHEMA_VERSION == 3:
-            # v0/v1 → v3: no sync_mappings existed pre-v2, so the DDL above
-            # created the v3-shaped table directly. Just bump.
+        if on_disk in (0, 1) and SCHEMA_VERSION == 4:
+            # v0/v1 → v4: no sync_mappings existed pre-v2, so the DDL above
+            # created the current-shaped table directly. Retrofit events.seq
+            # and bump.
+            self._ensure_events_seq_column(conn)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             return
-        if on_disk == 2 and SCHEMA_VERSION == 3:
-            # v2 → v3: add the three v3 sync_mappings additions that the
+        if on_disk == 2 and SCHEMA_VERSION == 4:
+            # v2 → v4: add the three v3 sync_mappings additions that the
             # IF NOT EXISTS DDL cannot retroactively apply to the v2 table.
             # Each ALTER is wrapped because re-running the migration (e.g.
             # crash-recovery) must remain idempotent — a "duplicate column"
@@ -996,6 +1187,14 @@ class SqliteBackend:
                 "idx_sync_mappings_external_unique "
                 "ON sync_mappings (external_system, external_id)"
             )
+            self._ensure_events_seq_column(conn)
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            return
+        if on_disk == 3 and SCHEMA_VERSION == 4:
+            # v3 → v4 (v1.22.0 git-backed events): retrofit the nullable
+            # events.seq column and bump. See the docstring for why the
+            # legacy strict id CHECK stays.
+            self._ensure_events_seq_column(conn)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             return
         raise SchemaMismatch(
@@ -1003,6 +1202,19 @@ class SqliteBackend:
             f"expected version {SCHEMA_VERSION}. "
             "Run a migration or delete state.db to start fresh."
         )
+
+    @staticmethod
+    def _ensure_events_seq_column(conn: sqlite3.Connection) -> None:
+        """ALTER events ADD COLUMN seq if it is missing (v4, idempotent).
+
+        Wrapped in duplicate-column tolerance for the same reason as the
+        v2→v3 ALTERs: re-running the migration after a crash must not fail.
+        """
+        try:
+            conn.execute("ALTER TABLE events ADD COLUMN seq INTEGER")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
 
     def _require_conn(self) -> sqlite3.Connection:
         """Return the open connection or raise if not initialised."""
@@ -1065,34 +1277,26 @@ class SqliteBackend:
                     except OSError:
                         pass
 
-    def _scan_tail_id(self) -> int:
-        """Return the numeric part of the last event id in events.jsonl.
+    def _read_tail_window(self) -> list[bytes]:
+        """Return candidate raw lines from the end of events.jsonl, oldest first.
 
-        Reads a window from the end of the file — O(window), not O(file size).
-        If the file does not exist or is empty, returns 0.
+        Shared by ``_scan_tail_id`` (local mode) and ``_scan_tail_envelope``
+        (git mode). Reads a window from the end of the file — O(window), not
+        O(file size). Returns ``[]`` when the file is missing or empty.
 
-        Torn-line tolerance (MUST FIX — SL1-RR-1 critic issue 1 + SHOULD FIX 1):
-        The final line of the file may be a torn partial write (crash mid-append).
-        A torn line will fail JSON parsing or carry no valid E###### id. We walk
-        backward through the candidate lines in the tail window and return the
-        *first* line that carries a valid E###### id — skipping the torn/idless
-        trailing line and falling back to the previous complete line.
-
-        Large-line tolerance (SHOULD FIX 1): if no newline separator is found in
-        the initial window, the final event line is longer than the window. We
-        double the window and retry, up to file_size, so events with large
-        ``prd.parsed`` / ``task.expanded`` payloads are handled correctly.
+        Large-line tolerance (SHOULD FIX 1): starts with a 4096-byte window
+        and doubles until the window contains at least one newline separator
+        (ensuring at least one complete prior line to fall back to) or spans
+        the entire file, so events with large ``prd.parsed`` /
+        ``task.expanded`` payloads are handled correctly.
         """
         log_path = self._events_path
         if not os.path.exists(log_path):
-            return 0
+            return []
         file_size = os.path.getsize(log_path)
         if file_size == 0:
-            return 0
+            return []
 
-        # Start with a 4096-byte window; double until we find at least one
-        # newline separator (ensuring we have at least two candidate lines to
-        # fall back between) or have read the entire file.
         chunk_size = min(4096, file_size)
         with open(log_path, "rb") as fh:
             while True:
@@ -1107,13 +1311,24 @@ class SqliteBackend:
                 # No newline found and we haven't read the full file yet — double.
                 chunk_size = min(chunk_size * 2, file_size)
 
-        # Split the stripped tail into candidate lines.
-        lines = stripped.split(b"\n")
+        return stripped.split(b"\n")
 
+    def _scan_tail_id(self) -> int:
+        """Return the numeric part of the last event id in events.jsonl.
+
+        Local mode. If the file does not exist or is empty, returns 0.
+
+        Torn-line tolerance (MUST FIX — SL1-RR-1 critic issue 1 + SHOULD FIX 1):
+        The final line of the file may be a torn partial write (crash mid-append).
+        A torn line will fail JSON parsing or carry no valid E###### id. We walk
+        backward through the candidate lines in the tail window and return the
+        *first* line that carries a valid E###### id — skipping the torn/idless
+        trailing line and falling back to the previous complete line.
+        """
         # Walk from the last line backwards; return the first valid E###### id found.
         # This skips a torn or id-less trailing line and falls back to the previous
         # complete line, matching replay_from_empty's torn-trailing-line tolerance.
-        for candidate in reversed(lines):
+        for candidate in reversed(self._read_tail_window()):
             candidate = candidate.strip()
             if not candidate:
                 continue
@@ -1126,6 +1341,114 @@ class SqliteBackend:
                 continue
 
         return 0
+
+    def _scan_tail_envelope(self) -> tuple[str | None, int]:
+        """Return (event_id, lamport) of the last valid log line — git mode.
+
+        The chain parent for the next append is the last event in FILE order,
+        not HLC order: the spec defines the parent as "the previous event as
+        seen by the writer", and under the flock the file tail is exactly
+        that. Torn or id-less trailing lines are skipped with fallback to the
+        previous complete line, mirroring ``_scan_tail_id``. Returns
+        ``(None, 0)`` for an empty/missing log — the first event is the chain
+        root and has no parent.
+        """
+        for candidate in reversed(self._read_tail_window()):
+            candidate = candidate.strip()
+            if not candidate:
+                continue
+            try:
+                raw = json.loads(candidate.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            event_id = raw.get("id")
+            if not isinstance(event_id, str) or not event_id:
+                continue
+            lamport_raw = raw.get("lamport")
+            # bool is an int subclass — `lamport: true` must not count as 1.
+            if isinstance(lamport_raw, int) and not isinstance(lamport_raw, bool):
+                return event_id, lamport_raw
+            return event_id, 0
+        return None, 0
+
+    def _scan_log_ids_and_lamport(self) -> tuple[set[str], int]:
+        """Full-log scan: every event id + the Lamport high-water mark (git mode).
+
+        O(file size) by design — git mode needs the full id set for the
+        convergence check (a merge can splice events into the interior), and
+        the same pass seeds ``_max_lamport``. Tolerates the torn trailing
+        line exactly like replay; an interior malformed line raises because
+        that is corruption, not a torn write.
+        """
+        ids: set[str] = set()
+        max_lamport = 0
+        if not os.path.exists(self._events_path):
+            return ids, max_lamport
+        with open(self._events_path, encoding="utf-8") as fh:
+            lines = fh.readlines()
+        for i, raw_line in enumerate(lines):
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            try:
+                raw: dict[str, Any] = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                if i == len(lines) - 1:
+                    continue  # torn trailing line — same tolerance as replay
+                raise ValueError(
+                    f"events log scan: malformed JSON on interior line {i + 1}: {exc}"
+                ) from exc
+            event_id = raw.get("id")
+            if isinstance(event_id, str) and event_id:
+                ids.add(event_id)
+            lamport_raw = raw.get("lamport")
+            if (
+                isinstance(lamport_raw, int)
+                and not isinstance(lamport_raw, bool)
+                and lamport_raw > max_lamport
+            ):
+                max_lamport = lamport_raw
+        return ids, max_lamport
+
+    def _git_converge_projection(self) -> None:
+        """Heal the projection in git mode: full rebuild when log/table diverge.
+
+        Loads every event id in the log (tolerating the torn trailing line),
+        seeds the in-memory Lamport high-water mark, then compares the id SET
+        against the events table. On any difference — log ahead (fresh clone,
+        crash between log append and COMMIT), log rewritten (migrate-events),
+        or merged-in interior events — the projection is rebuilt from scratch
+        via the order-tolerant git replay. Set comparison (not max/count) is
+        the only sound convergence test once ``merge=union`` can splice
+        events into the interior of the file.
+        """
+        conn = self._require_conn()
+        log_ids, max_lamport = self._scan_log_ids_and_lamport()
+        self._max_lamport = max_lamport
+        table_ids = {
+            row[0] for row in conn.execute("SELECT id FROM events").fetchall()
+        }
+        if log_ids != table_ids:
+            self.replay_from_empty(self._events_path)
+
+    def _serialize_event_line(self, event: Event) -> str:
+        """Serialize *event* to its newline-terminated JSONL line.
+
+        Local mode omits the git-mode envelope fields (``parent_event_id``,
+        ``lamport`` — always None here) so the line bytes stay identical to
+        every pre-1.22.0 log: existing fixtures, goldens, and on-disk logs
+        must not churn. Git mode always emits both keys — a uniform line
+        shape per mode beats per-line optionality (the chain root's parent is
+        an explicit ``null``).
+        """
+        if self._events_storage == "git":
+            return event.model_dump_json() + "\n"
+        return event.model_dump_json(exclude={"parent_event_id", "lamport"}) + "\n"
+
+    def _next_display_seq(self, conn: sqlite3.Connection) -> int:
+        """Return MAX(seq)+1 from the events table (git-mode live append)."""
+        row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM events").fetchone()
+        return int(row[0])
 
     def _table_max_id(self, conn: sqlite3.Connection) -> int:
         """Return the numeric part of the MAX event id in the SQLite events table."""
@@ -1196,12 +1519,20 @@ class SqliteBackend:
                 f"to converge on: {sorted(target_ids)}"
             )
 
-    def _apply_write_only(self, conn: sqlite3.Connection, event: Event) -> None:
+    def _apply_write_only(
+        self,
+        conn: sqlite3.Connection,
+        event: Event,
+        *,
+        seq: int | None = None,
+    ) -> None:
         """Apply a single event via ``_write_*`` only — no validation, no logging.
 
-        Used by ``replay_from_empty`` and ``_forward_catch_up``. Raises
-        ``TransactionAborted`` on any failure so the caller knows the
-        projection is inconsistent.
+        Used by ``replay_from_empty``, ``_replay_from_empty_git``, and
+        ``_forward_catch_up``. Raises ``TransactionAborted`` on any failure so
+        the caller knows the projection is inconsistent. ``seq`` is the
+        replay-assigned display order (git mode); the local-mode callers leave
+        it None.
         """
         action = event.action
         dispatch = self._get_action_dispatch()
@@ -1220,7 +1551,7 @@ class SqliteBackend:
         try:
             conn.execute("BEGIN IMMEDIATE")
             spec.write(conn, typed_payload, event)
-            self._insert_event_row(conn, event)
+            self._insert_event_row(conn, event, seq=seq)
             conn.execute("COMMIT")
         except sqlite3.OperationalError as exc:
             self._safe_rollback(conn)
@@ -3289,15 +3620,28 @@ class SqliteBackend:
             },
         )
 
-    def _insert_event_row(self, conn: sqlite3.Connection, event: Event) -> None:
-        """Insert the event into the events mirror table."""
+    def _insert_event_row(
+        self,
+        conn: sqlite3.Connection,
+        event: Event,
+        *,
+        seq: int | None = None,
+    ) -> None:
+        """Insert the event into the events mirror table.
+
+        ``seq`` is the replay-assigned display order — DERIVED state for git
+        mode (where hash ids carry no order), never written back to the log.
+        Local mode passes None and the column stays NULL because the
+        monotonic id IS the order there.
+        """
         data = event.model_dump(mode="json")
         conn.execute(
             """
             INSERT OR IGNORE INTO events
-                (id, timestamp, actor, action, target_kind, target_id, payload_json)
+                (id, timestamp, actor, action, target_kind, target_id, payload_json, seq)
             VALUES
-                (:id, :timestamp, :actor, :action, :target_kind, :target_id, :payload_json)
+                (:id, :timestamp, :actor, :action, :target_kind, :target_id,
+                 :payload_json, :seq)
             """,
             {
                 "id": data["id"],
@@ -3307,6 +3651,7 @@ class SqliteBackend:
                 "target_kind": data["target_kind"],
                 "target_id": data["target_id"],
                 "payload_json": json.dumps(data["payload_json"]),
+                "seq": seq,
             },
         )
 

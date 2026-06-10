@@ -239,6 +239,7 @@ def _open_backend(state_dir: Path):  # type: ignore[return]
     initialized). Caller must call backend.close() in a try/finally.
     """
     from fakoli_state.clock import SystemClock
+    from fakoli_state.config import read_events_storage
     from fakoli_state.state.sqlite import SqliteBackend
 
     if not state_dir.exists():
@@ -252,6 +253,10 @@ def _open_backend(state_dir: Path):  # type: ignore[return]
         db_path=db_path,
         events_path=events_path,
         clock=SystemClock(),
+        # v1.22.0: the storage mode decides the event-id format and the
+        # replay strategy, so it must be resolved BEFORE the backend opens —
+        # mirrors cli/_helpers._open_backend.
+        events_storage=read_events_storage(state_dir / "config.yaml"),
     )
     backend.initialize()
     return backend

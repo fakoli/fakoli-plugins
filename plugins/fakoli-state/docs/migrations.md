@@ -14,6 +14,7 @@ changes don't actually need a migration in the SQL sense; we just bump
 | v1      | Phase 2-7 | Initial schema (projects, prds, requirements, features, tasks, claims, evidence, decisions, reviews, events, conflict_groups). No `sync_mappings` table.                |
 | v2      | Phase 8 prep | `sync_mappings` table added (composite PK only; no UNIQUE on external_id; FK `ON DELETE RESTRICT`).                                                                  |
 | v3      | Phase 8 (v1.8.0) | `sync_mappings` adds `UNIQUE(external_system, external_id)`, `external_url` column, `provider_metadata_json` column, FK flipped to `ON DELETE CASCADE`.        |
+| v4      | Git-backed events Phase A (v1.22.0) | `events.id` CHECK widened to accept hash-chained ids (`E-<12 hex>`); nullable `events.seq` column added (replay-assigned display order in git mode; NULL in local mode).      |
 
 ## Phase 8 (v1.8.0) — v1 / v2 → v3 auto-upgrade
 
@@ -44,12 +45,30 @@ If you need to verify the upgrade manually:
 
 ```bash
 $ sqlite3 .fakoli-state/state.db "PRAGMA user_version;"
-3
+4
 ```
 
-If the version is still 1 or 2 after running any `fakoli-state` command, the
+If the version is still 1, 2, or 3 after running any `fakoli-state` command, the
 upgrade did not fire — `initialize()` was never invoked. Most likely a
 process-supervision oddity; open a bug.
+
+## Git-backed events Phase A (v1.22.0) — v0–v3 → v4 auto-upgrade
+
+The v4 diff is **purely additive for local mode**: `events` gains a nullable
+`seq` column (`ALTER TABLE events ADD COLUMN seq INTEGER`, duplicate-column
+tolerant so a crashed upgrade can re-run). Existing rows keep `seq` NULL —
+in local mode the monotonic `E{N}` id IS the display order.
+
+The widened `events.id` CHECK (`E[0-9]*` OR `E-*`) only exists in the v4
+DDL; SQLite cannot ALTER a CHECK, so pre-v4 tables keep the strict pattern.
+That is deliberate and harmless: local mode never writes a hash id, and the
+git-mode entry path (`fakoli-state migrate-events --to git`) rebuilds the
+projection from scratch, recreating `events` from the v4 DDL.
+
+```bash
+$ sqlite3 .fakoli-state/state.db "PRAGMA user_version;"
+4
+```
 
 ## When you need a real migration
 

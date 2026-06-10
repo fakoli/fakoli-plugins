@@ -4998,15 +4998,16 @@ class TestSyncMappingHandler:
 
 
 class TestSchemaVersionPhase8:
-    """The bump from SCHEMA_VERSION=1 → 2 → 3 signals Phase 8.
+    """The bump from SCHEMA_VERSION=1 → 2 → 3 signals Phase 8; 4 is v1.22.0.
 
-    v3 is the shipping Phase 8 schema; v1/v2 are auto-upgraded on first open
-    (see TestSchemaAutoUpgrade below and docs/migrations.md).
+    v4 is the shipping git-backed-events Phase A schema (nullable events.seq
+    column + widened events.id CHECK); v0/v1/v2/v3 are auto-upgraded on first
+    open (see TestSchemaAutoUpgrade below and docs/migrations.md).
     """
 
-    def test_schema_version_is_three(self) -> None:
-        """The Phase 8 ship floor is SCHEMA_VERSION == 3."""
-        assert SCHEMA_VERSION == 3
+    def test_schema_version_is_four(self) -> None:
+        """The v1.22.0 git-backed-events ship floor is SCHEMA_VERSION == 4."""
+        assert SCHEMA_VERSION == 4
 
     def test_initialize_creates_sync_mappings_table_on_empty_db(
         self, tmp_path: Path
@@ -5028,7 +5029,7 @@ class TestSchemaVersionPhase8:
             conn = sqlite3.connect(str(tmp_path / "state.db"))
             v = conn.execute("PRAGMA user_version").fetchone()[0]
             conn.close()
-            assert v == 3
+            assert v == 4
         finally:
             b.close()
 
@@ -5277,30 +5278,31 @@ class TestGetSyncMappingExternalSystemKwarg:
 
 
 class TestSchemaAutoUpgrade:
-    """SF-6: v0 / v1 / v2 → v3 auto-upgrade on initialize().
+    """SF-6: v0 / v1 / v2 / v3 → v4 auto-upgrade on initialize().
 
     Pre-Phase-8 dbs are upgraded purely additively — the new sync_mappings
     columns are nullable and the new UNIQUE cannot be violated by any
-    pre-existing row.
+    pre-existing row. The v4 step (v1.22.0 git-backed events) adds only the
+    nullable events.seq column.
     """
 
-    def test_fresh_init_yields_v3(self, tmp_path: Path) -> None:
-        """A brand-new initialize() lands on v3 directly (no upgrade fired)."""
+    def test_fresh_init_yields_v4(self, tmp_path: Path) -> None:
+        """A brand-new initialize() lands on v4 directly (no upgrade fired)."""
         b = _make_backend(tmp_path)
         try:
             conn = sqlite3.connect(str(tmp_path / "state.db"))
             v = conn.execute("PRAGMA user_version").fetchone()[0]
             conn.close()
-            assert v == 3
+            assert v == 4
         finally:
             b.close()
 
-    def test_v1_db_auto_upgrades_to_v3(self, tmp_path: Path) -> None:
-        """A db marked user_version=1 (no sync_mappings rows) upgrades to v3."""
+    def test_v1_db_auto_upgrades_to_v4(self, tmp_path: Path) -> None:
+        """A db marked user_version=1 (no sync_mappings rows) upgrades to v4."""
         db_path = str(tmp_path / "state.db")
         events_path = str(tmp_path / "events.jsonl")
         Path(events_path).touch()
-        # Step 1: stand up a real v3 db.
+        # Step 1: stand up a real current-version db.
         clock = _make_clock()
         b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
         b.initialize()
@@ -5310,7 +5312,7 @@ class TestSchemaAutoUpgrade:
         conn.execute("PRAGMA user_version = 1")
         conn.commit()
         conn.close()
-        # Step 3: reopen — auto-upgrade must fire and bump back to 3.
+        # Step 3: reopen — auto-upgrade must fire and bump back to 4.
         clock2 = _make_clock()
         b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
         b2.initialize()
@@ -5318,12 +5320,12 @@ class TestSchemaAutoUpgrade:
             conn = sqlite3.connect(db_path)
             v = conn.execute("PRAGMA user_version").fetchone()[0]
             conn.close()
-            assert v == 3
+            assert v == 4
         finally:
             b2.close()
 
-    def test_v2_db_auto_upgrades_to_v3(self, tmp_path: Path) -> None:
-        """A db marked user_version=2 upgrades to v3 without losing data."""
+    def test_v2_db_auto_upgrades_to_v4(self, tmp_path: Path) -> None:
+        """A db marked user_version=2 upgrades to v4 without losing data."""
         db_path = str(tmp_path / "state.db")
         events_path = str(tmp_path / "events.jsonl")
         Path(events_path).touch()
@@ -5346,10 +5348,51 @@ class TestSchemaAutoUpgrade:
             conn = sqlite3.connect(db_path)
             v = conn.execute("PRAGMA user_version").fetchone()[0]
             conn.close()
-            assert v == 3
+            assert v == 4
             proj = b2.get_project()
             assert proj is not None
             assert proj.id == "proj-1"
+        finally:
+            b2.close()
+
+    def test_v3_db_auto_upgrades_to_v4_adding_seq_column(
+        self, tmp_path: Path
+    ) -> None:
+        """A db marked user_version=3 gains the nullable events.seq column.
+
+        v3 is the immediate predecessor in the wild (every 1.16–1.21 install),
+        so this is the upgrade path most users actually take. Existing event
+        rows keep seq NULL — local mode derives order from the monotonic id.
+        """
+        db_path = str(tmp_path / "state.db")
+        events_path = str(tmp_path / "events.jsonl")
+        Path(events_path).touch()
+        clock = _make_clock()
+        b = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock)
+        b.initialize()
+        b.append(_make_project_event(event_id="E000001"))
+        b.close()
+        # Forge to v3 AND drop the seq column to simulate a real v3 table
+        # (the fresh DDL above already created the v4 shape).
+        conn = sqlite3.connect(db_path)
+        conn.execute("ALTER TABLE events DROP COLUMN seq")
+        conn.execute("PRAGMA user_version = 3")
+        conn.commit()
+        conn.close()
+        # Reopen — the v3→v4 branch must re-add seq and bump.
+        clock2 = _make_clock()
+        b2 = SqliteBackend(db_path=db_path, events_path=events_path, clock=clock2)
+        b2.initialize()
+        try:
+            conn = sqlite3.connect(db_path)
+            v = conn.execute("PRAGMA user_version").fetchone()[0]
+            row = conn.execute(
+                "SELECT seq FROM events WHERE id = 'E000001'"
+            ).fetchone()
+            conn.close()
+            assert v == 4
+            assert row is not None
+            assert row[0] is None, "pre-v4 event rows must keep seq NULL"
         finally:
             b2.close()
 
@@ -5383,7 +5426,7 @@ class TestSchemaAutoUpgrade:
             b._conn.execute("PRAGMA user_version = 1")  # noqa: SLF001
             b.initialize()  # takes early-return; _check_schema_version sees v1
             v = b._conn.execute("PRAGMA user_version").fetchone()[0]  # noqa: SLF001
-            assert v == 3
+            assert v == 4
         finally:
             b.close()
 
@@ -6250,9 +6293,9 @@ class TestV2ToV3MigrationAppliesColumnAdditions:
             # Default values for previously-absent columns: NULL.
             assert row[0] is None
             assert row[1] is None
-            # user_version is now 3.
+            # user_version is now the current SCHEMA_VERSION (4).
             v = b._conn.execute("PRAGMA user_version").fetchone()[0]  # noqa: SLF001
-            assert v == 3
+            assert v == 4
         finally:
             b.close()
 

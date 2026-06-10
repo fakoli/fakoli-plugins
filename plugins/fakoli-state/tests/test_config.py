@@ -18,7 +18,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fakoli_state.config import Config, config_template, load_config, write_default_config
+from fakoli_state.config import (
+    Config,
+    config_template,
+    load_config,
+    read_events_storage,
+    write_default_config,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -573,3 +579,70 @@ class TestAutoExpandConfig:
         parsed = yaml.safe_load(config_template(project_name="X"))
         assert parsed["auto_expand"] is True
         assert parsed["auto_expand_threshold"] == 4
+
+
+# ---------------------------------------------------------------------------
+# Events storage knob (v1.22.0 — git-backed events Phase A)
+# ---------------------------------------------------------------------------
+
+
+class TestEventsStorageConfig:
+    def test_default_when_key_absent(self, tmp_path: Path) -> None:
+        """Minimal config: pre-1.22.0 projects stay in local mode."""
+        config_path = _write_config(tmp_path / "config.yaml", _minimal_yaml())
+        assert load_config(config_path).events_storage == "local"
+
+    def test_explicit_values_parse(self, tmp_path: Path) -> None:
+        for mode in ("local", "git"):
+            yaml_content = _minimal_yaml() + f"events_storage: {mode}\n"
+            config_path = _write_config(tmp_path / f"{mode}.yaml", yaml_content)
+            assert load_config(config_path).events_storage == mode
+
+    def test_invalid_value_raises(self, tmp_path: Path) -> None:
+        """A typo'd mode must fail at load time, not silently run local."""
+        yaml_content = _minimal_yaml() + "events_storage: gti\n"
+        config_path = _write_config(tmp_path / "config.yaml", yaml_content)
+        with pytest.raises(ValueError, match="events_storage"):
+            load_config(config_path)
+
+    def test_template_documents_the_knob(self) -> None:
+        """config_template ships events_storage with the local default."""
+        parsed = yaml.safe_load(config_template(project_name="X"))
+        assert parsed["events_storage"] == "local"
+
+
+class TestReadEventsStorage:
+    """The narrow reader the backend factories use to pick the storage mode.
+
+    Tolerance contract: missing file and unparseable YAML fall back to
+    "local" (the repo-wide "broken config never blocks a command" rule —
+    see TestMalformedConfigFallsBackToRegistry in test_cli_sync), but an
+    explicitly set INVALID value raises: the user typed the knob, so a
+    silent local fallback would mix sequence ids into a hash-chained log.
+    """
+
+    def test_missing_file_is_local(self, tmp_path: Path) -> None:
+        assert read_events_storage(tmp_path / "config.yaml") == "local"
+
+    def test_git_value_is_read(self, tmp_path: Path) -> None:
+        config_path = _write_config(
+            tmp_path / "config.yaml", _minimal_yaml() + "events_storage: git\n"
+        )
+        assert read_events_storage(config_path) == "git"
+
+    def test_unparseable_yaml_falls_back_to_local(self, tmp_path: Path) -> None:
+        config_path = _write_config(
+            tmp_path / "config.yaml", "sync:\n  providers: [unclosed\n"
+        )
+        assert read_events_storage(config_path) == "local"
+
+    def test_non_mapping_yaml_falls_back_to_local(self, tmp_path: Path) -> None:
+        config_path = _write_config(tmp_path / "config.yaml", "- just\n- a list\n")
+        assert read_events_storage(config_path) == "local"
+
+    def test_invalid_value_raises(self, tmp_path: Path) -> None:
+        config_path = _write_config(
+            tmp_path / "config.yaml", _minimal_yaml() + "events_storage: dropbox\n"
+        )
+        with pytest.raises(ValueError, match="events_storage"):
+            read_events_storage(config_path)

@@ -56,6 +56,7 @@ def _open_backend(state_dir: Path) -> SqliteBackend:
         An initialized SqliteBackend ready for queries and mutations.
     """
     from fakoli_state.clock import SystemClock
+    from fakoli_state.config import read_events_storage
     from fakoli_state.state.sqlite import SqliteBackend as _SqliteBackend
 
     db_path = str(state_dir / "state.db")
@@ -64,6 +65,10 @@ def _open_backend(state_dir: Path) -> SqliteBackend:
         db_path=db_path,
         events_path=events_path,
         clock=SystemClock(),
+        # v1.22.0: the storage mode decides the event-id format and the
+        # replay strategy, so it must be resolved BEFORE the backend opens —
+        # not by whichever command happens to read config.yaml later.
+        events_storage=read_events_storage(state_dir / "config.yaml"),
     )
     backend.initialize()
     return backend
