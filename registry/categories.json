@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-10T10:57:20Z",
+  "generatedAt": "2026-06-10T11:09:09Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -85,7 +85,7 @@
         },
         {
           "name": "safe-fetch",
-          "version": "1.0.6",
+          "version": "1.1.0",
           "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
           "path": "plugins/safe-fetch"
         }
