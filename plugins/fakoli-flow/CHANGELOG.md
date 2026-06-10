@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0 (2026-06-10)
+
+### Added
+- **Adversarial refutation pass in `/flow:verify` (Step 5.5).** After the sentinel produces its scorecard, a second sentinel is dispatched as a REFUTER: for every PASS it attempts to break the verdict with its own commands, a stricter criterion reading, or an edge case. A criterion is PASS only when both sentinels agree; every REFUTED verdict flips to FAIL carrying the refuter's evidence. Adopted from the adversarial-convergence pattern in Anthropic's Dynamic Workflows — independent refutation materially outperforms single-verifier review. Skipped only when there are no PASS verdicts to refute; generic-fallback runs self-refute before reporting
+
+---
+
 ## 1.2.0 (2026-06-09)
 
 ### Added

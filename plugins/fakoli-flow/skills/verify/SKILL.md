@@ -239,12 +239,54 @@ Result: 3/3 criteria PASS — READY TO SHIP
 
 ---
 
+## Step 5.5: Adversarial Refutation Pass
+
+A single verifier confirming its own reading of the evidence is the weakest link in
+the chain — independent refutation materially outperforms single-verifier review.
+When fakoli-crew is installed and the scorecard contains at least one PASS, dispatch
+a second sentinel whose job is to break the verdict, not confirm it:
+
+```
+Agent(
+  subagent_type="fakoli-crew:sentinel",
+  prompt="You are the REFUTER. A first verification pass produced the scorecard
+below. For each PASS verdict, try to REFUTE it: find a command, an edge case, or a
+stricter reading of the criterion under which the cited evidence does NOT prove the
+criterion. Run your own commands — do not trust the cited output. You succeed by
+breaking a verdict, not by agreeing with it.
+
+For each criterion report:
+- UPHELD — you attempted refutation and failed; cite the command you ran
+- REFUTED — the PASS does not hold; cite the exact evidence that breaks it
+
+Scorecard under review:
+<paste the Step 5 scorecard verbatim>
+
+Write your report to: <verify-scratch>/agent-sentinel-refuter-status.md
+End with a fenced json block:
+{\"upheld\": <n>, \"refuted\": <n>, \"refutations\": [{\"criterion\": \"<text>\", \"evidence\": \"<what broke it>\"}]}
+"
+)
+```
+
+**Convergence rule:** a criterion is PASS only when both sentinels agree. Every
+REFUTED criterion flips to FAIL in the final scorecard, carrying the refuter's
+evidence. Never argue with the refuter on the original sentinel's behalf — if the
+refutation itself looks wrong, surface both findings to the user; do not silently
+pick a winner.
+
+Skip this pass only when there were zero PASS verdicts to refute (everything already
+failed) or fakoli-crew is not installed (generic fallback: run the refutation prompt
+yourself against your own scorecard before reporting).
+
+---
+
 ## Step 6: Report to User
 
 Present the scorecard. Then:
 
-- If **all PASS**: "Verification complete. All criteria met. Run `/flow:finish` to ship."
-- If **any FAIL**: State what failed and stop. Do not proceed to finish. Do not suggest retrying without fixing the underlying issue first.
+- If **all PASS and all upheld by the refuter**: "Verification complete. All criteria met (adversarially confirmed). Run `/flow:finish` to ship."
+- If **any FAIL or any REFUTED**: State what failed (including refuted criteria with the refuter's evidence) and stop. Do not proceed to finish. Do not suggest retrying without fixing the underlying issue first.
 
 ---
 

@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.6 — 2026-06-10
+- Fix: block hooks emitted only the legacy top-level `decision: block` shape, which current Claude Code versions ignore — the WebFetch/WebSearch blocks were silently inoperative. Both scripts now emit `hookSpecificOutput.permissionDecision: "deny"` (current contract) alongside the legacy fields, build the payload via `json.dumps` (a URL/query containing quotes can no longer corrupt the JSON into a fail-open), and keep a static both-schema fallback if python3 is unavailable. Same bug class Greptile flagged in fakoli-flow's gate-check.sh (#79)
+
 ## 1.0.5 — 2026-03-21
 - Fix pyproject.toml: sync project name and version with plugin manifest
 

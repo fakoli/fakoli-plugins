@@ -74,6 +74,12 @@ Implications:
   complexity-score → auto-expansion; a constitution/coverage gate before planning;
   adversarial second-verifier passes.
 
+## Retired ideas (rejected with evidence)
+
+| Date | Idea | Why it died |
+|---|---|---|
+| 2026-06-10 | Unify fakoli-state's CLI + MCP into one dispatch layer | Reconnaissance showed both surfaces are already thin wrappers over the shared managers (ClaimManager et al., 70–100% reuse per operation). A unified layer would add ~200 lines of indirection to save ~50 lines of boilerplate. Investment goes to the shared managers instead. Recorded in the git-backed-events spec's decision log |
+
 ## Adopted from the field (changelog of stolen ideas)
 
 | Date | Idea | Source | Where it landed |
@@ -81,3 +87,5 @@ Implications:
 | 2026-06 | Two-stage review: spec compliance before code quality | superpowers | fakoli-crew critic, fakoli-flow critic-gate prompt |
 | 2026-06 | Hook-enforced (not prompt-enforced) review gates | Anthropic Agent Teams' blocking hooks | fakoli-flow gate-check/gate-track hooks |
 | 2026-06 | Machine-readable verifier verdicts | — (enabler for automation) | fakoli-crew sentinel, fakoli-flow execute/verify |
+| 2026-06 | Adversarial refutation pass (second verifier tries to break PASS verdicts) | Anthropic Dynamic Workflows | fakoli-flow verify Step 5.5 |
+| 2026-06 | Complexity score drives recursive task expansion | claude-task-master | fakoli-state scoring/plan flow |
