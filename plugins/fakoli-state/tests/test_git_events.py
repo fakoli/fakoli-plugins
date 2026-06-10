@@ -953,3 +953,77 @@ class TestMigrateEvents:
         result = _run_in(tmp_path, ["migrate-events", "--to", "local", "--yes"])
         assert result.exit_code == 1
         assert "Only 'git' is supported" in result.output
+
+    def test_replay_reads_mode_from_events_dir_not_cwd(self, tmp_path: Path) -> None:
+        """Greptile P1: replaying a git-backed log from a different CWD must still
+        use the order-tolerant (dedup) replay — the mode is read from the config
+        beside the events file, not from the working directory.
+
+        A union-merged git log can contain duplicate lines; local-mode replay
+        does not dedupe, so the wrong mode double-writes each duplicate.
+        """
+        # A migrated (git-mode) project lives at tmp_path.
+        _build_local_project(tmp_path)
+        assert _run_in(tmp_path, ["migrate-events", "--to", "git", "--yes"]).exit_code == 0
+        state_dir = tmp_path / ".fakoli-state"
+
+        # Simulate a merge=union duplicate: append a verbatim copy of the last line.
+        log_path = state_dir / "events.jsonl"
+        raw = log_path.read_text(encoding="utf-8").splitlines()
+        (log_path).write_text("\n".join(raw + [raw[-1]]) + "\n", encoding="utf-8")
+
+        # Replay from a SCRATCH cwd that has no .fakoli-state/config.yaml of its own.
+        scratch = tmp_path / "elsewhere"
+        scratch.mkdir()
+        into = scratch / "rebuilt.db"
+        result = _run_in(
+            scratch,
+            ["replay", "--from-events", str(log_path), "--into", str(into)],
+        )
+        assert result.exit_code == 0, result.output
+
+        # The duplicate was deduped (git mode), so the rebuilt projection equals
+        # the canonical one — i.e. local-mode-double-write did NOT happen.
+        canonical = SqliteBackend(
+            db_path=str(state_dir / "state.db"),
+            events_path=str(state_dir / "events.jsonl"),
+            clock=FrozenClock(_T0),
+            events_storage="git",
+        )
+        canonical.initialize()
+        try:
+            expected = _snap(canonical)
+        finally:
+            canonical.close()
+
+        # Read the replayed projection back. Point events_path at the real git
+        # log so initialize()'s git-mode convergence sees matching event ids and
+        # does not rebuild from an empty file.
+        rebuilt = SqliteBackend(
+            db_path=str(into),
+            events_path=str(log_path),
+            clock=FrozenClock(_T0),
+            events_storage="git",
+        )
+        rebuilt.initialize()
+        try:
+            assert _snap(rebuilt) == expected
+        finally:
+            rebuilt.close()
+
+    def test_config_rewrite_preserves_crlf(self, tmp_path: Path) -> None:
+        """Greptile P2: a CRLF config.yaml stays CRLF after the migration edit."""
+        state_dir = tmp_path / ".fakoli-state"
+        _build_local_project(tmp_path)
+        config_path = state_dir / "config.yaml"
+        # Rewrite the existing config with CRLF endings.
+        lf_text = config_path.read_text(encoding="utf-8")
+        config_path.write_text(lf_text.replace("\n", "\r\n"), encoding="utf-8")
+
+        assert _run_in(tmp_path, ["migrate-events", "--to", "git", "--yes"]).exit_code == 0
+
+        out = config_path.read_bytes()
+        assert b"\r\n" in out, "CRLF line endings were lost"
+        assert b"\n" not in out.replace(b"\r\n", b""), "mixed LF/CRLF introduced"
+        config = yaml.safe_load(out.decode("utf-8"))
+        assert config["events_storage"] == "git"

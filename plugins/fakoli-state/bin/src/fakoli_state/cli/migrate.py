@@ -275,17 +275,24 @@ def _set_events_storage_git(config_path: Path) -> None:
     commented-out or indented occurrences are left alone), else append a
     marked block at the end.
     """
-    text = config_path.read_text(encoding="utf-8")
+    # Read as bytes and decode: Path.read_text() applies universal-newline
+    # translation (\r\n -> \n), which would hide CRLF endings before we can
+    # detect them. Decoding raw bytes preserves them, so a Windows CRLF config
+    # is rewritten with CRLF and not silently flattened to LF (git-diff noise).
+    text = config_path.read_bytes().decode("utf-8")
+    sep = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()
     for i, line in enumerate(lines):
         if line.startswith("events_storage:"):
             lines[i] = "events_storage: git"
-            config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            config_path.write_text(sep.join(lines) + sep, encoding="utf-8")
             return
-    block = (
-        "\n"
-        "# Set by `fakoli-state migrate-events --to git` (v1.22.0) — hash-chained\n"
-        "# event ids, merge=union log. See docs/specs/2026-06-10-git-backed-events.md.\n"
-        "events_storage: git\n"
+    block_lines = [
+        "",
+        "# Set by `fakoli-state migrate-events --to git` (v1.22.0) — hash-chained",
+        "# event ids, merge=union log. See docs/specs/2026-06-10-git-backed-events.md.",
+        "events_storage: git",
+    ]
+    config_path.write_text(
+        sep.join(lines) + sep + sep.join(block_lines) + sep, encoding="utf-8"
     )
-    config_path.write_text(text.rstrip("\n") + "\n" + block, encoding="utf-8")

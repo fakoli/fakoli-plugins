@@ -80,12 +80,15 @@ def replay(
             db_path=str(into_abs),
             events_path=scratch_events,
             clock=SystemClock(),
-            # v1.22.0: a git-backed log needs the order-tolerant replay; the
-            # current project's config — the thing that declared the log
-            # git-backed in the first place — is the source of truth for
-            # which strategy applies.
+            # v1.22.0: a git-backed log needs the order-tolerant replay. Anchor
+            # the storage-mode lookup to the directory the events file actually
+            # lives in — NOT the CWD. A git-backed log replayed from a scratch
+            # dir, a subdirectory, or an in-place backup would otherwise fall
+            # back to "local" mode, which does not deduplicate; a union-merged
+            # log can then double-write each duplicated event. The config beside
+            # the events file is the one that declared the log git-backed.
             events_storage=read_events_storage(
-                Path.cwd().resolve() / _STATE_DIR_NAME / "config.yaml"
+                from_events_abs.parent / "config.yaml"
             ),
         )
         backend.initialize()
