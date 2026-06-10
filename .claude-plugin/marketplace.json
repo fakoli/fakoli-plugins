@@ -52,7 +52,7 @@
     },
     {
       "name": "fakoli-flow",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
       "source": "./plugins/fakoli-flow"
     },

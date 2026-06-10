@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.2 (2026-06-10)
+
+### Added
+- `docs/specs/2026-06-11-flow-on-native-agent-teams.md`: design spec mapping the wave engine onto Anthropic's native Agent Teams. Targets the stack's biggest strategic opportunity (superpowers #429, 112 reactions, asks for exactly this). Key moves: the hook-enforced critic gate re-expresses from a `PreToolUse`-deny workaround onto `TaskCompleted` exit-2 (per-task, parallel-safe — the platform event whose semantic *is* the gate); fakoli delegates dispatch/claiming/file-locks/status-transport to the platform (the anvil) and keeps the intent-plan format, gate policy, evidence rules, and durable state (the hammers); fakoli-state becomes the source of truth under the explicitly-ephemeral native task list. Docs-only; no behavior change.
+
+---
+
 ## 1.3.1 (2026-06-10)
 
 ### Changed
