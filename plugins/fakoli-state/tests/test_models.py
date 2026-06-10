@@ -367,10 +367,17 @@ class TestEventIdFormat:
 
 class TestEventDraft:
     def test_event_draft_has_no_id_field(self) -> None:
-        """EventDraft carries every Event field except `id`."""
+        """EventDraft carries every Event field except the backend-assigned ones."""
         assert "id" not in EventDraft.model_fields
-        # Event adds exactly `id` on top of the draft's fields.
-        assert set(Event.model_fields) == set(EventDraft.model_fields) | {"id"}
+        # Event adds exactly the backend-assigned envelope fields on top of
+        # the draft: `id` (SL1-RR-1) plus the v1.22.0 git-mode chain fields
+        # `parent_event_id` / `lamport` (None in local mode). All three are
+        # assigned inside append()'s critical section, never by callers.
+        assert set(Event.model_fields) == set(EventDraft.model_fields) | {
+            "id",
+            "parent_event_id",
+            "lamport",
+        }
 
     def test_event_is_subclass_of_draft(self) -> None:
         """Event extends EventDraft — the materialized form is-a draft."""

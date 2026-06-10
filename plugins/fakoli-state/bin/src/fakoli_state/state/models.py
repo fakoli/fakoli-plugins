@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime
 import enum
+import re
 from typing import Any, TypeAlias  # noqa: UP035 — TypeAlias required for 3.11 compat
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -74,7 +75,14 @@ ClaimID: TypeAlias = str
 EvidenceID: TypeAlias = str
 DecisionID: TypeAlias = str
 ReviewID: TypeAlias = str
-EventID: TypeAlias = str  # monotonic E000001 format
+EventID: TypeAlias = str  # monotonic E000001 (local) or hash-chained E-3f9a2c4d71be (git)
+
+# v1.22.0 — git-backed events (Phase A). Hash-chained event ids are
+# "E-" + sha256(parent_id ‖ canonical_json(payload) ‖ actor ‖ ts)[:12];
+# see fakoli_state.state.hashing for the generator. 12 lowercase hex chars,
+# anchored, so a truncated/hand-mangled id fails validation instead of
+# silently entering the chain.
+_HASH_EVENT_ID_RE = re.compile(r"^E-[0-9a-f]{12}$")
 
 # ---------------------------------------------------------------------------
 # Enumerations
@@ -477,21 +485,38 @@ class Event(EventDraft):
 
     The event log is the audit trail; replaying it from scratch must reconstruct
     canonical SQLite state exactly. Events are never updated or deleted. An
-    ``Event`` is an :class:`EventDraft` plus the monotonic ``id`` assigned by the
-    backend at log-append time.
+    ``Event`` is an :class:`EventDraft` plus the ``id`` assigned by the backend
+    at log-append time — monotonic ``E000001`` in local mode, hash-chained
+    ``E-3f9a2c4d71be`` in git mode (v1.22.0, git-backed events Phase A).
     """
 
-    id: EventID  # monotonic: E000001, E000002, …
+    id: EventID  # E000001 (local) or E-<12 hex> (git)
+
+    # v1.22.0 — git-mode envelope fields. Populated only when the project
+    # runs with ``events_storage: git``: ``parent_event_id`` is the id of the
+    # previous event as seen by the writer (the log becomes a hash chain;
+    # None marks the chain root), and ``lamport`` is the writer's max-seen
+    # logical clock + 1, used by order-tolerant replay to sort merged logs
+    # deterministically via (lamport, ts, id). Local mode leaves both None
+    # and the write path omits them from the serialized JSONL line, so
+    # pre-1.22.0 logs stay byte-identical.
+    parent_event_id: EventID | None = None
+    lamport: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _validate_event_id_format(self) -> Event:
         # SL1-RR-1 (write-path rework): the PENDING_EVENT_ID sentinel is retired.
-        # The ``append(EventDraft)`` path assigns ids from the log-authority
-        # counter inside the flock critical section, so every Event id must be
-        # in the canonical monotonic ``E000001`` format.
-        if not self.id.startswith("E") or not self.id[1:].isdigit():
+        # The ``append(EventDraft)`` path assigns ids inside the flock critical
+        # section, so every Event id must be in one of the two canonical
+        # formats: monotonic ``E000001`` (local mode, from the log-authority
+        # counter) or hash-chained ``E-<12 hex>`` (git mode, from
+        # state/hashing.hash_event_id).
+        is_monotonic = self.id.startswith("E") and self.id[1:].isdigit()
+        is_hash = _HASH_EVENT_ID_RE.fullmatch(self.id) is not None
+        if not (is_monotonic or is_hash):
             raise ValueError(
-                f"Event.id must be in monotonic format 'E000001'; got {self.id!r}"
+                "Event.id must be in monotonic format 'E000001' or "
+                f"hash-chained format 'E-3f9a2c4d71be'; got {self.id!r}"
             )
         return self
 

@@ -10,12 +10,15 @@ breaking existing callers (add keyword-only args with defaults only).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final, Literal
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 # v1.21.0 — complexity score at/above which a task is queued for sub-task
 # expansion. Single source of truth: the Config dataclass default, the
@@ -152,6 +155,25 @@ class Config:
     auto_expand: bool = True
     auto_expand_threshold: int = DEFAULT_AUTO_EXPAND_THRESHOLD
 
+    # v1.22.0 — git-backed events (Phase A of the 2026-06-10 spec).
+    #
+    # Selects the event-log id/replay strategy:
+    #
+    #   local (DEFAULT) — sequence-numbered event ids (E000001, …), strict
+    #                     sequential replay, events.jsonl stays machine-scoped
+    #                     (gitignored). Pre-1.22.0 behaviour, byte-for-byte.
+    #   git             — hash-chained event ids ("E-" + sha256(parent ‖
+    #                     canonical_json(payload) ‖ actor ‖ ts)[:12]) with a
+    #                     Lamport counter in the envelope; replay is
+    #                     order-tolerant (dedupe by id, order by
+    #                     (lamport, ts, id)) so events.jsonl can be committed
+    #                     and merged across branches via `merge=union`.
+    #
+    # Do not flip this by hand on an existing project — `fakoli-state
+    # migrate-events --to git` rewrites the log preserving order, emits the
+    # old→new id mapping, and writes .fakoli-state/.gitattributes in one step.
+    events_storage: Literal["local", "git"] = "local"
+
     sync_github_enabled: bool = False
     sync_github_conflict_strategy: Literal[
         "local_wins", "remote_wins", "prompt", "manual_merge"
@@ -278,6 +300,17 @@ def load_config(path: str | Path) -> Config:
         resolved,
     )
 
+    # v1.22.0 — events storage mode. Absent key → "local" (every pre-existing
+    # project keeps sequence ids and strict replay). An invalid value raises
+    # at load time like every other literal-typed field: a typo'd mode that
+    # silently fell back to "local" would append E{N} ids into a hash-chained
+    # log, which order-tolerant replay would then sort incorrectly.
+    events_storage = _validate_literal(
+        data.get("events_storage", "local"),
+        ("local", "git"),
+        "events_storage",
+    )
+
     sync_conflict_strategy = _validate_literal(
         data.get("sync_github_conflict_strategy", "prompt"),
         ("local_wins", "remote_wins", "prompt", "manual_merge"),
@@ -329,6 +362,7 @@ def load_config(path: str | Path) -> Config:
         branch_prefix=branch_prefix,
         auto_expand=auto_expand,
         auto_expand_threshold=auto_expand_threshold,
+        events_storage=events_storage,  # type: ignore[arg-type]
         sync_github_enabled=bool(data.get("sync_github_enabled", False)),
         sync_github_conflict_strategy=sync_conflict_strategy,  # type: ignore[arg-type]
         sync_providers=sync_providers,
@@ -370,6 +404,63 @@ def config_template(*, project_name: str = "my-project") -> str:
         project_name=project_name,
         project_id=str(uuid.uuid4()),
     )
+
+
+def read_events_storage(path: str | Path) -> Literal["local", "git"]:
+    """Return the ``events_storage`` mode declared by the config at *path*.
+
+    Narrow, storage-mode-only read used by the backend factories
+    (``cli._helpers._open_backend`` / ``mcp_server._open_backend``), which
+    must pick the write/replay strategy *before* any command-level config
+    concern applies:
+
+    * Missing file → ``"local"`` — scratch projects without a config keep
+      pre-1.22.0 behaviour.
+    * Unparseable YAML / non-mapping shape → warn + ``"local"``. The repo's
+      standing contract is that a broken config never blocks a CLI command
+      (see ``tests/test_cli_sync.py::TestMalformedConfigFallsBackToRegistry``
+      and the ``_load_config_optional`` soft-load pattern); a project whose
+      YAML is damaged surfaces loud warnings from every config consumer, so
+      the small mixed-log risk of guessing "local" loses to consistency here.
+    * Parseable mapping with an INVALID ``events_storage`` value → raise.
+      The user explicitly set this knob; a typo that silently fell back to
+      "local" would append sequence ids into a hash-chained log, which
+      order-tolerant replay would then sort incorrectly. Same load-time
+      strictness as every other literal-typed field in :func:`load_config`.
+
+    Deliberately does NOT call :func:`load_config`: full-config validation
+    would make unrelated misconfigs (say, a bad ``llm_provider``) break every
+    backend open — a regression for commands that never touch the LLM.
+    """
+    resolved = Path(path).expanduser().resolve()
+    if not resolved.exists():
+        return "local"
+    try:
+        with resolved.open(encoding="utf-8") as fh:
+            raw: object = yaml.safe_load(fh)
+    except (OSError, yaml.YAMLError) as exc:
+        logger.warning(
+            "read_events_storage: cannot parse %s (%s: %s); "
+            "assuming events_storage: local",
+            resolved,
+            type(exc).__name__,
+            exc,
+        )
+        return "local"
+    if not isinstance(raw, dict):
+        logger.warning(
+            "read_events_storage: %s is not a YAML mapping (got %s); "
+            "assuming events_storage: local",
+            resolved,
+            type(raw).__name__,
+        )
+        return "local"
+    value = _validate_literal(
+        raw.get("events_storage", "local"),
+        ("local", "git"),
+        "events_storage",
+    )
+    return value  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -576,6 +667,18 @@ git_ops_mode: auto
 #             fsyncs per event. Use on CI / shared / server storage.
 # ---------------------------------------------------------------------------
 durability: relaxed
+
+# ---------------------------------------------------------------------------
+# Event-log storage  (local | git)   — v1.22.0, git-backed events Phase A
+#   local — DEFAULT. Sequence event ids (E000001 …), strict replay,
+#           events.jsonl stays machine-scoped (gitignored).
+#   git   — hash-chained event ids + order-tolerant replay; events.jsonl is
+#           committed to the repo and merges across branches via merge=union.
+#           Do NOT flip this by hand on an existing project — run
+#           `fakoli-state migrate-events --to git` (rewrites the log,
+#           emits the id mapping, writes .gitattributes).
+# ---------------------------------------------------------------------------
+events_storage: local
 
 # ---------------------------------------------------------------------------
 # Branch naming convention (v1.15.0)

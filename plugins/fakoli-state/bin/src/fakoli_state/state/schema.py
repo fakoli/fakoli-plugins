@@ -20,11 +20,18 @@ Version history
   external_url column, provider_metadata_json column, FK CASCADE direction
   flip. Migration: see docs/migrations.md (auto-upgrade on initialize for
   purely-additive changes).
+- v4: v1.22.0 git-backed events Phase A — events.id CHECK widened to accept
+  hash-chained ids (E-<hex>) alongside monotonic E{N}; events gains a
+  nullable ``seq`` column (replay-assigned display order in git mode; NULL
+  in local mode where the monotonic id IS the order). Auto-upgrade is
+  additive (ALTER ADD seq); pre-v4 tables keep their strict id CHECK, which
+  is harmless because local mode never writes hash ids and git mode always
+  enters via a full projection rebuild that recreates the table from this DDL.
 """
 
 from __future__ import annotations
 
-SCHEMA_VERSION: int = 3
+SCHEMA_VERSION: int = 4
 
 
 def generate_schema_sql() -> str:  # noqa: PLR0915  (acceptable length for DDL)
@@ -162,13 +169,14 @@ CREATE TABLE IF NOT EXISTS reviews (
 CREATE INDEX IF NOT EXISTS idx_reviews_target ON reviews (target_kind, target_id);
 
 CREATE TABLE IF NOT EXISTS events (
-    id           TEXT PRIMARY KEY CHECK (id GLOB 'E[0-9]*'),
+    id           TEXT PRIMARY KEY CHECK (id GLOB 'E[0-9]*' OR id GLOB 'E-*'),
     timestamp    TEXT NOT NULL,
     actor        TEXT NOT NULL,
     action       TEXT NOT NULL,
     target_kind  TEXT NOT NULL,
     target_id    TEXT NOT NULL,
-    payload_json TEXT NOT NULL DEFAULT '{}'
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    seq          INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events (timestamp);
@@ -196,7 +204,7 @@ CREATE TABLE IF NOT EXISTS conflict_groups (
     reason   TEXT NOT NULL
 );
 
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;
 """
 
 

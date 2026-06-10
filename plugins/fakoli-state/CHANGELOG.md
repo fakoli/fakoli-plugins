@@ -10,6 +10,20 @@ _No unreleased changes._
 
 ---
 
+## [1.22.0] — 2026-06-10
+
+### Added
+- **Git-backed events, Phase A (opt-in).** First slice of the 2026-06-10 git-backed-events spec: `events.jsonl` can now be a repo-scoped, merge-friendly source of truth instead of a machine-scoped one (idea adopted from steveyegge/beads):
+  - New config knob `events_storage: local | git` (default `local`; validated at load time like every other literal field). `local` keeps pre-1.22.0 behaviour byte-for-byte — sequence ids, strict sequential replay, byte-equality guarantee untouched
+  - In git mode, event ids are hash-chained — `"E-" + sha256(parent_event_id ‖ canonical_json(payload) ‖ actor ‖ ts)[:12]` — so two branches/machines append concurrently with zero collision risk; the envelope gains `parent_event_id` (chain link) and `lamport` (writer sets max-seen + 1). Local mode omits both keys from serialized lines
+  - Order-tolerant replay in git mode: load all lines (torn trailing line tolerated exactly as before), dedupe by event id (a line duplicated by a `merge=union` union applies once), order by `(lamport, ts, event_id)`. Competing cross-branch `claim.created` events on one task resolve deterministically — earliest `(lamport, ts, id)` wins the task transition (`claim.superseded` materialization is Phase B)
+  - New CLI command `fakoli-state migrate-events --to git [--yes]`: rewrites the local log with hash ids preserving order, emits `id_mapping.json` (old → new), writes `.fakoli-state/.gitattributes` (`events.jsonl merge=union`), prints `.gitignore` guidance, flips `events_storage: git` in config.yaml, and rebuilds the projection. Dry-run by default; refuses while claims are active; backs up the original log
+  - Schema v4 (auto-upgrade from v0–v3): `events.id` CHECK widened to accept hash ids; new nullable `events.seq` column — the replay-assigned display order in git mode (derived state, never written to the log; NULL in local mode where the monotonic id is the order)
+  - New pure module `state/hashing.py` (`hash_event_id` / `canonical_payload_json`) shared by the write path, the migration command, and tests
+  - 33 new tests: hash chain linkage, dedupe replay, lamport tie ordering, a divergent-merge simulation (common prefix + two branch suffixes concatenated both ways converge to identical state, with the competing-claims winner deterministic), migration round-trip (pre-state equals post-state modulo the id mapping), config knob validation, v3→v4 schema auto-upgrade
+
+---
+
 ## [1.21.0] — 2026-06-10
 
 ### Added

@@ -31,6 +31,7 @@ def replay(
     accidental data loss (replay deletes its target first).
     """
     from fakoli_state.clock import SystemClock
+    from fakoli_state.config import read_events_storage
     from fakoli_state.state.sqlite import SqliteBackend
 
     # Resolve both paths to absolute form for comparison.
@@ -79,6 +80,13 @@ def replay(
             db_path=str(into_abs),
             events_path=scratch_events,
             clock=SystemClock(),
+            # v1.22.0: a git-backed log needs the order-tolerant replay; the
+            # current project's config — the thing that declared the log
+            # git-backed in the first place — is the source of truth for
+            # which strategy applies.
+            events_storage=read_events_storage(
+                Path.cwd().resolve() / _STATE_DIR_NAME / "config.yaml"
+            ),
         )
         backend.initialize()
 

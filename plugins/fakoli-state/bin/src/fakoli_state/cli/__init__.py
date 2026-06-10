@@ -12,6 +12,7 @@ from fakoli_state import __version__
 from fakoli_state.cli.claim import claim, next, release, renew
 from fakoli_state.cli.hooks import hook_app
 from fakoli_state.cli.init_status import init, status
+from fakoli_state.cli.migrate import migrate_events
 from fakoli_state.cli.packet_apply import apply, packet, submit
 from fakoli_state.cli.plan import expand, list_tasks, plan, review_app, score, show
 from fakoli_state.cli.prd import prd_app
@@ -81,6 +82,7 @@ app.command()(packet)
 app.command()(submit)
 app.command()(apply)
 app.command()(replay)
+app.command("migrate-events")(migrate_events)
 
 # ---------------------------------------------------------------------------
 # Module entry point
