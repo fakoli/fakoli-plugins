@@ -116,6 +116,15 @@ If the critic returns MUST FIX, it dispatches welder to fix and re-runs the crit
 to three cycles before surfacing to the user. SHOULD FIX and NIT findings are logged
 but don't block the wave.
 
+**The gate is hook-enforced, not just instructed** (v1.2+). While a run is armed
+(`.fakoli/gate-armed`, written by the execute skill at run start), a PreToolUse hook
+denies dispatch of any agent other than critic or welder once a code-writing agent
+completes — and a welder fix re-pends the gate, so fix cycles mechanically require
+critic re-review. The hooks fail open: arming expires after 24 hours, malformed input
+is ignored, and `FAKOLI_FLOW_NO_GATE=1` (or removing the arming file) disarms
+enforcement. Enforcement requires fakoli-crew agent types; generic-fallback runs rely
+on the prompt-level protocol.
+
 In practice across 44,268 lines of the BAARA Next project, critic gates caught 26 bugs
 before they compounded: state machine violations, broken API contracts, unauthenticated
 RCE, migration data corruption.

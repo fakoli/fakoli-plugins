@@ -1,0 +1,15 @@
+{
+  "name": "fakoli-crew",
+  "displayName": "Fakoli Crew",
+  "version": "2.6.0",
+  "description": "Eight specialist AI agents for software engineering — generalist roles (polyglot architect, code reviewer, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) with TDD enforcement, systematic debugging, and verification gates.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "email": ""
+  },
+  "homepage": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "agents": "./.cursor/agents/",
+  "skills": "./skills/",
+  "commands": "./commands/"
+}

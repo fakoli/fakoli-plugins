@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.7.0 (2026-06-09)
+
+### Added
+- **critic**: two-stage review order — Stage 1 spec compliance (each acceptance criterion located in code and cited file:line; unmet criteria are MUST FIX labeled `[SPEC]`), Stage 2 the existing code-quality checklist. Adopted from superpowers' spec-compliance/code-quality review split: leading with quality lets a review polish its way past a missing requirement
+- **sentinel**: scorecards now end with a machine-readable fenced-JSON verdict block (`{"verdict", "pass", "fail", "na", "failures": [{"check", "fix_owner"}]}`) so orchestrators (fakoli-flow, scripts, CI) can branch on results without scraping prose
+- **scout**: gained the Bash tool for read-only live verification — `curl -sI` liveness checks on documented endpoints, header inspection for version/deprecation signals, grep over changelogs/lockfiles. GET/HEAD against public surfaces only; every reference fact now marked VERIFIED (observed this session) or DOCUMENTED (docs claim it)
+
+---
+
+## 2.6.0 (2026-06-02)
+
+### Added
+- Added Cursor companion files under `.cursor/agents/` for all 8 crew roles, mirroring the existing `.codex/agents/` pattern. Each points at the canonical `agents/<role>.md` prompt as the source of truth, so Claude Code behavior is unchanged.
+- Mapped the read-only roles (`critic`, `sentinel`) to Cursor's `readonly: true` subagent flag — the closest faithful equivalent to their Claude `tools:` allowlists, since Cursor does not honor per-subagent tool allowlists.
+- Added `.cursor-plugin/plugin.json` so the plugin installs natively via Cursor's plugin marketplace (auto-discovers `.cursor/agents/`, `skills/`, `commands/`).
+
+### Changed
+- Companion `model` is set to `inherit` (Cursor uses the user-selected model); exact per-role Cursor model IDs are deferred until verified against a live Cursor install.
+- Updated `docs/getting-started.md` to document the three-harness model/selection split (Claude / Codex / Cursor).
+
 ## 2.5.0 (2026-06-02)
 
 ### Added

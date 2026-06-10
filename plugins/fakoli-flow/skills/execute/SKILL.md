@@ -8,6 +8,8 @@ Load an intent-driven plan, group tasks into dependency-ordered waves, dispatch 
 
 <HARD-GATE>
 The critic gate runs after EVERY wave that writes code. It is not optional and cannot be skipped. Proceed to the next wave only after the critic returns PASS (or SHOULD FIX / NIT with no MUST FIX findings).
+
+This gate is mechanically enforced, not just instructed: while a run is armed (see Step 1), the plugin's PreToolUse hook denies dispatch of any agent other than critic or welder once a code-writing agent has completed and the critic has not yet reviewed. Arm the gate at run start and disarm it on every exit path.
 </HARD-GATE>
 
 ---
@@ -81,22 +83,55 @@ If the plan file does not exist or cannot be found, ask the user for the path. D
 source of truth for all status-file paths in this execution:
 
 ```
-<run-id> = <plan-basename-without-extension>-<YYYYMMDDHHmm UTC>
+<run-id> = <sanitized-plan-basename>-<YYYYMMDDHHmmss UTC>
 ```
 
-Example: plan file `docs/plans/2026-06-01-retry-mechanism.md` loaded at 14:30 UTC
-on 2026-06-01 → `run-id = 2026-06-01-retry-mechanism-202606011430`.
+Sanitization rules for the plan basename (applied in order):
+1. Strip the file extension.
+2. Lowercase everything.
+3. Replace every character outside `[a-z0-9-]` with `-`.
+4. Collapse consecutive `-` into one; trim leading/trailing `-`.
+
+The timestamp includes seconds so two runs of the same plan started in the same
+minute cannot collide on a scratch root.
+
+Example: plan file `docs/plans/2026-06-01-retry-mechanism.md` loaded at 14:30:07 UTC
+on 2026-06-01 → `run-id = 2026-06-01-retry-mechanism-20260601143007`.
 
 **Default scratch root:** `.fakoli/runs/<run-id>/` (relative to the project root).
 Log the resolved absolute path once:
 
 ```
-[execute] Run ID: 2026-06-01-retry-mechanism-202606011430
-[execute] Scratch root: /abs/project/.fakoli/runs/2026-06-01-retry-mechanism-202606011430/
+[execute] Run ID: 2026-06-01-retry-mechanism-20260601143007
+[execute] Scratch root: /abs/project/.fakoli/runs/2026-06-01-retry-mechanism-20260601143007/
 ```
 
 All status-file references in this run use the absolute scratch root path. Every
 agent dispatch prompt receives the absolute path for its own status file.
+
+**Arm the critic gate.** After creating the scratch root, write the run ID to the
+gate-arming file:
+
+```bash
+mkdir -p .fakoli && printf '%s\n' "<run-id>" > .fakoli/gate-armed
+```
+
+While this file exists, the plugin's hooks enforce the critic gate mechanically:
+when a code-writing crew agent (guido, smith, welder) completes, only critic or
+welder dispatches are permitted until a critic review completes. Arming requires
+fakoli-crew agent types; generic-fallback runs are not hook-enforced (the prompt
+rules below still apply).
+
+**Disarm on every exit path.** When the run ends — final summary delivered, run
+aborted, or control handed back to the user for an unresolved escalation — remove
+the gate state:
+
+```bash
+rm -f .fakoli/gate-armed .fakoli/gate-state.json
+```
+
+A stale arming file older than 24 hours is ignored by the hooks (abandoned-run
+protection), but never rely on that: disarm explicitly.
 
 ### Step 2: Detect Available Agents
 
@@ -282,7 +317,15 @@ Read all `<scratch-root>/agent-*-status.md` files from the completed wave. Extra
 Agent(
   subagent_type = "fakoli-crew:critic",
   prompt = """
-    Review the code written in Wave <N>.
+    Review the code written in Wave <N>. Review in two stages, in this order:
+
+    STAGE 1 — Spec compliance. For each acceptance criterion below, find the
+    code that satisfies it and cite file:line. A criterion with no satisfying
+    code is MUST FIX (label it [SPEC]). Do not start Stage 2 until every
+    criterion has a verdict.
+
+    STAGE 2 — Code quality. Correctness under failure, API contracts, state
+    machine integrity, security, concurrency, dead code.
 
     Files to review:
     - path/to/file1.ts
@@ -292,7 +335,7 @@ Agent(
     <acceptance criteria from the plan tasks that this wave addressed>
 
     Report findings as:
-    - MUST FIX: correctness bugs, security issues, broken contracts, data corruption risk
+    - MUST FIX: unmet acceptance criteria [SPEC], correctness bugs, security issues, broken contracts, data corruption risk
     - SHOULD FIX: quality issues worth addressing but not blocking
     - CONSIDER: suggestions for improvement
     - NIT: minor style issues
@@ -301,6 +344,11 @@ Agent(
   """
 )
 ```
+
+The two-stage order matters: a review that starts with code quality can polish
+its way past a missing requirement. Spec compliance first means "beautiful code
+that doesn't do what the plan asked" is caught as MUST FIX, not missed as
+clean-looking.
 
 Replace `<scratch-root>` with the absolute path logged at the start of this run.
 
@@ -367,6 +415,10 @@ Agent(
 
     Write your scorecard to: <scratch-root>/agent-sentinel-status.md
     Status: COMPLETE (all pass) or NEEDS_REVIEW (any fail).
+
+    End the scorecard with a machine-readable verdict in a fenced json block:
+    {"verdict": "READY" | "NOT_READY", "pass": <n>, "fail": <n>, "na": <n>,
+     "failures": [{"check": "<name>", "fix_owner": "<agent>"}]}
   """
 )
 ```
@@ -399,6 +451,14 @@ Note in the execution log when running on generic subagents. All critic gate rul
 ---
 
 ## Final Summary
+
+Before reporting, disarm the critic gate — the run is over:
+
+```bash
+rm -f .fakoli/gate-armed .fakoli/gate-state.json
+```
+
+(Do this on every exit path, including aborts and unresolved escalations — see Step 1.)
 
 After the sentinel returns COMPLETE, report:
 

@@ -138,6 +138,8 @@ Language: <detected language>
 
 Write your scorecard to: <sentinel-status>
 Status: COMPLETE (all pass) or NEEDS_REVIEW (any fail).
+End the scorecard with a machine-readable verdict in a fenced json block:
+{\"verdict\": \"READY\" | \"NOT_READY\", \"pass\": <n>, \"fail\": <n>, \"na\": <n>, \"failures\": [{\"check\": \"<name>\", \"fix_owner\": \"<agent>\"}]}
 "
 )
 ```
@@ -156,6 +158,8 @@ Language: <detected language>
 
 Write your scorecard to: <sentinel-status>
 Status: COMPLETE (all pass) or NEEDS_REVIEW (any fail).
+End the scorecard with a machine-readable verdict in a fenced json block:
+{\"verdict\": \"READY\" | \"NOT_READY\", \"pass\": <n>, \"fail\": <n>, \"na\": <n>, \"failures\": [{\"check\": \"<name>\", \"fix_owner\": \"<agent>\"}]}
 "
 )
 ```

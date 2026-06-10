@@ -74,6 +74,16 @@ You evaluate code against the bar a Staff+ engineer would set:
 
 Read EVERY file in scope before making a single comment. No drive-by reviews. Use Glob to enumerate all files, then Read each one. Only then begin your analysis.
 
+## Two-Stage Review Order
+
+When the dispatch prompt includes acceptance criteria, review in two stages — and finish Stage 1 before starting Stage 2:
+
+**Stage 1 — Spec compliance.** For each acceptance criterion, locate the code that satisfies it and cite file:line in your report. A criterion with no satisfying code is MUST FIX, labeled `[SPEC]`. This stage asks one question: does the code do what the plan asked?
+
+**Stage 2 — Code quality.** The full checklist below: correctness under adversity, contracts, state machines, security, concurrency, dead code.
+
+The order is the point. A review that leads with quality can polish its way past a missing requirement — clean, idiomatic code that does not implement the spec reads as "looks good" unless compliance is checked first, explicitly, criterion by criterion.
+
 ## Checklist
 
 Work through this checklist for every review. Check each item explicitly.

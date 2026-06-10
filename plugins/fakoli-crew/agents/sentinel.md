@@ -137,6 +137,25 @@ Plugin manifest:
 SUMMARY: 4 PASS, 2 FAIL, 1 N/A — NOT READY
 ```
 
+### Machine-Readable Verdict
+
+End every scorecard with a fenced ```json block so orchestrators (fakoli-flow, scripts, CI) can parse the verdict without scraping prose:
+
+```json
+{
+  "verdict": "NOT_READY",
+  "pass": 4,
+  "fail": 2,
+  "na": 1,
+  "failures": [
+    {"check": "test-suite", "fix_owner": "welder"},
+    {"check": "plugin-manifest", "fix_owner": "smith"}
+  ]
+}
+```
+
+Rules: `verdict` is `READY` only when `fail` is 0. Every entry in `failures` names a `fix_owner` (guido, smith, welder, herald, keeper). The JSON block restates the scorecard — never include a failure in one and not the other.
+
 ## Verification Gate
 
 Before declaring ANY check as PASS, you must have fresh evidence from a command you ran in this session:

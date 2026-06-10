@@ -65,6 +65,26 @@ files so Claude ignores it. Those files map the same roles to OpenAI models:
 | `gpt-5.4` | `fakoli_scout`, `fakoli_smith`, `fakoli_welder`, `fakoli_herald`, `fakoli_keeper` |
 | `gpt-5.4-mini` | `fakoli_sentinel` |
 
+### Cursor
+
+Cursor selection lives in `.cursor/agents/fakoli-*.md` companion files (and a
+`.cursor-plugin/plugin.json` manifest), so Claude ignores them. Each companion
+points back at the canonical `agents/<role>.md` prompt rather than forking it.
+
+Cursor does **not** honor a per-subagent tool allowlist, so the Claude `tools:`
+field cannot transfer directly. The closest faithful mapping is Cursor's
+`readonly` flag, applied to the roles whose Claude tools are read-only:
+
+| `readonly` | Agents | Rationale |
+|------------|--------|-----------|
+| `true` | `fakoli-critic`, `fakoli-sentinel` | review/validate only — "critics report, they don't fix" |
+| `false` | `fakoli-guido`, `fakoli-scout`, `fakoli-smith`, `fakoli-welder`, `fakoli-herald`, `fakoli-keeper` | these roles write or edit files |
+
+Companion `model` is `inherit` (Cursor runs the user-selected model). Cursor
+encodes reasoning effort in the model ID (e.g. `-high` variants) rather than a
+separate field, so per-role Cursor model IDs are left unset until verified
+against a live Cursor install.
+
 ## Workflow Orchestration
 
 To get automatic wave dispatch, critic gates, and status file management, install
