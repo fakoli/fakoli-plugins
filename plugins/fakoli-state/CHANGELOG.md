@@ -10,6 +10,18 @@ _No unreleased changes._
 
 ---
 
+## [1.23.0] — 2026-06-10
+
+### Added
+
+- **Score recursion + parent roll-up** — closes the four weaknesses claude-task-master users documented around its complexity scoring.
+  - **Parent roll-up (TM #250):** an expanded task (one with children) is now a *container*, not an actionable unit. Its stored complexity score is preserved (the event log is immutable audit history — the score still records how big the unsplit unit was), but `build_expansion_queue` excludes it from the actionable EXPANSION QUEUE, so an already-split parent is never re-queued. New `is_expanded(task, all_tasks)` predicate.
+  - **Recursive expand-to-threshold:** new `build_recursive_expansion_queue()` returns the leaf-only expansion frontier annotated with tree `depth`. Recursion happens across re-scores (expand a leaf → re-score → its over-threshold children re-enter the queue), bounded by `DEFAULT_RECURSION_DEPTH_CAP` (3) and a cycle guard in `_depth_of` so the walk always terminates — a lineage deeper than the cap is dropped from the auto-queue as a signal that the PRD block needs human restructuring.
+  - **Partial-score merge (TM #1644):** re-scoring a subset of tasks no longer wipes the others. This already held by construction — scores persist as per-task `task.scored` events, so a single-task re-score is an append that leaves every other task's projected score intact — and is now proven by a regression test (the event-sourced answer to task-master's overwrite-on-partial bug).
+- `skills/plan/SKILL.md` documents the roll-up + across-re-score recursion model and its depth/cycle safety rails.
+
+---
+
 ## [1.22.0] — 2026-06-10
 
 ### Added

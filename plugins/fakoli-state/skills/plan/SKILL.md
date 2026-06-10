@@ -200,6 +200,19 @@ fakoli-state score
 >
 > Re-scored: no remaining tasks at/above threshold. Anything you want re-merged or re-split before I run `review tasks`?
 
+**Recursion is automatic across re-scores (v1.23.0).** After expansion, an
+expanded parent becomes a *container* and rolls out of the queue — its stored
+complexity score is preserved (audit history), but it is no longer surfaced as
+actionable. The re-score in the recap step then evaluates the new *children*:
+any child that is itself still at/above the threshold re-enters the EXPANSION
+QUEUE, so deep work decomposes lineage-by-lineage without a separate "recurse"
+command. Two safety rails bound this: a child more than `DEFAULT_RECURSION_DEPTH_CAP`
+(3) levels deep is dropped from the auto-queue — repeated splitting of one
+lineage is a signal the PRD block needs human restructuring, not another
+automatic split — and a malformed parent cycle is detected and skipped rather
+than looped. If the recap shows the same lineage expanding round after round,
+stop and restructure that part of the PRD by hand.
+
 If a re-score still queues a task (a sub-task scored at/above threshold again), surface it in the same checkpoint rather than silently looping — repeated expansion of the same lineage is a sign the PRD block needs human restructuring, not another LLM pass.
 
 If the LLM call fails (no API key, network failure), surface the error and fall back to proposing subtask blocks inline in the conversation, applying them to `prd.md` after the user confirms.

@@ -33,8 +33,12 @@ if TYPE_CHECKING:
     from fakoli_state.planning.llm import LLMProvider
 
 __all__ = [
+    "DEFAULT_RECURSION_DEPTH_CAP",
     "ExpansionCandidate",
+    "RecursiveExpansionCandidate",
     "build_expansion_queue",
+    "build_recursive_expansion_queue",
+    "is_expanded",
     "score_task",
     "score_all",
     "suggested_subtask_count",
@@ -332,6 +336,18 @@ _SUGGESTED_SUBTASKS_MIN = 2
 _SUGGESTED_SUBTASKS_MAX = 5
 
 
+# v1.23.0 — recursive expand-to-threshold safety rails. The recursion walks
+# the parent→child tree (``Task.parent_task_id``); ``DEFAULT_RECURSION_DEPTH_CAP``
+# bounds how deep a single ``score`` run will surface descendants so the
+# frontier always terminates even if a (malformed) cycle slips past the cycle
+# guard. 3 was chosen to match the SKILL.md guidance ("repeated expansion of
+# the same lineage is a sign the PRD block needs human restructuring"): two
+# splits (parent → children → grandchildren) is the deepest auto-decomposition
+# we trust without a human looking; a fourth level is almost always a scoring
+# artifact, not real nested work.
+DEFAULT_RECURSION_DEPTH_CAP = 3
+
+
 class ExpansionCandidate(NamedTuple):
     """One task queued for sub-task expansion after scoring.
 
@@ -345,6 +361,46 @@ class ExpansionCandidate(NamedTuple):
     title: str
     complexity: int
     suggested_subtasks: int
+
+
+class RecursiveExpansionCandidate(NamedTuple):
+    """One task on the *recursive* expansion frontier (v1.23.0).
+
+    Like :class:`ExpansionCandidate` but carries ``depth`` — the number of
+    parent links between this task and the top-level root it descends from
+    (0 = a top-level task with no parent; 1 = its child; …). The frontier
+    only ever contains *leaf* tasks (a task that is not itself a container —
+    see :func:`is_expanded`): once a task has been split into sub-tasks it is
+    a container, not a unit of work, so it rolls up out of the queue and its
+    children are evaluated instead. The depth cap and an explicit cycle guard
+    guarantee the walk terminates regardless of the input shape.
+    """
+
+    task_id: str
+    title: str
+    complexity: int
+    suggested_subtasks: int
+    depth: int
+
+
+def is_expanded(task: Task, all_tasks: list[Task]) -> bool:
+    """Return True if *task* has at least one child task in *all_tasks*.
+
+    A task with children was decomposed into sub-tasks, so it is now a
+    *container* — a roll-up node — not an actionable unit of work. This is the
+    parent roll-up model (v1.23.0, closing TM #250): the parent's stored
+    complexity score is preserved untouched (the event log is immutable audit
+    history, and the score still records how big the *unsplit* unit was), but
+    every *actionable* view derived from the scores — the expansion queue, the
+    CLI/MCP rendering — treats an expanded parent as a container and excludes
+    it. An expanded parent is never re-queued for expansion (you do not expand
+    something already expanded), which is exactly the "less useful as the main
+    task isn't actionable" complaint this addresses.
+
+    Pure — membership is computed purely from ``parent_task_id`` links; no I/O,
+    no mutation.
+    """
+    return any(t.parent_task_id == task.id for t in all_tasks)
 
 
 def suggested_subtask_count(complexity: int) -> int:
@@ -380,11 +436,18 @@ def build_expansion_queue(
     Returns:
         Candidates sorted by complexity descending, then task id ascending —
         the most decomposition-worthy work first, deterministic throughout.
+
+    An *expanded* parent (a task that already has children) is excluded even
+    when its stored complexity is at/above the threshold: it is a container,
+    not an actionable unit, so re-queuing it for expansion would be the TM-#250
+    "main task isn't actionable" trap. See :func:`is_expanded`.
     """
     candidates: list[ExpansionCandidate] = []
     for task in tasks:
         complexity = task.scores.complexity
         if complexity is None or complexity < threshold:
+            continue
+        if is_expanded(task, tasks):
             continue
         candidates.append(ExpansionCandidate(
             task_id=task.id,
@@ -393,6 +456,80 @@ def build_expansion_queue(
             suggested_subtasks=suggested_subtask_count(complexity),
         ))
     return sorted(candidates, key=lambda c: (-c.complexity, c.task_id))
+
+
+def _depth_of(
+    task: Task, by_id: dict[str, Task], depth_cap: int
+) -> int | None:
+    """Return *task*'s depth in the parent tree, or None on a cycle/runaway.
+
+    Depth 0 = a top-level task (no parent); 1 = its child; etc. Walks
+    ``parent_task_id`` upward with a visited-set cycle guard and a hard
+    iteration bound, so a malformed self-referential or mutually-referential
+    parent chain returns None rather than looping forever. A dangling parent
+    id (parent not present in *by_id*) terminates the walk at the current
+    depth — the chain is treated as rooted where the data actually stops.
+    """
+    depth = 0
+    seen = {task.id}
+    current = task
+    while current.parent_task_id is not None:
+        if current.parent_task_id in seen:
+            return None  # cycle
+        parent = by_id.get(current.parent_task_id)
+        if parent is None:
+            break  # dangling parent — chain is effectively rooted here
+        seen.add(parent.id)
+        depth += 1
+        current = parent
+        if depth > depth_cap + 1:
+            return None  # runaway guard (belt and suspenders past the cap)
+    return depth
+
+
+def build_recursive_expansion_queue(
+    tasks: list[Task],
+    *,
+    threshold: int = DEFAULT_AUTO_EXPAND_THRESHOLD,
+    depth_cap: int = DEFAULT_RECURSION_DEPTH_CAP,
+) -> list[RecursiveExpansionCandidate]:
+    """Return the recursive expansion frontier (v1.23.0).
+
+    The frontier is every *leaf* task (one with no children of its own) whose
+    complexity is at/above *threshold*, annotated with its tree ``depth``.
+    Containers (already-expanded parents) roll up out of the queue; their
+    children are evaluated in their place. A leaf deeper than *depth_cap* is
+    dropped — repeated decomposition of one lineage is a sign the PRD block
+    needs human restructuring, not another automatic split.
+
+    Recursion happens across scoring runs, not inside one call: expand a leaf,
+    re-score, and the next call surfaces any child that is still too big. This
+    function reports the current frontier; the LLM still does the actual split
+    (``expand --use-llm``). Pure, deterministic, and guaranteed to terminate
+    (depth cap + cycle guard in :func:`_depth_of`).
+
+    Returns candidates sorted by depth ascending (top-level decomposition
+    first), then complexity descending, then task id.
+    """
+    by_id = {t.id: t for t in tasks}
+    candidates: list[RecursiveExpansionCandidate] = []
+    for task in tasks:
+        complexity = task.scores.complexity
+        if complexity is None or complexity < threshold:
+            continue
+        if is_expanded(task, tasks):
+            continue  # container — its children are the actionable units
+        depth = _depth_of(task, by_id, depth_cap)
+        if depth is None or depth > depth_cap:
+            continue  # too deep / malformed — needs a human, not auto-expansion
+        candidates.append(RecursiveExpansionCandidate(
+            task_id=task.id,
+            title=task.title,
+            complexity=complexity,
+            suggested_subtasks=suggested_subtask_count(complexity),
+            depth=depth,
+        ))
+    return sorted(candidates, key=lambda c: (c.depth, -c.complexity, c.task_id))
 
 
 # ---------------------------------------------------------------------------

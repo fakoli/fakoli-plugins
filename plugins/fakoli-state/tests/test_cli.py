@@ -1052,6 +1052,26 @@ class TestScore:
         result = _invoke_cmd(tmp_path, ["score", "T999"])
         assert result.exit_code == 1
 
+    def test_partial_rescore_preserves_other_scores(self, tmp_path: Path) -> None:
+        """v1.23.0 / TM #1644: re-scoring one task must NOT wipe the others.
+
+        Scores persist as per-task ``task.scored`` events, so a single-task
+        re-score is an append that leaves every other task's projected score
+        intact — the event-sourced answer to task-master's overwrite-on-partial
+        bug. This proves the merge behavior rather than just asserting it.
+        """
+        self._setup_planned_project(tmp_path)
+        assert _invoke_cmd(tmp_path, ["score"]).exit_code == 0
+
+        before = _invoke_cmd(tmp_path, ["show", "T002"]).output
+        assert "not yet scored" not in before
+
+        # Re-score only T001; T002 must be untouched.
+        assert _invoke_cmd(tmp_path, ["score", "T001"]).exit_code == 0
+        after = _invoke_cmd(tmp_path, ["show", "T002"]).output
+        assert "not yet scored" not in after
+        assert after == before
+
 
 # ---------------------------------------------------------------------------
 # expand command
