@@ -104,9 +104,14 @@ async def _fetch_pinned(
         current_url = start_url
         for _hop in range(_MAX_REDIRECTS + 1):
             normalized, pinned_ip = validate_and_resolve(current_url)
-            host = urlparse(normalized).hostname or ""
+            parsed_hop = urlparse(normalized)
+            host = parsed_hop.hostname or ""
+            # Host header must carry the port for non-default ports (RFC 7230 §5.4);
+            # `.hostname` strips it. SNI is hostname-only (no port), so keep `host`
+            # for the sni_hostname extension and the certificate-verification name.
+            host_header = f"{host}:{parsed_hop.port}" if parsed_hop.port else host
             request_url = _pin_to_ip(normalized, pinned_ip)
-            headers = {"User-Agent": _USER_AGENT, "Host": host}
+            headers = {"User-Agent": _USER_AGENT, "Host": host_header}
 
             async with client.stream(
                 "GET",

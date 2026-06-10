@@ -86,6 +86,23 @@ class TestPinnedConnection:
         assert seen["url_host"] == _PUBLIC
         assert seen["host_header"] == _PUBLIC  # host literal == its own pinned IP here
 
+    async def test_host_header_preserves_non_default_port(self):
+        """RFC 7230: the Host header must carry an explicit non-default port."""
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["url_port"] = request.url.port
+            seen["host_header"] = request.headers.get("host")
+            return httpx.Response(200, headers={"content-type": "text/plain"}, content=b"ok")
+
+        body, _ctype, _final = await _fetch_pinned(
+            f"http://{_PUBLIC}:8080/api", transport=_transport(handler)
+        )
+        assert body == b"ok"
+        # Connection goes to the right port, and the Host header includes it.
+        assert seen["url_port"] == 8080
+        assert seen["host_header"] == f"{_PUBLIC}:8080"
+
 
 class TestBodyCap:
     async def test_oversized_body_aborted_incrementally(self, monkeypatch):

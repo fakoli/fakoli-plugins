@@ -61,24 +61,29 @@ class URLPolicyError(Exception):
 
 
 def validate_url(url: str) -> str:
-    """Validate a URL against the security policy. Returns the normalized URL.
+    """Validate a URL against the security policy. Returns the input URL unchanged.
 
     Back-compatible wrapper around :func:`validate_and_resolve` for callers that
     only need the pass/fail decision (``check_url_safety``, tests). Code that
     actually connects should use :func:`validate_and_resolve` and pin the
     connection to the returned IP — see that function's docstring for why.
+
+    The URL is returned verbatim (not reconstructed); "validation" here means the
+    call raises ``URLPolicyError`` if the URL is disallowed, and returns it
+    otherwise.
     """
-    normalized, _ip = validate_and_resolve(url)
-    return normalized
+    validated, _ip = validate_and_resolve(url)
+    return validated
 
 
 def validate_and_resolve(url: str) -> tuple[str, str]:
-    """Validate a URL against the policy and return ``(normalized_url, pinned_ip)``.
+    """Validate a URL against the policy and return ``(url, pinned_ip)``.
 
-    The second element is one of the addresses that ``getaddrinfo`` returned and
-    that passed the private/reserved check. Callers MUST connect to *that* IP
-    (with the original Host header and SNI preserved) rather than letting the
-    HTTP client re-resolve the hostname.
+    The first element is the input URL unchanged (returned only when it passes;
+    a disallowed URL raises ``URLPolicyError``). The second is one of the
+    addresses that ``getaddrinfo`` returned and that passed the private/reserved
+    check. Callers MUST connect to *that* IP (with the original Host header and
+    SNI preserved) rather than letting the HTTP client re-resolve the hostname.
 
     Why: validating the hostname and then handing the *hostname* to an HTTP
     client lets the client perform a second, independent DNS resolution at
