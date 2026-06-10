@@ -28,7 +28,6 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import BaseModel
@@ -205,7 +204,12 @@ class SqliteBackend:
                    COMMIT. See SL1-RR-1 spec section 6.
     sleep_fn     : injectable sleep used by the flock contention backoff in
                    ``_append_lock``. Defaults to ``time.sleep``; tests inject
-                   a fake that advances a FrozenClock instead of blocking.
+                   a fake that advances a fake monotonic counter instead of
+                   blocking.
+    monotonic_fn : injectable monotonic time source for the ``_append_lock``
+                   contention deadline. Defaults to ``time.monotonic`` — NOT
+                   ``clock.now()``, which is wall-clock and would let an NTP
+                   step stretch or shorten the 5 s timeout.
 
     Lifecycle (SL1-RR-1 write-path)
     ---------------------------------
@@ -225,12 +229,14 @@ class SqliteBackend:
         clock: Clock,
         durability: str = "relaxed",
         sleep_fn: Callable[[float], None] = time.sleep,
+        monotonic_fn: Callable[[], float] = time.monotonic,
     ) -> None:
         self._db_path = db_path
         self._events_path = events_path
         self._clock = clock
         self._durability = durability
         self._sleep_fn = sleep_fn
+        self._monotonic_fn = monotonic_fn
         self._conn: sqlite3.Connection | None = None
         # In-memory monotonic counter; seeded from log max on initialize().
         # Incremented at log-append time inside the flock critical section.
@@ -1033,14 +1039,17 @@ class SqliteBackend:
             with open(log_path, "a", encoding="utf-8") as _lock_fh:
                 # Try a non-blocking LOCK_EX first; if contended, retry with
                 # jittered exponential backoff until the 5 s budget is spent.
+                # The deadline is measured on the monotonic clock, NOT
+                # self._clock: a wall-clock NTP step mid-contention would
+                # silently stretch or shorten the timeout.
                 delays = _flock_backoff_delays()
-                deadline = self._clock.now() + timedelta(seconds=_FLOCK_TIMEOUT_S)
+                deadline = self._monotonic_fn() + _FLOCK_TIMEOUT_S
                 while True:
                     try:
                         fcntl.flock(_lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                         break
                     except OSError as lock_exc:
-                        remaining = (deadline - self._clock.now()).total_seconds()
+                        remaining = deadline - self._monotonic_fn()
                         if remaining <= 0:
                             raise StateLocked(
                                 "append: flock contention on events.jsonl exceeded "

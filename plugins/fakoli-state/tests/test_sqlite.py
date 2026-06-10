@@ -9435,8 +9435,11 @@ class TestAppendLockBackoff:
     tests pin the replacement schedule: exponential from 10 ms, capped at
     500 ms, ±10% jitter, same 5 s overall timeout.
 
-    No real sleeping and no monkey-patching: the injected sleep_fn advances a
-    FrozenClock, following the project's Clock-protocol pattern.
+    No real sleeping and no monkey-patching: in the spirit of the project's
+    Clock-protocol pattern, the injected sleep_fn advances a fake monotonic
+    counter read back through the injected monotonic_fn. The deadline runs on
+    the monotonic clock (not Clock.now()) so a wall-clock NTP step cannot
+    stretch or shorten the timeout.
     """
 
     def test_schedule_doubles_from_initial_to_cap(self) -> None:
@@ -9464,24 +9467,25 @@ class TestAppendLockBackoff:
     ) -> None:
         """A held flock drives the full backoff schedule, then StateLocked.
 
-        The injected sleep_fn records each delay and advances the FrozenClock
-        instead of blocking, so the whole 5 s contention window runs in
-        microseconds and the recorded schedule is assertable.
+        The injected sleep_fn records each delay and advances a fake monotonic
+        counter instead of blocking, so the whole 5 s contention window runs
+        in microseconds and the recorded schedule is assertable.
         """
         events_path = tmp_path / "events.jsonl"
         events_path.touch()
-        clock = _make_clock()
+        fake_now = [0.0]
         slept: list[float] = []
 
         def fake_sleep(seconds: float) -> None:
             slept.append(seconds)
-            clock.advance(seconds=seconds)
+            fake_now[0] += seconds
 
         b = SqliteBackend(
             db_path=str(tmp_path / "state.db"),
             events_path=str(events_path),
-            clock=clock,
+            clock=_make_clock(),
             sleep_fn=fake_sleep,
+            monotonic_fn=lambda: fake_now[0],
         )
         # Hold LOCK_EX on an independent fd: flock locks belong to the open
         # file description, so a second open() of the same path contends even
@@ -9496,8 +9500,8 @@ class TestAppendLockBackoff:
             holder.close()
 
         # Every sleep is clamped to the time remaining, so the recorded
-        # delays consume the 5 s budget exactly (± timedelta µs rounding).
-        assert sum(slept) == pytest.approx(_FLOCK_TIMEOUT_S, abs=1e-4)
+        # delays consume the 5 s budget exactly.
+        assert sum(slept) == pytest.approx(_FLOCK_TIMEOUT_S)
         # Each un-clamped delay obeys the schedule: within ±10% of
         # min(10 ms * 2^i, 500 ms). The final delay may be clamped shorter.
         for i, delay in enumerate(slept[:-1]):
