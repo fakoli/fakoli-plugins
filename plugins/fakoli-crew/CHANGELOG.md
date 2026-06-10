@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.9.0 (2026-06-10)
+
+### Added
+- **warden** — ninth agent: read-only security auditor (opus, `Read/Grep/Glob/Bash`, color white). A second standing review gate parallel to critic: critic reviews for correctness and architecture, warden for exploitability — injection/execution surfaces, secret and credential leakage, dependency/supply-chain risk (runs available scanners; absent scanner = N/A, never PASS), auth bypass, and Claude Code plugin permission surfaces (hook matchers, tool allowlists, MCP configs, deny-output contracts). Severity-rated findings (CRITICAL/HIGH block; MEDIUM/LOW advise) with a machine-readable JSON verdict block. Codex (`gpt-5.5`, high effort) and Cursor (`readonly: true`) companions included; model-invariant test extended.
+- Added on evidence, not enthusiasm: a June 2026 field scan found the security auditor to be the only consensus archetype across every serious roster (wshobson, VoltAgent, claude-flow, and three first-party Anthropic surfaces) that fakoli-crew lacked. The same scan recommended holding a test-author agent until a TDD wave pattern exists, and adding nothing else.
+
+### Changed
+- README, `/crew` command, and agent-roster updated for the nine-agent roster; Full Overhaul composition runs sentinel + warden in parallel in Wave 4; Code Quality composition notes when to include warden
+
+---
+
 ## 2.8.0 (2026-06-10)
 
 ### Added

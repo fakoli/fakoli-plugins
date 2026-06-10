@@ -1,11 +1,11 @@
 ---
-description: List all 8 fakoli-crew agents with roles, and (if a task is supplied) suggest a crew composition tailored to that task. Pairs with the `crew-ops` skill, which handles multi-agent orchestration once a crew is chosen.
+description: List all 9 fakoli-crew agents with roles, and (if a task is supplied) suggest a crew composition tailored to that task. Pairs with the `crew-ops` skill, which handles multi-agent orchestration once a crew is chosen.
 argument-hint: "[optional task description]"
 allowed-tools:
   - Bash
 ---
 
-List all 8 fakoli-crew agents with their roles, then suggest crew compositions for the user's current task (passed as the command argument, if any).
+List all 9 fakoli-crew agents with their roles, then suggest crew compositions for the user's current task (passed as the command argument, if any).
 
 For deeper orchestration — wave patterns, file ownership, status-file protocol — invoke the `crew-ops` skill (triggers: "assemble a crew for…", "coordinate agents to…").
 
@@ -16,7 +16,7 @@ See [`skills/crew-ops/references/agent-roster.md`](../skills/crew-ops/references
 ## Pre-Built Crews
 
 ### Code Quality
-**Agents:** guido + critic + sentinel
+**Agents:** guido + critic + sentinel (+ warden when the change touches auth, input handling, dependencies, or plugin permissions)
 **Use when:** You want to audit and improve an existing codebase.
 ```
 1. critic audits — finds issues, assigns severity
@@ -55,7 +55,7 @@ Wave 3: sentinel (verify counts match, links resolve)
 ```
 
 ### Full Overhaul
-**Agents:** All 8 in waves (critic as standing gate)
+**Agents:** All 9 in waves (critic as standing gate, warden as security gate)
 **Use when:** Major version bump, structural refactor, or preparing for public launch.
 ```
 Wave 1:             scout (research)
@@ -63,7 +63,7 @@ Wave 2 (parallel):  guido + smith + herald (build)
   ── CRITIC GATE ──
 Wave 3:             welder (integrate)
   ── CRITIC GATE ──
-Wave 4:             sentinel (final verification)
+Wave 4 (parallel):  sentinel (final verification) + warden (security audit)
 Wave 5:             keeper (infrastructure) + orchestrator reviews findings
 ```
 

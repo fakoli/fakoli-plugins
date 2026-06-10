@@ -89,3 +89,4 @@ Implications:
 | 2026-06 | Machine-readable verifier verdicts | — (enabler for automation) | fakoli-crew sentinel, fakoli-flow execute/verify |
 | 2026-06 | Adversarial refutation pass (second verifier tries to break PASS verdicts) | Anthropic Dynamic Workflows | fakoli-flow verify Step 5.5 |
 | 2026-06 | Complexity score drives recursive task expansion | claude-task-master | fakoli-state scoring/plan flow |
+| 2026-06 | Security auditor as a standing review role | unanimous across field rosters + 3 first-party Anthropic surfaces | fakoli-crew warden (ninth agent) |

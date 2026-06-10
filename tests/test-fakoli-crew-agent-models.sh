@@ -25,7 +25,7 @@ echo ""
 
 expected_claude_model() {
     case "$1" in
-        critic|guido) echo "opus" ;;
+        critic|guido|warden) echo "opus" ;;
         sentinel) echo "haiku" ;;
         herald|keeper|scout|smith|welder) echo "sonnet" ;;
         *) echo "" ;;
@@ -34,7 +34,7 @@ expected_claude_model() {
 
 expected_openai_model() {
     case "$1" in
-        critic|guido) echo "gpt-5.5" ;;
+        critic|guido|warden) echo "gpt-5.5" ;;
         sentinel) echo "gpt-5.4-mini" ;;
         herald|keeper|scout|smith|welder) echo "gpt-5.4" ;;
         *) echo "" ;;
@@ -43,7 +43,7 @@ expected_openai_model() {
 
 expected_openai_effort() {
     case "$1" in
-        critic|guido) echo "high" ;;
+        critic|guido|warden) echo "high" ;;
         sentinel) echo "medium" ;;
         herald|keeper|scout|smith|welder) echo "medium" ;;
         *) echo "" ;;

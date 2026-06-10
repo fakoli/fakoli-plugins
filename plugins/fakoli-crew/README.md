@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Plugin Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](.claude-plugin/plugin.json)
 
-Eight specialized AI agents — generalist engineering roles (polyglot architect, Staff Engineer code reviewer, API researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) — that run independently or as coordinated multi-wave crews for complex development projects.
+Nine specialized AI agents — generalist engineering roles (polyglot architect, Staff Engineer code reviewer, security auditor, API researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) — that run independently or as coordinated multi-wave crews for complex development projects.
 
 > **Looking for plugin-development critics?** The five specialist critics (`agent-critic`, `skill-critic`, `hook-critic`, `mcp-critic`, `structure-critic`) moved to a dedicated plugin in 2.3.0. Install [`fakoli-plugin-critic`](../fakoli-plugin-critic) alongside this one to get them. Existing recipes that dispatched via `fakoli-crew:<critic>` must update the namespace to `fakoli-plugin-critic:<critic>`.
 
@@ -33,6 +33,7 @@ claude plugin install fakoli-crew
 | **herald** | Documentation writer | "improve the README", "make this appealing", "rewrite the description" |
 | **keeper** | Infrastructure engineer | "update CLAUDE.md", "fix the CI", "sync the registry" |
 | **sentinel** | QA engineer | "validate everything", "run all tests", "check if this is ready" |
+| **warden** | Security auditor | "security review", "audit the permission surface", "check for leaked secrets" |
 
 ## Using Agents Individually
 
@@ -100,7 +101,7 @@ sentinel verifies all sources are in sync
 ```
 
 ### Full Overhaul
-**All 8 agents in 5 waves** — major version bump, structural refactor, or public launch prep.
+**All 9 agents in 5 waves** — major version bump, structural refactor, or public launch prep.
 
 ## The Wave Pattern
 
@@ -124,7 +125,7 @@ prompt. The default scratch root is `.fakoli/runs/<run-id>/agent-<name>-status.m
 
 | Command | Description |
 |---------|-------------|
-| `/crew` | List all 8 agents and suggested crew compositions |
+| `/crew` | List all 9 agents and suggested crew compositions |
 
 ## Skills
 

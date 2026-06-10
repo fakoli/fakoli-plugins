@@ -1,6 +1,6 @@
 # Agent Roster
 
-Canonical reference for all 8 fakoli-crew agents. Other files in this plugin link here rather than repeating this table.
+Canonical reference for all 9 fakoli-crew agents. Other files in this plugin link here rather than repeating this table.
 
 ## Agents
 
@@ -14,6 +14,7 @@ Canonical reference for all 8 fakoli-crew agents. Other files in this plugin lin
 | herald | pink | Documentation writer | READMEs, marketplace descriptions, branding, user-facing copy | `agents/herald.md` |
 | keeper | purple | Infrastructure engineer | CI/CD workflows, CLAUDE.md, contributor docs, registry sync | `agents/keeper.md` |
 | sentinel | orange | QA engineer | Test runs, validation scorecards, pre-release checks, verification | `agents/sentinel.md` |
+| warden | white | Security auditor | Injection/secrets/supply-chain review, plugin permission surfaces, severity-rated findings | `agents/warden.md` |
 
 ## Notes
 
@@ -22,6 +23,8 @@ Canonical reference for all 8 fakoli-crew agents. Other files in this plugin lin
 **File paths** are relative to the plugin root (`plugins/fakoli-crew/`). Each file contains the agent's full system prompt, tool allowlist, and triggering conditions.
 
 **critic** operates as a standing gate between waves rather than a build-phase agent. It fires after every wave that produces or modifies code — it does not own a dedicated build slot.
+
+**warden** is a second standing review gate, parallel to critic: critic reviews for correctness and architecture, warden for exploitability (injection, secrets, supply chain, permission surfaces). Read-only; runs scanners via Bash; reports with a machine-readable verdict.
 
 **sentinel** produces evidence-based scorecards. It verifies claims against observable outputs (test results, file counts, link resolution) rather than accepting assertions.
 
