@@ -104,6 +104,11 @@ def validate_and_resolve(url: str) -> tuple[str, str]:
     if not hostname:
         raise URLPolicyError("No hostname in URL.")
 
+    try:
+        _port = parsed.port
+    except ValueError as exc:
+        raise URLPolicyError(f"Invalid port: {exc}") from None
+
     hostname_lower = hostname.lower()
 
     # Blocked hosts

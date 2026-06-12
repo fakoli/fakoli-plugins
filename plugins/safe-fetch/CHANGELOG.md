@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1 — 2026-06-12
+
+### Fixed
+- Reject malformed URL ports during policy validation so `fetch` returns a
+  `[BLOCKED]` response instead of surfacing `urllib.parse` `ValueError`.
+
 ## 1.1.0 — 2026-06-10
 
 Security hardening release. Two independent warden-methodology audits converged on the same two HIGH SSRF findings in the fetch path; both are closed here, along with a DoS and a startup-crash bug found in the same pass. The `fetch` tool's signature is unchanged.

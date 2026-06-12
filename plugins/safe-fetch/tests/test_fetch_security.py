@@ -69,6 +69,13 @@ class TestRedirectSSRF:
             await _fetch_pinned(_START, transport=_transport(handler))
 
 
+class TestFetchPolicyErrors:
+    async def test_malformed_port_returns_blocked_message(self):
+        result = await server.fetch(f"http://{_PUBLIC}:99999/path")
+        assert result.startswith("[BLOCKED]")
+        assert "Invalid port" in result
+
+
 class TestPinnedConnection:
     async def test_connects_to_pinned_ip_with_host_header(self):
         """The socket target is the validated IP; the hostname rides in the Host header."""
