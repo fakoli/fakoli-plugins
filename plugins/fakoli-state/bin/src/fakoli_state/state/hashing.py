@@ -47,11 +47,15 @@ def hash_event_id(
     actor: str,
     ts: str,
 ) -> str:
-    """Return the hash-chained event id per the git-backed-events spec::
+    """Return the hash-chained event id per the git-backed-events spec.
 
-        event_id = "E-" + sha256(parent_event_id || action || target_kind
-                                 || target_id || canonical_json(payload)
-                                 || actor || ts)[:12]
+    The sha256 input is the following fields joined with the ASCII unit
+    separator ``"\\x1f"``::
+
+        parent_event_id, action, target_kind, target_id,
+        canonical_json(payload), actor, ts
+
+    The id is the first 12 hex chars of that digest, prefixed with ``"E-"``.
 
     ``parent_event_id`` is ``None`` for the first event in a log and then
     contributes an empty string to the hash input. ``ts`` is the event

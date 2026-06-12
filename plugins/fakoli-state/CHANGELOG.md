@@ -19,8 +19,9 @@ _No unreleased changes._
   are no longer surfaced for automatic expansion after repeated splits.
 - **Git-backed event IDs include full event identity.** Hash IDs now include
   action, target kind, and target id in addition to parent, payload, actor, and
-  timestamp, preventing same-payload branch events from colliding and being
-  deduped away during git-mode replay.
+  timestamp. Fields are joined with the ASCII unit separator `\x1f`,
+  preventing same-payload branch events from colliding and being deduped away
+  during git-mode replay.
 
 ---
 
