@@ -74,6 +74,21 @@ class TestBlockedHosts:
             validate_url("http://metadata.google.internal/computeMetadata/v1/")
 
 
+class TestPortValidation:
+    def test_blocks_out_of_range_port(self):
+        with pytest.raises(URLPolicyError, match="Invalid port"):
+            validate_url("http://93.184.216.34:99999/path")
+
+    def test_blocks_non_numeric_port(self):
+        with pytest.raises(URLPolicyError, match="Invalid port"):
+            validate_url("http://93.184.216.34:abc/path")
+
+    def test_check_url_safety_reports_invalid_port(self):
+        result = check_url_safety("http://93.184.216.34:99999/path")
+        assert result["safe"] is False
+        assert "Invalid port" in result["reason"]
+
+
 class TestAllowlist:
     def test_allowlist_permits_listed_domain(self, monkeypatch):
         monkeypatch.setenv("ALLOWED_DOMAINS", "example.com,docs.python.org")
