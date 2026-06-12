@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 from click.testing import Result
@@ -1022,6 +1023,44 @@ class TestScore:
         _invoke_cmd(tmp_path, ["prd", "parse"])
         _invoke_cmd(tmp_path, ["plan"])
 
+    def _insert_over_depth_chain(self, tmp_path: Path) -> None:
+        """Insert root → a → b → c → d, with every task scoreable as complex."""
+        conn = sqlite3.connect(str(tmp_path / ".fakoli-state" / "state.db"))
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO features "
+                "(id, title, description, status, requirements, tasks) "
+                "VALUES ('F001', 'Deep Feature', 'desc', 'proposed', '[]', '[]')"
+            )
+            parent: str | None = None
+            for task_id in ("root", "a", "b", "c", "d"):
+                likely_files = [f"src/{task_id}_{idx}.py" for idx in range(5)]
+                conn.execute(
+                    """
+                    INSERT INTO tasks
+                        (id, feature_id, title, description, status, priority,
+                         dependencies, conflict_groups, scores, acceptance_criteria,
+                         implementation_notes, verification, likely_files,
+                         parent_task_id, created_at, updated_at)
+                    VALUES
+                        (?, 'F001', ?, 'Deep task', 'drafted', 'medium',
+                         '[]', '[]', '{}', '["done"]',
+                         '[]', '{"commands":["pytest"]}', ?,
+                         ?, '2026-05-24T18:00:00+00:00',
+                         '2026-05-24T18:00:00+00:00')
+                    """,
+                    (
+                        task_id,
+                        f"Task {task_id}",
+                        json.dumps(likely_files),
+                        parent,
+                    ),
+                )
+                parent = task_id
+            conn.commit()
+        finally:
+            conn.close()
+
     def test_score_all_populates_scores(self, tmp_path: Path) -> None:
         """After plan, run score → list tasks shows scores no longer all-None."""
         self._setup_planned_project(tmp_path)
@@ -1071,6 +1110,18 @@ class TestScore:
         after = _invoke_cmd(tmp_path, ["show", "T002"]).output
         assert "not yet scored" not in after
         assert after == before
+
+    def test_score_expansion_queue_enforces_recursive_depth_cap(
+        self, tmp_path: Path
+    ) -> None:
+        """The CLI expansion queue must use the recursive depth-capped frontier."""
+        _do_init(tmp_path)
+        self._insert_over_depth_chain(tmp_path)
+
+        result = _invoke_cmd(tmp_path, ["score"])
+
+        assert result.exit_code == 0, f"score failed: {result.output}"
+        assert "fakoli-state expand d --use-llm" not in result.output
 
 
 # ---------------------------------------------------------------------------

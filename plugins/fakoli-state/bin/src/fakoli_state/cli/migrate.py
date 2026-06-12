@@ -155,6 +155,9 @@ def migrate_events(
             raise typer.Exit(code=1) from None
         new_id = hash_event_id(
             parent_event_id=parent,
+            action=event.action,
+            target_kind=event.target_kind,
+            target_id=event.target_id,
             payload=event.payload_json,
             actor=event.actor,
             ts=event.timestamp.isoformat(),

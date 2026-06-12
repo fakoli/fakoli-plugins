@@ -167,6 +167,7 @@ def _add_task(
     conflict_groups: list[str] | None = None,
     scores: dict[str, Any] | None = None,
     likely_files: list[str] | None = None,
+    parent_task_id: str | None = None,
 ) -> None:
     """Insert a task row directly via SQLite."""
     db_path = str(state_dir / "state.db")
@@ -176,10 +177,10 @@ def _add_task(
         (id, feature_id, title, description, status, priority,
          dependencies, conflict_groups, scores, acceptance_criteria,
          implementation_notes, verification, likely_files,
-         created_at, updated_at)
+         parent_task_id, created_at, updated_at)
         VALUES (?, ?, ?, 'A test task.', ?, ?,
          ?, ?, ?, '["Tests pass."]', '[]', '{}', ?,
-         ?, ?)""",
+         ?, ?, ?)""",
         (
             task_id,
             feature_id,
@@ -190,6 +191,7 @@ def _add_task(
             json.dumps(conflict_groups or []),
             json.dumps(scores or {}),
             json.dumps(likely_files or []),
+            parent_task_id,
             _T0.isoformat(),
             _T0.isoformat(),
         ),
@@ -1988,6 +1990,32 @@ class TestScoreTasks:
 
         with pytest.raises(ToolError, match="not found|NOPE"):
             _run(run())
+
+    def test_expansion_queue_enforces_recursive_depth_cap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        state_dir = _init_state_dir(tmp_path)
+        _add_feature(state_dir)
+        parent: str | None = None
+        for task_id in ("root", "a", "b", "c", "d"):
+            _add_task(
+                state_dir,
+                task_id=task_id,
+                title=f"Task {task_id}",
+                status="drafted",
+                likely_files=[f"src/{task_id}_{idx}.py" for idx in range(5)],
+                parent_task_id=parent,
+            )
+            parent = task_id
+        monkeypatch.chdir(tmp_path)
+
+        async def run() -> Any:
+            async with Client(mcp) as c:
+                return _data(await c.call_tool("score_tasks", {}))
+
+        resp = _run(run())
+        queue_ids = [entry["task_id"] for entry in resp["expansion_queue"]]
+        assert "d" not in queue_ids
 
 
 # ===========================================================================

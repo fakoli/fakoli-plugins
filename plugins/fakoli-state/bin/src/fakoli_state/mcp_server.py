@@ -1971,7 +1971,7 @@ def score_tasks(
     from fakoli_state.cli._helpers import _scores_complete
     from fakoli_state.clock import SystemClock
     from fakoli_state.config import DEFAULT_AUTO_EXPAND_THRESHOLD
-    from fakoli_state.planning.scoring import build_expansion_queue, score_task
+    from fakoli_state.planning.scoring import build_recursive_expansion_queue, score_task
     from fakoli_state.state.backend import EventRejected
     from fakoli_state.state.models import EventDraft
 
@@ -2080,7 +2080,7 @@ def score_tasks(
                         f"fakoli-state expand {candidate.task_id} --use-llm"
                     ),
                 )
-                for candidate in build_expansion_queue(
+                for candidate in build_recursive_expansion_queue(
                     backend.list_tasks(), threshold=auto_expand_threshold
                 )
             ]
