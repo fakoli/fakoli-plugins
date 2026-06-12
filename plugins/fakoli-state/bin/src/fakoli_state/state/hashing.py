@@ -19,8 +19,8 @@ from typing import Any
 
 # 12 hex chars = 48 bits. The birthday bound puts a 50% collision chance at
 # ~2^24 ≈ 16.7M events — far beyond any project log — and the parent-id chain
-# input means two *successive* events can never collide even with identical
-# payload/actor/timestamp (FrozenClock in tests, rapid agents in production).
+# plus event identity means two distinct same-parent events cannot collide just
+# because they share a payload, actor, and timestamp.
 _HASH_HEX_LEN = 12
 
 EVENT_HASH_ID_PREFIX = "E-"
@@ -40,13 +40,17 @@ def canonical_payload_json(payload: dict[str, Any]) -> str:
 def hash_event_id(
     *,
     parent_event_id: str | None,
+    action: str,
+    target_kind: str,
+    target_id: str,
     payload: dict[str, Any],
     actor: str,
     ts: str,
 ) -> str:
     """Return the hash-chained event id per the git-backed-events spec::
 
-        event_id = "E-" + sha256(parent_event_id || canonical_json(payload)
+        event_id = "E-" + sha256(parent_event_id || action || target_kind
+                                 || target_id || canonical_json(payload)
                                  || actor || ts)[:12]
 
     ``parent_event_id`` is ``None`` for the first event in a log and then
@@ -55,6 +59,14 @@ def hash_event_id(
     ``timestamp.isoformat()`` so the writer and the migration command hash
     the exact same material.
     """
-    material = f"{parent_event_id or ''}{canonical_payload_json(payload)}{actor}{ts}"
+    material = "\x1f".join((
+        parent_event_id or "",
+        action,
+        target_kind,
+        target_id,
+        canonical_payload_json(payload),
+        actor,
+        ts,
+    ))
     digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
     return EVENT_HASH_ID_PREFIX + digest[:_HASH_HEX_LEN]

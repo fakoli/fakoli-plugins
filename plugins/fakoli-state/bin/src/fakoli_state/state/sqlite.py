@@ -448,6 +448,9 @@ class SqliteBackend:
                 parent_event_id, tail_lamport = self._scan_tail_envelope()
                 event_id = hash_event_id(
                     parent_event_id=parent_event_id,
+                    action=draft.action,
+                    target_kind=draft.target_kind,
+                    target_id=draft.target_id,
                     payload=draft.payload_json,
                     actor=draft.actor,
                     ts=draft.timestamp.isoformat(),

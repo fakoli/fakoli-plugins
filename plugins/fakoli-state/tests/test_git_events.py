@@ -255,9 +255,9 @@ class TestHashChainedIds:
     def test_ids_match_the_spec_formula(self, tmp_path: Path) -> None:
         """The writer's ids are recomputable from the spec inputs.
 
-        Locks the hash material to (parent ‖ canonical_json(payload) ‖ actor
-        ‖ ts) — if the writer ever drifts from state/hashing.hash_event_id,
-        already-committed logs would stop being verifiable.
+        Locks the hash material to the full event identity and payload — if
+        the writer ever drifts from state/hashing.hash_event_id, already-
+        committed logs would stop being verifiable.
         """
         b = _make_backend(tmp_path)
         try:
@@ -270,6 +270,9 @@ class TestHashChainedIds:
             event = Event.model_validate(line)
             expected = hash_event_id(
                 parent_event_id=parent,
+                action=event.action,
+                target_kind=event.target_kind,
+                target_id=event.target_id,
                 payload=event.payload_json,
                 actor=event.actor,
                 ts=event.timestamp.isoformat(),
@@ -321,6 +324,83 @@ class TestHashChainedIds:
         assert canonical_payload_json({"b": 1, "a": 2}) == canonical_payload_json(
             {"a": 2, "b": 1}
         )
+
+    def test_same_payload_different_action_gets_distinct_ids_on_replay(
+        self, tmp_path: Path
+    ) -> None:
+        """Dedup must not collapse distinct branch events that share a payload.
+
+        Two branches can append different audit-only actions from the same
+        parent with the same actor, timestamp, and payload. The event id must
+        include the action/target identity; otherwise git replay dedupes by id
+        and silently drops one fact.
+        """
+        project_event = {
+            "timestamp": _T0.isoformat(),
+            "actor": "test",
+            "action": "project.created",
+            "target_kind": "project",
+            "target_id": "proj-1",
+            "payload_json": {
+                "id": "proj-1",
+                "name": "Hash Identity",
+                "description": "",
+                "created_at": _T0.isoformat(),
+                "updated_at": _T0.isoformat(),
+            },
+            "parent_event_id": None,
+            "lamport": 1,
+        }
+        project_event["id"] = hash_event_id(
+            parent_event_id=None,
+            action=project_event["action"],
+            target_kind=project_event["target_kind"],
+            target_id=project_event["target_id"],
+            payload=project_event["payload_json"],
+            actor=project_event["actor"],
+            ts=project_event["timestamp"],
+        )
+
+        suffixes = []
+        for action, target_kind, target_id in (
+            ("state.initialized", "project", "proj-1"),
+            ("file_changed", "file", "README.md"),
+        ):
+            line = {
+                "timestamp": _T0.isoformat(),
+                "actor": "test",
+                "action": action,
+                "target_kind": target_kind,
+                "target_id": target_id,
+                "payload_json": {},
+                "parent_event_id": project_event["id"],
+                "lamport": 2,
+            }
+            line["id"] = hash_event_id(
+                parent_event_id=project_event["id"],
+                action=action,
+                target_kind=target_kind,
+                target_id=target_id,
+                payload={},
+                actor="test",
+                ts=_T0.isoformat(),
+            )
+            suffixes.append(line)
+
+        assert suffixes[0]["id"] != suffixes[1]["id"]
+
+        (tmp_path / "events.jsonl").write_text(
+            "".join(
+                json.dumps(line) + "\n" for line in [project_event, *suffixes]
+            ),
+            encoding="utf-8",
+        )
+
+        b = _make_backend(tmp_path)
+        try:
+            assert len(_events_table(tmp_path)) == 3
+        finally:
+            b.close()
 
     def test_live_append_assigns_display_seq(self, tmp_path: Path) -> None:
         """Git-mode appends number the projection's seq column 1..N."""

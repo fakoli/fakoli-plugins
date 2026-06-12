@@ -601,7 +601,7 @@ def score(
     decomposition only happens when the expand command runs.
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.planning.scoring import build_expansion_queue, score_task
+    from fakoli_state.planning.scoring import build_recursive_expansion_queue, score_task
     from fakoli_state.state.models import EventDraft
 
     state_dir = _resolve_state_dir(cwd)
@@ -666,7 +666,7 @@ def score(
         # ones scored in earlier runs), not just this run's batch.
         auto_expand, expand_threshold = _resolve_auto_expand(config)
         expansion_queue = (
-            build_expansion_queue(
+            build_recursive_expansion_queue(
                 backend.list_tasks(), threshold=expand_threshold
             )
             if auto_expand
