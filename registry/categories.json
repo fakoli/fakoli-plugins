@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-06-12T16:19:29Z",
+  "generatedAt": "2026-06-19T20:24:36Z",
   "categories": [
     {
       "category": "uncategorized",
-      "count": 14,
+      "count": 15,
       "plugins": [
         {
           "name": "cli-to-plugin",
@@ -58,6 +58,12 @@
           "version": "0.4.0",
           "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
           "path": "plugins/gws"
+        },
+        {
+          "name": "handoff",
+          "version": "0.1.0",
+          "description": "Cross-session, cross-worktree project handoff notes — a durable resume point that survives per-session git worktrees. Storage is keyed by the git common dir (shared across all worktrees of a repo), not cwd. Complements native auto-memory.",
+          "path": "plugins/handoff"
         },
         {
           "name": "marketplace-manager",

@@ -88,6 +88,12 @@
       "source": "./plugins/gws"
     },
     {
+      "name": "handoff",
+      "version": "0.1.0",
+      "description": "Cross-session, cross-worktree project handoff notes — a durable resume point that survives per-session git worktrees. Storage is keyed by the git common dir (shared across all worktrees of a repo), not cwd. Complements native auto-memory.",
+      "source": "./plugins/handoff"
+    },
+    {
       "name": "marketplace-manager",
       "version": "1.2.2",
       "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
@@ -117,12 +123,6 @@
       "version": "1.1.1",
       "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
       "source": "./plugins/safe-fetch"
-    },
-    {
-      "name": "handoff",
-      "version": "0.1.0",
-      "description": "Cross-session, cross-worktree project handoff notes that survive per-session git worktrees — keyed by the git common dir, not cwd. Complements native memory.",
-      "source": "./plugins/handoff"
     }
   ]
 }
