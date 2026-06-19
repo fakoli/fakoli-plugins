@@ -32,14 +32,21 @@ facts/preferences; this handoff is the live "where we are right now."
 
 ## Install
 
-```bash
-# point Claude Code at the plugin dir for a quick local try
-claude --plugin-dir /Users/sdoumbouya/code/handoff
+From the Fakoli Plugins marketplace:
+
+```text
+/plugin marketplace add fakoli/fakoli-plugins
+/plugin install handoff@fakoli-plugins
 ```
 
-Or add it to a marketplace and enable `handoff@<marketplace>` in
-`~/.claude/settings.json`. Hooks load at session start, so restart Claude Code
-after enabling.
+Or enable `handoff@fakoli-plugins` in `~/.claude/settings.json`. For a quick
+local try from a checkout, point Claude Code at the plugin dir:
+
+```bash
+claude --plugin-dir /path/to/fakoli-plugins/plugins/handoff
+```
+
+Hooks load at session start, so restart Claude Code after enabling.
 
 ## Verify
 

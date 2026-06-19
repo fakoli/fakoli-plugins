@@ -33,15 +33,21 @@ if common=$(git -C "$project_dir" rev-parse --git-common-dir 2>/dev/null); then
   esac
   # dirname of the common ".git" dir is the repo root (standard non-bare layout);
   # pwd -P keeps it physical so it matches the canonical project_dir above.
-  if repo_root=$(cd "$(dirname "$common")" 2>/dev/null && pwd -P); then
-    key=$(printf '%s' "$repo_root" | tr -c 'A-Za-z0-9' '-')
-  else
-    key=$(printf '%s' "$common" | tr -c 'A-Za-z0-9' '-')
-  fi
+  src=$(cd "$(dirname "$common")" 2>/dev/null && pwd -P) || src="$common"
 else
   # Not a git repo — best-effort fall back to the (canonical) project dir.
-  key=$(printf '%s' "$project_dir" | tr -c 'A-Za-z0-9' '-')
+  src="$project_dir"
 fi
+
+# Key = a readable hint (repo basename) + a hash of the FULL canonical path.
+# The hash guarantees uniqueness: a plain "non-alnum -> '-'" sanitize aliases
+# distinct paths (e.g. /a/b-c and /a-b/c both collapse to -a-b-c). git
+# hash-object is portable (git is already required) — unlike sha256sum, which
+# is absent on macOS.
+hint=$(basename "$src")
+hint=${hint//[^A-Za-z0-9]/-}   # sanitize; param-expansion avoids a trailing newline
+hash=$(printf '%s' "$src" | git hash-object --stdin | cut -c1-12)
+key="${hint}-${hash}"
 
 dir="${base}/${key}"
 mkdir -p "$dir"
