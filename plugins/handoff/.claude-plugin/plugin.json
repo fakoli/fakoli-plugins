@@ -1,0 +1,10 @@
+{
+  "name": "handoff",
+  "version": "0.1.0",
+  "description": "Cross-session, cross-worktree project handoff notes — a durable resume point that survives per-session git worktrees. Storage is keyed by the git common dir (shared across all worktrees of a repo), not cwd. Complements native auto-memory.",
+  "author": { "name": "Sekou Doumbouya", "github": "fakoli" },
+  "license": "MIT",
+  "homepage": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/handoff",
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "keywords": ["memory", "handoff", "session", "worktree", "context", "resume"]
+}
