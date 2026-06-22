@@ -89,8 +89,8 @@
     },
     {
       "name": "handoff",
-      "version": "0.1.0",
-      "description": "Cross-session, cross-worktree project handoff notes — a durable resume point that survives per-session git worktrees. Storage is keyed by the git common dir (shared across all worktrees of a repo), not cwd. Complements native auto-memory.",
+      "version": "0.1.1",
+      "description": "Cross-session, cross-checkout project handoff notes — a durable resume point shared across same-remote clones and linked worktrees. Storage is keyed by git remote when available, not cwd. Complements native auto-memory.",
       "source": "./plugins/handoff"
     },
     {
