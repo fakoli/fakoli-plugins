@@ -1,25 +1,27 @@
 # handoff
 
-Cross-session, **cross-worktree** project handoff notes for Claude Code — a
-durable "resume point" that survives the per-session git worktrees many workflows
-spin up.
+Cross-session, **cross-checkout** project handoff notes for Claude Code: a
+durable "resume point" that survives the per-session git worktrees and separate
+local clones many workflows spin up.
 
 ## The problem it fixes
 
-Some setups create a **new git worktree per session**
-(`.../.claude/worktrees/<name>/`). A handoff written to a worktree-local file
-(e.g. `<cwd>/.remember/`) is thrown away with that worktree — the next session,
-in a different worktree, never sees it.
+Some setups create a **new git worktree or clone per session**. A handoff
+written to a checkout-local file (for example `<cwd>/.remember/`) is thrown away
+with that checkout, or hidden from the next session in a different clone.
 
-`handoff` stores the note keyed by the **git common dir**
-(`git rev-parse --git-common-dir`), which is shared by every linked worktree of a
-repo. So all worktrees of one repo resolve to the **same** handoff file.
+`handoff` stores the note keyed by the normalized `origin` remote when one is
+available, so separate clones of the same repo resolve to the **same** handoff
+file. Local repos without a remote fall back to the **git common dir**
+(`git rev-parse --git-common-dir`), which keeps linked worktrees sharing one
+note.
 
 ## How it works
 
 - **Storage:** `~/.claude/handoff/<repo-key>/handoff.md` — private (your home dir,
   not the repo), project-scoped, independent of Claude Code's internal slugs.
-  `<repo-key>` is the sanitized absolute path of the repo root.
+  `<repo-key>` is derived from the normalized `origin` remote when available, or
+  from the repo root for local-only repos.
 - **SessionStart hook** (`hooks/session-start.sh`) — prints the handoff as a
   resume banner at the start of every session (quiet if none exists).
 - **`/handoff:handoff [summary]`** — save/refresh the resume note.
@@ -51,9 +53,10 @@ Hooks load at session start, so restart Claude Code after enabling.
 ## Verify
 
 ```bash
-# from any worktree of a repo, the path is identical:
+# from any checkout of the same remote, the path is identical:
 bash scripts/handoff-path.sh /path/to/repo
 bash scripts/handoff-path.sh /path/to/repo/.claude/worktrees/some-worktree
+bash scripts/handoff-path.sh /path/to/another-clone-of-the-same-repo
 ```
 
 Both should print the same `~/.claude/handoff/<repo-key>/handoff.md`.

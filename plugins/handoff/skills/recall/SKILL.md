@@ -1,13 +1,13 @@
 ---
 name: recall
-description: Show this project's saved cross-session handoff note (the resume point shared across all git worktrees). Use when the user types /recall, asks "where did we leave off?", "what's the handoff?", "what was I working on?", or "catch me up".
+description: Show this project's saved cross-session handoff note (the resume point shared across checkouts of the same git remote and across linked worktrees). Use when the user types /recall, asks "where did we leave off?", "what's the handoff?", "what was I working on?", or "catch me up".
 allowed-tools: Bash, Read
 ---
 
 # Show the project handoff
 
-Print the durable resume note for THIS project (the same note from every git
-worktree of the repo).
+Print the durable resume note for THIS project (the same note from every
+checkout of the same git remote, and from every linked worktree of local repos).
 
 ## Steps
 

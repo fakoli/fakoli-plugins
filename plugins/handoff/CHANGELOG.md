@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+- Share handoff notes across separate local clones of the same `origin` remote,
+  while preserving the git-common-dir fallback for local repos and linked
+  worktrees.
+- Migrate an existing common-dir handoff note into the new remote-scoped path on
+  first resolver run.
+
 ## 0.1.0
 
 Initial release.

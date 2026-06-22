@@ -1,18 +1,19 @@
 ---
 name: handoff
-description: Save or update this project's cross-session handoff note — the resume point for the next session, shared across all git worktrees of the repo. Use when the user types /handoff (optionally with a one-line summary), says "save a handoff", "note where we are for next time", "write a handoff before I clear context", or is wrapping up a session.
+description: Save or update this project's cross-session handoff note — the resume point for the next session, shared across checkouts of the same git remote and across linked worktrees. Use when the user types /handoff (optionally with a one-line summary), says "save a handoff", "note where we are for next time", "write a handoff before I clear context", or is wrapping up a session.
 allowed-tools: Bash, Read, Write
 ---
 
 # Save the project handoff
 
-Write or refresh the durable, cross-worktree resume note for THIS project so the
-next session — in any git worktree — can pick up exactly where this one left off.
+Write or refresh the durable, cross-checkout resume note for THIS project so the
+next session in another clone or linked worktree can pick up exactly where this
+one left off.
 
 ## Steps
 
-1. Resolve the handoff file path (keyed by the git common dir, shared across all
-   worktrees — do not compute it yourself):
+1. Resolve the handoff file path (keyed by normalized git remote when available,
+   with a git-common-dir fallback for local repos; do not compute it yourself):
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/handoff-path.sh"
@@ -42,4 +43,4 @@ next session — in any git worktree — can pick up exactly where this one left
 - It complements native auto-memory (`MEMORY.md`): native memory is for durable
   facts/preferences; this handoff is "where we are right now."
 - The path is private (under `~/.claude/handoff/`), project-scoped, and the same
-  from every worktree of this repo.
+  from every checkout of the same remote or linked worktree of a local repo.
