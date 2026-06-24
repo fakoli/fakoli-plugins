@@ -1,6 +1,6 @@
 {
   "name": "handoff",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Cross-session, cross-checkout project handoff notes — a durable resume point shared across same-remote clones and linked worktrees. Storage is keyed by git remote when available, not cwd. Complements native auto-memory.",
   "author": { "name": "Sekou Doumbouya", "github": "fakoli" },
   "license": "MIT",
