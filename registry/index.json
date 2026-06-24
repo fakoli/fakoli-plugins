@@ -1,8 +1,8 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-06-22T08:43:20Z",
-  "pluginCount": 15,
+  "generatedAt": "2026-06-24T05:44:31Z",
+  "pluginCount": 16,
   "plugins": [
     {
       "name": "cli-to-plugin",
@@ -22,7 +22,7 @@
         "automation"
       ],
       "path": "plugins/cli-to-plugin",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -43,7 +43,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "fakoli-crew",
@@ -66,7 +66,7 @@
         "workflow"
       ],
       "path": "plugins/fakoli-crew",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "fakoli-flow",
@@ -89,7 +89,7 @@
         "code-review"
       ],
       "path": "plugins/fakoli-flow",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "fakoli-plugin-critic",
@@ -113,7 +113,7 @@
         "claude-code"
       ],
       "path": "plugins/fakoli-plugin-critic",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "fakoli-speak",
@@ -139,7 +139,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "fakoli-state",
@@ -164,7 +164,7 @@
         "terraform-for-work"
       ],
       "path": "plugins/fakoli-state",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "fakoli-style",
@@ -184,7 +184,7 @@
         "documentation"
       ],
       "path": "plugins/fakoli-style",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "gws",
@@ -232,7 +232,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "handoff",
@@ -254,7 +254,7 @@
       ],
       "homepage": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/handoff",
       "path": "plugins/handoff",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "marketplace-manager",
@@ -273,7 +273,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "nano-banana-pro",
@@ -294,7 +294,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "notebooklm-enhanced",
@@ -318,7 +318,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "quick-notes",
@@ -342,7 +342,7 @@
         "markdown-export"
       ],
       "path": "plugins/quick-notes",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
     },
     {
       "name": "safe-fetch",
@@ -364,7 +364,31 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-06-22T08:43:20Z"
+      "indexedAt": "2026-06-24T05:44:31Z"
+    },
+    {
+      "name": "session-retro",
+      "version": "1.0.0",
+      "description": "Analyze a Claude Code session (or a multi-session arc) from its local JSONL logs and produce a markdown retro: token economy (main-loop vs delegated workflows), workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Use after a long or autonomous run to evaluate performance and collaboration. Reads only local ~/.claude logs; writes to ~/post-session-findings; sends nothing externally.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "session",
+        "retro",
+        "analytics",
+        "observability",
+        "tokens",
+        "workflows",
+        "post-session",
+        "productivity",
+        "evaluation"
+      ],
+      "path": "plugins/session-retro",
+      "indexedAt": "2026-06-24T05:44:31Z"
     }
   ]
 }
