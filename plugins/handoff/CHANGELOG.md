@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+- Add regression tests proving the handoff resolves to a single path across linked
+  worktrees of a **remote-backed** repo, and from a subdirectory of one — the exact
+  worktree case the resolver must guarantee (the suite previously covered
+  remote-across-clones and local-across-worktrees, but not their intersection).
+  No behavior change; the resolver was already worktree-safe.
+
 ## 0.1.1
 
 - Share handoff notes across separate local clones of the same `origin` remote,

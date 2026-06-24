@@ -91,3 +91,20 @@ git -C "$tmp/local-main" worktree add --quiet "$tmp/local-worktree"
 path_local_main="$(bash "$HANDOFF_PATH" "$tmp/local-main")"
 path_local_worktree="$(bash "$HANDOFF_PATH" "$tmp/local-worktree")"
 assert_eq "$path_local_main" "$path_local_worktree" "local repos still share handoff across linked worktrees"
+
+# Remote-backed repo across linked worktrees — the exact failure that opened the
+# session this plugin's worktree-safety exists for: a repo WITH an origin, worked on
+# from a throwaway per-session worktree (and from a subdirectory of it), must resolve
+# to the SAME handoff as the main checkout.
+make_repo "$tmp/remote-main" "https://github.com/fakoli/wtree.git"
+touch "$tmp/remote-main/README.md"
+git -C "$tmp/remote-main" add README.md
+git -C "$tmp/remote-main" -c user.email=test@example.com -c user.name=test commit --quiet -m init
+git -C "$tmp/remote-main" worktree add --quiet "$tmp/remote-worktree"
+mkdir -p "$tmp/remote-main/sub/deep"
+
+path_remote_main="$(bash "$HANDOFF_PATH" "$tmp/remote-main")"
+path_remote_worktree="$(bash "$HANDOFF_PATH" "$tmp/remote-worktree")"
+path_remote_subdir="$(bash "$HANDOFF_PATH" "$tmp/remote-main/sub/deep")"
+assert_eq "$path_remote_main" "$path_remote_worktree" "remote-backed repos share handoff across linked worktrees"
+assert_eq "$path_remote_main" "$path_remote_subdir" "handoff resolves the same from a subdirectory of a worktree"
