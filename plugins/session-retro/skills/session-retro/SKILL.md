@@ -1,13 +1,14 @@
 ---
 name: session-retro
-description: Analyze a Claude Code session (or a multi-session arc) from its local JSONL logs and produce a markdown retro — token economy (main-loop vs delegated workflows), workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Use when the user asks to "do a session retro", "analyze this session", "pull stats on this session", "how many tokens did this session use", "session statistics / report", "post-session findings", "evaluate how we worked", or wants to review a long autonomous run. Reads only local ~/.claude logs and writes a report to ~/post-session-findings; sends nothing externally.
+description: Analyze a Claude Code or Codex session (or a multi-session arc) from local JSONL logs and produce a markdown retro — token economy (main-loop vs delegated workflows), workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Use when the user asks to "do a session retro", "analyze this session", "pull stats on this session", "how many tokens did this session use", "session statistics / report", "post-session findings", "evaluate how we worked", or wants to review a long autonomous run. Reads only local ~/.claude and ~/.codex logs and writes a report to ~/post-session-findings; sends nothing externally.
 user_invocable: true
 ---
 
 # Session Retro
 
-Turn a Claude Code session's raw logs into an evaluable retro: where the tokens
-went, what workflows ran, how the human steered, and what to change next time.
+Turn a Claude Code or Codex session's raw logs into an evaluable retro: where the
+tokens went, what workflows ran, how the human steered, and what to change next
+time.
 
 ## Toolkit (bundled)
 
@@ -29,8 +30,8 @@ minutes, timestamps) and ends the `report` with the ordered list of human turns.
 ## Steps
 
 1. **Locate the session(s) — any session, not only the current one.** Two
-   discovery modes; both print a date, git branch, first-message **topic**, and the
-   path for each session:
+   discovery modes; both print a date, runtime, git branch when available,
+   first-message **topic**, and the path for each session:
    - `session_stats.py list [substr]` — browse sessions, newest last. The **newest
      is almost always the current session** (its JSONL is still being written).
      `substr` filters by project/worktree path, e.g. `list anvil`.
@@ -41,13 +42,16 @@ minutes, timestamps) and ends the `report` with the ordered list of human turns.
 
    Use the topic/branch/date breadcrumbs to confirm with the user which session(s)
    they mean, then pass the path(s) to `stats`/`report`. Default to the current
-   (newest) session only when they do not name one.
+   (newest) session only when they do not name one. For Codex, passing a main
+   rollout path automatically includes sibling subagent rollouts with the same
+   `session_id`.
 
 2. **Detect a multi-session arc (optional but valuable).** A feature often spans
    sessions in different worktrees. To find related ones: list sessions for the
    same repo family, look for adjacent timestamps (one ending ~minutes before the
-   next begins), or `grep -l "<feature-marker>" ~/.claude/projects/*<repo>*/*.jsonl`.
-   Pass every related JSONL to `stats`/`report` — they combine automatically.
+   next begins), or search the local Claude/Codex session directories for a
+   feature marker. Pass every related JSONL to `stats`/`report` — they combine
+   automatically.
 
 3. **Generate the deterministic report.**
    `session_stats.py report <session...> > /tmp/retro-skeleton.md`. This fills:
@@ -101,9 +105,10 @@ minutes, timestamps) and ends the `report` with the ordered list of human turns.
 
 ## Notes
 
-- **Privacy:** reads only local `~/.claude/projects/**.jsonl`; writes only to the
-  destination you choose (default: a `post-session-findings/` dir in the project);
-  never sends session contents anywhere.
+- **Privacy:** reads only local `~/.claude/projects/**.jsonl` and
+  `~/.codex/sessions/**.jsonl`; writes only to the destination you choose
+  (default: a `post-session-findings/` dir in the project); never sends session
+  contents anywhere.
 - **Token vocabulary:** *generated/output* tokens are the real work; *cache-read*
   tokens (often the biggest number) are the context re-read each turn — cheap, not
   effort. Always report both and explain the difference.

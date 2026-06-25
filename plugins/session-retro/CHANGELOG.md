@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-06-25
+
+### Added
+- Codex session discovery and parsing from `~/.codex/sessions/**/*.jsonl`.
+- Automatic Codex rollout expansion: passing a main rollout includes sibling
+  subagent rollouts that share the same `session_id`.
+- Codex token splitting for main-loop output vs delegated subagent output,
+  including reasoning output tokens.
+- Focused parser tests for Claude compatibility and Codex main/subagent
+  aggregation.
+
 ## [1.0.0] - 2026-06-23
 
 ### Added

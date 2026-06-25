@@ -1,11 +1,12 @@
 # session-retro
 
-Turn a Claude Code session's raw logs into an evaluable retro — token economy,
-workflow taxonomy, tool distribution, interaction shape, and recommendations.
+Turn a Claude Code or Codex session's raw logs into an evaluable retro — token
+economy, workflow taxonomy, tool distribution, interaction shape, and
+recommendations.
 
 Built from a real post-mortem of a 23-hour autonomous run: the kind of analysis
 you want after a long session to understand *where the tokens went, what the
-agents did, and how you and Claude actually collaborated.*
+agents did, and how you and the coding agent actually collaborated.*
 
 ## Use it
 
@@ -38,8 +39,9 @@ with a comparison table and combined totals.
 ## How it works
 
 `scripts/session_stats.py` (stdlib-only, no dependencies) parses
-`~/.claude/projects/**/*.jsonl`. **Target any session, not just the current one** —
-browse with `list` or search session content with `find`:
+`~/.claude/projects/**/*.jsonl` and `~/.codex/sessions/**/*.jsonl`. **Target any
+session, not just the current one** — browse with `list` or search session content
+with `find`:
 
 ```bash
 session_stats.py list [substr]            # browse sessions (date / branch / topic)
@@ -49,13 +51,16 @@ session_stats.py report <a.jsonl> [b...]  # markdown + ASCII charts
 session_stats.py html   <a.jsonl> [b...] [--narrative note.md]  # interactive single-page site
 ```
 
-The script does the deterministic counting + discovery + the interactive site; the
-skill adds the narrative.
+For Codex, passing a main rollout path automatically includes sibling subagent
+rollouts with the same `session_id`, so delegated workflow tokens are split out
+without manually listing every child JSONL. The script does the deterministic
+counting + discovery + the interactive site; the skill adds the narrative.
 
 ## Privacy
 
-Reads only local `~/.claude` logs. Writes only to the location you choose (default:
-a `post-session-findings/` dir in the project). Sends nothing externally.
+Reads only local `~/.claude` and `~/.codex` logs. Writes only to the location you
+choose (default: a `post-session-findings/` dir in the project). Sends nothing
+externally.
 
 ## License
 
