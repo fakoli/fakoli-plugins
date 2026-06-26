@@ -104,7 +104,7 @@ The execution still works — you just lose the specialized agent expertise (TDD
 
 ### How It Works
 
-1. **Collect modified files.** Read all `<scratch-root>/agent-*-status.md` files from the completed wave. Extract the "Files Modified" section from each. (`<scratch-root>` is the run scratch directory logged at the start of `/flow:execute`.)
+1. **Collect modified files.** Read all `<scratch-root>/agent-*-status.md` files from the completed wave. Extract the "Files Modified" section from each. (`<scratch-root>` is the run scratch directory logged at the start of `/fakoli-flow:execute`.)
 
 2. **Dispatch critic.**
 ```
@@ -151,10 +151,10 @@ If verification fails, the engine does NOT proceed to the critic — it dispatch
 
 ## Quick Mode
 
-For small tasks (<3 files), the full wave engine is overkill. `/flow:quick` provides a fast path:
+For small tasks (<3 files), the full wave engine is overkill. `/fakoli-flow:quick` provides a fast path:
 
 ```
-/flow:quick "add a timeout parameter to the retry function"
+/fakoli-flow:quick "add a timeout parameter to the retry function"
 
 1. Detect scope — likely 1-2 files
 2. Detect language — TypeScript (tsconfig.json found)
@@ -216,7 +216,7 @@ Each parallel agent targets different files/packages. The file ownership table p
 ## Status File Protocol
 
 Agents communicate between waves via status files written to the run scratch directory.
-The orchestrator derives the scratch root once at the start of `/flow:execute`:
+The orchestrator derives the scratch root once at the start of `/fakoli-flow:execute`:
 
 ```
 <run-id>      = <plan-basename-without-extension>-<YYYYMMDDHHmm UTC>

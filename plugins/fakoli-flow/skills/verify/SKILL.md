@@ -2,7 +2,7 @@
 description: Verify phase — evidence-based validation with sentinel dispatch and pass/fail scorecard
 ---
 
-# Verify (`/flow:verify`)
+# Verify (`/fakoli-flow:verify`)
 
 ## Overview
 
@@ -11,9 +11,9 @@ Verification is not an opinion. It is a command you ran, output you read, and a 
 **Core principle:** Every PASS must cite fresh command output from this session. Every FAIL must cite what the output actually showed.
 
 **This skill is invoked:**
-- Automatically after `/flow:execute` completes
-- Manually when the user runs `/flow:verify`
-- By `/flow:quick` after the agent finishes
+- Automatically after `/fakoli-flow:execute` completes
+- Manually when the user runs `/fakoli-flow:verify`
+- By `/fakoli-flow:quick` after the agent finishes
 
 ---
 
@@ -83,7 +83,7 @@ Multiple plans found for today:
 Which plan should I verify against?
 ```
 
-**After `/flow:quick` (no plan file):** Quick mode does not create a plan file. If verify is invoked after a quick session, ask the user for the original task description and verify the modified files against it. Use the same evidence gate — every PASS still requires a command output to cite. Because there is no plan file, use `verify-quick-<YYYYMMDDHHmm UTC>` as the run-id (e.g. `verify-quick-202606011545`) so the sentinel always gets a concrete, absolute status path.
+**After `/fakoli-flow:quick` (no plan file):** Quick mode does not create a plan file. If verify is invoked after a quick session, ask the user for the original task description and verify the modified files against it. Use the same evidence gate — every PASS still requires a command output to cite. Because there is no plan file, use `verify-quick-<YYYYMMDDHHmm UTC>` as the run-id (e.g. `verify-quick-202606011545`) so the sentinel always gets a concrete, absolute status path.
 
 **Derive a scratch path for this verify session.** Use a `verify-` prefixed run ID so the
 sentinel has an isolated, gitignored location to write its status file:
@@ -152,7 +152,7 @@ Agent(
   prompt="Run verification and report PASS or FAIL per item with cited evidence. Do not claim PASS without a command output from this session to cite.
 
 Plan file: (none — quick session)
-Task description: <original task the user gave to /flow:quick>
+Task description: <original task the user gave to /fakoli-flow:quick>
 Verify the modified files against this task description; derive a concrete verify command per claim (build / test / typecheck). Do not invent acceptance criteria the user did not state.
 Language: <detected language>
 
@@ -285,7 +285,7 @@ yourself against your own scorecard before reporting).
 
 Present the scorecard. Then:
 
-- If **all PASS and all upheld by the refuter**: "Verification complete. All criteria met (adversarially confirmed). Run `/flow:finish` to ship."
+- If **all PASS and all upheld by the refuter**: "Verification complete. All criteria met (adversarially confirmed). Run `/fakoli-flow:finish` to ship."
 - If **any FAIL or any REFUTED**: State what failed (including refuted criteria with the refuter's evidence) and stop. Do not proceed to finish. Do not suggest retrying without fixing the underlying issue first.
 
 ---

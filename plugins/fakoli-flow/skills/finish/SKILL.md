@@ -2,7 +2,7 @@
 description: Ship phase — merge, PR, keep, or discard with pre-merge verification
 ---
 
-# Finish (`/flow:finish`)
+# Finish (`/fakoli-flow:finish`)
 
 ## Overview
 
@@ -11,8 +11,8 @@ Ship work only after fresh verification. Present options. Execute the chosen one
 **Core principle:** Verify first, present exactly 4 options, wait for a decision, then execute.
 
 **This skill is invoked:**
-- After `/flow:verify` reports all criteria PASS
-- Manually when the user runs `/flow:finish`
+- After `/fakoli-flow:verify` reports all criteria PASS
+- Manually when the user runs `/fakoli-flow:finish`
 
 **Never auto-merge or auto-push.** The skill presents options and waits. The user decides.
 
@@ -56,7 +56,7 @@ Tests failing (N failures). Cannot proceed to ship.
 
 [show exact failure output]
 
-Fix the failures and re-run `/flow:finish`.
+Fix the failures and re-run `/fakoli-flow:finish`.
 ```
 
 Do not proceed to Step 2. Return control to the user.
@@ -258,7 +258,7 @@ git worktree list | grep "$FEATURE_BRANCH" 2>/dev/null
 
 ## Common Mistakes
 
-**Skipping the Step 1 re-run because `/flow:verify` just passed.**
+**Skipping the Step 1 re-run because `/fakoli-flow:verify` just passed.**
 Verify ran earlier. Code may have changed. Run the tests again now.
 
 **Adding a recommendation when presenting options.**
