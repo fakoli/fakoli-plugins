@@ -83,24 +83,24 @@ For full details on the philosophy: [docs/intent-driven-orchestration.md](docs/i
 
 ## Orientation
 
-Run `/flow` at any time to see the available skills and detect your current project context (language, crew status). This is the entry point — start here if you are not sure which skill to use.
+Run `/fakoli-flow:flow` at any time to see the available skills and detect your current project context (language, crew status). This is the entry point — start here if you are not sure which skill to use.
 
 ## Skills
 
 | Skill | Trigger | What It Does |
 |-------|---------|--------------|
-| `/flow:brainstorm` | "design", "spec", "brainstorm" | One-question-at-a-time refinement → approved spec saved to `docs/specs/` |
-| `/flow:plan` | "break into tasks", "create a plan" | Reads spec, runs scout to verify library/API assumptions, writes intent-driven task list to `docs/plans/` |
-| `/flow:execute` | "build this", "run the plan" | Loads plan, groups tasks into dependency waves, dispatches agents in parallel, runs critic gate between waves |
-| `/flow:verify` | "check this", "is this ready" | Dispatches sentinel with acceptance criteria from the plan; every PASS must cite fresh evidence (exit code, exact output) |
-| `/flow:finish` | "ship it", "create PR", "merge" | Re-runs tests, presents four options: merge locally, push + PR, keep branch, or discard |
-| `/flow:quick <task>` | Small fixes, bug patches | Single agent → verify → critic → done. No brainstorming, no waves |
+| `/fakoli-flow:brainstorm` | "design", "spec", "brainstorm" | One-question-at-a-time refinement → approved spec saved to `docs/specs/` |
+| `/fakoli-flow:plan` | "break into tasks", "create a plan" | Reads spec, runs scout to verify library/API assumptions, writes intent-driven task list to `docs/plans/` |
+| `/fakoli-flow:execute` | "build this", "run the plan" | Loads plan, groups tasks into dependency waves, dispatches agents in parallel, runs critic gate between waves |
+| `/fakoli-flow:verify` | "check this", "is this ready" | Dispatches sentinel with acceptance criteria from the plan; every PASS must cite fresh evidence (exit code, exact output) |
+| `/fakoli-flow:finish` | "ship it", "create PR", "merge" | Re-runs tests, presents four options: merge locally, push + PR, keep branch, or discard |
+| `/fakoli-flow:quick <task>` | Small fixes, bug patches | Single agent → verify → critic → done. No brainstorming, no waves |
 
 ---
 
 ## The Wave Engine
 
-When `/flow:execute` runs a plan, it groups tasks by their declared dependencies and
+When `/fakoli-flow:execute` runs a plan, it groups tasks by their declared dependencies and
 dispatches agents in parallel within each wave. Every wave that writes code triggers a
 mandatory critic gate before the next wave starts.
 
@@ -172,10 +172,10 @@ claude plugin install fakoli-flow
 
 ## Quick Mode
 
-`/flow:quick` skips the full workflow for tasks that touch fewer than three files.
+`/fakoli-flow:quick` skips the full workflow for tasks that touch fewer than three files.
 
 ```
-/flow:quick "add a timeout parameter to the retry function"
+/fakoli-flow:quick "add a timeout parameter to the retry function"
 
 1. Detects scope — 1-2 files
 2. Detects language — TypeScript (tsconfig.json found)

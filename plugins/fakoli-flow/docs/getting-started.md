@@ -29,18 +29,18 @@ interface-first design).
 
 | Stage | Skill | What Happens |
 |-------|-------|-------------|
-| Design | `/flow:brainstorm` | Clarifying questions one at a time → approved spec |
-| Plan | `/flow:plan` | Reads spec, verifies assumptions, writes intent-driven task list |
-| Execute | `/flow:execute` | Groups tasks into waves, dispatches agents in parallel, critic gates between waves |
-| Verify | `/flow:verify` | Sentinel checks all acceptance criteria with fresh evidence |
-| Ship | `/flow:finish` | Re-runs tests, presents merge options |
+| Design | `/fakoli-flow:brainstorm` | Clarifying questions one at a time → approved spec |
+| Plan | `/fakoli-flow:plan` | Reads spec, verifies assumptions, writes intent-driven task list |
+| Execute | `/fakoli-flow:execute` | Groups tasks into waves, dispatches agents in parallel, critic gates between waves |
+| Verify | `/fakoli-flow:verify` | Sentinel checks all acceptance criteria with fresh evidence |
+| Ship | `/fakoli-flow:finish` | Re-runs tests, presents merge options |
 
 ## Quick Mode for Small Tasks
 
 For tasks touching fewer than three files, skip the full workflow:
 
 ```
-/flow:quick "add a timeout parameter to the retry function"
+/fakoli-flow:quick "add a timeout parameter to the retry function"
 ```
 
 Quick mode: single agent → verify → critic → done.
@@ -53,7 +53,7 @@ Use the full workflow for: new features, architecture changes, anything you woul
 ### 1. Start with brainstorm
 
 ```
-/flow:brainstorm I want to add a retry mechanism to our HTTP client
+/fakoli-flow:brainstorm I want to add a retry mechanism to our HTTP client
 ```
 
 The brainstorm skill reads your CLAUDE.md and project files, then asks clarifying
@@ -71,12 +71,12 @@ After 3-5 questions, it proposes 2-3 approaches, presents the design section by 
 before writing the spec.
 
 When you approve, it saves the spec to `docs/specs/YYYY-MM-DD-retry-mechanism.md` and
-hands off to `/flow:plan`.
+hands off to `/fakoli-flow:plan`.
 
 ### 2. Plan breaks the spec into tasks
 
 ```
-/flow:plan docs/specs/2026-04-02-retry-mechanism.md
+/fakoli-flow:plan docs/specs/2026-04-02-retry-mechanism.md
 ```
 
 The plan skill runs a scout agent to verify that the libraries and APIs referenced in the
@@ -101,7 +101,7 @@ spec actually exist and behave as expected. Then it writes an intent-driven task
 ### 3. Execute dispatches the agents
 
 ```
-/flow:execute docs/plans/2026-04-02-retry-mechanism.md
+/fakoli-flow:execute docs/plans/2026-04-02-retry-mechanism.md
 ```
 
 The execute skill reads the plan, groups tasks by their declared dependencies into waves,
@@ -112,7 +112,7 @@ fixes, critic re-reviews) before the next wave starts.
 ### 4. Verify checks the result
 
 ```
-/flow:verify docs/plans/2026-04-02-retry-mechanism.md
+/fakoli-flow:verify docs/plans/2026-04-02-retry-mechanism.md
 ```
 
 The sentinel agent reads the acceptance criteria from the plan and verifies each one with
@@ -122,7 +122,7 @@ supported by a specific observation, not an assumption.
 ### 5. Finish ships the work
 
 ```
-/flow:finish
+/fakoli-flow:finish
 ```
 
 Re-runs the full test suite, then presents four options:

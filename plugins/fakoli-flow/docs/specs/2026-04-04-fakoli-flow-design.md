@@ -53,7 +53,7 @@ plugins/fakoli-flow/
 │   ├── hooks.json                  # SessionStart hook
 │   └── detect-context.sh           # Detect language + crew availability
 ├── commands/
-│   └── flow.md                     # /flow — show skills + current project state
+│   └── flow.md                     # /fakoli-flow:flow — show skills + current project state
 ├── docs/
 │   ├── intent-driven-orchestration.md  # Philosophy (blog-ready)
 │   ├── wave-engine.md                  # Execution model (blog-ready)
@@ -69,7 +69,7 @@ plugins/fakoli-flow/
 
 ---
 
-## Skill 1: Brainstorm (`/flow:brainstorm`)
+## Skill 1: Brainstorm (`/fakoli-flow:brainstorm`)
 
 **Trigger:** "design", "spec", "plan this feature", "brainstorm"
 
@@ -93,7 +93,7 @@ plugins/fakoli-flow/
 
 7. **Write spec.** Save to `docs/specs/<date>-<topic>.md` (or path from CLAUDE.md). Self-review: no placeholders, no contradictions, no ambiguity.
 
-8. **User approves.** Hand off to `/flow:plan`.
+8. **User approves.** Hand off to `/fakoli-flow:plan`.
 
 ### Visual Companion Server Management
 
@@ -134,7 +134,7 @@ or:
 
 ---
 
-## Skill 2: Plan (`/flow:plan`)
+## Skill 2: Plan (`/fakoli-flow:plan`)
 
 **Trigger:** "break this into tasks", "create a plan", invoked by brainstorm handoff
 
@@ -213,7 +213,7 @@ After writing the plan:
 
 ---
 
-## Skill 3: Execute (`/flow:execute`)
+## Skill 3: Execute (`/fakoli-flow:execute`)
 
 **Trigger:** "build this", "run the plan", "execute", invoked by plan handoff
 
@@ -280,7 +280,7 @@ Each targets different files. File ownership (from `fakoli-crew/skills/crew-ops/
 
 ---
 
-## Skill 4: Verify (`/flow:verify`)
+## Skill 4: Verify (`/fakoli-flow:verify`)
 
 **Trigger:** "check this", "validate", "is this ready", invoked automatically after execute
 
@@ -309,7 +309,7 @@ Sentinel must NOT claim success without fresh evidence from a command run in thi
 
 ---
 
-## Skill 5: Finish (`/flow:finish`)
+## Skill 5: Finish (`/fakoli-flow:finish`)
 
 **Trigger:** "ship it", "create PR", "merge", invoked after verify passes
 
@@ -330,14 +330,14 @@ Sentinel must NOT claim success without fresh evidence from a command run in thi
 
 ---
 
-## Skill 6: Quick (`/flow:quick`)
+## Skill 6: Quick (`/fakoli-flow:quick`)
 
 **Trigger:** Small tasks, bug fixes, quick edits. User invokes with task description.
 
 **Process:**
 
 ```
-/flow:quick "add a timeout parameter to the retry function"
+/fakoli-flow:quick "add a timeout parameter to the retry function"
 
 1. Detect scope — estimate files affected (<3 = quick mode appropriate)
 2. Detect language — TypeScript (tsconfig.json found)
@@ -426,9 +426,9 @@ echo "[fakoli-flow] Language: $LANG | Crew: fakoli-crew ${CREW_VERSION:-$CREW} |
 
 ---
 
-## Command: `/flow`
+## Command: `/fakoli-flow:flow`
 
-### `commands/flow.md`
+### `commands/fakoli-flow:flow.md`
 
 ```markdown
 ---
@@ -444,12 +444,12 @@ Display the available fakoli-flow skills and detect the current project context.
 
 | Skill | Command | Purpose |
 |-------|---------|---------|
-| Brainstorm | `/flow:brainstorm` | Design phase — refine ideas into specs |
-| Plan | `/flow:plan` | Plan phase — specs into intent-driven task lists |
-| Execute | `/flow:execute` | Build phase — wave-based crew dispatch with critic gates |
-| Verify | `/flow:verify` | Check phase — sentinel + evidence gate |
-| Finish | `/flow:finish` | Ship phase — merge / PR / keep / discard |
-| Quick | `/flow:quick <task>` | Fast path — skip workflow for small fixes |
+| Brainstorm | `/fakoli-flow:brainstorm` | Design phase — refine ideas into specs |
+| Plan | `/fakoli-flow:plan` | Plan phase — specs into intent-driven task lists |
+| Execute | `/fakoli-flow:execute` | Build phase — wave-based crew dispatch with critic gates |
+| Verify | `/fakoli-flow:verify` | Check phase — sentinel + evidence gate |
+| Finish | `/fakoli-flow:finish` | Ship phase — merge / PR / keep / discard |
+| Quick | `/fakoli-flow:quick <task>` | Fast path — skip workflow for small fixes |
 
 ## Workflow
 
@@ -499,11 +499,11 @@ Run `detect-context.sh` to show the current project language and crew status.
 
 1. Install plugin: `claude plugin install fakoli-flow`
 2. SessionStart hook fires — shows language + crew status
-3. `/flow` command — lists all 6 skills
-4. `/flow:brainstorm` — one-question-at-a-time, visual companion on visual questions
-5. `/flow:plan` — reads spec, produces intent-driven tasks (no code blocks)
-6. `/flow:execute` — dispatches crew agents in waves, critic gate fires after each wave
-7. `/flow:verify` — sentinel runs checks with evidence
-8. `/flow:finish` — presents 4 options, executes choice
-9. `/flow:quick "fix typo"` — single agent dispatch, critic, done
+3. `/fakoli-flow:flow` command — lists all 6 skills
+4. `/fakoli-flow:brainstorm` — one-question-at-a-time, visual companion on visual questions
+5. `/fakoli-flow:plan` — reads spec, produces intent-driven tasks (no code blocks)
+6. `/fakoli-flow:execute` — dispatches crew agents in waves, critic gate fires after each wave
+7. `/fakoli-flow:verify` — sentinel runs checks with evidence
+8. `/fakoli-flow:finish` — presents 4 options, executes choice
+9. `/fakoli-flow:quick "fix typo"` — single agent dispatch, critic, done
 10. Visual companion: server starts, PID tracked, auto-restarts after timeout, clean shutdown

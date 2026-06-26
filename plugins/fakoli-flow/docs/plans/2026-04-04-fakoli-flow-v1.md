@@ -72,22 +72,22 @@ These four tasks are independent. Dispatch all four agents simultaneously.
 
 ---
 
-### Task 3: `/flow` command
+### Task 3: `/fakoli-flow:flow` command
 
-**File:** `commands/flow.md`
+**File:** `commands/fakoli-flow:flow.md`
 
-**Intent:** Give users a single entry point to orient themselves. Running `/flow` shows all available skills with their commands, the workflow diagram, and the current project's detected context (language + crew status).
+**Intent:** Give users a single entry point to orient themselves. Running `/fakoli-flow:flow` shows all available skills with their commands, the workflow diagram, and the current project's detected context (language + crew status).
 
 **Acceptance criteria:**
 - Valid YAML frontmatter with `description` and `allowed-tools` (Bash, Glob at minimum)
-- Skills table lists all 6 skills: brainstorm, plan, execute, verify, finish, quick — with their `/flow:<skill>` command and a one-line purpose
+- Skills table lists all 6 skills: brainstorm, plan, execute, verify, finish, quick — with their `/fakoli-flow:<skill>` command and a one-line purpose
 - Workflow diagram shows the pipeline: `brainstorm → plan → execute → verify → finish` and where `quick` fits (fast path)
 - Command body calls `detect-context.sh` to show live language + crew status
 - Reads naturally — a new user should understand what to do next
 
 **Agent:** smith
 
-**Verify:** The file parses as valid markdown with YAML frontmatter; the skills table contains all 6 rows; running `/flow` in a Claude Code session shows the table and invokes `detect-context.sh`
+**Verify:** The file parses as valid markdown with YAML frontmatter; the skills table contains all 6 rows; running `/fakoli-flow:flow` in a Claude Code session shows the table and invokes `detect-context.sh`
 
 **Depends on:** (none)
 
@@ -104,7 +104,7 @@ These four tasks are independent. Dispatch all four agents simultaneously.
 - Includes a "What it is" section: the brainstorm → plan → execute → verify → finish pipeline, intent-driven plans, wave-based crew dispatch
 - Includes a "What it replaces / why it's different" section covering the key SuperPowers pain points: token overhead, stale prescriptive plans, lost server state, no quick path
 - Includes an installation section: `claude plugin install fakoli-flow`
-- Includes a quick start with the most common entry points: `/flow`, `/flow:brainstorm`, `/flow:quick`
+- Includes a quick start with the most common entry points: `/fakoli-flow:flow`, `/fakoli-flow:brainstorm`, `/fakoli-flow:quick`
 - Links to `docs/specs/2026-04-04-fakoli-flow-design.md` for full design details
 - No placeholder text, no TODO items
 - Accurate — every claim matches what the plugin actually does
@@ -131,7 +131,7 @@ These three tasks are independent of each other. Dispatch all three agents simul
 
 **Acceptance criteria:**
 - YAML frontmatter with `name: brainstorm` and a `description` that triggers appropriately (design, spec, brainstorm, "plan this feature")
-- Step-by-step process documented: explore context → assess scope → ask clarifying questions → propose approaches → present design → write spec → self-review → hand off to `/flow:plan`
+- Step-by-step process documented: explore context → assess scope → ask clarifying questions → propose approaches → present design → write spec → self-review → hand off to `/fakoli-flow:plan`
 - Hard gate documented: no implementation action until design is approved
 - Scope assessment documented: if the request spans multiple independent subsystems, flag it and suggest decomposition before refining details
 - One-question-at-a-time rule stated explicitly; multiple-choice preferred
@@ -140,7 +140,7 @@ These three tasks are independent of each other. Dispatch all three agents simul
 - CLAUDE.md awareness: read and honor output paths and conventions
 - Spec self-review checklist: placeholder scan, consistency check, scope check, ambiguity check
 - Output path: `docs/specs/<date>-<topic>.md` (overridden by CLAUDE.md if present)
-- Handoff: invokes `/flow:plan` after user approves the spec
+- Handoff: invokes `/fakoli-flow:plan` after user approves the spec
 
 **Differences from SuperPowers brainstorming that must be present:**
 - Only offers visual companion on visual questions, not every session
@@ -171,7 +171,7 @@ These three tasks are independent of each other. Dispatch all three agents simul
 - Scout phase documented: before writing the plan, dispatch a scout to verify that referenced libraries exist, APIs work as described, and codebase patterns to follow
 - Self-review checklist documented: spec coverage, criteria clarity (each criterion independently verifiable), dependency correctness (no circular deps, valid wave grouping), agent assignment appropriateness
 - Language and crew detection in plan header (from SessionStart context)
-- Handoff: invokes `/flow:execute` after plan is complete
+- Handoff: invokes `/fakoli-flow:execute` after plan is complete
 
 **Agent:** guido
 
@@ -270,8 +270,8 @@ These three tasks are independent of each other. Dispatch all three agents simul
 - Process documented in order: detect scope (estimate files affected) → detect language → dispatch single agent (welder) → run verification → dispatch critic on modified files → if PASS done, if MUST FIX one fix cycle then done
 - "When to use" section with concrete examples: bug fixes (1-2 files), parameter changes, import fixes, typos
 - "When NOT to use" section with concrete examples: new features spanning 3+ files, architecture changes, anything the user would want a spec for
-- Usage syntax documented: `/flow:quick "<task description>"`
-- Scope check documented: if estimated scope exceeds 3 files, suggest switching to `/flow:brainstorm`
+- Usage syntax documented: `/fakoli-flow:quick "<task description>"`
+- Scope check documented: if estimated scope exceeds 3 files, suggest switching to `/fakoli-flow:brainstorm`
 - Single fix cycle maximum — if critic still finds MUST FIX after one round, surface to user rather than looping
 
 **Agent:** guido
@@ -391,9 +391,9 @@ These two tasks are independent of each other but depend on the full plugin bein
 **Acceptance criteria:**
 - Prerequisites section: Claude Code installed, fakoli-crew recommended (with install command), optional for standalone use
 - Installation section: `claude plugin install fakoli-flow`, verify with `claude plugin list`
-- First run section: start a session, run `/flow` to see skills and project context
-- Quick start section: walk through `/flow:quick "add a timeout to the retry function"` as a concrete example showing the single-agent + critic flow
-- Full workflow section: walk through `/flow:brainstorm` → spec → `/flow:plan` → plan → `/flow:execute` → waves → `/flow:verify` → scorecard → `/flow:finish` → options
+- First run section: start a session, run `/fakoli-flow:flow` to see skills and project context
+- Quick start section: walk through `/fakoli-flow:quick "add a timeout to the retry function"` as a concrete example showing the single-agent + critic flow
+- Full workflow section: walk through `/fakoli-flow:brainstorm` → spec → `/fakoli-flow:plan` → plan → `/fakoli-flow:execute` → waves → `/fakoli-flow:verify` → scorecard → `/fakoli-flow:finish` → options
 - Visual companion section: when it appears, how to accept/decline, what to do with the URL
 - Troubleshooting section: crew not installed (graceful degradation note), server won't start (port conflict, check PID file), detect-context.sh shows "unknown" language
 - All commands shown are real and accurate
@@ -446,7 +446,7 @@ After all waves complete, run the full verification pass:
 ```bash
 # 1. Plugin structure is complete
 ls .claude-plugin/plugin.json hooks/hooks.json hooks/detect-context.sh \
-   commands/flow.md README.md \
+   commands/fakoli-flow:flow.md README.md \
    skills/brainstorm/SKILL.md skills/brainstorm/visual-companion.md \
    skills/brainstorm/scripts/start-server.sh \
    skills/brainstorm/scripts/stop-server.sh \

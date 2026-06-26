@@ -2,7 +2,7 @@
 description: Fast path — skip the full workflow for small tasks under 3 files
 ---
 
-# Quick (`/flow:quick`)
+# Quick (`/fakoli-flow:quick`)
 
 ## Overview
 
@@ -14,9 +14,9 @@ Skip brainstorming, planning, and wave execution for tasks that are too small to
 
 **Invocation:**
 ```
-/flow:quick "add timeout param to retry"
-/flow:quick "fix import path in auth module"
-/flow:quick "rename voiceId to voice_id throughout"
+/fakoli-flow:quick "add timeout param to retry"
+/fakoli-flow:quick "fix import path in auth module"
+/fakoli-flow:quick "rename voiceId to voice_id throughout"
 ```
 
 The task description is passed inline. No spec file. No plan file. No waves.
@@ -40,7 +40,7 @@ The task description is passed inline. No spec file. No plan file. No waves.
 - Tasks with multiple independent sub-tasks
 - Anything requiring database migrations or security-critical logic
 
-**If the scope is unclear:** estimate it first (Step 1). If the estimate exceeds 2-3 files, stop and suggest `/flow:brainstorm` instead.
+**If the scope is unclear:** estimate it first (Step 1). If the estimate exceeds 2-3 files, stop and suggest `/fakoli-flow:brainstorm` instead.
 
 ---
 
@@ -58,9 +58,9 @@ If the estimate is 3 or more files: stop. Tell the user:
 ```
 This task looks like it will touch 3+ files (<list them>). Quick mode is intended for changes under 3 files.
 
-Suggested path: `/flow:brainstorm` to spec the change, then `/flow:plan` + `/flow:execute`.
+Suggested path: `/fakoli-flow:brainstorm` to spec the change, then `/fakoli-flow:plan` + `/fakoli-flow:execute`.
 
-To override and use quick mode anyway: `/flow:quick --force "<task>"`
+To override and use quick mode anyway: `/fakoli-flow:quick --force "<task>"`
 ```
 
 If the estimate is under 3 files: continue.
@@ -204,7 +204,7 @@ Quick mode fix cycle did not resolve all issues.
 Remaining issues:
 <list>
 
-Suggested path: Use `/flow:execute` for a full wave-based fix with multiple review cycles.
+Suggested path: Use `/fakoli-flow:execute` for a full wave-based fix with multiple review cycles.
 ```
 
 Do not loop. One fix cycle is the limit for quick mode.
@@ -238,7 +238,7 @@ If the user asks for something that sounds small but turns out to require a desi
 ```
 This change requires a design decision: <state the decision>.
 
-Quick mode skips brainstorming. To make this decision properly: `/flow:brainstorm "<topic>"`.
+Quick mode skips brainstorming. To make this decision properly: `/fakoli-flow:brainstorm "<topic>"`.
 ```
 
 ---
@@ -246,7 +246,7 @@ Quick mode skips brainstorming. To make this decision properly: `/flow:brainstor
 ## Summary of the Quick Mode Flow
 
 ```
-/flow:quick "<task>"
+/fakoli-flow:quick "<task>"
       |
       v
 1. Estimate scope — >3 files? Stop, suggest brainstorm
@@ -268,7 +268,7 @@ Quick mode skips brainstorming. To make this decision properly: `/flow:brainstor
       +-- MUST FIX -----> One fix cycle -> re-verify -> re-critic
       |                       |
       |                       +-- PASS -----> Done.
-      |                       +-- MUST FIX -> Stop. Escalate to /flow:execute.
+      |                       +-- MUST FIX -> Stop. Escalate to /fakoli-flow:execute.
       |
       +-- SHOULD FIX ---> Log suggestions. Done.
 ```

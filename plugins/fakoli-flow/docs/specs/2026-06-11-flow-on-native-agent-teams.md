@@ -142,7 +142,7 @@ The two modes must coexist; team mode is strictly opt-in, and the legacy wave en
 **How a user runs flow today (legacy wave engine):**
 
 ```
-/flow:execute  → load plan → compute waves in-context → Agent()-per-task →
+/fakoli-flow:execute  → load plan → compute waves in-context → Agent()-per-task →
                  poll status files → shell-hook critic gate → sentinel
 ```
 
@@ -151,7 +151,7 @@ Unchanged. Hook-enforced gate via `.fakoli/gate-armed`. No native dependency. Th
 **How a user runs flow on teams (new mode):**
 
 ```
-/flow:execute --teams  (or CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 detected)
+/fakoli-flow:execute --teams  (or CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 detected)
    → seed native task list from fakoli-state task graph (§4 seed)
    → lead spawns teammates (fakoli-crew agents as teammate types)
    → teammates self-claim the unblocked frontier (native dependency-blocking)
@@ -165,7 +165,7 @@ Unchanged. Hook-enforced gate via `.fakoli/gate-armed`. No native dependency. Th
 - **Opt-in, never auto.** Team mode requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` *and* an explicit `--teams` (or a `flow.teams: true` project setting). The docs are clear teams are "experimental and disabled by default" with known limitations (no session resumption for in-process teammates, task-status lag, slow shutdown) — fakoli must not surprise a user into an experimental path. This also honors the fakoli/superpowers lesson on silent autonomous mode-switching (superpowers #992): never switch execution strategy without consent.
 - **Detect, don't assume.** The execute skill detects team availability (env var + `claude --version` ≥ 2.1.32) the same way it detects fakoli-crew today. If unavailable or not opted-in → legacy wave engine. If available + opted-in → team mode.
 - **One gate policy, two enforcement backends.** The critic-gate *policy* (two-stage review, MUST-FIX fix-cycle) is shared code. Legacy mode enforces it via `PreToolUse` deny; team mode via `TaskCompleted` exit 2. The policy module doesn't know which backend called it — same separation that lets fakoli-state's managers back both CLI and MCP.
-- **Mutually exclusive per run.** A single `/flow:execute` invocation is one mode or the other, never both — the native task list and the in-context wave graph cannot both be authoritative for the same run. (Across runs in a session, mode can vary.)
+- **Mutually exclusive per run.** A single `/fakoli-flow:execute` invocation is one mode or the other, never both — the native task list and the in-context wave graph cannot both be authoritative for the same run. (Across runs in a session, mode can vary.)
 
 **Migration is additive, not a rewrite.** Nothing in legacy mode is removed; team mode is a parallel dispatch backend behind the same plan format and the same gate policy. The intent-driven plan (skill `plan`), the brainstorm phase, finish/verify, and quick mode are backend-agnostic and unchanged.
 
@@ -186,7 +186,7 @@ Unchanged. Hook-enforced gate via `.fakoli/gate-armed`. No native dependency. Th
 ## Phasing
 
 - **Phase A (ship first): the critic gate on `TaskCompleted`.** The cleanest, highest-signal win and the smallest dependency surface. Re-express the existing gate policy as a `TaskCompleted` exit-2 hook (§3) reading critic verdicts from fakoli-state. Requires the §4 *mirror* write-back for verdicts only (not full bidirectional sync). Behind `--teams`, default off. Proves hook-enforced gating transfers to the native event verbatim — which it should, since fakoli already proved the pattern on `PreToolUse`.
-- **Phase B: seed + mirror the task graph.** Project the fakoli-state task graph into the native task list at team creation (§4 seed), and mirror claim/progress/complete transitions back (§4 mirror). Full coexistence: `/flow:execute --teams` runs a real plan end-to-end on native dispatch, with fakoli-state as the durable trail. Add the `TeammateIdle` exit-2 verification gate.
+- **Phase B: seed + mirror the task graph.** Project the fakoli-state task graph into the native task list at team creation (§4 seed), and mirror claim/progress/complete transitions back (§4 mirror). Full coexistence: `/fakoli-flow:execute --teams` runs a real plan end-to-end on native dispatch, with fakoli-state as the durable trail. Add the `TeammateIdle` exit-2 verification gate.
 - **Phase C: retire the in-context wave scheduler in team mode.** Once seed+mirror+gates are proven, delete the in-context wave computation and status-file polling *from the team path* (legacy path keeps them). The `gate-armed`/`gate-state.json` machinery is removed in team mode. This is the "stop owning the anvil" payoff — fakoli-flow's team mode becomes genuinely thin.
 - **Phase D (gated on platform GA): default team mode on, evaluate retiring legacy.** Only when Agent Teams graduates from experimental and the known limitations (session resumption, status lag, shutdown) are resolved. Until then, legacy is the default. Possibly never fully retire legacy if a no-native-dependency path stays valuable for constrained environments.
 - **Out of scope (depends on git-backed-events Phase C):** cross-machine teammate identity canonicalization. Native teammate names are lead-assigned, per-session, non-durable; mapping them to stable fakoli-state actors needs the actor-identity work that git-backed-events itself defers. Not blocking A-C.

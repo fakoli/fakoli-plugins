@@ -4,10 +4,10 @@ description: Design phase — refine ideas into specs through collaborative dial
 
 # Brainstorm — Design Phase
 
-Turn ideas into fully-formed specs through structured dialogue: explore context, assess scope, ask one question at a time, propose approaches, present the design section by section, and hand off to `/flow:plan`.
+Turn ideas into fully-formed specs through structured dialogue: explore context, assess scope, ask one question at a time, propose approaches, present the design section by section, and hand off to `/fakoli-flow:plan`.
 
 <HARD-GATE>
-Do NOT invoke `/flow:plan`, write any code, scaffold any files, or take any implementation action until the spec has been written, self-reviewed, and the user has explicitly approved it.
+Do NOT invoke `/fakoli-flow:plan`, write any code, scaffold any files, or take any implementation action until the spec has been written, self-reviewed, and the user has explicitly approved it.
 </HARD-GATE>
 
 ---
@@ -71,7 +71,7 @@ Start
   If changes requested: update the file, re-run self-review, re-ask.
   |
   v
-[10. Hand off to /flow:plan]
+[10. Hand off to /fakoli-flow:plan]
 ```
 
 ---
@@ -193,19 +193,19 @@ Only proceed to step 10 once the user explicitly approves.
 
 ### Step 10: Hand Off
 
-Invoke `/flow:plan` and pass the spec file path.
+Invoke `/fakoli-flow:plan` and pass the spec file path.
 
 ---
 
 ## When NOT to Brainstorm
 
-Use `/flow:quick` instead when:
+Use `/fakoli-flow:quick` instead when:
 - The task is a bug fix in 1-2 files
 - Adding or renaming a parameter
 - Fixing a typo, import, or config value
 - Any task where brainstorming would take longer than the fix itself
 
-Rule of thumb: if you can describe the complete change in one sentence and it touches fewer than 3 files, use `/flow:quick`.
+Rule of thumb: if you can describe the complete change in one sentence and it touches fewer than 3 files, use `/fakoli-flow:quick`.
 
 Use brainstorm for: new features, architectural changes, anything spanning multiple files, anything where the user would benefit from seeing a spec before any code is written.
 

@@ -4,7 +4,7 @@ description: Plan phase — break approved specs into intent-driven task lists f
 
 # Plan — Plan Phase
 
-Read an approved spec, verify assumptions with a scout, write an intent-driven task list, and hand off to `/flow:execute`. Plans describe WHAT to achieve — never HOW to implement it.
+Read an approved spec, verify assumptions with a scout, write an intent-driven task list, and hand off to `/fakoli-flow:execute`. Plans describe WHAT to achieve — never HOW to implement it.
 
 <HARD-GATE>
 Do NOT include implementation code (function bodies, test files, class definitions, step-by-step instructions) in tasks. This is the one inviolable rule of intent-driven planning. Plans that contain prescriptive code age immediately and suppress agent expertise.
@@ -48,7 +48,7 @@ Start
   (or the path CLAUDE.md specifies).
   |
   v
-[7. Hand off to /flow:execute]
+[7. Hand off to /fakoli-flow:execute]
 ```
 
 ---
@@ -263,6 +263,6 @@ Every plan must begin with the four-line header (Goal, Spec, Language, Crew). Th
 
 After saving the plan, announce:
 
-> "Plan saved to `<path>`. Handing off to `/flow:execute`."
+> "Plan saved to `<path>`. Handing off to `/fakoli-flow:execute`."
 
-Then invoke `/flow:execute` with the plan file path.
+Then invoke `/fakoli-flow:execute` with the plan file path.
