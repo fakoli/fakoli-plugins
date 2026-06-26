@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-06-26T16:24:49Z",
+  "generatedAt": "2026-06-26T16:49:13Z",
   "categories": [
     {
       "category": "uncategorized",
-      "count": 16,
+      "count": 17,
       "plugins": [
         {
           "name": "cli-to-plugin",
@@ -100,6 +100,12 @@
           "version": "1.1.1",
           "description": "Analyze a Claude Code or Codex session (or a multi-session arc) from local JSONL logs and produce a markdown retro: token economy, workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Reads only local ~/.claude and ~/.codex logs; writes to a project-local post-session-findings directory by default; sends nothing externally.",
           "path": "plugins/session-retro"
+        },
+        {
+          "name": "systems-thinking",
+          "version": "0.3.0",
+          "description": "Apply systems thinking to infrastructure decisions so you stop discovering hidden costs, vendor assumptions, and scaling traps after you've committed. Extract what vendors bury in their docs, map dependencies the design review missed, reuse what worked before, and produce structured artifacts grounded in source evidence.",
+          "path": "plugins/systems-thinking"
         }
       ]
     }

@@ -1,9 +1,13 @@
 {
-  "generatedAt": "2026-06-24T05:44:31Z",
-  "totalTags": 128,
+  "generatedAt": "2026-06-26T16:49:13Z",
+  "totalTags": 134,
   "tags": [
     {
       "tag": "agents",
+      "count": 3
+    },
+    {
+      "tag": "architecture",
       "count": 3
     },
     {
@@ -25,10 +29,6 @@
     {
       "tag": "workflow",
       "count": 3
-    },
-    {
-      "tag": "architecture",
-      "count": 2
     },
     {
       "tag": "google",
@@ -111,6 +111,10 @@
       "count": 1
     },
     {
+      "tag": "complexity",
+      "count": 1
+    },
+    {
       "tag": "content-creator",
       "count": 1
     },
@@ -132,6 +136,10 @@
     },
     {
       "tag": "customer-support",
+      "count": 1
+    },
+    {
+      "tag": "decision-support",
       "count": 1
     },
     {
@@ -247,6 +255,10 @@
       "count": 1
     },
     {
+      "tag": "infrastructure",
+      "count": 1
+    },
+    {
       "tag": "intent-driven",
       "count": 1
     },
@@ -300,6 +312,10 @@
     },
     {
       "tag": "multi-provider",
+      "count": 1
+    },
+    {
+      "tag": "network-engineering",
       "count": 1
     },
     {
@@ -403,6 +419,10 @@
       "count": 1
     },
     {
+      "tag": "risk-analysis",
+      "count": 1
+    },
+    {
       "tag": "rpc",
       "count": 1
     },
@@ -484,6 +504,10 @@
     },
     {
       "tag": "validation",
+      "count": 1
+    },
+    {
+      "tag": "vendor-evaluation",
       "count": 1
     },
     {
