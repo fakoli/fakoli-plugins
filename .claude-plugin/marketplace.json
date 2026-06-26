@@ -126,8 +126,8 @@
     },
     {
       "name": "session-retro",
-      "version": "1.0.0",
-      "description": "Analyze a Claude Code session (or a multi-session arc) from its local JSONL logs and produce a markdown retro: token economy (main-loop vs delegated workflows), workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Use after a long or autonomous run to evaluate performance and collaboration. Reads only local ~/.claude logs; writes to ~/post-session-findings; sends nothing externally.",
+      "version": "1.1.0",
+      "description": "Analyze a Claude Code or Codex session (or a multi-session arc) from local JSONL logs and produce a markdown retro: token economy (main-loop vs delegated workflows), workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Use after a long or autonomous run to evaluate performance and collaboration. Reads only local ~/.claude and ~/.codex logs; writes to ~/post-session-findings; sends nothing externally.",
       "category": "productivity",
       "source": "./plugins/session-retro"
     }
