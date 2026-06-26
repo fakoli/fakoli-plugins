@@ -1,9 +1,15 @@
 # Changelog
 
-All notable changes to the systems-thinking-plugin will be documented in this file.
+All notable changes to systems-thinking will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.1] - 2026-06-26
+
+### Changed
+
+- Renamed the marketplace plugin identity from `systems-thinking-plugin` to `systems-thinking` while preserving upstream provenance references.
 
 ## [0.3.0] - 2026-04-02
 

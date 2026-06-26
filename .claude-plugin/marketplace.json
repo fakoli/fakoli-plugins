@@ -52,7 +52,7 @@
     },
     {
       "name": "fakoli-flow",
-      "version": "1.3.4",
+      "version": "1.3.5",
       "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
       "source": "./plugins/fakoli-flow"
     },
@@ -133,7 +133,7 @@
     },
     {
       "name": "systems-thinking",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "description": "Apply systems thinking to infrastructure decisions so you stop discovering hidden costs, vendor assumptions, and scaling traps after you've committed. Extract what vendors bury in their docs, map dependencies the design review missed, reuse what worked before instead of forgetting lessons, and produce structured artifacts grounded in source evidence — not confident guesses.",
       "source": "./plugins/systems-thinking"
     }

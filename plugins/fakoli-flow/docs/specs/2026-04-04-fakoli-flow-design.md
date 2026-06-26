@@ -2,7 +2,7 @@
 
 ## Context
 
-fakoli-flow is the workflow orchestration plugin for the Fakoli ecosystem. It coordinates specialist agent plugins (fakoli-crew, systems-thinking-plugin, future plugins) through a structured pipeline: brainstorm → plan → execute → verify → finish.
+fakoli-flow is the workflow orchestration plugin for the Fakoli ecosystem. It coordinates specialist agent plugins (fakoli-crew, systems-thinking, future plugins) through a structured pipeline: brainstorm → plan → execute → verify → finish.
 
 **Core philosophy: Intent-driven orchestration.** Plans describe WHAT to achieve (acceptance criteria), not HOW to implement it (code). Trusted specialist agents decide the implementation. Quality is enforced through critic gates and evidence-based verification, not prescriptive plans.
 

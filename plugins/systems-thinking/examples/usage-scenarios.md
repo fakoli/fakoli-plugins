@@ -1,6 +1,6 @@
 # Usage Scenarios
 
-Five worked examples showing how to use the systems-thinking-plugin in practice. Each scenario describes the situation, which skill to invoke, what happens under the hood, and what outputs to expect.
+Five worked examples showing how to use systems-thinking in practice. Each scenario describes the situation, which skill to invoke, what happens under the hood, and what outputs to expect.
 
 ---
 

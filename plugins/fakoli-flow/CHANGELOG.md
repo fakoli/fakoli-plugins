@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.5 (2026-06-26)
+
+### Fixed
+- Updated the fakoli-flow design spec to refer to the renamed
+  `systems-thinking` marketplace plugin identity.
+
+---
+
 ## 1.3.4 (2026-06-26)
 
 ### Fixed

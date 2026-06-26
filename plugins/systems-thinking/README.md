@@ -7,9 +7,8 @@
 A Claude Code plugin that applies systems thinking to infrastructure and architecture decisions — surfacing what vendors don't show you, what consultants gloss over, and what only becomes visible when you're in production with no exit.
 
 This marketplace copy lives at `plugins/systems-thinking` in
-`fakoli/fakoli-plugins`. It preserves the upstream
-`fakoli/systems-thinking-plugin` documentation while adapting install and path
-references for the marketplace layout.
+`fakoli/fakoli-plugins`. It preserves the upstream repository documentation
+while adapting install and path references for the marketplace layout.
 
 Migration note: this documentation and licensing pass preserves the upstream
 non-executable documentation surface first. Agent, skill, hook, utility, and
