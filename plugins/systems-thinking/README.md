@@ -10,6 +10,13 @@ This marketplace copy lives at `plugins/systems-thinking` in
 `fakoli/fakoli-plugins`. It preserves the upstream repository documentation
 while adapting install and path references for the marketplace layout.
 
+## Provenance
+
+The original standalone source repository is
+`https://github.com/fakoli/systems-thinking-plugin`. This marketplace package
+preserves that upstream history and attribution while publishing the installable
+plugin identity as `systems-thinking`.
+
 Migration note: this documentation and licensing pass preserves the upstream
 non-executable documentation surface first. Agent, skill, hook, utility, and
 test-suite files are imported by separate migration tasks, so sections below
@@ -41,8 +48,7 @@ Understanding what systems *don't* do well is as important as understanding what
 ```
 
 For local marketplace development, work from the repository root and use
-`plugins/systems-thinking` as the plugin path. The original standalone source
-repository remains available at `https://github.com/fakoli/systems-thinking-plugin`.
+`plugins/systems-thinking` as the plugin path.
 
 ## Workflows
 
