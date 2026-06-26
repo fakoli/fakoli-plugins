@@ -1,13 +1,6 @@
 ---
 name: gws-quick-ref
 description: "Quick reference for gws CLI syntax — core patterns, key flags, pagination, field masks, and output formats."
-trigger:
-  - keyword: gws reference
-  - keyword: gws syntax
-  - keyword: gws flags
-  - keyword: gws cheatsheet
-  - keyword: how to use gws
-version: 1.0.0
 ---
 
 # gws Quick Reference

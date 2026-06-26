@@ -18,7 +18,7 @@ description: >
   </example>
 model: sonnet
 color: red
-allowed_tools:
+tools:
   - Bash(gws:*)
   - Read
 ---

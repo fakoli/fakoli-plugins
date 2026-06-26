@@ -1,12 +1,6 @@
 ---
 name: gws-meet
 description: "Manage Google Meet conferences."
-trigger:
-  - keyword: meet
-  - keyword: google meet
-  - keyword: video call
-  - keyword: conference
-version: 1.0.0
 ---
 
 # meet (v2)

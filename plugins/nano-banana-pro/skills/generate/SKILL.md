@@ -1,10 +1,7 @@
 ---
 name: generate
 description: Generate, edit, remix, and optimize images using Google Gemini 3 Pro Image Preview (Nano Banana Pro)
-allowed-tools:
-  - Bash
-  - Read
-  - Write
+allowed-tools: Bash, Read, Write
 ---
 
 # Nano Banana Pro (Gemini 3 Pro Image) Skill

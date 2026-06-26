@@ -1,11 +1,6 @@
 ---
 name: persona-it-admin
 description: "Administer IT — monitor security and configure Workspace."
-trigger:
-  - keyword: it admin
-  - keyword: it administrator
-  - keyword: workspace admin
-version: 1.0.0
 ---
 
 # IT Administrator

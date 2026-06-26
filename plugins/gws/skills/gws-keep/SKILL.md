@@ -1,11 +1,6 @@
 ---
 name: gws-keep
 description: "Manage Google Keep notes."
-trigger:
-  - keyword: keep
-  - keyword: google keep
-  - keyword: notes
-version: 1.0.0
 ---
 
 # keep (v1)

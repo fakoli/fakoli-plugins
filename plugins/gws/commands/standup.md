@@ -3,7 +3,7 @@ description: Generate a standup report from Google Workspace data
 allowed-tools: Bash(gws:*)
 ---
 
-# /standup-gws
+# /standup
 
 Generate a standup report combining today's calendar and open tasks.
 

@@ -1,12 +1,6 @@
 ---
 name: gws-gmail-send
 description: "Gmail: Send an email."
-trigger:
-  - keyword: send email
-  - keyword: gmail send
-  - keyword: compose email
-  - keyword: write email
-version: 1.0.0
 ---
 
 # gmail +send

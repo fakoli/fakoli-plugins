@@ -1,11 +1,6 @@
 ---
 name: recipe-send-team-announcement
 description: "Send a team announcement via both Gmail and a Google Chat space."
-trigger:
-  - keyword: team announcement
-  - keyword: announce to team
-  - keyword: broadcast message
-version: 1.0.0
 ---
 
 # Announce via Gmail and Google Chat

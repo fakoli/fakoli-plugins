@@ -1,11 +1,6 @@
 ---
 name: gws-events-renew
 description: "Google Workspace Events: Renew/reactivate Workspace Events subscriptions."
-trigger:
-  - keyword: renew subscription
-  - keyword: extend subscription
-  - keyword: renew events
-version: 1.0.0
 ---
 
 # events +renew

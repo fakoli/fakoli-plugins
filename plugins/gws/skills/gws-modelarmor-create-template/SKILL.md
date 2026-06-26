@@ -1,11 +1,6 @@
 ---
 name: gws-modelarmor-create-template
 description: "Google Model Armor: Create a new Model Armor template."
-trigger:
-  - keyword: create armor template
-  - keyword: modelarmor template
-  - keyword: safety template
-version: 1.0.0
 ---
 
 # modelarmor +create-template

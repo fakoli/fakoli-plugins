@@ -1,7 +1,7 @@
 ---
 name: stylist
 description: Applies aesthetic guidelines, color palettes, typography, and design principles to create a style-enhanced image generation prompt
-allowed-tools:
+tools:
   - Read
   - Glob
   - Grep

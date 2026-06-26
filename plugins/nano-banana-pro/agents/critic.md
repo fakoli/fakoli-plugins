@@ -1,7 +1,7 @@
 ---
 name: critic
 description: Evaluates generated images against requirements, scoring faithfulness, readability, aesthetics, and conciseness, then recommends approval or revision
-allowed-tools:
+tools:
   - Read
   - Bash
   - Glob

@@ -2,6 +2,15 @@
 
 All notable changes to fakoli-style are documented here.
 
+## [Unreleased]
+
+_No unreleased changes._
+
+## [1.2.1] - 2026-06-26
+
+### Fixed
+- Added the standard unreleased section and sharpened skill trigger metadata during the active-plugin audit pass.
+
 ## [1.2.0] - 2026-06-02
 
 ### Added

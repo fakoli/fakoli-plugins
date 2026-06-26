@@ -1,12 +1,6 @@
 ---
 name: gws-calendar-agenda
 description: "Google Calendar: Show upcoming events across all calendars."
-trigger:
-  - keyword: agenda
-  - keyword: today calendar
-  - keyword: upcoming events
-  - keyword: schedule today
-version: 1.0.0
 ---
 
 # calendar +agenda

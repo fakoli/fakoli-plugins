@@ -1,12 +1,6 @@
 ---
 name: gws-admin-reports
 description: "Google Workspace Admin SDK: Audit logs and usage reports."
-trigger:
-  - keyword: admin reports
-  - keyword: workspace reports
-  - keyword: audit logs
-  - keyword: usage reports
-version: 1.0.0
 ---
 
 # admin-reports (reports_v1)

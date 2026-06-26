@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Replace unsupported `author.github` manifest metadata with `author.url`.
+- Add slash-command wrappers for `/handoff:handoff` and `/handoff:recall`, matching the README and session-start banner.
+
 ## 0.1.2
 
 - Add regression tests proving the handoff resolves to a single path across linked

@@ -1,11 +1,6 @@
 ---
 name: gws-gmail-forward
 description: "Gmail: Forward a message to new recipients."
-trigger:
-  - keyword: forward email
-  - keyword: gmail forward
-  - keyword: fwd email
-version: 1.0.0
 ---
 
 # gmail +forward

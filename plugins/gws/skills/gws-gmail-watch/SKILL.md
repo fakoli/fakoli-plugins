@@ -1,11 +1,6 @@
 ---
 name: gws-gmail-watch
 description: "Gmail: Watch for new emails and stream them as NDJSON."
-trigger:
-  - keyword: gmail watch
-  - keyword: email notifications
-  - keyword: watch inbox
-version: 1.0.0
 ---
 
 # gmail +watch

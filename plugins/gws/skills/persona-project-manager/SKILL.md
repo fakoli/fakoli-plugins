@@ -1,11 +1,6 @@
 ---
 name: persona-project-manager
 description: "Coordinate projects — track tasks, schedule meetings, and share docs."
-trigger:
-  - keyword: project manager
-  - keyword: project management
-  - keyword: track project
-version: 1.0.0
 ---
 
 # Project Manager

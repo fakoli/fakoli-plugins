@@ -8,14 +8,14 @@ To orchestrate multi-agent work, assign one owner per file, route work through t
 
 ## Available Agents
 
-See `skills/crew-ops/references/agent-roster.md` for the full 8-agent roster with roles, colors, and file paths.
+See `skills/crew-ops/references/agent-roster.md` for the full 9-agent roster with roles, colors, and file paths.
 
 ## Pre-Built Crews
 
 - **Code quality**: guido + critic + sentinel
 - **Plugin development**: smith + guido + sentinel + herald
 - **Research & build**: scout + guido + welder (critic as gate)
-- **Full overhaul**: all 8 in waves
+- **Full overhaul**: all 9 in waves
 
 ## Companion Command
 

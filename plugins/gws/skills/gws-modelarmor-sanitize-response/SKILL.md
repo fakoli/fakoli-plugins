@@ -1,11 +1,6 @@
 ---
 name: gws-modelarmor-sanitize-response
 description: "Google Model Armor: Sanitize a model response through a Model Armor template."
-trigger:
-  - keyword: sanitize response
-  - keyword: modelarmor response
-  - keyword: response safety
-version: 1.0.0
 ---
 
 # modelarmor +sanitize-response

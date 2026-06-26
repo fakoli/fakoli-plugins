@@ -1,11 +1,6 @@
 ---
 name: gws-drive-upload
 description: "Google Drive: Upload a file with automatic metadata."
-trigger:
-  - keyword: upload file
-  - keyword: upload to drive
-  - keyword: drive upload
-version: 1.0.0
 ---
 
 # drive +upload

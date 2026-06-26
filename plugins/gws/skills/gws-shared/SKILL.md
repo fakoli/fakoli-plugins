@@ -1,12 +1,6 @@
 ---
 name: gws-shared
 description: "gws CLI: Shared patterns for authentication, global flags, and output formatting."
-trigger:
-  - keyword: gws auth
-  - keyword: gws setup
-  - keyword: google workspace cli
-  - keyword: gws config
-version: 1.0.0
 ---
 
 # gws — Shared Reference

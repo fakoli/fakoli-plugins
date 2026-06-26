@@ -1,11 +1,6 @@
 ---
 name: recipe-email-drive-link
 description: "Share a Google Drive file and email the link with a message to recipients."
-trigger:
-  - keyword: email drive link
-  - keyword: share file link
-  - keyword: send file link
-version: 1.0.0
 ---
 
 # Email a Google Drive File Link

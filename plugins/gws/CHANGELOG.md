@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-06-26
+
+### Fixed
+- Renamed agent frontmatter `allowed_tools` keys to `tools` so tool restrictions are honored.
+- Removed unsupported `trigger` and `version` skill frontmatter from the generated Google Workspace skill set.
+- Corrected standup command headings and cross-references.
+- Synced changelog with the current marketplace manifest.
+
 ## [0.3.0] - 2026-03-14
 
 ### Added

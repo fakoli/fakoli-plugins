@@ -1,11 +1,6 @@
 ---
 name: gws-chat-send
 description: "Google Chat: Send a message to a space."
-trigger:
-  - keyword: send chat
-  - keyword: chat message
-  - keyword: post in chat
-version: 1.0.0
 ---
 
 # chat +send

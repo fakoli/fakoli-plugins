@@ -1,6 +1,6 @@
 {
   "name": "fakoli-style",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Governed ledger of the Fakoli operating-model principles. Tracks proven, asserted, and aspirational lifecycle statuses and generates a Markdown report from a single canonical source.",
   "author": {
     "name": "Sekou Doumbouya",

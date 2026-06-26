@@ -1,6 +1,6 @@
 {
   "name": "quick-notes",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Dictation-friendly personal notes. Capture a thought by speaking to Claude ('jot down...', 'note that...'); read back, search by keyword or #tag, filter by date, get stats, and export to Markdown. Notes are stored in an append-only, event-sourced JSON Lines log (add/edit/delete, never rewritten) kept outside the plugin so updates never touch your data.",
   "author": {
     "name": "Sekou Doumbouya",

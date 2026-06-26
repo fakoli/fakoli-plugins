@@ -1,7 +1,6 @@
 ---
 name: safe-fetch
 description: This skill should be used when the user asks to "fetch a URL safely", "sanitize web content", "search the web securely", "check URL safety", "prevent prompt injection from web content", or discusses web fetching security. Also triggers when curl/wget is used to fetch web content.
-version: 0.1.0
 ---
 
 # Safe Web Fetch
@@ -13,7 +12,7 @@ Provide sanitized web fetching that strips prompt injection vectors before conte
 Use the safe-fetch MCP tools for all web content retrieval:
 
 - **`mcp__safe-fetch__fetch`** — Fetch a URL and return sanitized markdown. Supports `prompt` parameter for focused extraction and `max_tokens` for content limits.
-- **`mcp__safe-fetch__search`** — Search the web via Brave Search API with sanitized results. Supports `location` for geo-localized results.
+- **`mcp__safe-fetch__search`** — Search the web via Brave Search API with sanitized results. Supports `country` and `city` for geo-localized results.
 - **`mcp__safe-fetch__check_url`** — Validate URL against security policy without fetching.
 
 ## Slash Commands

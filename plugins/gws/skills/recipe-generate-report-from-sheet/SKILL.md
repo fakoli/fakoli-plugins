@@ -1,11 +1,6 @@
 ---
 name: recipe-generate-report-from-sheet
 description: "Read data from a Google Sheet and create a formatted Google Docs report."
-trigger:
-  - keyword: report from sheet
-  - keyword: generate report
-  - keyword: sheet to doc
-version: 1.0.0
 ---
 
 # Generate a Google Docs Report from Sheet Data

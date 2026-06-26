@@ -1,11 +1,6 @@
 ---
 name: gws-gmail-reply
 description: "Gmail: Reply to a message (handles threading automatically)."
-trigger:
-  - keyword: reply email
-  - keyword: gmail reply
-  - keyword: respond to email
-version: 1.0.0
 ---
 
 # gmail +reply

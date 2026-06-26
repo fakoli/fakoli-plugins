@@ -1,11 +1,6 @@
 ---
 name: gws-events-subscribe
 description: "Google Workspace Events: Subscribe to Workspace events and stream them as NDJSON."
-trigger:
-  - keyword: subscribe events
-  - keyword: event subscription
-  - keyword: watch events
-version: 1.0.0
 ---
 
 # events +subscribe

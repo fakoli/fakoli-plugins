@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.9.2 (2026-06-26)
+
+### Fixed
+- Synced README badge and roster references to the current nine-agent release.
+
+---
+
 ## 2.9.1 (2026-06-10)
 
 ### Changed

@@ -1,19 +1,7 @@
 ---
 name: generate-image
 description: Generate an image from a text prompt using Gemini 3 Pro
-arguments:
-  - name: prompt
-    description: Text description of the image to generate
-    required: true
-  - name: --aspect
-    description: "Aspect ratio (1:1, 16:9, 4:3, 9:16, 3:2)"
-    required: false
-  - name: --size
-    description: "Image size tier (1K, 2K, 4K)"
-    required: false
-  - name: --out
-    description: Output file path (defaults to .nanobanana/out/)
-    required: false
+argument-hint: <prompt> [--aspect ratio] [--size tier] [--out path]
 ---
 
 # Generate Image Command

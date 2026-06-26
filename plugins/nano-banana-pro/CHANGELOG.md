@@ -5,6 +5,15 @@ All notable changes to the Nano Banana Pro plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2026-06-26
+
+### Fixed
+
+- Renamed agent frontmatter `allowed-tools` keys to `tools` so tool restrictions are honored.
+- Normalized command frontmatter to `argument-hint`.
+- Normalized skill `allowed-tools` frontmatter to the marketplace schema.
+- Synced package metadata and changelog with the current marketplace release.
+
 ## [1.3.0] - 2026-02-08
 
 ### Added

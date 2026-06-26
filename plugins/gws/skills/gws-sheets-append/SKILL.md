@@ -1,12 +1,6 @@
 ---
 name: gws-sheets-append
 description: "Google Sheets: Append a row to a spreadsheet."
-trigger:
-  - keyword: append sheet
-  - keyword: add row
-  - keyword: sheets append
-  - keyword: add to spreadsheet
-version: 1.0.0
 ---
 
 # sheets +append

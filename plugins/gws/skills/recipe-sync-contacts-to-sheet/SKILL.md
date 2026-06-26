@@ -1,11 +1,6 @@
 ---
 name: recipe-sync-contacts-to-sheet
 description: "Export Google Contacts directory to a Google Sheets spreadsheet."
-trigger:
-  - keyword: sync contacts
-  - keyword: export contacts
-  - keyword: contacts to sheet
-version: 1.0.0
 ---
 
 # Export Google Contacts to Sheets

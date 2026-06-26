@@ -1,11 +1,6 @@
 ---
 name: gws-modelarmor-sanitize-prompt
 description: "Google Model Armor: Sanitize a user prompt through a Model Armor template."
-trigger:
-  - keyword: sanitize prompt
-  - keyword: modelarmor prompt
-  - keyword: prompt safety
-version: 1.0.0
 ---
 
 # modelarmor +sanitize-prompt

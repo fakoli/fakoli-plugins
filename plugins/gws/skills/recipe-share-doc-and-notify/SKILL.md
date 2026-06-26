@@ -1,11 +1,6 @@
 ---
 name: recipe-share-doc-and-notify
 description: "Share a Google Docs document with edit access and email collaborators the link."
-trigger:
-  - keyword: share doc
-  - keyword: share and notify
-  - keyword: share document
-version: 1.0.0
 ---
 
 # Share a Google Doc and Notify Collaborators

@@ -5,6 +5,9 @@ All tests operate on a temporary log file; the real notes.jsonl is never
 touched. Run with:  python3 test_notes.py
 """
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -221,6 +224,26 @@ class NotesLibTest(unittest.TestCase):
         text = out.read_text(encoding="utf-8")
         self.assertIn("## 2026-06-03", text)
         self.assertNotIn("## 2026-06-02", text)
+
+    def test_export_wrapper_writes_markdown_next_to_notes_log(self):
+        notes_lib.add_note("keep data outside plugin code", log=self.log)
+        expected_out = self.log.with_name("notes.md")
+        script = Path(__file__).with_name("export-notes.py")
+
+        env = os.environ.copy()
+        env["NOTES_LOG"] = str(self.log)
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=script.parent,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(expected_out.exists())
+        self.assertIn("keep data outside plugin code", expected_out.read_text(encoding="utf-8"))
 
     def test_today_filter(self):
         old = {"ts": "2020-01-01T00:00:00+00:00", "id": "old00001",

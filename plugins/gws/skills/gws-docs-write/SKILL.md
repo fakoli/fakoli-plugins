@@ -1,11 +1,6 @@
 ---
 name: gws-docs-write
 description: "Google Docs: Append text to a document."
-trigger:
-  - keyword: write doc
-  - keyword: create document
-  - keyword: docs write
-version: 1.0.0
 ---
 
 # docs +write

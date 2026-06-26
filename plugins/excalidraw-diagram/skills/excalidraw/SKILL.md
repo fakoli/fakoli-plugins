@@ -1,12 +1,7 @@
 ---
 name: excalidraw
 description: Generate and modify Excalidraw diagrams from natural language and code analysis using skeleton JSON and a Node.js converter
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Glob
-  - Grep
+allowed-tools: Bash, Read, Write, Glob, Grep
 ---
 
 # Excalidraw Diagram Generation Skill

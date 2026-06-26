@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Transforms user requests and context into detailed visual specifications with layout, composition, and spatial relationships
-allowed-tools:
+tools:
   - Read
   - Glob
   - Grep

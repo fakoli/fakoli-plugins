@@ -1,15 +1,6 @@
 ---
 name: gws-auth
 description: "Authenticate and manage credentials for the gws CLI — login, logout, status, scopes, service accounts, and credential storage."
-trigger:
-  - keyword: gws auth
-  - keyword: gws login
-  - keyword: authenticate
-  - keyword: credentials
-  - keyword: oauth
-  - keyword: service account
-  - keyword: gws setup
-version: 1.0.0
 ---
 
 # gws auth

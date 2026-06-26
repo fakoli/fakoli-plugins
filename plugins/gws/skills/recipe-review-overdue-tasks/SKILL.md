@@ -1,11 +1,6 @@
 ---
 name: recipe-review-overdue-tasks
 description: "Find Google Tasks that are past due and need attention."
-trigger:
-  - keyword: overdue tasks
-  - keyword: past due
-  - keyword: missed deadlines
-version: 1.0.0
 ---
 
 # Review Overdue Tasks

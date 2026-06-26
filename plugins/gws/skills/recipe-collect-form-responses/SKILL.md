@@ -1,11 +1,6 @@
 ---
 name: recipe-collect-form-responses
 description: "Retrieve and review responses from a Google Form."
-trigger:
-  - keyword: form responses
-  - keyword: collect responses
-  - keyword: check form
-version: 1.0.0
 ---
 
 # Check Form Responses

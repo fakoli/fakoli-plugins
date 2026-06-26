@@ -1,11 +1,6 @@
 ---
 name: recipe-draft-email-from-doc
 description: "Read content from a Google Doc and use it as the body of a Gmail message."
-trigger:
-  - keyword: email from doc
-  - keyword: doc to email
-  - keyword: draft from document
-version: 1.0.0
 ---
 
 # Draft a Gmail Message from a Google Doc

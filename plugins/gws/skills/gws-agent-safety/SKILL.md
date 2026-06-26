@@ -1,14 +1,6 @@
 ---
 name: gws-agent-safety
 description: "Security rules for AI agents using gws — input validation, path safety, URL encoding, and Model Armor sanitization."
-trigger:
-  - keyword: agent safety
-  - keyword: input validation
-  - keyword: path traversal
-  - keyword: url encoding
-  - keyword: gws security
-  - keyword: sanitize
-version: 1.0.0
 ---
 
 # Agent Safety Rules for gws

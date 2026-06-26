@@ -1,6 +1,6 @@
 ---
 name: marketplace-manager
-description: Manage the fakoli-plugins marketplace. Use when: (1) adding a new plugin to the marketplace, (2) removing a plugin, (3) validating plugins, (4) regenerating registry indices, (5) checking marketplace status, or (6) any plugin registry management task. Triggers on phrases like "add plugin", "validate plugins", "update registry", "marketplace status".
+description: "Manage the fakoli-plugins marketplace. Use when: (1) adding a new plugin to the marketplace, (2) removing a plugin, (3) validating plugins, (4) regenerating registry indices, (5) checking marketplace status, or (6) any plugin registry management task. Triggers on phrases like \"add plugin\", \"validate plugins\", \"update registry\", \"marketplace status\"."
 ---
 
 # Marketplace Manager
@@ -30,13 +30,13 @@ Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, a
    - Set `version` (semver format: x.y.z)
    - Write `description` (10-500 chars)
    - Add `author` info
-   - Set `extended.category` (productivity|code-quality|devops|integrations|utilities)
-   - Add relevant `extended.tags`
+   - Set `keywords` with relevant discovery tags
+   - Keep category assignment in `registry/categories.json` or marketplace metadata, not unsupported manifest fields
 
 3. **Add plugin components** (at least one required):
    - Skills: `skills/<skill-name>/SKILL.md`
-   - Commands: `commands/<cmd>.json`
-   - Agents: `agents/<agent>.json`
+   - Commands: `commands/<cmd>.md`
+   - Agents: `agents/<agent>.md`
    - Hooks: `hooks/<hook>.json`
 
 4. **Update documentation**:

@@ -1,11 +1,6 @@
 ---
 name: recipe-create-vacation-responder
 description: "Enable a Gmail out-of-office auto-reply with a custom message and date range."
-trigger:
-  - keyword: vacation responder
-  - keyword: out of office
-  - keyword: auto reply
-version: 1.0.0
 ---
 
 # Set Up a Gmail Vacation Responder

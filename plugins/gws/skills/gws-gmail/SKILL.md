@@ -1,12 +1,6 @@
 ---
 name: gws-gmail
 description: "Gmail: Send, read, and manage email."
-trigger:
-  - keyword: gmail
-  - keyword: email
-  - keyword: inbox
-  - keyword: messages
-version: 1.0.0
 ---
 
 # gmail (v1)

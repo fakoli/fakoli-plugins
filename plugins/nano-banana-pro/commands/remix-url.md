@@ -1,25 +1,7 @@
 ---
 name: remix-url
 description: Generate an image styled from a webpage's design (colors, fonts, imagery)
-arguments:
-  - name: url
-    description: URL of the webpage to use as style reference
-    required: true
-  - name: prompt
-    description: Description of what image to create using the page's style
-    required: true
-  - name: --aspect
-    description: "Aspect ratio (1:1, 16:9, 4:3, 9:16, 3:2)"
-    required: false
-  - name: --size
-    description: "Image size tier (1K, 2K, 4K)"
-    required: false
-  - name: --out
-    description: Output file path (defaults to .nanobanana/out/)
-    required: false
-  - name: --max-images
-    description: Maximum reference images to download (default 2)
-    required: false
+argument-hint: <url> <prompt> [--aspect ratio] [--size tier] [--out path] [--max-images n]
 ---
 
 # Remix URL Command

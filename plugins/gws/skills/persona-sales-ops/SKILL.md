@@ -1,11 +1,6 @@
 ---
 name: persona-sales-ops
 description: "Manage sales workflows — track deals, schedule calls, client comms."
-trigger:
-  - keyword: sales ops
-  - keyword: sales operations
-  - keyword: deal tracking
-version: 1.0.0
 ---
 
 # Sales Operations

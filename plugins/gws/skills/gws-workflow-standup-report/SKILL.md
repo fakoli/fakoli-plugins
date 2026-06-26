@@ -1,11 +1,6 @@
 ---
 name: gws-workflow-standup-report
 description: "Google Workflow: Today's meetings + open tasks as a standup summary."
-trigger:
-  - keyword: standup report
-  - keyword: daily standup
-  - keyword: standup
-version: 1.0.0
 ---
 
 # workflow +standup-report

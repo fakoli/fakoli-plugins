@@ -1,11 +1,6 @@
 ---
 name: gws-docs
 description: "Read and write Google Docs."
-trigger:
-  - keyword: docs
-  - keyword: google docs
-  - keyword: document
-version: 1.0.0
 ---
 
 # docs (v1)

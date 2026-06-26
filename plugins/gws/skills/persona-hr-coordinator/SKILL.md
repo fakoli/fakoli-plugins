@@ -1,11 +1,6 @@
 ---
 name: persona-hr-coordinator
 description: "Handle HR workflows — onboarding, announcements, and employee comms."
-trigger:
-  - keyword: hr coordinator
-  - keyword: human resources
-  - keyword: onboarding
-version: 1.0.0
 ---
 
 # HR Coordinator

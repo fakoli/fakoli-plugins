@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.2] - 2026-06-26
+
+### Fixed
+- Synced release notes with marketplace metadata during the active-plugin audit pass.
+- Normalized skill `allowed-tools` frontmatter to the marketplace schema.
+
+## [1.0.1] - 2026-02-08
+
+### Changed
+- Marketplace metadata refresh.
+
 ## [1.0.0] - 2026-02-08
 
 ### Added

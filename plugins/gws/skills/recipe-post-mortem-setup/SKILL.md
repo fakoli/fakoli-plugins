@@ -1,11 +1,6 @@
 ---
 name: recipe-post-mortem-setup
 description: "Create a Google Docs post-mortem, schedule a Google Calendar review, and notify via Chat."
-trigger:
-  - keyword: post mortem
-  - keyword: incident review
-  - keyword: post-mortem setup
-version: 1.0.0
 ---
 
 # Set Up Post-Mortem

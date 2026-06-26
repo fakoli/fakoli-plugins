@@ -1,12 +1,6 @@
 ---
 name: gws-drive
 description: "Google Drive: Manage files, folders, and shared drives."
-trigger:
-  - keyword: drive
-  - keyword: files
-  - keyword: google drive
-  - keyword: storage
-version: 1.0.0
 ---
 
 # drive (v3)

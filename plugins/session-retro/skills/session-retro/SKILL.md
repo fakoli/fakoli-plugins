@@ -1,7 +1,7 @@
 ---
 name: session-retro
-description: Analyze a Claude Code or Codex session (or a multi-session arc) from local JSONL logs and produce a markdown retro — token economy (main-loop vs delegated workflows), workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Use when the user asks to "do a session retro", "analyze this session", "pull stats on this session", "how many tokens did this session use", "session statistics / report", "post-session findings", "evaluate how we worked", or wants to review a long autonomous run. Reads only local ~/.claude and ~/.codex logs and writes a report to ~/post-session-findings; sends nothing externally.
-user_invocable: true
+description: Analyze a Claude Code or Codex session (or a multi-session arc) from local JSONL logs and produce a markdown retro — token economy (main-loop vs delegated workflows), workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Use when the user asks to "do a session retro", "analyze this session", "pull stats on this session", "how many tokens did this session use", "session statistics / report", "post-session findings", "evaluate how we worked", or wants to review a long autonomous run. Reads only local ~/.claude and ~/.codex logs and writes to a project-local post-session-findings directory by default; sends nothing externally.
+user-invocable: true
 ---
 
 # Session Retro

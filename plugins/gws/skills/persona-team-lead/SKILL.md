@@ -1,11 +1,6 @@
 ---
 name: persona-team-lead
 description: "Lead a team — run standups, coordinate tasks, and communicate."
-trigger:
-  - keyword: team lead
-  - keyword: team leader
-  - keyword: lead team
-version: 1.0.0
 ---
 
 # Team Lead

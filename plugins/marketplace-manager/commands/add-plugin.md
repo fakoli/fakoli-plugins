@@ -33,13 +33,13 @@ Guide the user to:
 1. Edit `.claude-plugin/plugin.json`:
    - Update `description` with a clear explanation (10-500 chars)
    - Set `author.name` and `author.email`
-   - Choose appropriate `extended.category`: productivity, code-quality, devops, integrations, or utilities
-   - Add relevant `extended.tags`
+   - Add relevant `keywords`
+   - Keep category assignment in `registry/categories.json` or marketplace metadata, not unsupported manifest fields
 
 2. Add plugin components (at least one required):
    - Skills: Create `skills/<skill-name>/SKILL.md`
    - Commands: Create `commands/<command-name>.md`
-   - Agents: Create `agents/<agent-name>.json`
+   - Agents: Create `agents/<agent-name>.md`
    - Hooks: Create `hooks/<hook-name>.json`
 
 3. Update documentation:
