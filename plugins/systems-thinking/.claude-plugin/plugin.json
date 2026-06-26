@@ -1,0 +1,21 @@
+{
+  "name": "systems-thinking",
+  "version": "0.3.0",
+  "description": "Apply systems thinking to infrastructure decisions so you stop discovering hidden costs, vendor assumptions, and scaling traps after you've committed. Extract what vendors bury in their docs, map dependencies the design review missed, reuse what worked before, and produce structured artifacts grounded in source evidence.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "homepage": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/systems-thinking",
+  "license": "MIT",
+  "keywords": [
+    "infrastructure",
+    "architecture",
+    "complexity",
+    "risk-analysis",
+    "decision-support",
+    "vendor-evaluation",
+    "network-engineering"
+  ]
+}
