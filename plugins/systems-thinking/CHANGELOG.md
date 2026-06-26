@@ -5,6 +5,12 @@ All notable changes to systems-thinking will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-06-26
+
+### Added
+
+- Imported the upstream systems-thinking agent definitions into the marketplace plugin.
+
 ## [0.3.1] - 2026-06-26
 
 ### Changed
