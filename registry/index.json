@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-06-26T17:02:11Z",
+  "generatedAt": "2026-06-26T17:04:50Z",
   "pluginCount": 17,
   "plugins": [
     {
@@ -22,7 +22,7 @@
         "automation"
       ],
       "path": "plugins/cli-to-plugin",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "excalidraw-diagram",
@@ -43,7 +43,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "fakoli-crew",
@@ -66,7 +66,7 @@
         "workflow"
       ],
       "path": "plugins/fakoli-crew",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "fakoli-flow",
@@ -89,7 +89,7 @@
         "code-review"
       ],
       "path": "plugins/fakoli-flow",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "fakoli-plugin-critic",
@@ -113,7 +113,7 @@
         "claude-code"
       ],
       "path": "plugins/fakoli-plugin-critic",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "fakoli-speak",
@@ -139,7 +139,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "fakoli-state",
@@ -164,7 +164,7 @@
         "terraform-for-work"
       ],
       "path": "plugins/fakoli-state",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "fakoli-style",
@@ -184,7 +184,7 @@
         "documentation"
       ],
       "path": "plugins/fakoli-style",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "gws",
@@ -232,7 +232,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "handoff",
@@ -254,7 +254,7 @@
       ],
       "homepage": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/handoff",
       "path": "plugins/handoff",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "marketplace-manager",
@@ -273,7 +273,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "nano-banana-pro",
@@ -294,7 +294,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "notebooklm-enhanced",
@@ -318,7 +318,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "quick-notes",
@@ -342,7 +342,7 @@
         "markdown-export"
       ],
       "path": "plugins/quick-notes",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "safe-fetch",
@@ -364,7 +364,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "session-retro",
@@ -388,11 +388,11 @@
         "evaluation"
       ],
       "path": "plugins/session-retro",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     },
     {
       "name": "systems-thinking",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "description": "Apply systems thinking to infrastructure decisions so you stop discovering hidden costs, vendor assumptions, and scaling traps after you've committed. Extract what vendors bury in their docs, map dependencies the design review missed, reuse what worked before instead of forgetting lessons, and produce structured artifacts grounded in source evidence — not confident guesses.",
       "author": {
         "name": "Sekou Doumbouya"
@@ -409,7 +409,7 @@
         "network-engineering"
       ],
       "path": "plugins/systems-thinking",
-      "indexedAt": "2026-06-26T17:02:11Z"
+      "indexedAt": "2026-06-26T17:04:50Z"
     }
   ]
 }
