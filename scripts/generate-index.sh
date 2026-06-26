@@ -75,6 +75,11 @@ check_dependencies() {
 collect_plugins() {
     local plugins_json='[]'
     local plugin_dirs=()
+    local existing_marketplace='[]'
+
+    if [[ -f "$ROOT_DIR/.claude-plugin/marketplace.json" ]]; then
+        existing_marketplace=$(jq '.plugins // []' "$ROOT_DIR/.claude-plugin/marketplace.json")
+    fi
 
     # Find plugins in plugins/
     if [[ -d "$ROOT_DIR/plugins" ]]; then
@@ -106,13 +111,18 @@ collect_plugins() {
         # Read manifest and pick only index-allowed fields
         local plugin_entry
         plugin_entry=$(jq --arg path "$relative_path" \
+            --arg name "$plugin_name" \
             --arg indexed_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-            '{name, version, description, author, repository, license, keywords, homepage}
+            --argjson existing "$existing_marketplace" \
+            '(($existing[] | select(.name == $name)) // null) as $ex |
+            {name, version, description, author, repository, license, keywords, homepage}
             | with_entries(select(.value != null))
             | . + {
                 "path": $path,
                 "indexedAt": $indexed_at
-            }' "$manifest_file")
+            }
+            | if ($ex != null and (($ex.description // "") != "")) then .description = $ex.description else . end
+            | if ($ex != null and (($ex.category // "") != "")) then .category = $ex.category else . end' "$manifest_file")
 
         plugins_json=$(echo "$plugins_json" | jq --argjson plugin "$plugin_entry" '. + [$plugin]')
     done
@@ -271,7 +281,7 @@ update_marketplace() {
             {
                 name: $p.name,
                 version: $p.version,
-                description: $p.description
+                description: (if ($ex != null and (($ex.description // "") != "")) then $ex.description else $p.description end)
             }
             | if ($ex != null and ($ex | has("category"))) then . + {category: $ex.category} else . end
             | . + {source: ("./\($p.path)")}
