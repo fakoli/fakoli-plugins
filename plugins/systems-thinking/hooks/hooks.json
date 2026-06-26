@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v uv > /dev/null 2>&1 || echo 'WARNING: uv is not installed. This plugin requires uv for dependency management. Run: curl -LsSf https://astral.sh/uv/install.sh | sh'; command -v jq > /dev/null 2>&1 || echo 'WARNING: jq is not installed. Hook scripts require jq for JSON parsing. Install with: brew install jq'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/user-prompt-gate.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/stop-quality-gate.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
