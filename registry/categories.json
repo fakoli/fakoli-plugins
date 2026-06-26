@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-26T17:11:24Z",
+  "generatedAt": "2026-06-26T17:20:33Z",
   "categories": [
     {
       "category": "uncategorized",
@@ -103,7 +103,7 @@
         },
         {
           "name": "systems-thinking",
-          "version": "0.3.3",
+          "version": "0.3.4",
           "description": "Apply systems thinking to infrastructure decisions so you stop discovering hidden costs, vendor assumptions, and scaling traps after you've committed. Extract what vendors bury in their docs, map dependencies the design review missed, reuse what worked before instead of forgetting lessons, and produce structured artifacts grounded in source evidence — not confident guesses.",
           "path": "plugins/systems-thinking"
         }

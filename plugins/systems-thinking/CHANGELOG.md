@@ -5,6 +5,12 @@ All notable changes to systems-thinking will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-06-26
+
+### Changed
+
+- Made upstream provenance explicit in the README after the marketplace identity rename.
+
 ## [0.3.3] - 2026-06-26
 
 ### Added
