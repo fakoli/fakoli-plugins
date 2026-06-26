@@ -1,6 +1,6 @@
 # TODO
 
-Tracked work for systems-thinking-plugin. Items are roughly prioritized within each section.
+Tracked work for systems-thinking. Items are roughly prioritized within each section.
 
 ## Utilities & Determinism
 

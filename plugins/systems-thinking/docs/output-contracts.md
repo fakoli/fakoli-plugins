@@ -1,6 +1,6 @@
 # Output Contracts
 
-This document defines the five standard output formats used by the systems-thinking-plugin. Every synthesis agent and skill should produce output that conforms to one of these contracts. Extraction agents produce Context Packets; synthesis agents produce one of the other four.
+This document defines the five standard output formats used by systems-thinking. Every synthesis agent and skill should produce output that conforms to one of these contracts. Extraction agents produce Context Packets; synthesis agents produce one of the other four.
 
 The contracts exist so that outputs are predictable, composable, and useful in downstream workflows (design reviews, stakeholder conversations, follow-up analysis).
 

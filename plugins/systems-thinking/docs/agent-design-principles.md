@@ -1,6 +1,6 @@
 # Agent Design Principles
 
-This document defines the design principles, behavioral rules, and interaction model for all subagents in the systems-thinking-plugin.
+This document defines the design principles, behavioral rules, and interaction model for all subagents in systems-thinking.
 
 Every agent definition (in `.claude/agents/`) should be written with these principles in mind. When in doubt, err toward narrower scope, more explicit caveats, and preserving source anchors over producing a cleaner-looking output.
 

@@ -1,6 +1,6 @@
 # Repo Conventions
 
-These are the active conventions for the systems-thinking-plugin repository. All contributions — human or agent-generated — should follow these standards.
+These are the active conventions for the systems-thinking plugin. All contributions — human or agent-generated — should follow these standards.
 
 ---
 
@@ -17,7 +17,7 @@ These are the active conventions for the systems-thinking-plugin repository. All
 ## Folder structure
 
 ```
-systems-thinking-plugin/
+systems-thinking/
 ├── .claude/
 │   ├── agents/          # Subagent definitions (one per file)
 │   ├── skills/          # Skill playbooks (one per file)

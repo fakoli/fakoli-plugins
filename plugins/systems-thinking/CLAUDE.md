@@ -2,8 +2,8 @@
 
 A Claude Code plugin that encodes a systems engineer's methodology for evaluating infrastructure, architecture, and vendor proposals. It surfaces what's below the waterline — the hidden costs, buried caveats, scaling cliffs, and dependency traps that don't show up in the sales pitch or the POC.
 
-Marketplace migration note: this file is preserved from the upstream
-`systems-thinking-plugin` repository and adapted for its new location under
+Marketplace migration note: this file is preserved from the upstream repository
+and adapted for its new location under
 `plugins/systems-thinking`. The documentation and licensing migration lands
 before the executable agents, skills, hooks, utilities, and Python tests, so
 references to those directories describe the full intended plugin surface after
