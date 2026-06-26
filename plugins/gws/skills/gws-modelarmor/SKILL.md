@@ -1,12 +1,6 @@
 ---
 name: gws-modelarmor
 description: "Google Model Armor: Filter user-generated content for safety."
-trigger:
-  - keyword: model armor
-  - keyword: modelarmor
-  - keyword: content safety
-  - keyword: ai safety
-version: 1.0.0
 ---
 
 # modelarmor (v1)

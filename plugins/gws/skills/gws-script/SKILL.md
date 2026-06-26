@@ -1,13 +1,6 @@
 ---
 name: gws-script
 description: "Apps Script: Deploy and manage Google Apps Script projects with gws script +push."
-trigger:
-  - keyword: apps script
-  - keyword: script push
-  - keyword: deploy script
-  - keyword: google apps script
-  - keyword: gws script
-version: 1.0.0
 ---
 
 # gws script

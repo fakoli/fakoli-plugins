@@ -1,7 +1,7 @@
 # fakoli-crew
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-2.9.2-blue.svg)](.claude-plugin/plugin.json)
 
 Nine specialized AI agents — generalist engineering roles (polyglot architect, Staff Engineer code reviewer, security auditor, API researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) — that run independently or as coordinated multi-wave crews for complex development projects.
 

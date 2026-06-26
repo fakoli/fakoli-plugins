@@ -11,7 +11,7 @@ For deeper orchestration — wave patterns, file ownership, status-file protocol
 
 ## All Agents
 
-See [`skills/crew-ops/references/agent-roster.md`](../skills/crew-ops/references/agent-roster.md) for the canonical 8-agent roster (names, colors, roles, and file paths).
+See [`skills/crew-ops/references/agent-roster.md`](../skills/crew-ops/references/agent-roster.md) for the canonical 9-agent roster (names, colors, roles, and file paths).
 
 ## Pre-Built Crews
 

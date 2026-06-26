@@ -1,12 +1,6 @@
 ---
 name: gws-tasks
 description: "Google Tasks: Manage task lists and tasks."
-trigger:
-  - keyword: tasks
-  - keyword: todo
-  - keyword: task list
-  - keyword: google tasks
-version: 1.0.0
 ---
 
 # tasks (v1)

@@ -1,11 +1,6 @@
 ---
 name: recipe-create-meet-space
 description: "Create a Google Meet meeting space and share the join link."
-trigger:
-  - keyword: create meet
-  - keyword: meeting link
-  - keyword: new meeting room
-version: 1.0.0
 ---
 
 # Create a Google Meet Conference

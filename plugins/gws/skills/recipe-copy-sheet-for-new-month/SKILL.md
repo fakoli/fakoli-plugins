@@ -1,11 +1,6 @@
 ---
 name: recipe-copy-sheet-for-new-month
 description: "Duplicate a Google Sheets template tab for a new month of tracking."
-trigger:
-  - keyword: copy sheet tab
-  - keyword: new month sheet
-  - keyword: duplicate tab
-version: 1.0.0
 ---
 
 # Copy a Google Sheet Tab for a New Month

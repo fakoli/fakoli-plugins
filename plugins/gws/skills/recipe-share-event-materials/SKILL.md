@@ -1,11 +1,6 @@
 ---
 name: recipe-share-event-materials
 description: "Share Google Drive files with all attendees of a Google Calendar event."
-trigger:
-  - keyword: share event materials
-  - keyword: meeting materials
-  - keyword: share with attendees
-version: 1.0.0
 ---
 
 # Share Files with Meeting Attendees

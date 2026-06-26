@@ -1,11 +1,6 @@
 ---
 name: recipe-plan-weekly-schedule
 description: "Review your Google Calendar week, identify gaps, and add events to fill them."
-trigger:
-  - keyword: plan week
-  - keyword: weekly schedule
-  - keyword: weekly planning
-version: 1.0.0
 ---
 
 # Plan Your Weekly Google Calendar Schedule

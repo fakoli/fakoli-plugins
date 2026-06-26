@@ -104,6 +104,10 @@ This creates a notebook, finds sources via web research, synthesizes findings, a
 
 ## Skills
 
+### notebooklm-core
+
+Core NotebookLM automation skill for creating notebooks, adding sources, querying notes, generating artifacts, and managing library state.
+
 ### notebooklm-research
 
 Multi-notebook research synthesis skill. Activates when you need to:
@@ -128,7 +132,7 @@ Autonomous research agent that handles the full pipeline without user interventi
 5. Generates the requested artifact (report, podcast, slides, etc.)
 6. Downloads the result
 
-The agent is triggered automatically when the research skill determines the workflow should run autonomously.
+The research skill can delegate to the agent when the workflow should run autonomously.
 
 ## CLI Reference
 

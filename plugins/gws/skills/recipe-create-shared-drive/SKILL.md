@@ -1,11 +1,6 @@
 ---
 name: recipe-create-shared-drive
 description: "Create a Google Shared Drive and add members with appropriate roles."
-trigger:
-  - keyword: shared drive
-  - keyword: create team drive
-  - keyword: new shared drive
-version: 1.0.0
 ---
 
 # Create and Configure a Shared Drive

@@ -30,7 +30,7 @@ gws workflow +standup-report --format json
 ## Tips
 
 - Run this every morning to prepare for standups.
-- Pair with `/gws-meeting-prep` before specific meetings.
+- Pair with `/meeting-prep` before specific meetings.
 
 ## Error Handling
 

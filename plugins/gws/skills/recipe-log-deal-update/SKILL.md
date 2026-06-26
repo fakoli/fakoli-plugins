@@ -1,11 +1,6 @@
 ---
 name: recipe-log-deal-update
 description: "Append a deal status update to a Google Sheets sales tracking spreadsheet."
-trigger:
-  - keyword: log deal
-  - keyword: deal update
-  - keyword: sales log
-version: 1.0.0
 ---
 
 # Log Deal Update to Sheet

@@ -1,11 +1,6 @@
 ---
 name: recipe-create-doc-from-template
 description: "Copy a Google Docs template, fill in content, and share with collaborators."
-trigger:
-  - keyword: doc from template
-  - keyword: copy template
-  - keyword: document template
-version: 1.0.0
 ---
 
 # Create a Google Doc from a Template

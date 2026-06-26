@@ -1,12 +1,6 @@
 ---
 name: gws-classroom
 description: "Google Classroom: Manage classes, rosters, and coursework."
-trigger:
-  - keyword: classroom
-  - keyword: google classroom
-  - keyword: courses
-  - keyword: students
-version: 1.0.0
 ---
 
 # classroom (v1)

@@ -1,11 +1,6 @@
 ---
 name: recipe-schedule-recurring-event
 description: "Create a recurring Google Calendar event with attendees."
-trigger:
-  - keyword: recurring event
-  - keyword: recurring meeting
-  - keyword: weekly meeting
-version: 1.0.0
 ---
 
 # Schedule a Recurring Meeting

@@ -1,6 +1,6 @@
 ---
 name: style-ops
-description: Manage the Fakoli Style operating-model principles ledger: add principles, advance lifecycle status, validate the ledger, and read the current status report.
+description: Use this skill when adding, updating, validating, or reporting on the governed Fakoli operating-model principles ledger.
 ---
 
 # style-ops

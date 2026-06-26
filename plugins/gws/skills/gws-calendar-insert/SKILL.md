@@ -1,12 +1,6 @@
 ---
 name: gws-calendar-insert
 description: "Google Calendar: Create a new event."
-trigger:
-  - keyword: create event
-  - keyword: schedule meeting
-  - keyword: add calendar event
-  - keyword: book meeting
-version: 1.0.0
 ---
 
 # calendar +insert

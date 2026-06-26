@@ -1,11 +1,6 @@
 ---
 name: gws-slides
 description: "Google Slides: Read and write presentations."
-trigger:
-  - keyword: slides
-  - keyword: presentation
-  - keyword: google slides
-version: 1.0.0
 ---
 
 # slides (v1)

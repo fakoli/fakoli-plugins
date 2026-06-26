@@ -1,11 +1,6 @@
 ---
 name: recipe-create-task-list
 description: "Set up a new Google Tasks list with initial tasks."
-trigger:
-  - keyword: create task list
-  - keyword: new task list
-  - keyword: setup tasks
-version: 1.0.0
 ---
 
 # Create a Task List and Add Tasks

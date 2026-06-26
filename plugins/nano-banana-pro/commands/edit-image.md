@@ -1,22 +1,7 @@
 ---
 name: edit-image
 description: Edit an existing image with natural language instructions
-arguments:
-  - name: input-file
-    description: Path to the input image to edit
-    required: true
-  - name: edit-instructions
-    description: Natural language description of the edits to make
-    required: true
-  - name: --aspect
-    description: "Aspect ratio for output (1:1, 16:9, 4:3, 9:16, 3:2)"
-    required: false
-  - name: --size
-    description: "Image size tier (1K, 2K, 4K)"
-    required: false
-  - name: --out
-    description: Output file path (defaults to .nanobanana/out/)
-    required: false
+argument-hint: <input-image> <edit-instructions> [--aspect ratio] [--size tier] [--out path]
 ---
 
 # Edit Image Command

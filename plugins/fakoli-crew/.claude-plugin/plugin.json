@@ -1,6 +1,6 @@
 {
   "name": "fakoli-crew",
-  "version": "2.9.1",
+  "version": "2.9.2",
   "description": "Nine specialist AI agents for software engineering — generalist roles (polyglot architect, code reviewer, security auditor, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) with TDD enforcement, systematic debugging, and verification gates. Plugin-surface critics (agent/skill/hook/mcp/structure) moved to fakoli-plugin-critic in 2.3.0.",
   "author": {
     "name": "Sekou Doumbouya",

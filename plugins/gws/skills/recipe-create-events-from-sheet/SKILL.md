@@ -1,11 +1,6 @@
 ---
 name: recipe-create-events-from-sheet
 description: "Read event data from a Google Sheets spreadsheet and create Google Calendar entries for each row."
-trigger:
-  - keyword: events from sheet
-  - keyword: sheet to calendar
-  - keyword: import events
-version: 1.0.0
 ---
 
 # Create Calendar Events from a Sheet

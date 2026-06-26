@@ -1,11 +1,6 @@
 ---
 name: gws-sheets-read
 description: "Google Sheets: Read values from a spreadsheet."
-trigger:
-  - keyword: read sheet
-  - keyword: get spreadsheet data
-  - keyword: sheets read
-version: 1.0.0
 ---
 
 # sheets +read

@@ -1,13 +1,6 @@
 ---
 name: gws-schema
 description: "Introspect any Google Workspace API schema — discover method parameters, request bodies, and response types before executing."
-trigger:
-  - keyword: schema
-  - keyword: introspect api
-  - keyword: api schema
-  - keyword: discover method
-  - keyword: what parameters
-version: 1.0.0
 ---
 
 # gws schema

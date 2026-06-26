@@ -1,11 +1,6 @@
 ---
 name: gws-workflow-meeting-prep
 description: "Google Workflow: Prepare for your next meeting: agenda, attendees, and linked docs."
-trigger:
-  - keyword: meeting prep
-  - keyword: prepare for meeting
-  - keyword: meeting preparation
-version: 1.0.0
 ---
 
 # workflow +meeting-prep

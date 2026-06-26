@@ -34,25 +34,25 @@
   "plugins": [
     {
       "name": "cli-to-plugin",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "description": "Convert any CLI tool into a self-contained Claude Code plugin by walking its --help tree and generating one skill per command group, plus optional LLM-proposed workflow meta-skills.",
       "source": "./plugins/cli-to-plugin"
     },
     {
       "name": "excalidraw-diagram",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
       "source": "./plugins/excalidraw-diagram"
     },
     {
       "name": "fakoli-crew",
-      "version": "2.9.1",
+      "version": "2.9.2",
       "description": "Nine specialist AI agents for software engineering — generalist roles (polyglot architect, code reviewer, security auditor, researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) with TDD enforcement, systematic debugging, and verification gates. Plugin-surface critics (agent/skill/hook/mcp/structure) moved to fakoli-plugin-critic in 2.3.0.",
       "source": "./plugins/fakoli-crew"
     },
     {
       "name": "fakoli-flow",
-      "version": "1.3.2",
+      "version": "1.3.3",
       "description": "Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with critic gates and evidence-based verification.",
       "source": "./plugins/fakoli-flow"
     },
@@ -64,70 +64,70 @@
     },
     {
       "name": "fakoli-speak",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "description": "Multi-provider TTS for Claude Code — streaming text-to-speech with cost tracking. Supports OpenAI, ElevenLabs, Deepgram, Google Gemini, and macOS Say.",
       "source": "./plugins/fakoli-speak"
     },
     {
       "name": "fakoli-state",
-      "version": "1.23.1",
+      "version": "1.23.2",
       "description": "Local-first, runtime-neutral project state for humans and AI coding agents — turn PRDs into lockable, evidence-backed work packets.",
       "source": "./plugins/fakoli-state"
     },
     {
       "name": "fakoli-style",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "description": "Governed ledger of the Fakoli operating-model principles. Tracks proven, asserted, and aspirational lifecycle statuses and generates a Markdown report from a single canonical source.",
       "category": "utilities",
       "source": "./plugins/fakoli-style"
     },
     {
       "name": "gws",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "description": "Operate across all Google Workspace services using the gws CLI — 100 skills, 15 slash commands, 11 role-based agents, and 44 automation recipes covering email, calendar, drive, docs, sheets, slides, tasks, chat, meet, forms, classroom, keep, people, events, admin reports, model armor, and apps script.",
       "source": "./plugins/gws"
     },
     {
       "name": "handoff",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "description": "Cross-session, cross-checkout project handoff notes — a durable resume point shared across same-remote clones and linked worktrees. Storage is keyed by git remote when available, not cwd. Complements native auto-memory.",
       "source": "./plugins/handoff"
     },
     {
       "name": "marketplace-manager",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
       "source": "./plugins/marketplace-manager"
     },
     {
       "name": "nano-banana-pro",
-      "version": "1.3.3",
+      "version": "1.3.4",
       "description": "Generate, edit, remix, and optimize images using Google's Gemini 3 Pro Image Preview model",
       "source": "./plugins/nano-banana-pro"
     },
     {
       "name": "notebooklm-enhanced",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
       "source": "./plugins/notebooklm-enhanced"
     },
     {
       "name": "quick-notes",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Dictation-friendly personal notes. Capture a thought by speaking to Claude ('jot down...', 'note that...'); read back, search by keyword or #tag, filter by date, get stats, and export to Markdown. Notes are stored in an append-only, event-sourced JSON Lines log (add/edit/delete, never rewritten) kept outside the plugin so updates never touch your data.",
       "category": "productivity",
       "source": "./plugins/quick-notes"
     },
     {
       "name": "safe-fetch",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "description": "Sanitizing web fetch for Claude Code — strips prompt injection vectors before content reaches the LLM",
       "source": "./plugins/safe-fetch"
     },
     {
       "name": "session-retro",
-      "version": "1.1.0",
-      "description": "Analyze a Claude Code or Codex session (or a multi-session arc) from local JSONL logs and produce a markdown retro: token economy (main-loop vs delegated workflows), workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Use after a long or autonomous run to evaluate performance and collaboration. Reads only local ~/.claude and ~/.codex logs; writes to ~/post-session-findings; sends nothing externally.",
+      "version": "1.1.1",
+      "description": "Analyze a Claude Code or Codex session (or a multi-session arc) from local JSONL logs and produce a markdown retro: token economy, workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Reads only local ~/.claude and ~/.codex logs; writes to a project-local post-session-findings directory by default; sends nothing externally.",
       "category": "productivity",
       "source": "./plugins/session-retro"
     }

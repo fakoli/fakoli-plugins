@@ -9,7 +9,7 @@ Convert a CLI tool into a Claude Code plugin by walking its `--help` tree, gener
 skill per command group, and (optionally) proposing workflow meta-skills for the user to
 curate.
 
-Full spec: `docs/specs/2026-05-24-cli-to-plugin.md`
+Full spec in the marketplace repository: `docs/specs/2026-05-24-cli-to-plugin.md`
 
 ## Argument parsing
 

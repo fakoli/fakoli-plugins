@@ -1,22 +1,7 @@
 ---
 name: optimize-image
 description: Optimize image size for GitHub, Slack, web, or custom constraints
-arguments:
-  - name: image-path
-    description: Path to the image to optimize
-    required: true
-  - name: --preset
-    description: "Named preset: github (500KB), slack (128KB), web (200KB), thumbnail (50KB)"
-    required: false
-  - name: --max-size
-    description: "Custom max file size (e.g., 500KB, 1MB)"
-    required: false
-  - name: --width
-    description: Maximum width in pixels
-    required: false
-  - name: --out
-    description: Output path (defaults to <original>-optimized.png)
-    required: false
+argument-hint: <image-path> [--preset name] [--max-size size] [--width px] [--out path]
 ---
 
 # Optimize Image Command

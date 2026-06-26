@@ -1,11 +1,6 @@
 ---
 name: recipe-bulk-download-folder
 description: "List and download all files from a Google Drive folder."
-trigger:
-  - keyword: bulk download
-  - keyword: download folder
-  - keyword: download drive folder
-version: 1.0.0
 ---
 
 # Bulk Download Drive Folder

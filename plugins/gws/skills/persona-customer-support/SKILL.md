@@ -1,11 +1,6 @@
 ---
 name: persona-customer-support
 description: "Manage customer support — track tickets, respond, escalate issues."
-trigger:
-  - keyword: customer support
-  - keyword: support agent
-  - keyword: support tickets
-version: 1.0.0
 ---
 
 # Customer Support Agent

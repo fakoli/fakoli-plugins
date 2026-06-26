@@ -1,11 +1,6 @@
 ---
 name: persona-event-coordinator
 description: "Plan and manage events — scheduling, invitations, and logistics."
-trigger:
-  - keyword: event coordinator
-  - keyword: plan event
-  - keyword: event planning
-version: 1.0.0
 ---
 
 # Event Coordinator

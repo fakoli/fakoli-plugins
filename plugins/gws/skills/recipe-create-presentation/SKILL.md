@@ -1,11 +1,6 @@
 ---
 name: recipe-create-presentation
 description: "Create a new Google Slides presentation and add initial slides."
-trigger:
-  - keyword: create presentation
-  - keyword: new slides
-  - keyword: make presentation
-version: 1.0.0
 ---
 
 # Create a Google Slides Presentation

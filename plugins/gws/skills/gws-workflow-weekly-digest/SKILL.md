@@ -1,11 +1,6 @@
 ---
 name: gws-workflow-weekly-digest
 description: "Google Workflow: Weekly summary: this week's meetings + unread email count."
-trigger:
-  - keyword: weekly digest
-  - keyword: weekly summary
-  - keyword: week recap
-version: 1.0.0
 ---
 
 # workflow +weekly-digest

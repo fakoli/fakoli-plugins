@@ -27,6 +27,7 @@ This plugin is bundled with the fakoli-plugins marketplace. It is available auto
 | `/add-plugin <name>` | Scaffold a new plugin from `templates/basic` |
 | `/remove-plugin <name>` | Remove a plugin from the marketplace |
 | `/install-workflows [target-dir]` | Install GitHub Actions validation workflows |
+| `/scan-plugins` | Run the deep path-resolution and hook-safety scanner |
 
 ## Usage
 

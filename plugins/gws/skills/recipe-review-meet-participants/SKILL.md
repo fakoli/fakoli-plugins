@@ -1,11 +1,6 @@
 ---
 name: recipe-review-meet-participants
 description: "Review who attended a Google Meet conference and for how long."
-trigger:
-  - keyword: meet attendance
-  - keyword: meeting participants
-  - keyword: who attended
-version: 1.0.0
 ---
 
 # Review Google Meet Attendance

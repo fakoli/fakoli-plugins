@@ -1,11 +1,6 @@
 ---
 name: recipe-share-folder-with-team
 description: "Share a Google Drive folder and all its contents with a list of collaborators."
-trigger:
-  - keyword: share folder
-  - keyword: team folder access
-  - keyword: folder permissions
-version: 1.0.0
 ---
 
 # Share a Google Drive Folder with a Team

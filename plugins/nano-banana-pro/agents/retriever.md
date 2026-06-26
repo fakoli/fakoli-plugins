@@ -1,7 +1,7 @@
 ---
 name: retriever
 description: Analyzes the user's project to find brand assets, color palettes, typography, and reference images for guiding image creation
-allowed-tools:
+tools:
   - Glob
   - Grep
   - Read

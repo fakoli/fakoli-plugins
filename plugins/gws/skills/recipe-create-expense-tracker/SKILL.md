@@ -1,11 +1,6 @@
 ---
 name: recipe-create-expense-tracker
 description: "Set up a Google Sheets spreadsheet for tracking expenses with headers and initial entries."
-trigger:
-  - keyword: expense tracker
-  - keyword: track expenses
-  - keyword: expense sheet
-version: 1.0.0
 ---
 
 # Create a Google Sheets Expense Tracker

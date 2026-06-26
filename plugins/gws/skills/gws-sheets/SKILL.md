@@ -1,11 +1,6 @@
 ---
 name: gws-sheets
 description: "Google Sheets: Read and write spreadsheets."
-trigger:
-  - keyword: sheets
-  - keyword: spreadsheet
-  - keyword: google sheets
-version: 1.0.0
 ---
 
 # sheets (v4)

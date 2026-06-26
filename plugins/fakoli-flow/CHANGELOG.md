@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.3 (2026-06-26)
+
+### Fixed
+- Synced README version badge to the current marketplace manifest.
+
+---
+
 ## 1.3.2 (2026-06-10)
 
 ### Added

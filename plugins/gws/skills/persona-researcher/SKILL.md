@@ -1,11 +1,6 @@
 ---
 name: persona-researcher
 description: "Organize research — manage references, notes, and collaboration."
-trigger:
-  - keyword: researcher
-  - keyword: research
-  - keyword: organize research
-version: 1.0.0
 ---
 
 # Researcher

@@ -1,11 +1,6 @@
 ---
 name: recipe-save-email-attachments
 description: "Find Gmail messages with attachments and save them to a Google Drive folder."
-trigger:
-  - keyword: save attachments
-  - keyword: email attachments
-  - keyword: download attachments
-version: 1.0.0
 ---
 
 # Save Gmail Attachments to Google Drive

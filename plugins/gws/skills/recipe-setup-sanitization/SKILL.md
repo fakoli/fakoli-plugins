@@ -1,13 +1,6 @@
 ---
 name: recipe-setup-sanitization
 description: "Configure Google Cloud Model Armor globally for all gws commands to protect against prompt injection in API responses."
-trigger:
-  - keyword: setup sanitization
-  - keyword: model armor setup
-  - keyword: prompt injection protection
-  - keyword: configure sanitize
-  - keyword: content safety setup
-version: 1.0.0
 ---
 
 # Set Up Global Response Sanitization

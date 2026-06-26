@@ -12,12 +12,12 @@ from pathlib import Path
 
 import notes_lib
 
-OUT = Path(__file__).with_name("notes.md")
+OUT = notes_lib.DEFAULT_LOG.with_name("notes.md")
 
 
 def main() -> int:
     count = notes_lib.export_markdown(OUT)
-    print(f"Wrote {count} note(s) to {OUT.name}")
+    print(f"Wrote {count} note(s) to {OUT}")
     return 0
 
 

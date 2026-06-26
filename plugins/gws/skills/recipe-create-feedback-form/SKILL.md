@@ -1,11 +1,6 @@
 ---
 name: recipe-create-feedback-form
 description: "Create a Google Form for feedback and share it via Gmail."
-trigger:
-  - keyword: feedback form
-  - keyword: create survey
-  - keyword: feedback survey
-version: 1.0.0
 ---
 
 # Create and Share a Google Form

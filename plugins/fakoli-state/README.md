@@ -7,7 +7,7 @@
 > fakoli-state turns rough ideas and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI coding agents can execute in parallel without stepping on each other — the canonical project-state layer that fakoli-flow and fakoli-crew compose around.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.17.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.23.2-blue.svg)](.claude-plugin/plugin.json)
 [![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
 [![Tests](https://img.shields.io/badge/tests-1103%20passing-brightgreen.svg)](tests)
 
@@ -31,23 +31,23 @@ fakoli-flow defines how work moves, fakoli-crew defines who does the work, and f
 
 ---
 
-## What ships today (v1.17.0)
+## What ships today (v1.23.2)
 
 | Surface | Count | Notes |
 |---|---|---|
-| CLI commands | **23** | Top-level + `prd`, `review`, `hook`, `sync` sub-apps. v1.17.0: `--use-llm` augmentation now picks Anthropic API / Bedrock / OpenAI-compatible endpoints via the same multi-provider resolver as the LLM-planner backstop. |
-| MCP tools | **22** | FastMCP stdio; works in any MCP-compatible client. v1.17.0: `plan_tasks` honors the project's `llm_provider` / `llm_tier` / Bedrock+custom knobs. |
+| CLI commands | **23** | Top-level + `prd`, `review`, `hook`, `sync` sub-apps, including LLM augmentation and task lifecycle controls. |
+| MCP tools | **22** | FastMCP stdio; works in any MCP-compatible client. The plugin manifest declares `.mcp.json` so install can wire the server explicitly. |
 | Skills | **8 skills** | start-prd, prd, plan, claim, execute, finish, state-ops, resolve-decisions |
-| Agents | **6 agents** | planner (opus), critic (opus), docs-scribe (sonnet), marketplace-scribe (sonnet), sentinel (haiku), state-keeper (haiku) — tier-mapped in v1.17.0 per [docs/model-strategy.md](docs/model-strategy.md) |
+| Agents | **6 agents** | planner (opus), critic (opus), docs-scribe (sonnet), marketplace-scribe (sonnet), sentinel (haiku), state-keeper (haiku) — tier-mapped per [docs/model-strategy.md](docs/model-strategy.md) |
 | Hooks | **4 hooks** | detect-state, check-claim, record-file-change, capture-evidence |
 | LLM providers | **3** | Anthropic API (default) · Amazon Bedrock (`[bedrock]` extra) · OpenAI-compatible custom endpoints (`[custom]` extra). See [docs/llm-providers.md](docs/llm-providers.md). |
 
-Highlights from v1.17.0:
+Recent highlights:
 
 - **Multi-provider LLM access.** `BedrockProvider` (boto3 chain) and `CustomEndpointProvider` (vLLM / OpenRouter / LiteLLM-proxy / Together / Groq / Azure-OpenAI / self-hosted) ship alongside the existing `AnthropicProvider`. Precedence: explicit config > env auto-detect > fail loudly. Optional extras keep the default install lean.
 - **Tier-aware model defaults.** New `MODEL_TIERS` vocabulary (`opus` / `sonnet` / `haiku`) with per-agent tier mapping that drops typical session cost ~60% versus the prior "everything routes to Opus" pattern. Override always wins.
 - **Plugin-critic extraction.** The five plugin-surface critics (`agent-critic`, `skill-critic`, `hook-critic`, `mcp-critic`, `structure-critic`) move out of `fakoli-crew` 2.3.0 into a dedicated `fakoli-plugin-critic` 0.1.0 plugin so plugin-development teams can install only the review layer.
-- 1103 tests passing (+20 since v1.16.0); SQLite schema unchanged.
+- Recursive expansion scoring, git-backed event storage, multi-provider LLM augmentation, and replay-focused regression coverage are documented in [CHANGELOG.md](CHANGELOG.md).
 
 Full release notes in [CHANGELOG.md](CHANGELOG.md).
 
@@ -156,7 +156,7 @@ Source for the wedges: [`docs/_positioning.md`](docs/_positioning.md).
 /plugin install fakoli-state
 ```
 
-Installs the plugin, registers the four hooks, wires the MCP server, and makes the six agents discoverable to Claude Code at next session start.
+Installs the plugin, registers the four hooks, wires the manifest-declared MCP server, and makes the six agents discoverable to Claude Code at next session start.
 
 ### Manual install (monorepo clone)
 

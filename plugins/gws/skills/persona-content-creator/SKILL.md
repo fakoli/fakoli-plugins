@@ -1,11 +1,6 @@
 ---
 name: persona-content-creator
 description: "Create, organize, and distribute content across Workspace."
-trigger:
-  - keyword: content creator
-  - keyword: create content
-  - keyword: content writing
-version: 1.0.0
 ---
 
 # Content Creator

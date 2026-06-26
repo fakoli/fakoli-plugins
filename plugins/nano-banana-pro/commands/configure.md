@@ -1,7 +1,7 @@
 ---
 name: configure
 description: Set up or update Nano Banana Pro configuration (API key, defaults, agents)
-argument: "[setting] - Optional specific setting to configure (e.g., 'api-key', 'model', 'agents')"
+argument-hint: "[setting] - Optional specific setting to configure (e.g., 'api-key', 'model', 'agents')"
 ---
 
 # Configure Nano Banana Pro

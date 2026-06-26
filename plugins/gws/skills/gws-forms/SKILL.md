@@ -1,12 +1,6 @@
 ---
 name: gws-forms
 description: "Read and write Google Forms."
-trigger:
-  - keyword: forms
-  - keyword: google forms
-  - keyword: survey
-  - keyword: questionnaire
-version: 1.0.0
 ---
 
 # forms (v1)

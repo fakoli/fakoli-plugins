@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2 — 2026-06-26
+
+### Fixed
+- Updated `/fetch` command instructions to use `$ARGUMENTS` instead of unsupported positional placeholders.
+- Removed unsupported `version` skill frontmatter and aligned search docs with the MCP tool's `country` / `city` parameters.
+
 ## 1.1.1 — 2026-06-12
 
 ### Fixed

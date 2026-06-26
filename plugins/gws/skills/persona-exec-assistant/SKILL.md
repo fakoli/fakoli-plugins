@@ -1,11 +1,6 @@
 ---
 name: persona-exec-assistant
 description: "Manage an executive's schedule, inbox, and communications."
-trigger:
-  - keyword: executive assistant
-  - keyword: manage schedule
-  - keyword: exec assistant
-version: 1.0.0
 ---
 
 # Executive Assistant

@@ -1,12 +1,6 @@
 ---
 name: gws-people
 description: "Google People: Manage contacts and profiles."
-trigger:
-  - keyword: people
-  - keyword: contacts
-  - keyword: directory
-  - keyword: google contacts
-version: 1.0.0
 ---
 
 # people (v1)

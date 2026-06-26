@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] - 2026-06-26
+
+### Fixed
+- `export-notes.py` now writes `notes.md` next to the active notes log (`$NOTES_LOG` or `~/technical-notes/notes.jsonl`) instead of inside the plugin code directory.
+- Added a regression test proving the wrapper preserves the data/code separation guarantee.
+
 ## [1.0.0] - 2026-06-02
 
 ### Added

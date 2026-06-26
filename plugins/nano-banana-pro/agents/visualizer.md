@@ -1,7 +1,7 @@
 ---
 name: visualizer
 description: Executes image generation using nanobanana.py scripts — the only agent that creates images
-allowed-tools:
+tools:
   - Bash
   - Read
   - Write

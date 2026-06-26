@@ -1,12 +1,6 @@
 ---
 name: gws-gmail-triage
 description: "Gmail: Show unread inbox summary (sender, subject, date)."
-trigger:
-  - keyword: triage inbox
-  - keyword: gmail triage
-  - keyword: unread emails
-  - keyword: inbox summary
-version: 1.0.0
 ---
 
 # gmail +triage

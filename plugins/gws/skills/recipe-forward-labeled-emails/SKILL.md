@@ -1,11 +1,6 @@
 ---
 name: recipe-forward-labeled-emails
 description: "Find Gmail messages with a specific label and forward them to another address."
-trigger:
-  - keyword: forward labeled
-  - keyword: forward emails by label
-  - keyword: auto forward
-version: 1.0.0
 ---
 
 # Forward Labeled Gmail Messages

@@ -1,11 +1,6 @@
 ---
 name: gws-workflow-file-announce
 description: "Google Workflow: Announce a Drive file in a Chat space."
-trigger:
-  - keyword: file announce
-  - keyword: announce file
-  - keyword: share announcement
-version: 1.0.0
 ---
 
 # workflow +file-announce

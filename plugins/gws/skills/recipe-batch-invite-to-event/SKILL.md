@@ -1,11 +1,6 @@
 ---
 name: recipe-batch-invite-to-event
 description: "Add a list of attendees to an existing Google Calendar event and send notifications."
-trigger:
-  - keyword: batch invite
-  - keyword: add attendees
-  - keyword: bulk invite
-version: 1.0.0
 ---
 
 # Add Multiple Attendees to a Calendar Event

@@ -133,8 +133,8 @@ SENTINEL REPORT — 2026-03-21 14:32 UTC
 ======================================
 [PASS] Version sync: plugin.json 1.2.0 == pyproject.toml 1.2.0 == __init__.py 1.2.0
 [FAIL] Test suite: 2 failed — see below
-[PASS] README count: 8 agents listed, 8 entries in marketplace.json
-[PASS] Agent frontmatter: all 8 agents have required fields
+[PASS] README count: 9 agents listed, 9 entries in marketplace.json
+[PASS] Agent frontmatter: all 9 agents have required fields
 [FAIL] Plugin manifest: missing "repository" field in plugin.json
 [N/A ] Linting: no ruff config found
 

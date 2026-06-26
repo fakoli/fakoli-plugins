@@ -1,11 +1,6 @@
 ---
 name: recipe-reschedule-meeting
 description: "Move a Google Calendar event to a new time and automatically notify all attendees."
-trigger:
-  - keyword: reschedule meeting
-  - keyword: move meeting
-  - keyword: change meeting time
-version: 1.0.0
 ---
 
 # Reschedule a Google Calendar Meeting

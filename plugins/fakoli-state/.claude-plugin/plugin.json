@@ -1,6 +1,6 @@
 {
   "name": "fakoli-state",
-  "version": "1.23.1",
+  "version": "1.23.2",
   "description": "Local-first, runtime-neutral project state for humans and AI coding agents — turn PRDs into lockable, evidence-backed work packets.",
   "author": {
     "name": "Sekou Doumbouya",
@@ -8,6 +8,7 @@
   },
   "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT",
+  "mcpServers": "./.mcp.json",
   "keywords": [
     "agent-coordination",
     "claims",

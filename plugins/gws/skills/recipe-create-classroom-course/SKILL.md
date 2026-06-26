@@ -1,11 +1,6 @@
 ---
 name: recipe-create-classroom-course
 description: "Create a Google Classroom course and invite students."
-trigger:
-  - keyword: create course
-  - keyword: classroom course
-  - keyword: new class
-version: 1.0.0
 ---
 
 # Create a Google Classroom Course

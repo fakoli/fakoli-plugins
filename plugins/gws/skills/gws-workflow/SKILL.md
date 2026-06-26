@@ -1,11 +1,6 @@
 ---
 name: gws-workflow
 description: "Google Workflow: Cross-service productivity workflows."
-trigger:
-  - keyword: workflow
-  - keyword: cross-service
-  - keyword: automation
-version: 1.0.0
 ---
 
 # workflow (v1)

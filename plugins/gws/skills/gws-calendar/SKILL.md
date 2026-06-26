@@ -1,12 +1,6 @@
 ---
 name: gws-calendar
 description: "Google Calendar: Manage calendars and events."
-trigger:
-  - keyword: calendar
-  - keyword: events
-  - keyword: schedule
-  - keyword: meetings
-version: 1.0.0
 ---
 
 # calendar (v3)

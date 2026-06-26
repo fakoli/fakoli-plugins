@@ -1,11 +1,6 @@
 ---
 name: recipe-compare-sheet-tabs
 description: "Read data from two tabs in a Google Sheet to compare and identify differences."
-trigger:
-  - keyword: compare sheets
-  - keyword: compare tabs
-  - keyword: diff spreadsheet
-version: 1.0.0
 ---
 
 # Compare Two Google Sheets Tabs

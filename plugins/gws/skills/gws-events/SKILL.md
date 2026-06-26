@@ -1,11 +1,6 @@
 ---
 name: gws-events
 description: "Subscribe to Google Workspace events."
-trigger:
-  - keyword: events api
-  - keyword: event subscriptions
-  - keyword: workspace events
-version: 1.0.0
 ---
 
 # events (v1)

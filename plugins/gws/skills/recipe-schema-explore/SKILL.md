@@ -1,13 +1,6 @@
 ---
 name: recipe-schema-explore
 description: "Discover and introspect any Google Workspace API before using it — explore methods, parameters, and types."
-trigger:
-  - keyword: explore api
-  - keyword: discover api
-  - keyword: api discovery
-  - keyword: what methods
-  - keyword: api parameters
-version: 1.0.0
 ---
 
 # Explore an API Before Using It

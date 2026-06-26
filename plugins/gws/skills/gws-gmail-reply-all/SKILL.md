@@ -1,11 +1,6 @@
 ---
 name: gws-gmail-reply-all
 description: "Gmail: Reply-all to a message (handles threading automatically)."
-trigger:
-  - keyword: reply all
-  - keyword: gmail reply all
-  - keyword: respond to all
-version: 1.0.0
 ---
 
 # gmail +reply-all

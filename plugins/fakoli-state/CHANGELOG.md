@@ -10,6 +10,15 @@ _No unreleased changes._
 
 ---
 
+## [1.23.2] — 2026-06-26
+
+### Fixed
+
+- Synced README release badge and "What ships today" copy with the current marketplace release.
+- Declared the plugin-root `.mcp.json` in `plugin.json` so the MCP server wiring promised by the README is explicit.
+
+---
+
 ## [1.23.1] — 2026-06-12
 
 ### Fixed

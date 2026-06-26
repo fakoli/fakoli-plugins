@@ -1,11 +1,6 @@
 ---
 name: gws-chat
 description: "Google Chat: Manage Chat spaces and messages."
-trigger:
-  - keyword: chat
-  - keyword: google chat
-  - keyword: chat space
-version: 1.0.0
 ---
 
 # chat (v1)

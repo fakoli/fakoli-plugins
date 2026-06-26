@@ -1,11 +1,6 @@
 ---
 name: recipe-block-focus-time
 description: "Create recurring focus time blocks on Google Calendar to protect deep work hours."
-trigger:
-  - keyword: block focus time
-  - keyword: deep work
-  - keyword: focus block
-version: 1.0.0
 ---
 
 # Block Focus Time on Google Calendar
