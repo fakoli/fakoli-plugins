@@ -1,13 +1,16 @@
-# Claude Code Compatibility Review
+# Runtime Compatibility Review
 
 Updated: 2026-06-26
 
-This note records the T012 Claude Code compatibility pass for the active
-plugins under `plugins/`. It focuses on whether the refreshed plugin surfaces
-still load in Claude Code and whether any previously advertised behavior now
-has a documented replacement.
+This note records the T012 Claude Code compatibility pass and the T013 Codex
+compatibility pass for the active plugins under `plugins/`. It focuses on
+whether refreshed plugin surfaces still load in their target runtime and whether
+runtime-specific behavior now has a documented replacement or graceful
+degradation path.
 
 ## Compatibility Basis
+
+### Claude Code
 
 The review used the local Claude Code runtime available in this workspace:
 
@@ -38,7 +41,33 @@ The documented Claude Code plugin surface represented by this repository is:
 - MCP config is declared through `mcpServers` and points at `.mcp.json` when a
   plugin ships an MCP server.
 
-## Plugin Matrix
+### Codex
+
+The Codex compatibility pass used the current Codex desktop session and local
+plugin cache as the runtime surface:
+
+- Codex curated plugins use `.codex-plugin/plugin.json`.
+- Codex plugin manifests point at `skills`, optional `mcpServers`, and optional
+  `apps`. Skills are the main model-facing compatibility surface.
+- Codex skills are exposed by skill name, usually prefixed by plugin name in
+  this session, such as `handoff:recall` and `nano-banana-pro:generate`.
+- Codex does not expose this marketplace's Claude Code slash commands as
+  slash commands in the current session.
+- Codex does not expose this marketplace's Claude Code `agents/` directory as
+  custom subagent roles in the current session; use Codex's available subagent
+  tools/roles or the plugin skill's inline fallback strategy.
+- Codex does not run this marketplace's Claude Code `hooks/hooks.json` in the
+  current session. Hook behavior should be treated as Claude Code only unless a
+  Codex-specific hook surface is added.
+- Codex can use MCP/app tools when a Codex plugin manifest wires them through
+  `mcpServers` or `apps`. Claude-only `.claude-plugin/plugin.json` MCP entries
+  should be treated as requiring Codex-side verification before being promised.
+- Local Codex cache evidence confirms the installed `handoff` and
+  `nano-banana-pro` fakoli plugins expose their `skills/` payloads in this
+  session, even though those cached copies still carry `.claude-plugin`
+  manifests rather than Codex-native manifests.
+
+## Claude Code Plugin Matrix
 
 | Plugin | Runtime surface | Compatibility status | Notes |
 | --- | --- | --- | --- |
@@ -58,6 +87,27 @@ The documented Claude Code plugin surface represented by this repository is:
 | `quick-notes` | 1 command, 2 skills | Compatible | `/note` still exists. Export behavior now writes `notes.md` next to `$NOTES_LOG` / `~/technical-notes/notes.jsonl` instead of into plugin code. |
 | `safe-fetch` | 3 commands, 1 skill, 1 agent, hooks, MCP | Compatible with config caveat | `mcpServers` resolves to `.mcp.json`; hooks use wrapper shape, matchers, timeouts, and `${CLAUDE_PLUGIN_ROOT}`. `/search` requires runtime Brave API configuration. |
 | `session-retro` | 1 command, 1 skill | Compatible | The advertised `/session-retro` command wrapper now exists. Skill frontmatter uses `user-invocable`. |
+
+## Codex Plugin Matrix
+
+| Plugin | Codex-supported surface | Codex status | Degradation or documentation strategy |
+| --- | --- | --- | --- |
+| `cli-to-plugin` | None currently; ships only a Claude command | Not Codex-exposed | Keep Claude command support. Add a Codex skill wrapper before promising first-class Codex use. |
+| `excalidraw-diagram` | `excalidraw` skill | Skill-compatible | Use the skill as `excalidraw-diagram:excalidraw` when installed. Claude command and agent are not Codex-first surfaces; converter path guidance should resolve relative to the installed skill/plugin root. |
+| `fakoli-crew` | `crew-ops`, `debugging` skills | Skill-compatible with agent degradation | Skills can guide work. Claude custom agents (`guido`, `critic`, `warden`, etc.) should degrade to Codex subagents/roles available in the session or inline execution. The repo's `.codex/agents` files are not treated as a plugin runtime surface here unless separately installed/exposed. |
+| `fakoli-flow` | 6 workflow skills | Skill-compatible with hook degradation | Use Codex skill invocation (`fakoli-flow:brainstorm`, `fakoli-flow:plan`, `fakoli-flow:execute`, `fakoli-flow:verify`, `fakoli-flow:finish`, `fakoli-flow:quick`) when installed. Claude slash commands and hook-enforced critic gates do not carry over; Codex runs should enforce gates procedurally with subagents and verification evidence. |
+| `fakoli-plugin-critic` | None currently; ships only Claude agents | Not Codex-exposed | Keep as Claude Code agent pack. Add review skills if Codex should invoke these critics directly. |
+| `fakoli-speak` | None currently; ships Claude commands and a Stop hook | Not Codex-exposed | Do not promise automatic Codex TTS behavior. A Codex skill or app/tool integration is required before Codex support. |
+| `fakoli-state` | 8 Anvil-style skills; MCP requires Codex verification | Skill-compatible, MCP unverified | Skills can guide the workflow in Codex. Claude hooks are unavailable. MCP should be promised only after a Codex `.codex-plugin` manifest or installed-tool check proves the server is exposed; existing MCP paths also need Codex runtime path-variable verification. |
+| `fakoli-style` | `style-ops` skill | Skill-compatible | Use as a Codex skill for ledger work. |
+| `gws` | 100 Google Workspace skills | Skill-compatible with command/agent/hook degradation | Skills document Google Workspace workflows. Claude slash commands, custom agents, and SessionStart hook do not carry over to Codex without adapters, so users should manually verify `gws` CLI/auth readiness. |
+| `handoff` | `handoff`, `recall` skills | Confirmed in Codex cache | Current Codex session can load the fakoli `handoff` skills. Claude slash wrappers and SessionStart hook are not required for Codex use; no automatic startup recall banner should be expected. |
+| `marketplace-manager` | `marketplace-manager` skill | Skill-compatible | Use the skill for Codex marketplace maintenance. Claude slash commands need Codex wrappers before being promised. |
+| `nano-banana-pro` | `generate` skill | Confirmed in Codex cache | Current Codex session can load the `nano-banana-pro:generate` skill. Claude slash commands and custom agents are not Codex-first surfaces; use the skill/scripts path and direct `uv run` fallback. |
+| `notebooklm-enhanced` | `notebooklm-core`, `notebooklm-research` skills | Skill-compatible, external CLI dependent | Codex can use skills when installed, but NotebookLM CLI/auth remains a runtime dependency. Claude commands, slash setup examples, and research-agent delegation do not automatically become Codex surfaces. |
+| `quick-notes` | `take-note`, `find-notes` skills | Skill-compatible | Codex users should invoke skills rather than the Claude `/note` command. File behavior remains local and portable. |
+| `safe-fetch` | `safe-fetch` skill; MCP requires Codex verification | Skill-compatible, MCP unverified | Skill can document safe-fetch practice. MCP-backed commands/search require Codex tool exposure before being promised; Claude hooks blocking WebFetch/WebSearch do not intercept Codex web or shell behavior. |
+| `session-retro` | `session-retro` skill | Skill-compatible | Codex can run the local-log analysis as a skill. Claude `/session-retro` command is a Claude wrapper, not the Codex invocation surface. |
 
 ## Behavior Preservation And Replacements
 
@@ -89,6 +139,18 @@ documented replacement. The notable refresh changes are:
   skill frontmatter key was corrected from `user_invocable` to
   `user-invocable`.
 
+For Codex, the compatibility rule is skills-first:
+
+- Claude Code slash commands degrade to Codex skill invocation or are documented
+  as Claude-only until a Codex command wrapper exists.
+- Claude Code custom agents degrade to Codex subagents/roles available in the
+  session, or to inline execution with the same review/verification protocol.
+- Claude Code hooks degrade to documentation and procedural checks unless a
+  Codex-specific hook or automation surface is introduced.
+- MCP support is only promised where Codex exposes the MCP/app tools. Existing
+  `.claude-plugin` `mcpServers` entries remain Claude-compatible, but Codex
+  support must be verified per installation.
+
 ## Remaining Caveats
 
 - `fakoli-flow` no longer documents the unsupported `/flow:<skill>` shorthand.
@@ -102,6 +164,13 @@ documented replacement. The notable refresh changes are:
 - Command `name:` frontmatter in `marketplace-manager` and `nano-banana-pro`
   appears harmless but redundant because Claude Code command names are
   filename-derived.
+- Codex compatibility is strongest for plugins that ship skills. Command-only,
+  agent-only, and hook-only plugins need Codex-specific wrappers before being
+  represented as fully supported in Codex.
+- This repository still uses `.claude-plugin/plugin.json` for the marketplace.
+  Codex-native marketplace packaging would require `.codex-plugin/plugin.json`
+  manifests with `skills`, optional `mcpServers`, optional `apps`, and Codex
+  interface metadata.
 
 ## Verification Commands
 
@@ -119,4 +188,6 @@ claude -p "/fakoli-flow:flow"
 claude -p "/fakoli-flow:brainstorm Please do not write files; just say READY if this command route is recognized."
 test -f docs/compatibility.md && grep -qi 'claude code' docs/compatibility.md
 for d in plugins/*/; do python -m json.tool "$d/.claude-plugin/plugin.json" > /dev/null || echo "BAD: $d"; done
+grep -qi 'codex' docs/compatibility.md
+grep -qi 'claude code' docs/compatibility.md && grep -qi 'codex' docs/compatibility.md
 ```
