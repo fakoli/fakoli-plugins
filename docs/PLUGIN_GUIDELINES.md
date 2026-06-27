@@ -22,7 +22,7 @@ For better discoverability and user experience:
 1. **CHANGELOG** - Document version history
 2. **LICENSE** - Clear licensing terms
 3. **Screenshots** - Visual documentation in `assets/screenshots/`
-4. **Extended metadata** - Category, tags, compatibility info
+4. **Marketplace metadata** - Category, marketplace description, and source location
 5. **Examples** - Usage examples in documentation
 
 ## Naming Conventions
@@ -58,18 +58,31 @@ Every plugin must declare a category in `.claude-plugin/marketplace.json`. Use e
 
 | Category | Purpose |
 |----------|---------|
+| `development` | Tools for building, reviewing, and maintaining software projects |
+| `workflow` | Planning, orchestration, and project-state tools for agentic work |
+| `integrations` | Connectors and automations for external services and APIs |
 | `productivity` | Workflow automation, scheduling, task management, writing assistance |
-| `integrations` | Connections to external services, APIs, platforms (e.g., Google Workspace, Slack) |
-| `utilities` | Developer tools, code helpers, formatters, linters, path/schema utilities |
+| `media` | Audio, image, and visual-generation tools |
+| `knowledge` | Research, analysis, and decision-support tools |
+| `safety` | Guardrails and sanitizers that reduce tool and content risk |
+| `utilities` | General-purpose helper tools and operating-model references |
 
-Example `marketplace.json` excerpt:
+Example `.claude-plugin/marketplace.json` plugin entry:
 ```json
 {
-  "category": "integrations"
+  "name": "your-plugin-name",
+  "version": "1.0.0",
+  "description": "A concise marketplace description",
+  "category": "integrations",
+  "source": "./plugins/your-plugin-name"
 }
 ```
 
-Choose the category that best describes the plugin's primary value. When in doubt: if it talks to an external service, use `integrations`; if it improves a developer workflow, use `utilities`; if it helps users get things done faster, use `productivity`.
+Choose the category that best describes the plugin's primary value. The
+marketplace entry is also where the user-facing marketplace description and
+plugin `source` are stored. Do not add marketplace-only fields such as category
+or source to `.claude-plugin/plugin.json`; `./scripts/generate-index.sh`
+propagates marketplace metadata into generated registry files.
 
 ## Version Guidelines
 
@@ -185,49 +198,22 @@ License information.
 
 ### Platform Compatibility
 
-Specify supported platforms in `extended.compatibility.platforms`:
-
-```json
-{
-  "extended": {
-    "compatibility": {
-      "platforms": ["darwin", "linux", "win32"]
-    }
-  }
-}
-```
+Document supported platforms in the plugin README. The current
+`.claude-plugin/plugin.json` schema does not accept compatibility extension
+objects.
 
 ### Version Requirements
 
-Document Claude Code version requirements:
-
-```json
-{
-  "extended": {
-    "compatibility": {
-      "claudeCodeVersion": ">=1.0.0"
-    }
-  }
-}
-```
+Document Claude Code version requirements in the plugin README until the schema
+adds a dedicated compatibility field.
 
 ## Dependencies
 
 ### Declaring Dependencies
 
-List required dependencies in the manifest:
-
-```json
-{
-  "extended": {
-    "dependencies": {
-      "npm": ["lodash@^4.0.0"],
-      "pip": ["requests>=2.25.0"],
-      "binaries": ["git", "node"]
-    }
-  }
-}
-```
+List required dependencies in the plugin README and installation instructions.
+Do not add dependency extension objects to `plugin.json`; the validator rejects
+unsupported manifest fields.
 
 ### Dependency Guidelines
 
@@ -270,13 +256,9 @@ For full testing guidance — including hook testing patterns, CI integration, a
 
 If you need to deprecate a plugin:
 
-```json
-{
-  "extended": {
-    "deprecated": "Use new-plugin instead"
-  }
-}
-```
+1. Add the deprecation note to the plugin README and CHANGELOG.
+2. Update the marketplace description if users should prefer a replacement.
+3. Regenerate registry output with `./scripts/generate-index.sh`.
 
 ---
 
