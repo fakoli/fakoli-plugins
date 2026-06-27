@@ -278,6 +278,58 @@ scan_plugin() {
     scan_hook_safety "$plugin_dir" "$plugin_name"
 }
 
+# Verify generated registry entries point to existing plugin directories.
+scan_registry_paths() {
+    local registry_file="$ROOT_DIR/registry/index.json"
+
+    echo ""
+    echo "=========================================="
+    echo -e "Scanning: ${BLUE}registry/index.json${NC}"
+    echo "=========================================="
+    echo -e "\n${BLUE}--- Registry Path Resolution ---${NC}"
+
+    if [[ ! -f "$registry_file" ]]; then
+        log_error "Missing registry index: registry/index.json"
+        return 1
+    fi
+
+    if ! jq empty "$registry_file" 2>/dev/null; then
+        log_error "Invalid JSON in registry/index.json"
+        return 1
+    fi
+
+    local plugin_count
+    plugin_count=$(jq '.plugins | length' "$registry_file")
+
+    for ((i=0; i<plugin_count; i++)); do
+        local plugin_name plugin_path
+        plugin_name=$(jq -r ".plugins[$i].name // empty" "$registry_file")
+        plugin_path=$(jq -r ".plugins[$i].path // empty" "$registry_file")
+
+        if [[ -z "$plugin_name" ]]; then
+            log_error "Registry plugin at index $i missing name"
+            continue
+        fi
+
+        if [[ -z "$plugin_path" ]]; then
+            log_error "Registry plugin '$plugin_name' missing path"
+            continue
+        fi
+
+        if [[ "$plugin_path" = /* || "$plugin_path" =~ (^|/)\.\.(/|$) ]]; then
+            log_error "Registry plugin '$plugin_name' has unsafe path: $plugin_path"
+            continue
+        fi
+
+        local resolved="$ROOT_DIR/$plugin_path"
+        if [[ -d "$resolved" && -f "$resolved/.claude-plugin/plugin.json" ]]; then
+            log_ok "Registry plugin '$plugin_name' path '$plugin_path' resolves to plugin directory"
+        else
+            log_error "Registry plugin '$plugin_name' path '$plugin_path' not found (resolved: $resolved)"
+        fi
+    done
+}
+
 # Main
 main() {
     echo "========================================"
@@ -307,6 +359,8 @@ main() {
             echo "No plugins found to scan"
             exit 0
         fi
+
+        scan_registry_paths
 
         for dir in "${plugin_dirs[@]}"; do
             scan_plugin "$dir"
