@@ -5,6 +5,16 @@ All notable changes to systems-thinking will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-06-27
+
+### Added
+
+- Imported the upstream systems-thinking skill definitions into the marketplace plugin layout.
+
+### Changed
+
+- Adapted skill reference paths to the `plugins/systems-thinking` marketplace location.
+
 ## [0.3.4] - 2026-06-26
 
 ### Changed
