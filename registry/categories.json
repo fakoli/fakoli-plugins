@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T23:13:30Z",
+  "generatedAt": "2026-06-27T23:21:08Z",
   "categories": [
     {
       "category": "development",
@@ -55,7 +55,7 @@
       "plugins": [
         {
           "name": "systems-thinking",
-          "version": "0.3.7",
+          "version": "0.3.8",
           "description": "Analyze infrastructure decisions for hidden costs, dependencies, caveats, and risks.",
           "path": "plugins/systems-thinking"
         }
