@@ -5,14 +5,18 @@ on:
     branches: [main]
     paths:
       - 'plugins/**'
+      - '.claude-plugin/marketplace.json'
+      - 'registry/**'
       - 'schemas/**'
-      - 'scripts/validate.sh'
+      - 'scripts/**'
   pull_request:
     branches: [main]
     paths:
       - 'plugins/**'
+      - '.claude-plugin/marketplace.json'
+      - 'registry/**'
       - 'schemas/**'
-      - 'scripts/validate.sh'
+      - 'scripts/**'
 
 jobs:
   validate:
@@ -36,6 +40,9 @@ jobs:
 
       - name: Deep scan plugins
         run: ./scripts/test-path-resolution.sh
+
+      - name: Check registry drift
+        run: ./scripts/check-registry-drift.sh
 
       - name: Test handoff path resolver
         run: ./plugins/handoff/tests/test-handoff-path.sh
