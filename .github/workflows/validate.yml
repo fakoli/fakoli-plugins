@@ -9,6 +9,8 @@ on:
       - 'registry/**'
       - 'schemas/**'
       - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
     paths:
@@ -17,6 +19,8 @@ on:
       - 'registry/**'
       - 'schemas/**'
       - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/**'
 
 jobs:
   validate:
@@ -32,14 +36,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Make scripts executable
         run: chmod +x scripts/*.sh
 
-      - name: Validate all plugins
-        run: ./scripts/validate.sh
-
-      - name: Deep scan plugins
-        run: ./scripts/test-path-resolution.sh
+      - name: Run combined plugin checks
+        run: ./scripts/check-all.sh
 
       - name: Check registry drift
         run: ./scripts/check-registry-drift.sh
