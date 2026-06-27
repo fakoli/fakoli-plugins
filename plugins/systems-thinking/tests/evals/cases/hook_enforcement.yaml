@@ -1,0 +1,17 @@
+name: "completion-hook-flags-missing-sections"
+description: "Verify the Stop hook catches outputs missing required decision-quality sections"
+fixture: "minimal_repo"
+setup: []
+prompt: |
+  Analyze the network design and give me your thoughts.
+  Here is the design: We will use a hub-and-spoke topology with AWS Transit Gateway.
+expected_outcomes:
+  - type: section_check
+    file: "_stdout"
+    sections:
+      - "assumption"
+      - "risk"
+      - "unresolved"
+forbidden_outcomes: []
+grader: composite
+timeout: 60

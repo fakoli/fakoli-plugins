@@ -1,0 +1,40 @@
+name: "cloud-interconnect-complexity-technical"
+description: "Verify complexity-mapper extracts specific quantitative facts from cloud interconnect vendor docs"
+fixture: "cloud_interconnect_vendor_docs"
+setup:
+  - copy_fixture: "fixtures/cloud_interconnect_vendor_docs.md"
+    to: "input/vendor-docs.md"
+prompt: |
+  Use the complexity-mapper skill to analyze the cloud interconnect vendor documentation in input/vendor-docs.md.
+  This document covers six AWS-to-GCP interconnect options. Pay close attention to specific pricing,
+  bandwidth limits, SLA percentages, BGP prefix limits, and preview/beta status flags.
+  Write the output to output/complexity-report.md.
+expected_outcomes:
+  - type: quantitative_claims
+    file: "output/complexity-report.md"
+    claims:
+      - pattern: "\\$0\\.05[/ ]*(per )?hr"
+        description: "VPN tunnel pricing ($0.05/hr)"
+      - pattern: "\\$0\\.02[/ ]*(per )?GB"
+        description: "Direct Connect DTO ($0.02/GB)"
+      - pattern: "\\$1[,.]?700[/ ]*(per )?month"
+        description: "Cross-Cloud Interconnect pricing ($1,700/month for 10G)"
+      - pattern: "99\\.99%"
+        description: "HA VPN SLA (99.99%)"
+      - pattern: "5[,.]?000.*(prefix|route|BGP)"
+        description: "GCP BGP prefix limit (5,000)"
+      - pattern: "100.*(prefix|route|BGP|VIF)"
+        description: "AWS private VIF BGP prefix limit (100)"
+      - pattern: "(?i)(preview|beta)"
+        description: "Preview/beta status flag identified"
+  - type: source_anchor_coverage
+    file: "output/complexity-report.md"
+    min_coverage: 0.5
+  - type: section_check
+    file: "output/complexity-report.md"
+    sections:
+      - "VPN"
+      - "Direct Connect"
+      - "Cross-Cloud"
+grader: composite
+timeout: 300

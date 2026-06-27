@@ -1,0 +1,32 @@
+name: "cloud-interconnect-arch-risk-review"
+description: "Verify architecture-risk-review skill identifies risks, dependencies, and failure modes in cloud interconnect options"
+fixture: "cloud_interconnect_vendor_docs"
+setup:
+  - copy_fixture: "fixtures/cloud_interconnect_vendor_docs.md"
+    to: "input/vendor-docs.md"
+prompt: |
+  Use the architecture-risk-review skill to review the cloud interconnect vendor documentation
+  in input/vendor-docs.md. Focus on identifying failure modes, dependency chains, blast radius,
+  and operational risks across the six AWS-to-GCP interconnect options.
+  Write the output to output/risk-review.md.
+expected_outcomes:
+  - type: file_exists
+    files:
+      - "output/risk-review.md"
+  - type: section_check
+    file: "output/risk-review.md"
+    sections:
+      - "risk"
+      - "dependency"
+      - "failure"
+      - "blast radius"
+  - type: forbidden_patterns
+    file: "output/risk-review.md"
+    patterns:
+      - "(?i)fully redundant"
+      - "(?i)no dependencies"
+      - "(?i)no single point"
+      - "(?i)no risks"
+      - "(?i)everything looks good"
+grader: composite
+timeout: 300

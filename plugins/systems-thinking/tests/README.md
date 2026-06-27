@@ -2,35 +2,30 @@
 
 ## Quick Start
 
-Migration note: this README and the Markdown eval fixtures are preserved during
-the documentation/licensing migration. The Python test files, eval YAML cases,
-and grader harness are imported by the separate test-suite migration task. The
-commands below apply after that task lands.
-
 ```bash
-cd fakoli-plugins
+cd plugins/systems-thinking
 
 # First time setup from the marketplace checkout
 uv sync
 
 # Fast tests — no API key needed
-uv run pytest plugins/systems-thinking/tests/unit plugins/systems-thinking/tests/contracts
+uv run pytest tests/unit tests/contracts
 
 # Eval tests — requires claude CLI and ANTHROPIC_API_KEY
-uv run pytest plugins/systems-thinking/tests/evals -m eval
+uv run pytest tests/evals -m eval
 ```
 
 ## Test Layers
 
-### Unit Tests (`plugins/systems-thinking/tests/unit/`)
+### Unit Tests (`tests/unit/`)
 
 Validate hook prompts, frontmatter parsing, file structure, and internal logic. These run in milliseconds and are fully deterministic. No network calls, no API keys.
 
-### Contract Tests (`plugins/systems-thinking/tests/contracts/`)
+### Contract Tests (`tests/contracts/`)
 
 Verify plugin layout conforms to spec: correct directory structure, valid agent/skill definitions, well-formed output contracts. Runs in seconds, deterministic, no external dependencies.
 
-### Eval Tests (`plugins/systems-thinking/tests/evals/`)
+### Eval Tests (`tests/evals/`)
 
 End-to-end scenario tests that invoke Claude CLI with specific prompts and grade the output. These take minutes, cost API credits, and require:
 
@@ -43,15 +38,15 @@ Eval tests invoke the Claude CLI end-to-end and are **non-deterministic** — th
 
 ```bash
 # Run all eval tests
-.venv/bin/python -m pytest plugins/systems-thinking/tests/evals/ -v
+.venv/bin/python -m pytest tests/evals/ -v
 
 # Run a single eval case
-.venv/bin/python -m pytest plugins/systems-thinking/tests/evals/test_evals.py::test_eval_case[complexity_mapper_basic] -v
-.venv/bin/python -m pytest plugins/systems-thinking/tests/evals/test_evals.py::test_eval_case[decision_brief_basic] -v
-.venv/bin/python -m pytest plugins/systems-thinking/tests/evals/test_evals.py::test_eval_case[hook_enforcement] -v
+.venv/bin/python -m pytest tests/evals/test_evals.py::test_eval_case[complexity_mapper_basic] -v
+.venv/bin/python -m pytest tests/evals/test_evals.py::test_eval_case[decision_brief_basic] -v
+.venv/bin/python -m pytest tests/evals/test_evals.py::test_eval_case[hook_enforcement] -v
 
 # With a longer timeout (default is 120s, which may not be enough)
-.venv/bin/python -m pytest plugins/systems-thinking/tests/evals/ -v --timeout=600
+.venv/bin/python -m pytest tests/evals/ -v --timeout=600
 ```
 
 **Prerequisites:** `claude` CLI installed globally and `ANTHROPIC_API_KEY` set. Eval tests cost API credits.
@@ -66,8 +61,8 @@ Add standard pytest functions to the appropriate directory. Follow existing nami
 
 ### Eval Tests
 
-1. Create a YAML case file in `plugins/systems-thinking/tests/evals/cases/`.
-2. Add any supporting fixtures (mock repos, sample files) under `plugins/systems-thinking/tests/evals/fixtures/`.
+1. Create a YAML case file in `tests/evals/cases/`.
+2. Add any supporting fixtures (mock repos, sample files) under `tests/evals/fixtures/`.
 3. The eval runner picks up new `.yaml` files automatically.
 
 ## Eval Case Format
@@ -128,10 +123,10 @@ The `cloud_interconnect_*` eval cases use a realistic fixture (`fixtures/cloud_i
 
 ```bash
 # Run the full cloud interconnect suite
-.venv/bin/python -m pytest plugins/systems-thinking/tests/evals/test_evals.py -v -k cloud_interconnect --timeout=600
+.venv/bin/python -m pytest tests/evals/test_evals.py -v -k cloud_interconnect --timeout=600
 
 # Run a single tier
-.venv/bin/python -m pytest plugins/systems-thinking/tests/evals/test_evals.py::test_eval_case[cloud_interconnect_complexity_basic] -v --timeout=300
+.venv/bin/python -m pytest tests/evals/test_evals.py::test_eval_case[cloud_interconnect_complexity_basic] -v --timeout=300
 ```
 
 **Tiered cases:**
@@ -158,32 +153,34 @@ The `cloud_interconnect_*` eval cases use a realistic fixture (`fixtures/cloud_i
 
 ### Adding New Fixtures and Cases
 
-1. Create a fixture file in `plugins/systems-thinking/tests/evals/fixtures/` with embedded ground truth facts
-2. Create a YAML case file in `plugins/systems-thinking/tests/evals/cases/` referencing the fixture
+1. Create a fixture file in `tests/evals/fixtures/` with embedded ground truth facts
+2. Create a YAML case file in `tests/evals/cases/` referencing the fixture
 3. Use `setup` steps to copy fixtures into the workdir
 4. Choose graders based on which metric dimensions you want to measure
 5. Set appropriate timeouts (basic: 180s, intermediate: 240s, advanced: 300s)
 
-To add a new grader, implement a function in `plugins/systems-thinking/tests/evals/graders/` following the pattern:
+To add a new grader, implement a function in `tests/evals/graders/` following the pattern:
 `def grade_<name>(filepath: Path, config: dict) -> dict` returning `{"pass": bool, "score": float, ...}`.
 Add the import to `graders/__init__.py` and dispatch branches in both `harness.py` and `test_evals.py`.
 
 ## CI Behavior
 
-Three GitHub Actions jobs run on this repo:
+The marketplace repository runs shared plugin validation on pull requests,
+including manifest validation and plugin-change checks. The systems-thinking
+unit and contract tests are imported here for local verification and targeted
+migration checks:
 
-| Job                         | Trigger                                       | What it does                                                                                               |
-| --------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `unit-and-contract`         | Every push to `main`, every PR                | Runs unit + contract tests. Must pass.                                                                     |
-| `evals`                     | PR with `run-evals` label, nightly at 2am UTC | Runs eval suite after unit/contract pass. Nightly failures warn but do not block. PR failures block merge. |
-| `validate-plugin-structure` | Every push to `main`, every PR                | Checks `settings.json` validity, frontmatter in agent/skill files, file length warnings.                   |
+```bash
+uv run pytest tests/unit tests/contracts
+```
 
-Evals only run after unit and contract tests pass (dependency chain). To trigger evals on a PR, add the `run-evals` label.
+Eval tests remain manual because they invoke the Claude CLI and can spend API
+credits. Run them locally when validating agent behavior.
 
 ## Common Issues
 
 **"claude CLI not found"**
-Install it: `npm install -g @anthropic-ai/claude-code`. If you only want to run unit/contract tests, skip evals with `pytest plugins/systems-thinking/tests/unit plugins/systems-thinking/tests/contracts`.
+Install it: `npm install -g @anthropic-ai/claude-code`. If you only want to run unit/contract tests, skip evals with `pytest tests/unit tests/contracts`.
 
 **"API key not set"**
 Eval tests require `ANTHROPIC_API_KEY` in your environment. Unit and contract tests do not need it.

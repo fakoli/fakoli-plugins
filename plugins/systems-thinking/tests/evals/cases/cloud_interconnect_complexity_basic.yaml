@@ -1,0 +1,34 @@
+name: "cloud-interconnect-complexity-basic"
+description: "Verify complexity-mapper produces output with required sections when analyzing cloud interconnect vendor docs"
+fixture: "cloud_interconnect_vendor_docs"
+setup:
+  - copy_fixture: "fixtures/cloud_interconnect_vendor_docs.md"
+    to: "input/vendor-docs.md"
+prompt: |
+  Use the complexity-mapper skill to analyze the cloud interconnect vendor documentation in input/vendor-docs.md.
+  This document covers six AWS-to-GCP interconnect options with pricing, quotas, SLAs, and operational considerations.
+  Write the output to output/complexity-report.md.
+expected_outcomes:
+  - type: file_exists
+    files:
+      - "output/complexity-report.md"
+  - type: section_check
+    file: "output/complexity-report.md"
+    sections:
+      - "complexity area"
+      - "severity"
+      - "confidence"
+      - "source"
+  - type: forbidden_patterns
+    file: "output/complexity-report.md"
+    patterns:
+      - "(?i)no risks found"
+      - "(?i)everything looks good"
+      - "(?i)no complexity"
+      - "(?i)n/a"
+forbidden_outcomes:
+  - type: file_exists
+    files:
+      - "output/summary.md"
+grader: composite
+timeout: 180

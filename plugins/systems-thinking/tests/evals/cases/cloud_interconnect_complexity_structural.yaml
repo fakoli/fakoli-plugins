@@ -1,0 +1,37 @@
+name: "cloud-interconnect-complexity-structural"
+description: "Verify complexity-mapper output is structurally correct with proper headings, evidence labels, and no false-confidence patterns"
+fixture: "cloud_interconnect_vendor_docs"
+setup:
+  - copy_fixture: "fixtures/cloud_interconnect_vendor_docs.md"
+    to: "input/vendor-docs.md"
+prompt: |
+  Use the complexity-mapper skill to analyze the cloud interconnect vendor documentation in input/vendor-docs.md.
+  This document covers six AWS-to-GCP interconnect options with pricing, quotas, SLAs, and operational considerations.
+  Write the output to output/complexity-report.md.
+  Ensure you label evidence sources and flag inferred conclusions separately.
+expected_outcomes:
+  - type: markdown_structure
+    file: "output/complexity-report.md"
+    headings:
+      - "complexity"
+      - "risk"
+      - "source"
+  - type: section_check
+    file: "output/complexity-report.md"
+    sections:
+      - "severity"
+      - "confidence"
+      - "why it matters"
+  - type: evidence_labels
+    file: "output/complexity-report.md"
+    min_source_labels: 3
+    min_inferred_labels: 1
+  - type: forbidden_patterns
+    file: "output/complexity-report.md"
+    patterns:
+      - "(?i)no risks found"
+      - "(?i)everything looks good"
+      - "(?i)straightforward"
+      - "(?i)no issues"
+grader: composite
+timeout: 240

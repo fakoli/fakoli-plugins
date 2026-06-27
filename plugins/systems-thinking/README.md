@@ -17,11 +17,9 @@ The original standalone source repository is
 preserves that upstream history and attribution while publishing the installable
 plugin identity as `systems-thinking`.
 
-Migration note: this documentation and licensing pass preserves the upstream
-non-executable documentation surface first. Agent, skill, hook, utility, and
-test-suite files are imported by separate migration tasks, so sections below
-describe the intended full plugin surface even when this docs-only snapshot is
-reviewed on its own.
+Migration note: this marketplace copy preserves the upstream documentation,
+agent, skill, hook, and test surfaces while adapting paths and plugin identity
+for `plugins/systems-thinking`.
 
 ## Why this exists
 
@@ -266,30 +264,30 @@ Every finding includes source anchors so you can verify claims against the origi
 
 ## Testing
 
-**CI (automated):** Unit and contract tests run on every push and PR after the
-test suite is imported into this marketplace plugin.
+**Local deterministic checks:** Unit and contract tests can run from the
+marketplace checkout after changing into the plugin directory.
 
 ```bash
-uv run pytest plugins/systems-thinking/tests/unit plugins/systems-thinking/tests/contracts -v
+cd plugins/systems-thinking
+uv run pytest tests/unit tests/contracts -v
 ```
 
-The upstream test guide and Markdown fixtures are preserved under
-`plugins/systems-thinking/tests/`. The Python test files are migrated separately
-with the executable plugin surface.
+The upstream test guide, Python test files, eval YAML cases, graders, and
+fixtures are preserved under `plugins/systems-thinking/tests/`.
 
 **Evals (manual, local only):** Eval tests invoke the Claude CLI and require it
-on your PATH after the eval harness is imported. These are not run in CI — run
+on your PATH. These are not run by the marketplace validation workflow — run
 them locally when validating agent behavior.
 
 ```bash
 # Run all evals
-uv run pytest plugins/systems-thinking/tests/evals -v -m eval --timeout=300
+uv run pytest tests/evals -v -m eval --timeout=300
 
 # Run a single eval
-uv run pytest plugins/systems-thinking/tests/evals -v -k complexity_mapper
+uv run pytest tests/evals -v -k complexity_mapper
 
 # Dry-run (validate case files without executing)
-python plugins/systems-thinking/tests/evals/harness.py --dry-run
+python tests/evals/harness.py --dry-run
 ```
 
 ## Works with fakoli-flow
