@@ -441,8 +441,10 @@ _check_hook_safety() {
     local command_str="$6"
     local timeout="$7"
 
-    # High-frequency events with broad/missing matchers
-    if [[ "$event" == "PreToolUse" || "$event" == "PostToolUse" || "$event" == "UserPromptSubmit" ]]; then
+    # High-frequency tool events with broad/missing matchers.
+    # UserPromptSubmit command hooks inspect prompt JSON and are checked below
+    # for prompt-type hijacks and command timeouts.
+    if [[ "$event" == "PreToolUse" || "$event" == "PostToolUse" ]]; then
         if [[ -z "$matcher" ]]; then
             log_warn "[$plugin_name] $event hook has no matcher — fires on every ${event/Pre/}${event/Post/} event"
         fi
