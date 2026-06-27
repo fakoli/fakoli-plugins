@@ -11,6 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 SCHEMA_FILE="$ROOT_DIR/schemas/plugin.schema.json"
+MARKETPLACE_SCHEMA_FILE="$ROOT_DIR/schemas/marketplace.schema.json"
 
 # Colors for output
 RED='\033[0;31m'
@@ -507,6 +508,16 @@ validate_marketplace() {
     fi
     log_success "[marketplace] Valid JSON syntax"
 
+    if [[ ! -f "$MARKETPLACE_SCHEMA_FILE" ]]; then
+        log_error "[marketplace] Schema file not found: schemas/marketplace.schema.json"
+        return 1
+    fi
+
+    local metadata_allowed category_allowed plugin_allowed
+    metadata_allowed=$(jq -c '[.properties.metadata.properties | keys[]]' "$MARKETPLACE_SCHEMA_FILE")
+    category_allowed=$(jq -c '[.properties.categories.items.properties | keys[]]' "$MARKETPLACE_SCHEMA_FILE")
+    plugin_allowed=$(jq -c '[.properties.plugins.items.properties | keys[]]' "$MARKETPLACE_SCHEMA_FILE")
+
     # Check required top-level fields
     local name
     name=$(jq -r '.name // empty' "$marketplace_file")
@@ -524,12 +535,85 @@ validate_marketplace() {
         return 1
     fi
 
+    # Validate metadata extension fields against the marketplace schema.
+    if [[ "$(jq 'has("metadata")' "$marketplace_file")" == "true" ]]; then
+        local metadata_extra
+        metadata_extra=$(jq -r --argjson allowed "$metadata_allowed" \
+            '.metadata | keys | map(select(. as $k | $allowed | index($k) | not)) | .[]' "$marketplace_file" 2>/dev/null)
+        if [[ -n "$metadata_extra" ]]; then
+            local field
+            for field in $metadata_extra; do
+                log_error "[marketplace] Unsupported metadata field: $field"
+            done
+        else
+            log_success "[marketplace] Metadata fields are supported"
+        fi
+    fi
+
+    # Validate category definitions before plugin references are checked.
+    local category_count=0
+    local category_ids="[]"
+    if [[ "$(jq 'has("categories")' "$marketplace_file")" == "true" ]]; then
+        category_count=$(jq '.categories | length' "$marketplace_file")
+        category_ids=$(jq -c '[.categories[].id]' "$marketplace_file")
+
+        local category_errors=0
+        local duplicate_categories
+        duplicate_categories=$(jq -r '.categories[].id | select(. != null)' "$marketplace_file" | sort | uniq -d)
+        if [[ -n "$duplicate_categories" ]]; then
+            local category
+            for category in $duplicate_categories; do
+                log_error "[marketplace] Duplicate category id: $category"
+                ((category_errors++))
+            done
+        fi
+
+        local category_index
+        for ((category_index=0; category_index<category_count; category_index++)); do
+            local category_id category_name category_extra
+            category_id=$(jq -r ".categories[$category_index].id // empty" "$marketplace_file")
+            category_name=$(jq -r ".categories[$category_index].name // empty" "$marketplace_file")
+            category_extra=$(jq -r --argjson allowed "$category_allowed" \
+                ".categories[$category_index] | keys | map(select(. as \$k | \$allowed | index(\$k) | not)) | .[]" "$marketplace_file" 2>/dev/null)
+
+            if [[ -z "$category_id" ]]; then
+                log_error "[marketplace] Category at index $category_index missing required 'id' field"
+                ((category_errors++))
+            fi
+            if [[ -z "$category_name" ]]; then
+                log_error "[marketplace] Category '${category_id:-$category_index}' missing required 'name' field"
+                ((category_errors++))
+            fi
+            if [[ -n "$category_extra" ]]; then
+                local field
+                for field in $category_extra; do
+                    log_error "[marketplace] Category '${category_id:-$category_index}' has unsupported field: $field"
+                    ((category_errors++))
+                done
+            fi
+        done
+
+        if [[ $category_errors -eq 0 ]]; then
+            log_success "[marketplace] Category definitions are supported ($category_count categories)"
+        fi
+    fi
+
     # Validate each plugin entry
     local plugin_count
     plugin_count=$(jq '.plugins | length' "$marketplace_file")
     log_info "[marketplace] Found $plugin_count plugin(s)"
 
     local plugin_errors=0
+    local duplicate_plugins
+    duplicate_plugins=$(jq -r '.plugins[].name | select(. != null)' "$marketplace_file" | sort | uniq -d)
+    if [[ -n "$duplicate_plugins" ]]; then
+        local duplicate
+        for duplicate in $duplicate_plugins; do
+            log_error "[marketplace] Duplicate plugin entry: $duplicate"
+            ((plugin_errors++))
+        done
+    fi
+
     for ((i=0; i<plugin_count; i++)); do
         local plugin_name
         plugin_name=$(jq -r ".plugins[$i].name // empty" "$marketplace_file")
@@ -539,6 +623,17 @@ validate_marketplace() {
             log_error "[marketplace] Plugin at index $i missing required 'name' field"
             ((plugin_errors++))
             continue
+        fi
+
+        local plugin_extra
+        plugin_extra=$(jq -r --argjson allowed "$plugin_allowed" \
+            ".plugins[$i] | keys | map(select(. as \$k | \$allowed | index(\$k) | not)) | .[]" "$marketplace_file" 2>/dev/null)
+        if [[ -n "$plugin_extra" ]]; then
+            local field
+            for field in $plugin_extra; do
+                log_error "[marketplace] Plugin '$plugin_name' has unsupported field: $field"
+                ((plugin_errors++))
+            done
         fi
 
         # Check 'source' field exists (not 'path')
@@ -552,6 +647,26 @@ validate_marketplace() {
             ((plugin_errors++))
         else
             log_success "[marketplace] Plugin '$plugin_name' has valid source: $source"
+        fi
+
+        local category
+        category=$(jq -r ".plugins[$i].category // empty" "$marketplace_file")
+        if [[ -z "$category" ]]; then
+            log_error "[marketplace] Plugin '$plugin_name' missing required 'category' field"
+            ((plugin_errors++))
+        elif [[ "$category_count" -gt 0 ]] && ! jq -n -e --arg category "$category" --argjson categories "$category_ids" \
+            '$categories | index($category)' >/dev/null; then
+            log_error "[marketplace] Plugin '$plugin_name' references unknown category: $category"
+            ((plugin_errors++))
+        else
+            log_success "[marketplace] Plugin '$plugin_name' has supported category: $category"
+        fi
+
+        local description
+        description=$(jq -r ".plugins[$i].description // empty" "$marketplace_file")
+        if [[ -z "$description" ]]; then
+            log_error "[marketplace] Plugin '$plugin_name' missing required 'description' field"
+            ((plugin_errors++))
         fi
 
         # Check for invalid 'path' field (common mistake)
