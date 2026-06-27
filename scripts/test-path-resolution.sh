@@ -183,10 +183,24 @@ scan_hook_safety() {
                 log_info "$event hook (no matcher — direct entry)"
                 _flag_broad_matcher "$event" "$plugin_name"
 
-                _scan_hook_entry "$plugin_dir" "$plugin_name" "$event" "$matcher" \
-                    "$(jq -r ".hooks[\"$event\"][$i].type // empty" "$hooks_file")" \
-                    "$(jq -r ".hooks[\"$event\"][$i].command // empty" "$hooks_file")" \
-                    "$(jq -r ".hooks[\"$event\"][$i].timeout // empty" "$hooks_file")"
+                local has_hooks_array
+                has_hooks_array=$(jq -r ".hooks[\"$event\"][$i] | has(\"hooks\")" "$hooks_file")
+                if [[ "$has_hooks_array" == "true" ]]; then
+                    local nested_count
+                    nested_count=$(jq ".hooks[\"$event\"][$i].hooks | length" "$hooks_file" 2>/dev/null) || nested_count=0
+
+                    for ((j=0; j<nested_count; j++)); do
+                        _scan_hook_entry "$plugin_dir" "$plugin_name" "$event" "$matcher" \
+                            "$(jq -r ".hooks[\"$event\"][$i].hooks[$j].type // empty" "$hooks_file")" \
+                            "$(jq -r ".hooks[\"$event\"][$i].hooks[$j].command // empty" "$hooks_file")" \
+                            "$(jq -r ".hooks[\"$event\"][$i].hooks[$j].timeout // empty" "$hooks_file")"
+                    done
+                else
+                    _scan_hook_entry "$plugin_dir" "$plugin_name" "$event" "$matcher" \
+                        "$(jq -r ".hooks[\"$event\"][$i].type // empty" "$hooks_file")" \
+                        "$(jq -r ".hooks[\"$event\"][$i].command // empty" "$hooks_file")" \
+                        "$(jq -r ".hooks[\"$event\"][$i].timeout // empty" "$hooks_file")"
+                fi
             fi
         done
     done
@@ -195,7 +209,10 @@ scan_hook_safety() {
 _flag_broad_matcher() {
     local event="$1"
     local plugin_name="$2"
-    if [[ "$event" == "PreToolUse" || "$event" == "PostToolUse" || "$event" == "UserPromptSubmit" ]]; then
+    # PreToolUse/PostToolUse match tool invocations; missing matchers make them
+    # run on every tool call. UserPromptSubmit command hooks inspect prompt JSON
+    # and are checked below for prompt-type hijacks and command timeouts.
+    if [[ "$event" == "PreToolUse" || "$event" == "PostToolUse" ]]; then
         log_warn "$event hook has no/empty matcher — fires on every event"
     fi
 }
