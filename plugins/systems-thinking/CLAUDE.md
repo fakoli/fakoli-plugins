@@ -3,23 +3,21 @@
 A Claude Code plugin that encodes a systems engineer's methodology for evaluating infrastructure, architecture, and vendor proposals. It surfaces what's below the waterline — the hidden costs, buried caveats, scaling cliffs, and dependency traps that don't show up in the sales pitch or the POC.
 
 Marketplace migration note: this file is preserved from the upstream repository
-and adapted for its new location under
-`plugins/systems-thinking`. The documentation and licensing migration lands
-before the executable agents, skills, hooks, utilities, and Python tests, so
-references to those directories describe the full intended plugin surface after
-the remaining migration tasks complete.
+and adapted for its new location under `plugins/systems-thinking`, including the
+marketplace plugin identity, paths, and validation commands.
 
 ## Key Commands
 
 ```bash
 # Run tests (fast — skips evals by default)
-uv run pytest plugins/systems-thinking/tests/ -v
+cd plugins/systems-thinking
+uv run pytest tests/ -v
 
 # Run evals (slow — invokes Claude CLI, shows cost/token tracking)
-uv run pytest plugins/systems-thinking/tests/ -m slow -s
+uv run pytest tests/ -m slow -s
 
 # Validate plugin structure
-python3 -m json.tool plugins/systems-thinking/.claude-plugin/plugin.json > /dev/null
+python3 -m json.tool .claude-plugin/plugin.json > /dev/null
 ```
 
 ## Architecture
@@ -102,35 +100,33 @@ All deliverables follow structured formats defined in `docs/output-contracts.md`
 | Source Manifest | discovered URLs/paths, relevance, sections of interest, gaps |
 | Dispatch Plan | material summary, agent assignments, scoped instructions per agent |
 
-## CI/CD
+## Validation
 
-### Tests (`.github/workflows/test.yml`)
+The marketplace repository runs shared plugin validation on pull requests,
+including manifest validation, path checks, changelog drift checks, and registry
+drift checks. The systems-thinking unit and contract tests are imported for
+local verification and targeted migration checks:
 
-Runs on push to main and on PRs after the test suite is imported:
-- `unit-and-contract` — pytest on `plugins/systems-thinking/tests/unit` and `plugins/systems-thinking/tests/contracts`
-- `validate-plugin-structure` — JSON syntax, YAML frontmatter, file line counts
+```bash
+cd plugins/systems-thinking
+uv run pytest tests/unit tests/contracts -q
+```
 
-### Releases (`.github/workflows/release.yml`)
-
-Triggers on PR merge to main:
-1. Reads version from `plugin.json` (canonical source)
-2. Checks if tag `v{version}` already exists — skips if so
-3. Verifies all 3 version files are in sync (`plugin.json`, `pyproject.toml`, `VERSION`)
-4. Extracts changelog section for this version from `CHANGELOG.md`
-5. Creates GitHub release with tag and changelog body
-
-**To create a new release:** bump version in all 3 files, merge the PR.
+**To prepare a marketplace release:** bump versioned plugin metadata, update
+`CHANGELOG.md`, run `./scripts/generate-index.sh` from the marketplace root,
+and include the generated registry updates in the PR.
 
 ### Evals (`tests/evals/`)
 
-Not in CI — run locally after the eval harness is imported. Each eval invokes the Claude CLI with a prompt and grades the output:
+Not in marketplace CI — run locally when validating agent behavior. Each eval invokes the Claude CLI with a prompt and grades the output:
 - Results saved to `plugins/systems-thinking/tests/evals/results/<case>/` for inspection
 - Token usage and cost estimates printed per eval
 - Slow tests excluded by default (`pyproject.toml` sets `-m 'not slow'`)
 
 ```bash
-uv run pytest plugins/systems-thinking/tests/ -m slow -s          # run all evals with output
-uv run pytest plugins/systems-thinking/tests/ -m slow -k complexity  # run specific eval
+cd plugins/systems-thinking
+uv run pytest tests/ -m slow -s             # run all evals with output
+uv run pytest tests/ -m slow -k complexity  # run specific eval
 ```
 
 ## Versioning

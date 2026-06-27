@@ -1,0 +1,32 @@
+name: "complexity-mapper-produces-valid-output"
+description: "Verify the complexity-mapper skill produces a Complexity Heat Map with all required sections"
+fixture: "sample_vendor_doc"
+setup:
+  - copy_fixture: "fixtures/sample_vendor_doc.md"
+    to: "input/vendor-doc.md"
+prompt: |
+  Use the complexity-mapper skill to analyze the vendor documentation in input/vendor-doc.md.
+  Write the output to output/complexity-report.md.
+expected_outcomes:
+  - type: file_exists
+    files:
+      - "output/complexity-report.md"
+  - type: section_check
+    file: "output/complexity-report.md"
+    sections:
+      - "complexity area"
+      - "severity"
+      - "confidence"
+      - "source"
+  - type: forbidden_patterns
+    file: "output/complexity-report.md"
+    patterns:
+      - "(?i)no risks found"
+      - "(?i)everything looks good"
+      - "(?i)n/a"
+forbidden_outcomes:
+  - type: file_exists
+    files:
+      - "output/summary.md"
+grader: composite
+timeout: 120

@@ -5,6 +5,16 @@ All notable changes to systems-thinking will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.6] - 2026-06-27
+
+### Added
+
+- Imported the upstream systems-thinking test suite and pytest discovery configuration into the marketplace plugin layout.
+
+### Changed
+
+- Adapted the Python project metadata to the marketplace plugin identity, `systems-thinking`.
+
 ## [0.3.5] - 2026-06-27
 
 ### Added

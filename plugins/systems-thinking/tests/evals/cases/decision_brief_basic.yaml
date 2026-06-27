@@ -1,0 +1,30 @@
+name: "decision-brief-separates-evidence-from-inference"
+description: "Verify the decision-brief skill produces output that clearly separates evidence from inference"
+fixture: "sample_architecture_review"
+setup:
+  - copy_fixture: "fixtures/sample_architecture_review.md"
+    to: "input/architecture.md"
+prompt: |
+  Use the decision-brief skill to create a decision brief from the architecture review in input/architecture.md.
+  Write the output to output/decision-brief.md.
+expected_outcomes:
+  - type: file_exists
+    files:
+      - "output/decision-brief.md"
+  - type: section_check
+    file: "output/decision-brief.md"
+    sections:
+      - "decision"
+      - "options"
+      - "evidence"
+      - "risk"
+      - "unresolved"
+      - "next"
+  - type: forbidden_patterns
+    file: "output/decision-brief.md"
+    patterns:
+      - "(?i)this is definitely"
+      - "(?i)there are no risks"
+      - "(?i)we are confident that"
+grader: composite
+timeout: 120
