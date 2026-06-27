@@ -172,5 +172,6 @@ User-curated materials that agents check during analysis:
 | `docs/agent-design-principles.md` | Agent design rationale |
 | `docs/repo-conventions.md` | Naming and structure conventions |
 | `examples/usage-scenarios.md` | 5 worked examples with agent flows |
+| `utils/` | Deterministic helper scripts for indexing, sharding, prompt building, orchestration, aggregation, and validation |
 | `CHANGELOG.md` | Version history (Keep a Changelog format) |
 | `COMPATIBILITY_NOTES.md` | Cursor compatibility notes |

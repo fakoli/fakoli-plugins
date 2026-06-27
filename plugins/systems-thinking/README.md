@@ -275,6 +275,9 @@ uv run pytest tests/unit tests/contracts -v
 The upstream test guide, Python test files, eval YAML cases, graders, and
 fixtures are preserved under `plugins/systems-thinking/tests/`.
 
+Utility/helper scripts for indexing, sharding, prompt assembly, orchestration,
+aggregation, and output validation are preserved under `plugins/systems-thinking/utils/`.
+
 **Evals (manual, local only):** Eval tests invoke the Claude CLI and require it
 on your PATH. These are not run by the marketplace validation workflow — run
 them locally when validating agent behavior.
@@ -322,4 +325,5 @@ and `docs/status-file-template.md` for the template agents use.
 - `docs/flow-protocol.md` — fakoli-flow wave mapping and status file protocol
 - `docs/status-file-template.md` — Status file template for wave-based execution
 - `examples/usage-scenarios.md` — Worked examples with agent flows
+- `utils/` — Deterministic helper scripts for indexing, sharding, prompt building, orchestration, aggregation, and validation
 - `COMPATIBILITY_NOTES.md` — Cursor compatibility notes

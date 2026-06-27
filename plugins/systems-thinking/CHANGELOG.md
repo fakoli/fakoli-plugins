@@ -5,6 +5,16 @@ All notable changes to systems-thinking will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.7] - 2026-06-27
+
+### Added
+
+- Imported upstream example and utility/helper files into the marketplace plugin layout.
+
+### Changed
+
+- Adapted utility agent lookup from the upstream `.claude/agents` layout to the marketplace plugin's `agents/` directory.
+
 ## [0.3.6] - 2026-06-27
 
 ### Added

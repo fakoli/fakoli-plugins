@@ -341,7 +341,7 @@ wheels = [
 
 [[package]]
 name = "systems-thinking"
-version = "0.3.6"
+version = "0.3.7"
 source = { virtual = "." }
 
 [package.dev-dependencies]
