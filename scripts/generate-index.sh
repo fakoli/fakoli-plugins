@@ -192,13 +192,14 @@ generate_tags() {
 
     local tags
     tags=$(echo "$plugins" | jq '
-        [.[].keywords // [] | .[]]
-        | group_by(.)
+        [.[] as $plugin | ($plugin.keywords // [])[] | {tag: ., plugin: $plugin.name}]
+        | group_by(.tag)
         | map({
-            tag: .[0],
-            count: length
+            tag: .[0].tag,
+            count: length,
+            plugins: (map(.plugin) | sort)
         })
-        | sort_by(-.count)
+        | sort_by(-.count, .tag)
     ')
 
     local output
