@@ -331,5 +331,6 @@ and `docs/status-file-template.md` for the template agents use.
 - `docs/images/` — Static orchestration diagrams referenced by design docs
 - `examples/usage-scenarios.md` — Worked examples with agent flows
 - `iceberg-banner.png` — README banner image
+- `MIGRATION.md` — Upstream-to-marketplace path and runtime-assumption adaptations
 - `utils/` — Deterministic helper scripts for indexing, sharding, prompt building, orchestration, aggregation, and validation
 - `COMPATIBILITY_NOTES.md` — Cursor compatibility notes
