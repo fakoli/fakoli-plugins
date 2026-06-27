@@ -1,6 +1,6 @@
 [project]
 name = "systems-thinking"
-version = "0.3.9"
+version = "0.3.10"
 description = "Claude Code plugin for infrastructure and network architecture decision workflows"
 requires-python = ">=3.11"
 dependencies = []
