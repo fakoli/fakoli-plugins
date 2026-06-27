@@ -1,542 +1,962 @@
 {
-  "generatedAt": "2026-06-26T16:49:13Z",
+  "generatedAt": "2026-06-26T17:33:15Z",
   "totalTags": 134,
   "tags": [
     {
       "tag": "agents",
-      "count": 3
+      "count": 3,
+      "plugins": [
+        "fakoli-crew",
+        "fakoli-flow",
+        "fakoli-plugin-critic"
+      ]
     },
     {
       "tag": "architecture",
-      "count": 3
+      "count": 3,
+      "plugins": [
+        "excalidraw-diagram",
+        "fakoli-crew",
+        "systems-thinking"
+      ]
     },
     {
       "tag": "automation",
-      "count": 3
+      "count": 3,
+      "plugins": [
+        "cli-to-plugin",
+        "gws",
+        "notebooklm-enhanced"
+      ]
     },
     {
       "tag": "code-review",
-      "count": 3
+      "count": 3,
+      "plugins": [
+        "fakoli-crew",
+        "fakoli-flow",
+        "fakoli-plugin-critic"
+      ]
     },
     {
       "tag": "mcp",
-      "count": 3
+      "count": 3,
+      "plugins": [
+        "fakoli-plugin-critic",
+        "fakoli-state",
+        "safe-fetch"
+      ]
     },
     {
       "tag": "productivity",
-      "count": 3
+      "count": 3,
+      "plugins": [
+        "gws",
+        "quick-notes",
+        "session-retro"
+      ]
     },
     {
       "tag": "workflow",
-      "count": 3
+      "count": 3,
+      "plugins": [
+        "fakoli-crew",
+        "fakoli-flow",
+        "gws"
+      ]
     },
     {
       "tag": "google",
-      "count": 2
+      "count": 2,
+      "plugins": [
+        "fakoli-speak",
+        "notebooklm-enhanced"
+      ]
     },
     {
       "tag": "orchestration",
-      "count": 2
+      "count": 2,
+      "plugins": [
+        "fakoli-crew",
+        "fakoli-flow"
+      ]
     },
     {
       "tag": "session",
-      "count": 2
+      "count": 2,
+      "plugins": [
+        "handoff",
+        "session-retro"
+      ]
     },
     {
       "tag": "slides",
-      "count": 2
+      "count": 2,
+      "plugins": [
+        "gws",
+        "notebooklm-enhanced"
+      ]
     },
     {
       "tag": "accessibility",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-speak"
+      ]
     },
     {
       "tag": "admin-reports",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "agent-coordination",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-state"
+      ]
     },
     {
       "tag": "ai-images",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "nano-banana-pro"
+      ]
     },
     {
       "tag": "analytics",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "session-retro"
+      ]
     },
     {
       "tag": "append-only",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "quick-notes"
+      ]
     },
     {
       "tag": "audio",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-speak"
+      ]
     },
     {
       "tag": "audit",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-plugin-critic"
+      ]
     },
     {
       "tag": "brainstorming",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-flow"
+      ]
     },
     {
       "tag": "calendar",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "chat",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "claims",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-state"
+      ]
     },
     {
       "tag": "classroom",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "claude-code",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-plugin-critic"
+      ]
     },
     {
       "tag": "cli",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "cli-to-plugin"
+      ]
     },
     {
       "tag": "cli-to-plugin",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "cli-to-plugin"
+      ]
     },
     {
       "tag": "complexity",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "systems-thinking"
+      ]
     },
     {
       "tag": "content-creator",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "context",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "handoff"
+      ]
     },
     {
       "tag": "creative",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "nano-banana-pro"
+      ]
     },
     {
       "tag": "crew",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-crew"
+      ]
     },
     {
       "tag": "critics",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-plugin-critic"
+      ]
     },
     {
       "tag": "customer-support",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "decision-support",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "systems-thinking"
+      ]
     },
     {
       "tag": "deepgram",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-speak"
+      ]
     },
     {
       "tag": "design",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "nano-banana-pro"
+      ]
     },
     {
       "tag": "diagram",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "excalidraw-diagram"
+      ]
     },
     {
       "tag": "dictation",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "quick-notes"
+      ]
     },
     {
       "tag": "docs",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "documentation",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-style"
+      ]
     },
     {
       "tag": "drive",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "elevenlabs",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-speak"
+      ]
     },
     {
       "tag": "evaluation",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "session-retro"
+      ]
     },
     {
       "tag": "event-coordinator",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "event-sourced",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "quick-notes"
+      ]
     },
     {
       "tag": "events",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "evidence-based",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-state"
+      ]
     },
     {
       "tag": "excalidraw",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "excalidraw-diagram"
+      ]
     },
     {
       "tag": "executive-assistant",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "flowchart",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "excalidraw-diagram"
+      ]
     },
     {
       "tag": "forms",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "gemini",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "nano-banana-pro"
+      ]
     },
     {
       "tag": "generator",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "cli-to-plugin"
+      ]
     },
     {
       "tag": "gmail",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "google-workspace",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "governance",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-style"
+      ]
     },
     {
       "tag": "gws",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "handoff",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "handoff"
+      ]
     },
     {
       "tag": "hooks",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-plugin-critic"
+      ]
     },
     {
       "tag": "hr-coordinator",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "image-generation",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "nano-banana-pro"
+      ]
     },
     {
       "tag": "image-optimization",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "nano-banana-pro"
+      ]
     },
     {
       "tag": "infrastructure",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "systems-thinking"
+      ]
     },
     {
       "tag": "intent-driven",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-flow"
+      ]
     },
     {
       "tag": "it-admin",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "jsonl",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "quick-notes"
+      ]
     },
     {
       "tag": "keep",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "ledger",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-style"
+      ]
     },
     {
       "tag": "llm-work-packets",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-state"
+      ]
     },
     {
       "tag": "local-first",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-state"
+      ]
     },
     {
       "tag": "macos",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-speak"
+      ]
     },
     {
       "tag": "markdown-export",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "quick-notes"
+      ]
     },
     {
       "tag": "marketplace",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "marketplace-manager"
+      ]
     },
     {
       "tag": "meet",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "memory",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "handoff"
+      ]
     },
     {
       "tag": "modelarmor",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "multi-provider",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-speak"
+      ]
     },
     {
       "tag": "network-engineering",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "systems-thinking"
+      ]
     },
     {
       "tag": "note-taking",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "quick-notes"
+      ]
     },
     {
       "tag": "notebook",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "notebooklm-enhanced"
+      ]
     },
     {
       "tag": "notebooklm",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "notebooklm-enhanced"
+      ]
     },
     {
       "tag": "notes",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "quick-notes"
+      ]
     },
     {
       "tag": "observability",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "session-retro"
+      ]
     },
     {
       "tag": "openai",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-speak"
+      ]
     },
     {
       "tag": "operating-model",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-style"
+      ]
     },
     {
       "tag": "people",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "persona",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "planning",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-flow"
+      ]
     },
     {
       "tag": "plugin-development",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-plugin-critic"
+      ]
     },
     {
       "tag": "plugin-management",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "marketplace-manager"
+      ]
     },
     {
       "tag": "podcast",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "notebooklm-enhanced"
+      ]
     },
     {
       "tag": "post-session",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "session-retro"
+      ]
     },
     {
       "tag": "principles",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-style"
+      ]
     },
     {
       "tag": "project-manager",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "project-state",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-state"
+      ]
     },
     {
       "tag": "prompt-injection",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "safe-fetch"
+      ]
     },
     {
       "tag": "quiz",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "notebooklm-enhanced"
+      ]
     },
     {
       "tag": "recipe",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "registry",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "marketplace-manager"
+      ]
     },
     {
       "tag": "research",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "notebooklm-enhanced"
+      ]
     },
     {
       "tag": "researcher",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "resume",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "handoff"
+      ]
     },
     {
       "tag": "retro",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "session-retro"
+      ]
     },
     {
       "tag": "risk-analysis",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "systems-thinking"
+      ]
     },
     {
       "tag": "rpc",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "notebooklm-enhanced"
+      ]
     },
     {
       "tag": "runtime-neutral",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-state"
+      ]
     },
     {
       "tag": "sales-ops",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "sanitization",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "safe-fetch"
+      ]
     },
     {
       "tag": "scaffold",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "cli-to-plugin"
+      ]
     },
     {
       "tag": "security",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "safe-fetch"
+      ]
     },
     {
       "tag": "sheets",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "skills",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-plugin-critic"
+      ]
     },
     {
       "tag": "sqlite",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-state"
+      ]
     },
     {
       "tag": "ssrf",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "safe-fetch"
+      ]
     },
     {
       "tag": "streaming",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-speak"
+      ]
     },
     {
       "tag": "tags",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "quick-notes"
+      ]
     },
     {
       "tag": "tasks",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "team",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-crew"
+      ]
     },
     {
       "tag": "team-lead",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "gws"
+      ]
     },
     {
       "tag": "terraform-for-work",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-state"
+      ]
     },
     {
       "tag": "text-to-speech",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-speak"
+      ]
     },
     {
       "tag": "tokens",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "session-retro"
+      ]
     },
     {
       "tag": "tts",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-speak"
+      ]
     },
     {
       "tag": "typescript",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-crew"
+      ]
     },
     {
       "tag": "validation",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "marketplace-manager"
+      ]
     },
     {
       "tag": "vendor-evaluation",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "systems-thinking"
+      ]
     },
     {
       "tag": "visualization",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "excalidraw-diagram"
+      ]
     },
     {
       "tag": "wave-engine",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "fakoli-flow"
+      ]
     },
     {
       "tag": "web-fetch",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "safe-fetch"
+      ]
     },
     {
       "tag": "web-search",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "safe-fetch"
+      ]
     },
     {
       "tag": "whiteboard",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "excalidraw-diagram"
+      ]
     },
     {
       "tag": "workflows",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "session-retro"
+      ]
     },
     {
       "tag": "worktree",
-      "count": 1
+      "count": 1,
+      "plugins": [
+        "handoff"
+      ]
     }
   ]
 }

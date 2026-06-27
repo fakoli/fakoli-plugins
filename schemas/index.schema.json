@@ -50,6 +50,7 @@
           "repository": { "type": "string" },
           "license": { "type": "string" },
           "keywords": { "type": "array", "items": { "type": "string" } },
+          "category": { "type": "string" },
           "path": {
             "type": "string",
             "description": "Relative path from repo root to plugin directory"
