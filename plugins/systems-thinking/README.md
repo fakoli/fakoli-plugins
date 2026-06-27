@@ -278,6 +278,10 @@ fixtures are preserved under `plugins/systems-thinking/tests/`.
 Utility/helper scripts for indexing, sharding, prompt assembly, orchestration,
 aggregation, and output validation are preserved under `plugins/systems-thinking/utils/`.
 
+Static assets are preserved in the same relative locations used by upstream:
+the README banner at `iceberg-banner.png` and orchestration diagrams under
+`docs/images/`.
+
 **Evals (manual, local only):** Eval tests invoke the Claude CLI and require it
 on your PATH. These are not run by the marketplace validation workflow — run
 them locally when validating agent behavior.
@@ -324,6 +328,8 @@ and `docs/status-file-template.md` for the template agents use.
 - `docs/repo-conventions.md` — Naming and structure conventions
 - `docs/flow-protocol.md` — fakoli-flow wave mapping and status file protocol
 - `docs/status-file-template.md` — Status file template for wave-based execution
+- `docs/images/` — Static orchestration diagrams referenced by design docs
 - `examples/usage-scenarios.md` — Worked examples with agent flows
+- `iceberg-banner.png` — README banner image
 - `utils/` — Deterministic helper scripts for indexing, sharding, prompt building, orchestration, aggregation, and validation
 - `COMPATIBILITY_NOTES.md` — Cursor compatibility notes

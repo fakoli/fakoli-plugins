@@ -5,6 +5,12 @@ All notable changes to systems-thinking will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.8] - 2026-06-27
+
+### Changed
+
+- Recorded upstream static asset migration parity for the marketplace plugin layout.
+
 ## [0.3.7] - 2026-06-27
 
 ### Added
