@@ -31,7 +31,7 @@ Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, a
    - Write `description` (10-500 chars)
    - Add `author` info
    - Set `keywords` with relevant discovery tags
-   - Keep category assignment in `registry/categories.json` or marketplace metadata, not unsupported manifest fields
+   - Keep marketplace-only metadata out of `plugin.json`
 
 3. **Add plugin components** (at least one required):
    - Skills: `skills/<skill-name>/SKILL.md`
@@ -53,10 +53,13 @@ Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, a
    ```json
    {
      "name": "<plugin-name>",
-     "path": "plugins/<plugin-name>",
-     "version": "1.0.0"
+     "version": "1.0.0",
+     "description": "Concise marketplace description",
+     "category": "development",
+     "source": "./plugins/<plugin-name>"
    }
    ```
+   The category must be one declared in `.claude-plugin/marketplace.json`.
 
 7. **Regenerate indices**
    ```bash
@@ -127,24 +130,19 @@ Required fields:
 }
 ```
 
-Extended metadata:
+Marketplace plugin entry:
 ```json
 {
-  "extended": {
-    "category": "utilities",
-    "tags": ["tag1", "tag2"],
-    "compatibility": {
-      "claudeCodeVersion": ">=1.0.0",
-      "platforms": ["darwin", "linux", "win32"]
-    },
-    "dependencies": {
-      "npm": [],
-      "pip": [],
-      "binaries": []
-    }
-  }
+  "name": "plugin-name",
+  "version": "1.0.0",
+  "description": "Concise marketplace description",
+  "category": "development",
+  "source": "./plugins/plugin-name"
 }
 ```
+
+Marketplace-only fields such as category and source belong in
+`.claude-plugin/marketplace.json`, not in `plugin.json`.
 
 ## Directory Structure
 

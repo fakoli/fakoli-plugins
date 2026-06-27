@@ -89,11 +89,37 @@ Update `README.md` with:
 
 Fix any errors before proceeding.
 
-### Step 6: Submit Pull Request
+### Step 6: Register Marketplace Metadata
+
+Add your plugin to `.claude-plugin/marketplace.json` with the fields the
+marketplace schema accepts:
+
+```json
+{
+  "name": "your-plugin-name",
+  "version": "1.0.0",
+  "description": "A concise marketplace description",
+  "category": "development",
+  "source": "./plugins/your-plugin-name"
+}
+```
+
+Use one of the category ids declared in `.claude-plugin/marketplace.json`
+(`development`, `workflow`, `integrations`, `productivity`, `media`,
+`knowledge`, `safety`, or `utilities`). Do not put marketplace-only fields such
+as `category` in `plugin.json`.
+
+Regenerate the derived registry files:
+
+```bash
+./scripts/generate-index.sh
+```
+
+### Step 7: Submit Pull Request
 
 ```bash
 git checkout -b add-your-plugin-name
-git add plugins/your-plugin-name
+git add plugins/your-plugin-name .claude-plugin/marketplace.json registry/
 git commit -m "feat: add your-plugin-name plugin"
 git push origin add-your-plugin-name
 ```
@@ -123,7 +149,8 @@ Include this in your PR description:
 - [ ] README.md includes installation and usage instructions
 - [ ] No sensitive information (API keys, credentials)
 - [ ] License is specified
-- [ ] Category assigned in `marketplace.json` (one of: `productivity`, `integrations`, `utilities`)
+- [ ] Marketplace entry uses `source` and a declared category id
+- [ ] Registry regenerated with `./scripts/generate-index.sh`
 ```
 
 ## External Plugins

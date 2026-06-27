@@ -107,6 +107,24 @@ Validate a single plugin:
 
 Rebuilds `registry/index.json` from all currently installed plugins. Run this after adding or removing plugins if the CI workflow hasn't triggered yet.
 
+### Marketplace Metadata
+
+Marketplace entries live in `.claude-plugin/marketplace.json`. Use `source` for
+the plugin location:
+
+```json
+{
+  "name": "my-new-plugin",
+  "version": "1.0.0",
+  "description": "Concise marketplace description",
+  "category": "development",
+  "source": "./plugins/my-new-plugin"
+}
+```
+
+Do not place marketplace-only fields such as category or source in
+`.claude-plugin/plugin.json`; the validator rejects unsupported manifest fields.
+
 ## Requirements
 
 | Dependency | Why |
