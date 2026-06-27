@@ -139,6 +139,13 @@ def test_sanitize(payload, expected):
 
 ## CI expectations
 
+- Run `./scripts/check-all.sh` from the repository root before opening a pull
+  request. This is the canonical local validation gate, and CI invokes the same
+  command.
+- The combined gate runs marketplace validation, path-resolution and hook-safety
+  checks, affected plugin tests, and the hook validation suite.
+- A zero exit from `./scripts/check-all.sh` means every layer passed. A non-zero
+  exit stops at the failing layer and fails the CI job.
 - All tests must pass with `make test` from the plugin directory.
 - Tests must not make real network requests; monkeypatch all I/O.
 - Aim for coverage of every public function and each documented attack vector.

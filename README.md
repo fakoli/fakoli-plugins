@@ -160,10 +160,14 @@ fakoli-state apply T001 --approve                     # promote to done with aud
 
 3. **Build your capabilities** — add skills in `skills/`, slash commands in `commands/`, agents in `agents/`, or hooks in `hooks/`.
 
-4. **Validate locally before pushing**
+4. **Run the repository health gate before pushing**
    ```bash
-   ./scripts/validate.sh plugins/your-plugin-name
+   ./scripts/check-all.sh
    ```
+   This is the same combined command CI runs. It performs marketplace
+   validation, path-resolution and hook-safety checks, affected plugin tests,
+   and the hook validation suite. A zero exit means every step passed; any
+   failed step prints the failing layer and exits non-zero, which also fails CI.
 
 5. **Submit a pull request** — the CI pipeline will validate your plugin automatically. See the [Contributing Guide](docs/CONTRIBUTING.md) for review criteria.
 
@@ -189,15 +193,29 @@ your-plugin/
 
 ### Validation Pipeline
 
-Every pull request runs three checks:
+Every pull request runs the same combined repository health gate contributors
+should run locally:
+
+```bash
+./scripts/check-all.sh
+```
+
+The command runs `scripts/validate.sh`, `scripts/test-path-resolution.sh`,
+affected plugin tests, and the hook validation suite in sequence. It exits `0`
+only after all checks pass. A non-zero exit stops at the failing layer and fails
+the CI job.
+
+The CI workflows also run repository-specific follow-up checks:
 
 | Check | What it validates |
 |-------|-------------------|
-| `validate.yml` | Plugin manifest schema, required files, JSON validity |
-| `pr-check.yml` | Preview of registry changes on pull requests |
+| `validate.yml` | Combined health gate, registry drift, and handoff path resolver |
+| `pr-check.yml` | Combined health gate, registry drift, handoff path resolver, and pull request registry preview |
 | `update-index.yml` | Auto-regenerates `registry/index.json` on merge to main |
 
-The schema lives in `schemas/plugin.schema.json`. Run `./scripts/validate.sh` locally to catch errors before pushing.
+The schema lives in `schemas/plugin.schema.json`. For quick manifest-only
+iteration, run `./scripts/validate.sh plugins/your-plugin-name`; before
+pushing, run `./scripts/check-all.sh`.
 
 ---
 
