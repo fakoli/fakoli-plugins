@@ -50,7 +50,7 @@ For local marketplace development, work from the repository root and use
 
 ## Workflows
 
-Five workflows, each modeling a different phase of how a systems engineer navigates a problem:
+Six workflows, each modeling a different phase of how a systems engineer navigates a problem:
 
 ### `/complexity-mapper`
 
@@ -71,6 +71,10 @@ Package extracted findings into a stakeholder-ready **Decision Brief** with evid
 ### `/architecture-risk-review`
 
 Focused risk assessment of a specific architecture — failure modes, hidden dependencies, single points of failure, blast radius, operational survivability. The questions a systems engineer asks before signing off on a design. Produces a **Hidden Risk Summary** with architectural focus.
+
+### `/marketplace-migration-review`
+
+Marketplace readiness review for plugin imports — manifest identity, path rewrites, registry metadata, hooks, tests, utilities, assets, and migration notes. Use it before publishing or merging a plugin copied from a standalone repository into a marketplace layout. Produces a **Marketplace Migration Review** with adaptation map, validation results, gaps, and ship recommendation.
 
 ## How it works
 
@@ -332,5 +336,6 @@ and `docs/status-file-template.md` for the template agents use.
 - `examples/usage-scenarios.md` — Worked examples with agent flows
 - `iceberg-banner.png` — README banner image
 - `MIGRATION.md` — Upstream-to-marketplace path and runtime-assumption adaptations
+- `skills/marketplace-migration-review/SKILL.md` — Marketplace import readiness review workflow
 - `utils/` — Deterministic helper scripts for indexing, sharding, prompt building, orchestration, aggregation, and validation
 - `COMPATIBILITY_NOTES.md` — Cursor compatibility notes

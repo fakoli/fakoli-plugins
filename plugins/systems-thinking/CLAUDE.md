@@ -175,6 +175,7 @@ User-curated materials that agents check during analysis:
 | `examples/usage-scenarios.md` | 5 worked examples with agent flows |
 | `iceberg-banner.png` | README banner image |
 | `MIGRATION.md` | Upstream-to-marketplace path and runtime-assumption adaptations |
+| `skills/marketplace-migration-review/SKILL.md` | Marketplace import readiness review workflow |
 | `utils/` | Deterministic helper scripts for indexing, sharding, prompt building, orchestration, aggregation, and validation |
 | `CHANGELOG.md` | Version history (Keep a Changelog format) |
 | `COMPATIBILITY_NOTES.md` | Cursor compatibility notes |

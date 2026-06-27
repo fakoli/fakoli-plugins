@@ -5,6 +5,12 @@ All notable changes to systems-thinking will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.10] - 2026-06-27
+
+### Added
+
+- Added the `marketplace-migration-review` skill for auditing marketplace plugin import readiness, path adaptations, registry metadata, hooks, tests, and assets.
+
 ## [0.3.9] - 2026-06-27
 
 ### Added
