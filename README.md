@@ -15,7 +15,8 @@
 <p align="center">
   A curated collection of battle-tested Claude Code plugins — covering Google Workspace automation,
   AI image generation, text-to-speech, diagram authoring, secure web fetching, and marketplace
-  self-management. Every plugin ships with skills, commands, agents, and CI validation.
+  self-management. The active catalog combines end-user tools, development workflows,
+  durable project state, and CI-validated marketplace practices.
 </p>
 
 ---
@@ -53,7 +54,22 @@ Plugins live in directories with a `.claude-plugin/plugin.json` manifest. The ma
 
 ## The Fakoli Ecosystem
 
-The fakoli trinity — three plugins designed to compose, each useful standalone:
+Fakoli is a coherent plugin marketplace rather than a loose grab bag. It has
+four layers:
+
+- **Work orchestration** — `fakoli-flow`, `fakoli-crew`, and `fakoli-state`
+  define how work is planned, staffed, claimed, verified, and recorded.
+- **Infrastructure judgment** — `systems-thinking` helps teams examine hidden
+  costs, dependencies, caveats, and risks before committing to large changes.
+- **Plugin production practices** — `marketplace-manager`, `cli-to-plugin`,
+  and `fakoli-plugin-critic` help create, validate, review, and maintain
+  Claude Code plugins with repeatable standards.
+- **Daily operator tools** — plugins such as `gws`, `safe-fetch`,
+  `nano-banana-pro`, `handoff`, `quick-notes`, and `session-retro` cover
+  common productivity, media, safety, continuity, and reflection workflows.
+
+At the center is the fakoli trinity — three plugins designed to compose, each
+useful standalone:
 
 | Plugin | Role | What It Does |
 |--------|------|--------------|
@@ -65,9 +81,13 @@ The fakoli trinity — three plugins designed to compose, each useful standalone
 
 A separate companion plugin, [**systems-thinking**](plugins/systems-thinking), runs multi-agent infrastructure analysis (discovery → extraction → synthesis) for decisions that affect the whole system — useful before the trinity starts work, but not part of the core stack.
 
-Install any combination — each works standalone. The full trinity gives you a complete multi-agent development pipeline: intent-driven planning, parallel agent execution against canonical state, and evidence-based verification with enforced claim/lock discipline.
+Install any combination — each works standalone. The full marketplace gives you
+a path from idea to execution: evaluate the system context, plan work, assign it
+to specialists, capture durable handoffs, run safe tool-enabled workflows, and
+verify plugin changes through a shared repository health gate.
 
-How does the trinity compare to Beads, claude-task-master, spec-kit, superpowers, and Claude Code's native Agent Teams? The honest prior-art analysis — what fakoli invented, what it reinvented, and where the moat is — lives in [docs/POSITIONING.md](docs/POSITIONING.md).
+For prior-art context — what fakoli invented, what it reinvented, and where
+the moat is — see [docs/POSITIONING.md](docs/POSITIONING.md).
 
 ---
 
@@ -102,9 +122,18 @@ How does the trinity compare to Beads, claude-task-master, spec-kit, superpowers
 | [**fakoli-crew**](plugins/fakoli-crew) | Summon nine expert agent archetypes — polyglot architect, Staff-Engineer code reviewer, security auditor, API researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — that work independently or as coordinated crews using wave-based orchestration with hook-enforced review gates. |
 | [**fakoli-flow**](plugins/fakoli-flow) | Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with a five-stage pipeline (brainstorm → plan → execute → verify → finish), critic gates, and evidence-based verification. Works best alongside fakoli-crew. |
 | [**fakoli-state**](plugins/fakoli-state) | Local-first, runtime-neutral project state engine for humans and AI coding agents. Turn PRDs into lockable, evidence-backed work packets; coordinate multiple agents without conflicts. Event-sourced JSONL source of truth with a rebuildable SQLite projection, lease-based claims, evidence-gated completion, score-driven task expansion, and bidirectional GitHub Issues sync. |
+| [**systems-thinking**](plugins/systems-thinking) | Analyze infrastructure decisions through discovery, extraction, and synthesis so hidden costs, dependencies, caveats, and risks are visible before implementation. |
 | [**marketplace-manager**](plugins/marketplace-manager) | Create and manage plugins without leaving Claude Code — scaffold new plugins from template with `/add-plugin`, validate manifests, regenerate registry indices, and install GitHub Actions workflows. The tool that maintains this marketplace. |
 | [**fakoli-style**](plugins/fakoli-style) | Governed ledger of the Fakoli operating-model principles — tracks proven, asserted, and aspirational lifecycle statuses and generates a Markdown report from a single canonical source. |
 | [**fakoli-plugin-critic**](plugins/fakoli-plugin-critic) | Five specialist critic agents for Claude Code plugin development — agent-critic (frontmatter/color/tools), skill-critic (lazy-loading/no-fuzzy-detection), hook-critic (contract-aware/${CLAUDE_PLUGIN_ROOT}), mcp-critic (schema/actor-validation), structure-critic (manifest/CHANGELOG/version-sync). Audit any plugin with MUST FIX / SHOULD FIX / CONSIDER / NIT verdicts. |
+
+### Continuity & Personal Workflow
+
+| Plugin | Description |
+|--------|-------------|
+| [**handoff**](plugins/handoff) | Store durable cross-session project handoff notes shared across same-remote checkouts. |
+| [**quick-notes**](plugins/quick-notes) | Capture, search, edit, and export dictation-friendly personal notes. |
+| [**session-retro**](plugins/session-retro) | Analyze local Claude Code and Codex session logs into actionable retrospectives. |
 
 ---
 
@@ -237,7 +266,7 @@ pushing, run `./scripts/check-all.sh`.
 fakoli-plugins/
 ├── .claude-plugin/          # Marketplace-level manifest
 ├── .github/workflows/       # CI: validate, update-index, pr-check, schema-drift
-├── plugins/                 # All active plugins (13)
+├── plugins/                 # All active plugins (17)
 ├── archive/                 # Archived / deprecated plugins
 ├── registry/                # Auto-generated plugin index (do not edit manually)
 ├── schemas/                 # JSON Schema definitions for manifests
