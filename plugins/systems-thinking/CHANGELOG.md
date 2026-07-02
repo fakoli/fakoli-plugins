@@ -5,6 +5,17 @@ All notable changes to systems-thinking will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.11] - 2026-07-02
+
+### Fixed
+
+- `user-prompt-gate.sh` timed out (5s) on every prompt under Git Bash on Windows, where each subprocess spawn costs 100-700ms. Rewrote the hook scripts to be spawn-frugal: one `jq` call instead of two, pure-bash component discovery (no `ls|tr|sed` pipeline), parameter expansion instead of `$(cd ... && pwd)`, bash regex matching instead of piped `grep`, and builtin `read` instead of `cat`. Measured 2.98s → 0.71s per invocation on Windows.
+- Removed the per-invocation `command -v jq` PATH walk (~0.6s on Windows); a missing `jq` now falls through to silent approval directly at the extraction call.
+
+### Changed
+
+- Raised hook timeouts as headroom for slow-spawn environments (cold starts, antivirus scans): UserPromptSubmit 5s → 15s, Stop 10s → 20s, SessionStart 5s → 15s.
+
 ## [0.3.10] - 2026-06-27
 
 ### Added
