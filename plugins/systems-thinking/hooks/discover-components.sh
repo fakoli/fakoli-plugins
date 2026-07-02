@@ -6,27 +6,32 @@
 #   SKILL_NAMES        — pipe-delimited skill directory names (e.g. "complexity-mapper|decision-brief|...")
 #   AGENT_NAMES        — pipe-delimited agent file names without .md (e.g. "doc-reader|caveat-extractor|...")
 #   INVOCATION_PATTERNS — regex matching actual agent/skill invocations in transcript JSON
+#
+# Uses only bash builtins (globs + parameter expansion). This file is sourced
+# by hooks that run on every user prompt, and under Git Bash on Windows each
+# subprocess spawn costs 100-700ms — an ls|tr|sed pipeline here was enough to
+# blow the UserPromptSubmit hook timeout.
 
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-
-# jq is required for parsing hook stdin JSON. If missing, set a flag so
-# callers can decide how to handle it (approve silently vs warn).
-JQ_AVAILABLE=true
-if ! command -v jq > /dev/null 2>&1; then
-  JQ_AVAILABLE=false
-fi
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-${BASH_SOURCE[0]%/*}/..}"
 
 # Discover skills from skills/ subdirectories
 SKILL_NAMES=""
-if [ -d "$PLUGIN_ROOT/skills" ]; then
-  SKILL_NAMES=$(ls -1 "$PLUGIN_ROOT/skills" 2>/dev/null | tr '\n' '|' | sed 's/|$//')
-fi
+for _d in "$PLUGIN_ROOT/skills"/*/; do
+  [ -d "$_d" ] || continue
+  _d="${_d%/}"
+  SKILL_NAMES="${SKILL_NAMES}|${_d##*/}"
+done
+SKILL_NAMES="${SKILL_NAMES#|}"
 
 # Discover agents from agents/*.md files (strip .md extension)
 AGENT_NAMES=""
-if [ -d "$PLUGIN_ROOT/agents" ]; then
-  AGENT_NAMES=$(ls -1 "$PLUGIN_ROOT/agents" 2>/dev/null | sed 's/\.md$//' | tr '\n' '|' | sed 's/|$//')
-fi
+for _f in "$PLUGIN_ROOT/agents"/*.md; do
+  [ -f "$_f" ] || continue
+  _f="${_f##*/}"
+  AGENT_NAMES="${AGENT_NAMES}|${_f%.md}"
+done
+AGENT_NAMES="${AGENT_NAMES#|}"
+unset _d _f
 
 # Build invocation patterns for transcript matching (actual tool calls, not mentions)
 INVOCATION_PATTERNS='"subagent_type"\s*:\s*"systems-thinking:|"skill"\s*:\s*"systems-thinking:'

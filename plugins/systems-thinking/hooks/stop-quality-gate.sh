@@ -6,21 +6,26 @@
 # Checks the transcript for actual tool invocations (not casual mentions).
 # Exit 0 = approve (no quality check needed)
 # Exit 2 + stderr = block (quality sections missing)
+#
+# Spawn-frugal: bash builtins plus a single jq call and the transcript grep
+# (each subprocess costs 100-700ms under Git Bash on Windows).
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Parameter expansion instead of $(cd ... && pwd) — avoids two subshell spawns
+SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
+[ "$SCRIPT_DIR" = "${BASH_SOURCE[0]}" ] && SCRIPT_DIR="."
 source "$SCRIPT_DIR/discover-components.sh"
 
-# jq is required to parse hook input — approve silently if missing
-# (SessionStart hook will have already warned the user)
-if [ "$JQ_AVAILABLE" = "false" ]; then
-  exit 0
-fi
+# Read all of stdin without spawning cat (read returns non-zero at EOF)
+IFS= read -r -d '' input || true
 
-input=$(cat)
-transcript_path=$(echo "$input" | jq -r '.transcript_path // empty')
-last_assistant_message=$(echo "$input" | jq -r '.last_assistant_message // empty')
+# One jq call extracts both fields; @tsv escapes embedded tabs/newlines so
+# `read` consumes exactly one line. Escaped newlines do not affect the
+# word-presence checks below. If jq is missing or parsing fails, approve
+# silently (the SessionStart hook has already warned about missing jq).
+fields=$(jq -r '[(.transcript_path // ""), (.last_assistant_message // "")] | @tsv' <<< "$input" 2>/dev/null) || exit 0
+IFS=$'\t' read -r transcript_path last_assistant_message <<< "$fields"
 
 # If no transcript available, approve silently
 if [ -z "$transcript_path" ] || [ ! -f "$transcript_path" ]; then
@@ -34,10 +39,11 @@ if ! grep -qE "$INVOCATION_PATTERNS" "$transcript_path" 2>/dev/null; then
 fi
 
 # Systems-thinking was invoked — check for required quality sections
+shopt -s nocasematch
 has_quality_signal() {
   local pattern="$1"
   if [ -n "$last_assistant_message" ]; then
-    printf '%s\n' "$last_assistant_message" | grep -qiE "$pattern" 2>/dev/null
+    [[ "$last_assistant_message" =~ $pattern ]]
   else
     grep -qiE "$pattern" "$transcript_path" 2>/dev/null
   fi
