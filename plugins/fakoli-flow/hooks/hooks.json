@@ -1,5 +1,4 @@
 {
-  "description": "Detects project context at session start; mechanically enforces the critic gate during /flow:execute runs",
   "hooks": {
     "SessionStart": [
       {

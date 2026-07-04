@@ -548,7 +548,7 @@ wheels = [
 
 [[package]]
 name = "fakoli-state"
-version = "1.23.1"
+version = "1.23.3"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },

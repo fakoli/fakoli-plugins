@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.3 — 2026-07-04
+
+### Fixed
+- Removed unsupported top-level hook metadata from `hooks/hooks.json` so runtime hook loaders accept the plugin configuration.
+
 ## 1.1.2 — 2026-06-26
 
 ### Fixed

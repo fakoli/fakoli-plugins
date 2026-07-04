@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.6 (2026-07-04)
+
+### Fixed
+- Removed unsupported top-level hook metadata from `hooks/hooks.json` so runtime hook loaders accept the flow context and critic-gate hooks.
+
+---
+
 ## 1.3.5 (2026-06-26)
 
 ### Fixed

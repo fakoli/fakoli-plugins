@@ -386,6 +386,24 @@ validate_hook_safety() {
         return 1
     fi
 
+    # Runtime hook loaders are stricter than the docs once implied: the root
+    # object must contain only "hooks". Metadata such as "description" is
+    # rejected before hook review.
+    local unsupported_root_fields
+    unsupported_root_fields=$(jq -r 'keys | map(select(. != "hooks")) | .[]' "$hooks_file" 2>/dev/null)
+    if [[ -n "$unsupported_root_fields" ]]; then
+        local field
+        for field in $unsupported_root_fields; do
+            log_error "[$plugin_name] hooks file has unsupported top-level field '$field' — runtime hook loaders expect only 'hooks'"
+        done
+        return 1
+    fi
+
+    if [[ "$(jq -r 'has("hooks")' "$hooks_file" 2>/dev/null)" != "true" ]]; then
+        log_error "[$plugin_name] hooks file missing required top-level 'hooks' object"
+        return 1
+    fi
+
     # Check each event type for safety issues
     local events
     events=$(jq -r '.hooks | keys[]' "$hooks_file" 2>/dev/null) || return 0

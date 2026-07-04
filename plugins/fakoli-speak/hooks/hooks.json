@@ -1,5 +1,4 @@
 {
-  "description": "Autospeak — automatically read responses aloud when enabled",
   "hooks": {
     "Stop": [
       {

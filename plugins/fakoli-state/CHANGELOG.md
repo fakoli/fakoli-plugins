@@ -10,6 +10,14 @@ _No unreleased changes._
 
 ---
 
+## [1.23.3] — 2026-07-04
+
+### Fixed
+
+- Removed unsupported top-level hook metadata from `hooks/hooks.json` so runtime hook loaders accept the project-state hook configuration.
+
+---
+
 ## [1.23.2] — 2026-06-26
 
 ### Fixed

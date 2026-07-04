@@ -2,18 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fakoli-plugins.github.io/schemas/hooks.schema.json",
   "title": "Claude Code Hooks Configuration",
-  "description": "Schema for hooks.json — based on https://code.claude.com/docs/en/hooks",
+  "description": "Schema for hooks.json — based on https://code.claude.com/docs/en/hooks. Runtime hook loaders require the root object to contain only hooks.",
   "type": "object",
   "additionalProperties": false,
+  "required": ["hooks"],
   "properties": {
-    "description": {
-      "type": "string",
-      "description": "Human-readable description of this hooks configuration"
-    },
-    "disableAllHooks": {
-      "type": "boolean",
-      "description": "Disable all hooks in this file"
-    },
     "hooks": {
       "type": "object",
       "description": "Map of event names to arrays of hook entries",

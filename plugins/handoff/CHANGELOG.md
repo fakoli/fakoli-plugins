@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Removed unsupported top-level hook metadata from `hooks/hooks.json` so runtime hook loaders accept the session-start handoff hook.
+
 ## 0.1.3
 
 - Replace unsupported `author.github` manifest metadata with `author.url`.
