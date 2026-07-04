@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.0.2 — 2026-07-04
+- Removed unsupported top-level hook metadata from `hooks/hooks.json` so runtime hook loaders accept the autospeak hook configuration.
+
 ## 2.0.1 — 2026-06-26
 - Fix `/voices` documentation to use the implemented OpenAI voice env var, `OPENAI_TTS_VOICE`.
 - Sync release notes with marketplace metadata after the active-plugin audit pass.

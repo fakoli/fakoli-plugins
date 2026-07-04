@@ -1,5 +1,4 @@
 {
-  "description": "Cross-session, cross-worktree project handoff — prints a resume banner at session start.",
   "hooks": {
     "SessionStart": [
       {

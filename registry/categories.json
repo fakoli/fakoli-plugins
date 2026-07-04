@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T23:35:05Z",
+  "generatedAt": "2026-07-04T23:47:33Z",
   "categories": [
     {
       "category": "development",
@@ -73,7 +73,7 @@
         },
         {
           "name": "fakoli-speak",
-          "version": "2.0.1",
+          "version": "2.0.2",
           "description": "Stream Claude Code text-to-speech through multiple providers with cost tracking.",
           "path": "plugins/fakoli-speak"
         },
@@ -91,7 +91,7 @@
       "plugins": [
         {
           "name": "handoff",
-          "version": "0.1.3",
+          "version": "0.1.4",
           "description": "Store durable cross-session project handoff notes shared across same-remote checkouts.",
           "path": "plugins/handoff"
         },
@@ -115,7 +115,7 @@
       "plugins": [
         {
           "name": "safe-fetch",
-          "version": "1.1.2",
+          "version": "1.1.3",
           "description": "Sanitize fetched web content before it reaches Claude Code.",
           "path": "plugins/safe-fetch"
         }
@@ -139,13 +139,13 @@
       "plugins": [
         {
           "name": "fakoli-flow",
-          "version": "1.3.5",
+          "version": "1.3.6",
           "description": "Orchestrate brainstorm, planning, and execution workflows through coordinated agents and critic gates.",
           "path": "plugins/fakoli-flow"
         },
         {
           "name": "fakoli-state",
-          "version": "1.23.2",
+          "version": "1.23.3",
           "description": "Turn PRDs into lockable, evidence-backed work packets for humans and coding agents.",
           "path": "plugins/fakoli-state"
         }

@@ -7,7 +7,7 @@
 > fakoli-state turns rough ideas and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI coding agents can execute in parallel without stepping on each other — the canonical project-state layer that fakoli-flow and fakoli-crew compose around.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.23.2-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.23.3-blue.svg)](.claude-plugin/plugin.json)
 [![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
 [![Tests](https://img.shields.io/badge/tests-1103%20passing-brightgreen.svg)](tests)
 
@@ -31,7 +31,7 @@ fakoli-flow defines how work moves, fakoli-crew defines who does the work, and f
 
 ---
 
-## What ships today (v1.23.2)
+## What ships today (v1.23.3)
 
 | Surface | Count | Notes |
 |---|---|---|

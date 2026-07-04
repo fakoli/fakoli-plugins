@@ -133,7 +133,35 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Test 3: PreToolUse with matcher + hooks wrapper → pass
+# Test 3: Top-level metadata in hooks.json → ERROR
+# ─────────────────────────────────────────────
+
+fixture=$(make_fixture "top-level-description" '{
+  "description": "Human-readable hook metadata",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo hello",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}')
+
+output=$(run_validate "$fixture")
+if echo "$output" | grep -q "unsupported top-level field 'description'"; then
+    pass "Catches unsupported top-level hook metadata"
+else
+    fail "Should catch unsupported top-level hook metadata" "Output: $(echo "$output" | grep -i 'error\|description\|top-level')"
+fi
+
+# ─────────────────────────────────────────────
+# Test 4: PreToolUse with matcher + hooks wrapper → pass
 # ─────────────────────────────────────────────
 
 fixture=$(make_fixture "pretooluse-matcher" '{
@@ -161,7 +189,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Test 4: PreToolUse without matcher → WARN
+# Test 5: PreToolUse without matcher → WARN
 # ─────────────────────────────────────────────
 
 fixture=$(make_fixture "pretooluse-no-matcher" '{
@@ -188,7 +216,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Test 5: Empty hooks array → ERROR
+# Test 6: Empty hooks array → ERROR
 # ─────────────────────────────────────────────
 
 fixture=$(make_fixture "empty-hooks-array" '{
@@ -213,7 +241,7 @@ echo ""
 echo "--- Safety Tests ---"
 
 # ─────────────────────────────────────────────
-# Test 6: Command hook without timeout → WARN
+# Test 7: Command hook without timeout → WARN
 # ─────────────────────────────────────────────
 
 fixture=$(make_fixture "no-timeout" '{
@@ -239,7 +267,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Test 7: prompt-type on UserPromptSubmit → ERROR
+# Test 8: prompt-type on UserPromptSubmit → ERROR
 # ─────────────────────────────────────────────
 
 fixture=$(make_fixture "prompt-userprompt" '{
@@ -266,7 +294,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Test 8: prompt-type on PreToolUse without matcher → ERROR
+# Test 9: prompt-type on PreToolUse without matcher → ERROR
 # ─────────────────────────────────────────────
 
 fixture=$(make_fixture "prompt-pretooluse-no-matcher" '{
@@ -293,7 +321,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Test 9: set -e in hook script → WARN
+# Test 10: set -e in hook script → WARN
 # ─────────────────────────────────────────────
 
 fixture=$(make_fixture "set-e-script" '{
@@ -332,7 +360,7 @@ echo ""
 echo "--- Manifest Tests ---"
 
 # ─────────────────────────────────────────────
-# Test 10: $schema in plugin.json → ERROR
+# Test 11: $schema in plugin.json → ERROR
 # ─────────────────────────────────────────────
 
 fixture=$(make_fixture "schema-in-manifest" '{"hooks":{}}' '{
@@ -350,7 +378,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Test 11: Missing hook script → ERROR
+# Test 12: Missing hook script → ERROR
 # ─────────────────────────────────────────────
 
 fixture=$(make_fixture "missing-script" '{
@@ -382,7 +410,7 @@ echo ""
 echo "--- Real Plugin Tests ---"
 
 # ─────────────────────────────────────────────
-# Test 12: Validate all real plugins pass
+# Test 13: Validate all real plugins pass
 # ─────────────────────────────────────────────
 
 full_output=$("$VALIDATE" 2>&1) || true
