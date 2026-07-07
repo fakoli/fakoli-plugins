@@ -2,6 +2,9 @@
 
 ## 0.1.4
 
+- Add a shell-free Python SessionStart hook that emits the required
+  Codex/Claude SessionStart JSON envelope and avoids the Windows `bash.exe` WSL
+  launcher timeout.
 - Removed unsupported top-level hook metadata from `hooks/hooks.json` so runtime hook loaders accept the session-start handoff hook.
 
 ## 0.1.3
