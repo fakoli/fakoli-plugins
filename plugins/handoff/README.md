@@ -22,8 +22,10 @@ note.
   not the repo), project-scoped, independent of Claude Code's internal slugs.
   `<repo-key>` is derived from the normalized `origin` remote when available, or
   from the repo root for local-only repos.
-- **SessionStart hook** (`hooks/session-start.sh`) — prints the handoff as a
-  resume banner at the start of every session (quiet if none exists).
+- **SessionStart hook** (`hooks/session-start.py`, with
+  `hooks/session-start.sh` kept as the legacy shell wrapper) — injects the
+  handoff as a resume banner at the start of every session (quiet if none
+  exists). The hook emits Codex/Claude SessionStart JSON on stdout.
 - **`/handoff:handoff [summary]`** — save/refresh the resume note.
 - **`/handoff:recall`** — show it on demand.
 - **`scripts/handoff-path.sh`** — the single source of truth for path
