@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-07-04T23:47:33Z",
+  "generatedAt": "2026-07-08T16:24:51Z",
   "categories": [
     {
       "category": "development",
-      "count": 4,
+      "count": 5,
       "plugins": [
         {
           "name": "cli-to-plugin",
@@ -28,6 +28,12 @@
           "version": "1.2.4",
           "description": "Manage marketplace plugins, validate manifests, and regenerate registry indices.",
           "path": "plugins/marketplace-manager"
+        },
+        {
+          "name": "ship-task",
+          "version": "1.0.0",
+          "description": "The mechanical tail of a one-PR-per-task loop as a single command: after review passes, push the branch, open a PR, wait for CI, squash-merge and delete the branch, sync the base, and optionally run a post-merge command (e.g. `anvil apply`). Keeps the repetitive git/gh/CI/merge dance out of the context window; makes no review decisions and stops if CI fails.",
+          "path": "plugins/ship-task"
         }
       ]
     },

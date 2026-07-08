@@ -126,6 +126,7 @@ the moat is — see [docs/POSITIONING.md](docs/POSITIONING.md).
 | [**marketplace-manager**](plugins/marketplace-manager) | Create and manage plugins without leaving Claude Code — scaffold new plugins from template with `/add-plugin`, validate manifests, regenerate registry indices, and install GitHub Actions workflows. The tool that maintains this marketplace. |
 | [**fakoli-style**](plugins/fakoli-style) | Governed ledger of the Fakoli operating-model principles — tracks proven, asserted, and aspirational lifecycle statuses and generates a Markdown report from a single canonical source. |
 | [**fakoli-plugin-critic**](plugins/fakoli-plugin-critic) | Five specialist critic agents for Claude Code plugin development — agent-critic (frontmatter/color/tools), skill-critic (lazy-loading/no-fuzzy-detection), hook-critic (contract-aware/${CLAUDE_PLUGIN_ROOT}), mcp-critic (schema/actor-validation), structure-critic (manifest/CHANGELOG/version-sync). Audit any plugin with MUST FIX / SHOULD FIX / CONSIDER / NIT verdicts. |
+| [**ship-task**](plugins/ship-task) | The mechanical tail of a one-PR-per-task loop, as a single command. After review passes, `/ship` pushes the branch, opens a PR, waits for CI, squash-merges and deletes the branch, syncs the base, and optionally runs a post-merge step (e.g. `anvil apply`) — keeping the repetitive git/gh/CI/merge dance out of the context window. Makes no review decisions; stops if CI fails. |
 
 ### Continuity & Personal Workflow
 
