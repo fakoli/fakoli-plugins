@@ -1,12 +1,22 @@
 {
   "name": "ship-task",
-  "version": "1.0.0",
-  "description": "The mechanical tail of a one-PR-per-task loop, as a single command. After your review passes, ship pushes the current branch, opens a PR, waits for CI to reach a terminal state, squash-merges and deletes the branch, syncs the base, and optionally runs a post-merge command (e.g. `anvil apply`). Makes no review decisions and stops if CI fails — built to keep the repetitive git/gh/CI/merge dance out of an agent's context window.",
+  "version": "1.0.1",
+  "description": "The mechanical tail of a one-PR-per-task loop, as a single command. After your review passes, ship pushes the current branch, opens a PR, waits for CI to reach a terminal state, squash-merges and deletes the branch, syncs the base, and optionally runs a post-merge command (e.g. `anvil apply`). Makes no review decisions and stops if CI fails \u2014 built to keep the repetitive git/gh/CI/merge dance out of an agent's context window.",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"
   },
   "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT",
-  "keywords": ["git", "github", "pull-request", "ci", "merge", "workflow", "automation", "ship", "productivity"]
+  "keywords": [
+    "git",
+    "github",
+    "pull-request",
+    "ci",
+    "merge",
+    "workflow",
+    "automation",
+    "ship",
+    "productivity"
+  ]
 }
