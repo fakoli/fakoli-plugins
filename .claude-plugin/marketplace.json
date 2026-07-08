@@ -175,6 +175,13 @@
       "description": "Analyze infrastructure decisions for hidden costs, dependencies, caveats, and risks.",
       "category": "knowledge",
       "source": "./plugins/systems-thinking"
+    },
+    {
+      "name": "ship-task",
+      "version": "1.0.0",
+      "description": "The mechanical tail of a one-PR-per-task loop as a single command: after review passes, push the branch, open a PR, wait for CI, squash-merge and delete the branch, sync the base, and optionally run a post-merge command (e.g. `anvil apply`). Keeps the repetitive git/gh/CI/merge dance out of the context window; makes no review decisions and stops if CI fails.",
+      "category": "development",
+      "source": "./plugins/ship-task"
     }
   ]
 }

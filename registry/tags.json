@@ -1,7 +1,37 @@
 {
-  "generatedAt": "2026-06-26T17:33:15Z",
-  "totalTags": 134,
+  "generatedAt": "2026-07-08T16:20:22Z",
+  "totalTags": 140,
   "tags": [
+    {
+      "tag": "automation",
+      "count": 4,
+      "plugins": [
+        "cli-to-plugin",
+        "gws",
+        "notebooklm-enhanced",
+        "ship-task"
+      ]
+    },
+    {
+      "tag": "productivity",
+      "count": 4,
+      "plugins": [
+        "gws",
+        "quick-notes",
+        "session-retro",
+        "ship-task"
+      ]
+    },
+    {
+      "tag": "workflow",
+      "count": 4,
+      "plugins": [
+        "fakoli-crew",
+        "fakoli-flow",
+        "gws",
+        "ship-task"
+      ]
+    },
     {
       "tag": "agents",
       "count": 3,
@@ -21,15 +51,6 @@
       ]
     },
     {
-      "tag": "automation",
-      "count": 3,
-      "plugins": [
-        "cli-to-plugin",
-        "gws",
-        "notebooklm-enhanced"
-      ]
-    },
-    {
       "tag": "code-review",
       "count": 3,
       "plugins": [
@@ -45,24 +66,6 @@
         "fakoli-plugin-critic",
         "fakoli-state",
         "safe-fetch"
-      ]
-    },
-    {
-      "tag": "productivity",
-      "count": 3,
-      "plugins": [
-        "gws",
-        "quick-notes",
-        "session-retro"
-      ]
-    },
-    {
-      "tag": "workflow",
-      "count": 3,
-      "plugins": [
-        "fakoli-crew",
-        "fakoli-flow",
-        "gws"
       ]
     },
     {
@@ -172,6 +175,13 @@
       "count": 1,
       "plugins": [
         "gws"
+      ]
+    },
+    {
+      "tag": "ci",
+      "count": 1,
+      "plugins": [
+        "ship-task"
       ]
     },
     {
@@ -399,6 +409,20 @@
       ]
     },
     {
+      "tag": "git",
+      "count": 1,
+      "plugins": [
+        "ship-task"
+      ]
+    },
+    {
+      "tag": "github",
+      "count": 1,
+      "plugins": [
+        "ship-task"
+      ]
+    },
+    {
       "tag": "gmail",
       "count": 1,
       "plugins": [
@@ -553,6 +577,13 @@
       ]
     },
     {
+      "tag": "merge",
+      "count": 1,
+      "plugins": [
+        "ship-task"
+      ]
+    },
+    {
       "tag": "modelarmor",
       "count": 1,
       "plugins": [
@@ -700,6 +731,13 @@
       ]
     },
     {
+      "tag": "pull-request",
+      "count": 1,
+      "plugins": [
+        "ship-task"
+      ]
+    },
+    {
       "tag": "quiz",
       "count": 1,
       "plugins": [
@@ -802,6 +840,13 @@
       "count": 1,
       "plugins": [
         "gws"
+      ]
+    },
+    {
+      "tag": "ship",
+      "count": 1,
+      "plugins": [
+        "ship-task"
       ]
     },
     {
