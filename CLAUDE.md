@@ -247,18 +247,23 @@ See `docs/TESTING_STANDARDS.md` for full testing guidance, including hook testin
 - Command files link to README sections instead of duplicating content
 
 ### Versioning (CRITICAL)
-- **ALWAYS bump the version** in `.claude-plugin/plugin.json` whenever ANY file in a plugin changes — even metadata-only or docs-only changes
-- Before committing, check which plugins have modified files (`git diff --name-only plugins/`) and bump the patch version for each affected plugin
-- Follow semver: patch for fixes, minor for features, major for breaking changes
-- After bumping versions, run `./scripts/generate-index.sh` to update the registry with new versions
-- Plugin consumers use the version to detect updates — unchanged versions mean cached copies are never refreshed
+- **ALWAYS bump the version** whenever ANY file in a plugin changes — even metadata-only or docs-only changes. Plugin consumers use the version to detect updates; an unchanged version means cached copies are never refreshed.
+- **Use `scripts/bump-plugin.sh` — never bump by hand.** A plugin's version lives in its `plugin.json`, and `generate-index.sh` *derives* the `marketplace.json` version and `registry/*.json` from it. Bumping `plugin.json` but forgetting to regenerate, or staging only some of the outputs, leaves the three sources out of sync and the **registry-drift CI gate rejects it**. The helper does the whole lockstep from one command and **stages the complete set** so a partial `git add` can't drift them:
+
+  ```bash
+  scripts/bump-plugin.sh <name> patch --dry-run   # preview
+  scripts/bump-plugin.sh <name> minor             # bump plugin.json, regenerate
+                                                  # marketplace.json + registry,
+                                                  # verify drift + validate, stage all
+  ```
+
+  It works the same under Claude, Codex, or a plain shell (bash + jq + python3). Follow semver: patch for fixes, minor for features, major for breaking changes.
 
 ### Existing Plugin Change Checklist
 When modifying ANY file in an existing plugin, ALWAYS complete these steps before committing:
-1. **Bump the version** in `.claude-plugin/plugin.json` (patch for fixes, minor for features)
-2. Run `./scripts/generate-index.sh` to update registry with new version
-3. Run `./scripts/validate.sh plugins/<name>` to validate
-4. Run `./scripts/test-path-resolution.sh plugins/<name>` to deep scan
+1. **`scripts/bump-plugin.sh <name> <patch|minor|major>`** — bumps `plugin.json`, regenerates `marketplace.json` + `registry/`, verifies (drift + validate), and stages the complete set.
+2. Add a `plugins/<name>/CHANGELOG.md` entry for the new version (the helper reminds you; it does not write it).
+3. Run `./scripts/test-path-resolution.sh plugins/<name>` to deep scan (not covered by the helper's `validate.sh` step).
 
 ### Keeping Sources in Sync
 
