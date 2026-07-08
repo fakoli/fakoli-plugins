@@ -354,6 +354,28 @@ validate_component_paths() {
         fi
     fi
 
+    # Frontmatter YAML validity for skills + commands. The JSON/path checks
+    # above never parse the `--- ... ---` block, so a malformed skill/command
+    # frontmatter (which Claude Code silently ignores) would otherwise pass.
+    local fm_linter="$SCRIPT_DIR/lint-frontmatter.py"
+    if command -v python3 &>/dev/null && [[ -f "$fm_linter" ]]; then
+        local fm_files=()
+        while IFS= read -r f; do fm_files+=("$f"); done < <(
+            find "$plugin_dir/skills" "$plugin_dir/commands" -type f -name "*.md" 2>/dev/null
+        )
+        if [[ ${#fm_files[@]} -gt 0 ]]; then
+            local fm_out
+            if fm_out=$(python3 "$fm_linter" "${fm_files[@]}" 2>/dev/null); then
+                log_success "[$plugin_name] Skill/command frontmatter is valid YAML"
+            else
+                while IFS= read -r line; do
+                    [[ -n "$line" ]] && log_error "[$plugin_name] frontmatter: $line"
+                done <<< "$fm_out"
+                has_errors=1
+            fi
+        fi
+    fi
+
     return $has_errors
 }
 
