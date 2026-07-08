@@ -188,7 +188,15 @@ CI="skipped"
 if ! $NO_WAIT; then
   say "waiting for CI (poll ${POLL_SECS}s, timeout ${TIMEOUT_SECS}s) ..."
   waited=0
+  empty_waited=0
   failing=""
+  # A freshly-opened PR reports NO checks for a few seconds while GitHub
+  # registers its workflows. Treating that initial emptiness as "no CI" would
+  # merge before CI even starts (the whole point is to wait). So distinguish
+  # "not registered yet" from "this repo has no CI" with a grace window: only
+  # after CHECK_GRACE_SECS of continuous emptiness do we conclude there is none.
+  grace="${CHECK_GRACE_SECS:-60}"
+  reg_poll=10
   while :; do
     # Structured status: one "<bucket>\t<name>" line per check. `bucket` is
     # gh's own classification (pass|fail|pending|skipping|cancel) — far more
@@ -196,8 +204,11 @@ if ! $NO_WAIT; then
     # "test-failover" would otherwise read as a failure.
     rows="$(_gh pr checks "$PR_NUM" --json bucket,name -q '.[] | "\(.bucket)\t\(.name)"' 2>/dev/null)"
     if [ -z "$rows" ]; then
-      # No checks configured on this repo/PR → nothing to gate on.
-      CI="none"; break
+      if [ "$empty_waited" -ge "$grace" ]; then
+        CI="none"; break            # grace elapsed with no checks → genuinely no CI
+      fi
+      [ "$empty_waited" -eq 0 ] && say "no checks yet — waiting up to ${grace}s for CI to register ..."
+      sleep "$reg_poll"; empty_waited=$((empty_waited + reg_poll)); waited=$((waited + reg_poll)); continue
     fi
     if printf '%s\n' "$rows" | grep -q '^pending'; then
       [ "$waited" -ge "$TIMEOUT_SECS" ] && { CI="timeout"; break; }

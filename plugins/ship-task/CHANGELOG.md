@@ -2,6 +2,17 @@
 
 All notable changes to the ship-task plugin are documented here.
 
+## [1.0.1] - 2026-07-08
+
+### Fixed
+
+- CI-registration race: a freshly-opened PR reports no checks for a few seconds
+  while GitHub registers its workflows. ship treated that initial emptiness as
+  "no CI" and merged immediately — before CI ran (caught dogfooding on a repo
+  whose test job took ~3 min to start). A grace window (`CHECK_GRACE_SECS`,
+  default 60s) now distinguishes "not registered yet" from "repo has no CI", so
+  ship waits for checks to appear before concluding there are none.
+
 ## [1.0.0] - 2026-07-08
 
 ### Added
