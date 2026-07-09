@@ -107,6 +107,26 @@ PY
 [ $? -eq 0 ] || die "failed to edit plugin.json"
 say "plugin.json -> $NEW"
 
+# --- 1b. mirror the bump into any parallel harness manifests (same recipe) ---
+# Plugins that also ship a Codex-native manifest (.codex-plugin/plugin.json)
+# duplicate the version field; bumping only the Claude manifest would ship a
+# silent cross-harness version drift.
+for ALT in "$ROOT_DIR/plugins/$PLUGIN/.codex-plugin/plugin.json"            "$ROOT_DIR/plugins/$PLUGIN/.cursor-plugin/plugin.json"; do
+  [ -f "$ALT" ] || continue
+  python3 - "$ALT" "$CUR" "$NEW" <<'PY2'
+import re, sys
+path, cur, new = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(path, encoding="utf-8").read()
+pat = r'("version"\s*:\s*")' + re.escape(cur) + r'(")'
+out, n = re.subn(pat, r"\g<1>" + new + r"\g<2>", text, count=1)
+if n != 1:
+    sys.exit(f"could not rewrite version in {path} (was it already drifted from the Claude manifest?)")
+open(path, "w", encoding="utf-8").write(out)
+PY2
+  [ $? -eq 0 ] || die "failed to mirror version into ${ALT#$ROOT_DIR/}"
+  say "${ALT#$ROOT_DIR/plugins/$PLUGIN/} -> $NEW"
+done
+
 # --- 2. regenerate the DERIVED files (marketplace.json versions + registry/*) ---
 say "regenerating marketplace.json + registry ..."
 "$SCRIPT_DIR/generate-index.sh" >/dev/null 2>&1 || die "generate-index.sh failed" 1

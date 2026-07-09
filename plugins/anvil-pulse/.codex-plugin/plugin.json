@@ -1,0 +1,18 @@
+{
+  "name": "anvil-pulse",
+  "version": "1.0.0",
+  "description": "Live operator dashboard for long autonomous anvil runs: claims, phases, lease countdowns, event feed, and stuck-state detection served as a local web page, plus an optional Claude Code statusline segment.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "anvil",
+    "dashboard",
+    "heartbeat",
+    "monitoring"
+  ],
+  "skills": "./skills"
+}
