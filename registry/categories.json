@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T17:33:00Z",
+  "generatedAt": "2026-07-09T16:49:51Z",
   "categories": [
     {
       "category": "development",
@@ -141,8 +141,14 @@
     },
     {
       "category": "workflow",
-      "count": 2,
+      "count": 3,
       "plugins": [
+        {
+          "name": "anvil-pulse",
+          "version": "0.1.0",
+          "description": "Live operator dashboard for long autonomous anvil runs: claims, phases, lease countdowns, event feed, and stuck-state detection.",
+          "path": "plugins/anvil-pulse"
+        },
         {
           "name": "fakoli-flow",
           "version": "1.3.6",

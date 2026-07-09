@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>anvil pulse</title>
+<style>
+:root {
+  --surface: #fcfcfb;
+  --plane: #f9f9f7;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --line: #e1e0d9;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1a1a19;
+    --plane: #0d0d0d;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --line: #2c2c2a;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+}
+.wrap { max-width: 1100px; margin: 0 auto; padding: 20px 20px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 16px; }
+header h1 { font-size: 20px; margin: 0; }
+header .project { color: var(--ink-2); font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+header .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+.badge-conn { font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-2); }
+.badge-conn.down { border-color: var(--critical); color: var(--critical); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.tile strong { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.tile span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 22px 0 10px; }
+.claims { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.claim { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.claim .row1 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.claim .task { font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
+.claim .actor { color: var(--ink-2); font-size: 12px; }
+.claim .phase { font-size: 13px; margin: 2px 0 8px; color: var(--ink-2); }
+.claim .phase b { color: var(--ink); font-weight: 600; }
+.claim .nums { display: flex; gap: 16px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.claim .nums b { color: var(--ink-2); font-weight: 600; }
+.claim .nums .lease-low b { color: var(--critical); }
+.status { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.status .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.s-healthy .dot { background: var(--good); }
+.s-quiet .dot { background: var(--warning); }
+.s-possibly-wedged .dot { background: var(--serious); }
+.s-lease-expired .dot { background: var(--critical); }
+.s-possibly-wedged, .s-lease-expired { font-weight: 600; }
+.empty { color: var(--muted); background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 18px; text-align: center; }
+table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+th, td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--line); font-size: 12.5px; }
+th { border-top: 0; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+td.t-time { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+td.t-action { font-family: ui-monospace, Consolas, monospace; }
+td.t-notes { color: var(--ink-2); max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.warnings { margin: 14px 0 0; }
+.warnings div { color: var(--ink-2); background: var(--surface); border: 1px solid var(--warning); border-radius: 6px; padding: 6px 10px; font-size: 12.5px; margin-bottom: 6px; }
+.tablewrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>anvil pulse</h1>
+    <span class="project" id="project"></span>
+    <span class="meta"><span class="badge-conn" id="conn">connecting</span> <span id="updated"></span></span>
+  </header>
+  <section class="tiles" id="tiles"></section>
+  <h2>Active claims</h2>
+  <section class="claims" id="claims"></section>
+  <div class="warnings" id="warnings"></div>
+  <h2>Event feed</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Time</th><th>Action</th><th>Actor</th><th>Target</th><th>Phase / notes</th></tr></thead>
+    <tbody id="events"></tbody>
+  </table>
+  </div>
+</div>
+<script>
+'use strict';
+var POLL_MS = 2500;
+var lastPulse = null;
+var lastPollAt = 0;
+
+function fmtDur(s) {
+  if (s === null || s === undefined || isNaN(s)) return '-';
+  s = Math.round(s);
+  var neg = s < 0; if (neg) s = -s;
+  var out;
+  if (s < 60) out = s + 's';
+  else if (s < 3600) out = Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+  else out = Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+  return (neg ? '-' : '') + out;
+}
+function fmtTime(iso) {
+  if (!iso) return '-';
+  var d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleTimeString([], { hour12: false });
+}
+function esc(x) {
+  return String(x === null || x === undefined ? '' : x)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+var STATUS_LABEL = {
+  'healthy': 'healthy',
+  'quiet': 'quiet',
+  'possibly-wedged': 'possibly wedged',
+  'lease-expired': 'lease expired'
+};
+
+function render() {
+  if (!lastPulse) return;
+  var p = lastPulse;
+  var drift = (Date.now() - lastPollAt) / 1000; // client-side tick between polls
+
+  document.getElementById('project').textContent = p.project_dir || '';
+  document.getElementById('updated').textContent = 'updated ' + fmtTime(p.generated_at);
+
+  var t = p.tasks || {};
+  var tiles = [
+    ['Active claims', p.active_claims],
+    ['Ready', t.ready], ['In progress', t.in_progress],
+    ['Needs review', t.needs_review], ['Blocked', t.blocked], ['Done', t.done]
+  ];
+  document.getElementById('tiles').innerHTML = tiles.map(function (x) {
+    return '<div class="tile"><strong>' + esc(x[1] === undefined || x[1] === null ? '-' : x[1]) +
+           '</strong><span>' + esc(x[0]) + '</span></div>';
+  }).join('');
+
+  var claims = p.claims || [];
+  document.getElementById('claims').innerHTML = claims.length ? claims.map(function (c) {
+    var lease = typeof c.lease_expires_in_seconds === 'number'
+      ? c.lease_expires_in_seconds - drift : null;
+    var leaseLow = lease !== null && lease < 300;
+    var lastAct = c.last_activity_seconds !== null && c.last_activity_seconds !== undefined
+      ? c.last_activity_seconds + drift : null;
+    return '<div class="claim">' +
+      '<div class="row1"><span class="task">' + esc(c.task_id) + '</span>' +
+      '<span class="status s-' + esc(c.staleness) + '"><span class="dot"></span>' +
+      esc(STATUS_LABEL[c.staleness] || c.staleness) + '</span></div>' +
+      '<div class="actor">' + esc(c.actor || '-') + '</div>' +
+      '<div class="phase">phase: <b>' + esc(c.phase || 'unreported') + '</b></div>' +
+      '<div class="nums">' +
+      '<span>elapsed <b>' + fmtDur((c.elapsed_seconds || 0) + drift) + '</b></span>' +
+      '<span' + (leaseLow ? ' class="lease-low"' : '') + '>lease <b>' + fmtDur(lease) + '</b></span>' +
+      '<span>last activity <b>' + (lastAct === null ? 'none seen' : fmtDur(lastAct) + ' ago') + '</b></span>' +
+      '</div></div>';
+  }).join('') : '<div class="empty">No active claims - nothing is running.</div>';
+
+  document.getElementById('warnings').innerHTML = (p.warnings || []).map(function (w) {
+    return '<div>' + esc(w) + '</div>';
+  }).join('');
+
+  document.getElementById('events').innerHTML = (p.events || []).map(function (e) {
+    return '<tr><td class="t-time">' + esc(fmtTime(e.timestamp)) + '</td>' +
+      '<td class="t-action">' + esc(e.action || '-') + '</td>' +
+      '<td>' + esc(e.actor || '-') + '</td>' +
+      '<td class="t-action">' + esc(e.target_id || '-') + '</td>' +
+      '<td class="t-notes">' + esc(e.phase ? (e.phase + (e.notes && e.notes !== e.phase ? ' - ' + e.notes : '')) : (e.notes || '')) + '</td></tr>';
+  }).join('');
+}
+
+function poll() {
+  fetch('/api/pulse', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (p) {
+      lastPulse = p; lastPollAt = Date.now();
+      var conn = document.getElementById('conn');
+      conn.textContent = 'live'; conn.classList.remove('down');
+      render();
+    })
+    .catch(function () {
+      var conn = document.getElementById('conn');
+      conn.textContent = 'disconnected'; conn.classList.add('down');
+    });
+}
+poll();
+setInterval(poll, POLL_MS);
+setInterval(render, 1000); // tick countdowns between polls
+</script>
+</body>
+</html>

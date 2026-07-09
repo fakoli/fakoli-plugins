@@ -83,3 +83,6 @@ htmlcov/
 
 # Live fakoli-state store (never tracked in the marketplace repo)
 .fakoli-state/
+
+# anvil-pulse dashboard runtime (pid/log files in watched projects)
+.anvil-pulse/

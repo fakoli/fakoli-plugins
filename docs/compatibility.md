@@ -71,6 +71,7 @@ plugin cache as the runtime surface:
 
 | Plugin | Runtime surface | Compatibility status | Notes |
 | --- | --- | --- | --- |
+| `anvil-pulse` | 1 command, 1 skill, server scripts | Compatible | Dependency-free Node dashboard server with PID-file lifecycle; `/pulse` wraps the `pulse` skill. Statusline segment is opt-in and edits only the user's own statusline script on request. |
 | `cli-to-plugin` | 1 command | Compatible | Minimal manifest and `/cli-to-plugin` command validate. Generated skill templates use hyphenated skill frontmatter. |
 | `excalidraw-diagram` | 1 command, 1 skill, 1 agent | Compatible | Skill uses `allowed-tools`; agent uses `tools`; all components are in standard auto-discovered directories. |
 | `fakoli-crew` | 1 command, 2 skills, 9 agents | Compatible | Agent frontmatter uses `tools`; the 9-agent roster is documented. Older plugin-surface critic roles now live in `fakoli-plugin-critic`. |
@@ -92,6 +93,7 @@ plugin cache as the runtime surface:
 
 | Plugin | Codex-supported surface | Codex status | Degradation or documentation strategy |
 | --- | --- | --- | --- |
+| `anvil-pulse` | `pulse` skill | Skill-compatible | Codex has no statusline/UI extension point, so the local web dashboard IS the display surface; start the server in a persistent terminal (`--foreground`; detached processes are reaped). Claude command wrapper and statusline segment do not carry over. |
 | `cli-to-plugin` | None currently; ships only a Claude command | Not Codex-exposed | Keep Claude command support. Add a Codex skill wrapper before promising first-class Codex use. |
 | `excalidraw-diagram` | `excalidraw` skill | Skill-compatible | Use the skill as `excalidraw-diagram:excalidraw` when installed. Claude command and agent are not Codex-first surfaces; converter path guidance should resolve relative to the installed skill/plugin root. |
 | `fakoli-crew` | `crew-ops`, `debugging` skills | Skill-compatible with agent degradation | Skills can guide work. Claude custom agents (`guido`, `critic`, `warden`, etc.) should degrade to Codex subagents/roles available in the session or inline execution. The repo's `.codex/agents` files are not treated as a plugin runtime surface here unless separately installed/exposed. |

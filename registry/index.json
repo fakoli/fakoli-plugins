@@ -1,9 +1,32 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-07-08T17:33:00Z",
-  "pluginCount": 18,
+  "generatedAt": "2026-07-09T16:49:51Z",
+  "pluginCount": 19,
   "plugins": [
+    {
+      "name": "anvil-pulse",
+      "version": "0.1.0",
+      "description": "Live operator dashboard for long autonomous anvil runs: claims, phases, lease countdowns, event feed, and stuck-state detection.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "claude-code",
+        "plugin",
+        "anvil",
+        "dashboard",
+        "heartbeat",
+        "monitoring",
+        "autonomous-agents"
+      ],
+      "path": "plugins/anvil-pulse",
+      "indexedAt": "2026-07-09T16:49:49Z",
+      "category": "workflow"
+    },
     {
       "name": "cli-to-plugin",
       "version": "1.0.5",
@@ -22,7 +45,7 @@
         "automation"
       ],
       "path": "plugins/cli-to-plugin",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:49Z",
       "category": "development"
     },
     {
@@ -44,7 +67,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:49Z",
       "category": "media"
     },
     {
@@ -68,7 +91,7 @@
         "workflow"
       ],
       "path": "plugins/fakoli-crew",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "development"
     },
     {
@@ -92,7 +115,7 @@
         "code-review"
       ],
       "path": "plugins/fakoli-flow",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "workflow"
     },
     {
@@ -117,7 +140,7 @@
         "claude-code"
       ],
       "path": "plugins/fakoli-plugin-critic",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "development"
     },
     {
@@ -144,7 +167,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "media"
     },
     {
@@ -170,7 +193,7 @@
         "terraform-for-work"
       ],
       "path": "plugins/fakoli-state",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "workflow"
     },
     {
@@ -191,7 +214,7 @@
         "documentation"
       ],
       "path": "plugins/fakoli-style",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "utilities"
     },
     {
@@ -240,7 +263,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "integrations"
     },
     {
@@ -263,7 +286,7 @@
       ],
       "homepage": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/handoff",
       "path": "plugins/handoff",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "productivity"
     },
     {
@@ -283,7 +306,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "development"
     },
     {
@@ -305,7 +328,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "media"
     },
     {
@@ -330,7 +353,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:50Z",
       "category": "integrations"
     },
     {
@@ -355,7 +378,7 @@
         "markdown-export"
       ],
       "path": "plugins/quick-notes",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:51Z",
       "category": "productivity"
     },
     {
@@ -378,7 +401,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:51Z",
       "category": "safety"
     },
     {
@@ -403,7 +426,7 @@
         "evaluation"
       ],
       "path": "plugins/session-retro",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:51Z",
       "category": "productivity"
     },
     {
@@ -428,7 +451,7 @@
         "productivity"
       ],
       "path": "plugins/ship-task",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:51Z",
       "category": "development"
     },
     {
@@ -450,7 +473,7 @@
         "network-engineering"
       ],
       "path": "plugins/systems-thinking",
-      "indexedAt": "2026-07-08T17:33:00Z",
+      "indexedAt": "2026-07-09T16:49:51Z",
       "category": "knowledge"
     }
   ]
