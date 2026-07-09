@@ -98,7 +98,6 @@ td.t-notes { color: var(--ink-2); max-width: 380px; overflow: hidden; text-overf
 'use strict';
 var POLL_MS = 2500;
 var lastPulse = null;
-var lastPollAt = 0;
 
 function fmtDur(s) {
   if (s === null || s === undefined || isNaN(s)) return '-';
@@ -127,10 +126,13 @@ var STATUS_LABEL = {
   'lease-expired': 'lease expired'
 };
 
-function render() {
+// Full DOM rebuild happens only when a poll delivers new data; the 1s tick
+// updates countdown text nodes in place. Durations are converted to absolute
+// epoch anchors at poll time, so ticking is one subtraction with no per-field
+// drift-sign bookkeeping — and user text selection survives between polls.
+function renderData() {
   if (!lastPulse) return;
   var p = lastPulse;
-  var drift = (Date.now() - lastPollAt) / 1000; // client-side tick between polls
 
   document.getElementById('project').textContent = p.project_dir || '';
   document.getElementById('updated').textContent = 'updated ' + fmtTime(p.generated_at);
@@ -147,12 +149,7 @@ function render() {
   }).join('');
 
   var claims = p.claims || [];
-  document.getElementById('claims').innerHTML = claims.length ? claims.map(function (c) {
-    var lease = typeof c.lease_expires_in_seconds === 'number'
-      ? c.lease_expires_in_seconds - drift : null;
-    var leaseLow = lease !== null && lease < 300;
-    var lastAct = c.last_activity_seconds !== null && c.last_activity_seconds !== undefined
-      ? c.last_activity_seconds + drift : null;
+  document.getElementById('claims').innerHTML = claims.length ? claims.map(function (c, i) {
     return '<div class="claim">' +
       '<div class="row1"><span class="task">' + esc(c.task_id) + '</span>' +
       '<span class="status s-' + esc(c.staleness) + '"><span class="dot"></span>' +
@@ -160,9 +157,9 @@ function render() {
       '<div class="actor">' + esc(c.actor || '-') + '</div>' +
       '<div class="phase">phase: <b>' + esc(c.phase || 'unreported') + '</b></div>' +
       '<div class="nums">' +
-      '<span>elapsed <b>' + fmtDur((c.elapsed_seconds || 0) + drift) + '</b></span>' +
-      '<span' + (leaseLow ? ' class="lease-low"' : '') + '>lease <b>' + fmtDur(lease) + '</b></span>' +
-      '<span>last activity <b>' + (lastAct === null ? 'none seen' : fmtDur(lastAct) + ' ago') + '</b></span>' +
+      '<span>elapsed <b data-tick="elapsed" data-i="' + i + '"></b></span>' +
+      '<span data-lease-wrap="' + i + '">lease <b data-tick="lease" data-i="' + i + '"></b></span>' +
+      '<span>last activity <b data-tick="activity" data-i="' + i + '"></b></span>' +
       '</div></div>';
   }).join('') : '<div class="empty">No active claims - nothing is running.</div>';
 
@@ -177,16 +174,55 @@ function render() {
       '<td class="t-action">' + esc(e.target_id || '-') + '</td>' +
       '<td class="t-notes">' + esc(e.phase ? (e.phase + (e.notes && e.notes !== e.phase ? ' - ' + e.notes : '')) : (e.notes || '')) + '</td></tr>';
   }).join('');
+
+  tick();
+}
+
+// Epoch anchors per claim, computed once at poll time.
+var anchors = [];
+function anchorClaims(p, pollAt) {
+  anchors = (p.claims || []).map(function (c) {
+    return {
+      startedAt: pollAt - (c.elapsed_seconds || 0) * 1000,
+      leaseAt: typeof c.lease_expires_in_seconds === 'number'
+        ? pollAt + c.lease_expires_in_seconds * 1000 : null,
+      activityAt: (c.last_activity_seconds !== null && c.last_activity_seconds !== undefined)
+        ? pollAt - c.last_activity_seconds * 1000 : null
+    };
+  });
+}
+
+function tick() {
+  var now = Date.now();
+  var nodes = document.querySelectorAll('[data-tick]');
+  for (var k = 0; k < nodes.length; k++) {
+    var el = nodes[k];
+    var a = anchors[Number(el.getAttribute('data-i'))];
+    if (!a) continue;
+    var kind = el.getAttribute('data-tick');
+    if (kind === 'elapsed') {
+      el.textContent = fmtDur((now - a.startedAt) / 1000);
+    } else if (kind === 'lease') {
+      var lease = a.leaseAt === null ? null : (a.leaseAt - now) / 1000;
+      el.textContent = fmtDur(lease);
+      var wrap = el.parentElement;
+      if (lease !== null && lease < 300) wrap.classList.add('lease-low');
+      else wrap.classList.remove('lease-low');
+    } else if (kind === 'activity') {
+      el.textContent = a.activityAt === null ? 'none seen' : fmtDur((now - a.activityAt) / 1000) + ' ago';
+    }
+  }
 }
 
 function poll() {
   fetch('/api/pulse', { cache: 'no-store' })
     .then(function (r) { return r.json(); })
     .then(function (p) {
-      lastPulse = p; lastPollAt = Date.now();
+      lastPulse = p;
+      anchorClaims(p, Date.now());
       var conn = document.getElementById('conn');
       conn.textContent = 'live'; conn.classList.remove('down');
-      render();
+      renderData();
     })
     .catch(function () {
       var conn = document.getElementById('conn');
@@ -195,7 +231,7 @@ function poll() {
 }
 poll();
 setInterval(poll, POLL_MS);
-setInterval(render, 1000); // tick countdowns between polls
+setInterval(tick, 1000); // countdowns only; no DOM rebuild between polls
 </script>
 </body>
 </html>

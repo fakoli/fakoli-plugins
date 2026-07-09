@@ -61,13 +61,15 @@ python3 - "$TMP/project/.anvil/events.jsonl" <<'PY'
 import json, sys, datetime
 now = datetime.datetime.now(datetime.timezone.utc)
 # Append order = chronological (events.jsonl is append-only): oldest first.
+# Payload key is payload_json — the key REAL anvil writes (Event.payload_json,
+# verified on disk). A fixture using "payload" would mask a contract mismatch.
 lines = [
     {"id": "e0", "timestamp": (now - datetime.timedelta(seconds=3000)).isoformat(),
      "actor": "loop-b", "action": "claim.created", "target_kind": "task",
-     "target_id": "T002", "payload": {}},
+     "target_id": "T002", "payload_json": {}},
     {"id": "e1", "timestamp": (now - datetime.timedelta(seconds=30)).isoformat(),
      "actor": "loop-a", "action": "progress.noted", "target_kind": "task",
-     "target_id": "T001", "payload": {"phase": "implement", "notes": "writing parser"}},
+     "target_id": "T001", "payload_json": {"phase": "implement", "notes": "writing parser"}},
 ]
 with open(sys.argv[1], "w", encoding="utf-8") as f:
     for l in lines:
@@ -158,6 +160,60 @@ assert c["staleness"] == "lease-expired", c["staleness"]
 print("lease-expired assertion passed")
 ' "$TMP/pulse2.json" || fail "lease-expired classification"
 pass "expired lease classified lease-expired (overrides activity)"
+
+# --- HOME-workspace discovery (correct depth + project-keyed match) -----------
+# Real layout: ~/.anvil/workspaces/<slug>-<sha256(abs_path)[:8]>/.anvil/events.jsonl
+kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; SERVER_PID=""
+mkdir -p "$TMP/project2" "$TMP/home"
+if command -v cygpath >/dev/null 2>&1; then
+  PROJECT2_ARG="$(cygpath -m "$TMP/project2")"
+  HOME_ARG="$(cygpath -m "$TMP/home")"
+else
+  PROJECT2_ARG="$TMP/project2"
+  HOME_ARG="$TMP/home"
+fi
+# Compute the workspace key exactly as server.cjs does (path.resolve + sha256).
+WSKEY=$(node -e '
+const c = require("crypto"), p = require("path");
+const d = p.resolve(process.argv[1]);
+const slug = (p.basename(d).replace(/[^A-Za-z0-9_-]/g, "-")) || "project";
+console.log(slug + "-" + c.createHash("sha256").update(d, "utf8").digest("hex").slice(0, 8));
+' "$PROJECT2_ARG")
+mkdir -p "$TMP/home/.anvil/workspaces/$WSKEY/.anvil"
+# Decoy: another workspace with a NEWER file that must NOT be picked.
+mkdir -p "$TMP/home/.anvil/workspaces/other-deadbeef/.anvil"
+python3 - "$TMP/home/.anvil/workspaces/$WSKEY/.anvil/events.jsonl" <<'PY'
+import json, sys, datetime
+now = datetime.datetime.now(datetime.timezone.utc)
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    f.write(json.dumps({"id": "w1", "timestamp": (now - datetime.timedelta(seconds=10)).isoformat(),
+        "actor": "loop-w", "action": "progress.noted", "target_kind": "task",
+        "target_id": "T010", "payload_json": {"phase": "verify"}}) + "\n")
+PY
+printf '{"id":"x1","timestamp":"2999-01-01T00:00:00Z","actor":"x","action":"progress.noted","target_kind":"task","target_id":"TXXX","payload_json":{"phase":"decoy"}}\n' \
+  > "$TMP/home/.anvil/workspaces/other-deadbeef/.anvil/events.jsonl"
+touch "$TMP/home/.anvil/workspaces/other-deadbeef/.anvil/events.jsonl"
+
+PORT2=$((20000 + RANDOM % 20000))
+env PULSE_ANVIL_BIN="$ANVIL_SHIM" PULSE_PROJECT_DIR="$PROJECT2_ARG" PULSE_PORT="$PORT2" \
+    HOME="$HOME_ARG" USERPROFILE="$HOME_ARG" \
+    node "$PLUGIN_DIR/scripts/server.cjs" > "$TMP/server2.log" 2>&1 &
+SERVER_PID=$!
+for _ in $(seq 1 50); do
+  grep -q "server-started" "$TMP/server2.log" 2>/dev/null && break
+  sleep 0.1
+done
+curl -sf "http://127.0.0.1:$PORT2/api/pulse" > "$TMP/pulse3.json" || fail "/api/pulse (workspace) failed"
+python3 -c '
+import json, sys
+p = json.load(open(sys.argv[1], encoding="utf-8"))
+actions = [e["target_id"] for e in p["events"]]
+assert "T010" in actions, f"workspace events not found: {actions}"
+assert "TXXX" not in actions, "decoy workspace was selected instead of the project-keyed one"
+assert not any("events.jsonl not found" in w for w in p["warnings"]), p["warnings"]
+print("workspace discovery assertions passed")
+' "$TMP/pulse3.json" || fail "workspace-layout discovery"
+pass "HOME-workspace discovery finds project-keyed events at the real depth"
 
 cleanup
 SERVER_PID=""

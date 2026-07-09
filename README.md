@@ -118,6 +118,7 @@ the moat is — see [docs/POSITIONING.md](docs/POSITIONING.md).
 
 | Plugin | Description |
 |--------|-------------|
+| [**anvil-pulse**](plugins/anvil-pulse) | Live operator dashboard for long autonomous [anvil](https://github.com/fakoli/anvil) runs — a dependency-free local web page showing active claims (actor, phase, elapsed, live lease countdown), the event feed, and per-claim stuck-state detection (healthy / quiet / possibly-wedged / lease-expired), plus an optional Claude Code statusline segment. Answers "is this still going, or is it wedged?" on any harness. |
 | [**cli-to-plugin**](plugins/cli-to-plugin) | Convert any CLI with `--help` support into a Claude Code plugin: one skill per command group plus optional LLM-proposed workflow meta-skills. |
 | [**fakoli-crew**](plugins/fakoli-crew) | Summon nine expert agent archetypes — polyglot architect, Staff-Engineer code reviewer, security auditor, API researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, and QA validator — that work independently or as coordinated crews using wave-based orchestration with hook-enforced review gates. |
 | [**fakoli-flow**](plugins/fakoli-flow) | Intent-driven workflow orchestration — brainstorm, plan, and execute complex projects through coordinated specialist agents with a five-stage pipeline (brainstorm → plan → execute → verify → finish), critic gates, and evidence-based verification. Works best alongside fakoli-crew. |

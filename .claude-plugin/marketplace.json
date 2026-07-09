@@ -59,8 +59,8 @@
   "plugins": [
     {
       "name": "anvil-pulse",
-      "version": "0.1.0",
-      "description": "Live operator dashboard for long autonomous anvil runs: claims, phases, lease countdowns, event feed, and stuck-state detection.",
+      "version": "1.0.0",
+      "description": "Live operator dashboard for long autonomous anvil runs: claims, phases, lease countdowns, event feed, and stuck-state detection served as a local web page, plus an optional Claude Code statusline segment.",
       "category": "workflow",
       "source": "./plugins/anvil-pulse"
     },

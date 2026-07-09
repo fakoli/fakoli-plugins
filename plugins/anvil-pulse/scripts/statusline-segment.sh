@@ -10,6 +10,8 @@
 #   seg="$(bash /path/to/statusline-segment.sh "$workspace_dir" 2>/dev/null)"
 #   [[ -n "$seg" ]] && printf ' | %s' "$seg"
 #
+# Requires: anvil on PATH, and python3 or python (JSON parsing).
+#
 # The statusline refreshes every ~3s but `anvil` is a Python CLI with real
 # startup cost, so results are cached for CACHE_TTL seconds per project.
 
@@ -18,9 +20,19 @@ CACHE_TTL="${ANVIL_PULSE_STATUSLINE_TTL:-10}"
 
 command -v anvil >/dev/null 2>&1 || exit 0
 
-# Per-project cache file keyed by a cheap path hash.
+# On Windows, `python3` is often a non-functional WindowsApps alias stub;
+# prefer whichever interpreter actually works.
+PY=""
+for cand in python3 python; do
+  if "$cand" -c "pass" >/dev/null 2>&1; then PY="$cand"; break; fi
+done
+[[ -z "$PY" ]] && exit 0
+
+# Per-project cache file in a private dir (never a predictable /tmp path).
+CACHE_DIR="${HOME}/.cache/anvil-pulse"
+mkdir -p "$CACHE_DIR" 2>/dev/null && chmod 700 "$CACHE_DIR" 2>/dev/null
 key=$(printf '%s' "$PROJECT_DIR" | cksum | cut -d' ' -f1)
-CACHE_FILE="${TMPDIR:-/tmp}/anvil-pulse-statusline-${key}.txt"
+CACHE_FILE="${CACHE_DIR}/statusline-${key}.txt"
 
 if [[ -f "$CACHE_FILE" ]]; then
   now=$(date +%s)
@@ -33,14 +45,16 @@ fi
 
 json=$(anvil status --json --cwd "$PROJECT_DIR" 2>/dev/null)
 
-segment=$(printf '%s' "$json" | python3 -c '
+# Exit 3 from the parser = anvil failed / gave no JSON (transient); in that
+# case fall back to the stale cache rather than caching emptiness for TTL.
+segment=$("$PY" -c '
 import json, sys
 try:
-    env = json.load(sys.stdin)
+    env = json.loads(sys.stdin.read() or "")
 except Exception:
-    sys.exit(0)
+    sys.exit(3)  # transient failure: caller keeps the previous cache
 if not env.get("ok"):
-    sys.exit(0)  # not an anvil project: print nothing
+    sys.exit(0)  # not an anvil project: print nothing (cacheable)
 data = env.get("data") or {}
 claims = data.get("claims") or []
 tasks = data.get("tasks") or {}
@@ -55,7 +69,12 @@ if n:
               if isinstance(c.get("lease_expires_in_seconds"), (int, float))]
     if leases:
         m = min(leases)
-        parts.append("lease EXPIRED" if m <= 0 else f"lease {int(m // 60)}m")
+        if m <= 0:
+            parts.append("lease EXPIRED")
+        elif m < 60:
+            parts.append(f"lease {int(m)}s!")
+        else:
+            parts.append(f"lease {int(m // 60)}m")
 else:
     ready = tasks.get("ready")
     review = tasks.get("needs_review")
@@ -65,7 +84,14 @@ else:
         parts.append(f"{review} review")
 if parts:
     print("anvil " + " | ".join(parts))
-' 2>/dev/null)
+' <<<"$json" 2>/dev/null)
+status=$?
+
+if [[ $status -eq 3 ]]; then
+  # Transient anvil failure: serve the previous cache (possibly stale) once.
+  [[ -f "$CACHE_FILE" ]] && cat "$CACHE_FILE"
+  exit 0
+fi
 
 printf '%s' "$segment" > "$CACHE_FILE"
 [[ -n "$segment" ]] && echo "$segment"

@@ -67,9 +67,19 @@ LOG_FILE="${PULSE_HOME}/server.log"
 mkdir -p "$PULSE_HOME"
 
 # One dashboard per project: kill any existing server recorded in the PID file.
+# Guard against PID recycling — only kill if the process still looks like ours
+# (node/server.cjs); a crashed server leaves a stale pid the OS may reassign.
+pid_is_ours() {
+  local cmd
+  cmd=$(ps -p "$1" -o args= 2>/dev/null || ps -p "$1" 2>/dev/null)
+  [[ -z "$cmd" ]] && return 0  # ps unusable here; fall back to trusting the pid file
+  echo "$cmd" | grep -qE "node|server\.cjs"
+}
 if [[ -f "$PID_FILE" ]]; then
   old_pid=$(cat "$PID_FILE")
-  kill "$old_pid" 2>/dev/null
+  if kill -0 "$old_pid" 2>/dev/null && pid_is_ours "$old_pid"; then
+    kill "$old_pid" 2>/dev/null
+  fi
   rm -f "$PID_FILE"
 fi
 
@@ -88,6 +98,10 @@ ENV_VARS=(
 if [[ "$FOREGROUND" == "true" ]]; then
   # Write PID before blocking - lets stop-server.sh and check-server.sh work.
   echo "$$" > "$PID_FILE"
+  # Remove any LOG_FILE from a prior background run: foreground mode prints to
+  # the terminal, and a stale server-started line would make check-server.sh
+  # report a dead URL.
+  rm -f "$LOG_FILE"
   exec env "${ENV_VARS[@]}" node server.cjs
 fi
 

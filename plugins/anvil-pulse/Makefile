@@ -1,4 +1,7 @@
-.PHONY: test lint clean
+.PHONY: install test lint clean
+
+install:
+	@node --version >/dev/null && echo "no dependencies to install (Node stdlib only)"
 
 test:
 	bash tests/test-server.sh

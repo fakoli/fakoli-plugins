@@ -18,6 +18,17 @@ if [[ ! -f "$PID_FILE" ]]; then
 fi
 
 pid=$(cat "$PID_FILE")
+
+# Guard against PID recycling: refuse to kill a process that no longer looks
+# like the dashboard (node/server.cjs) - a crashed server leaves a stale pid
+# file and the OS may reassign the number to an unrelated process.
+cmd=$(ps -p "$pid" -o args= 2>/dev/null || ps -p "$pid" 2>/dev/null)
+if [[ -n "$cmd" ]] && ! echo "$cmd" | grep -qE "node|server\.cjs"; then
+  rm -f "$PID_FILE"
+  echo "{\"event\": \"server-stopped\", \"note\": \"pid $pid belongs to an unrelated process now; cleaned stale pid file without killing\"}"
+  exit 0
+fi
+
 if kill "$pid" 2>/dev/null; then
   # Give it a moment to exit cleanly, then force.
   for _ in {1..20}; do

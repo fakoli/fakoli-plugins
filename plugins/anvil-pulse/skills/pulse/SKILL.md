@@ -58,8 +58,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-server.sh" --project-dir <project>
 
 - Each active claim card shows task, actor, latest `progress.noted` phase,
   elapsed time, live lease countdown, and time since last observed event.
-- Staleness classification (thresholds via `PULSE_QUIET_SECONDS` /
-  `PULSE_WEDGED_SECONDS`, defaults 300/900):
+- Staleness classification (server defaults via `PULSE_QUIET_SECONDS` /
+  `PULSE_WEDGED_SECONDS` = 300/900; retune live per request with
+  `/api/pulse?quiet_seconds=600&wedged_seconds=1800` — no restart needed):
   - **healthy** — activity within the quiet threshold
   - **quiet** — no activity for 5-15 min; often a long tool call or model wait
   - **possibly wedged** — silent beyond 15 min with a live lease; worth a look
@@ -71,11 +72,18 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-server.sh" --project-dir <project>
 ## Optional: Claude Code statusline segment
 
 Only on explicit request — this edits the user's own statusline script.
+Requires `python3` or `python` on PATH (the segment parses anvil's JSON;
+on Windows, `python3` is often a broken WindowsApps stub, so the script tries
+both — but at least one must actually work).
 
 1. Read `~/.claude/settings.json` -> `statusLine.command` to find the script
    (commonly `~/.claude/statusline-command.sh`). If no statusline is configured,
    explain how to set one up instead of creating files unasked.
-2. Show the user this snippet and confirm before appending it to the END of
+2. IDEMPOTENCY CHECK: grep the script for `# anvil-pulse segment` first. If
+   present, the segment is already installed — update the existing block in
+   place if the path changed; NEVER append a second copy (it would render
+   twice).
+3. Show the user this snippet and confirm before appending it to the END of
    their script (it prints nothing outside anvil projects):
    ```bash
    # anvil-pulse segment
@@ -85,7 +93,9 @@ Only on explicit request — this edits the user's own statusline script.
    Replace `<absolute-plugin-path>` with the resolved `${CLAUDE_PLUGIN_ROOT}`
    and `$workspace_dir` with however their script names the current workspace
    variable (read the script first; do not assume).
-3. The segment caches `anvil status` for 10s (`ANVIL_PULSE_STATUSLINE_TTL`).
+4. The segment caches `anvil status` for 10s (`ANVIL_PULSE_STATUSLINE_TTL`)
+   under `~/.cache/anvil-pulse/`; on a transient anvil failure it serves the
+   previous cached segment instead of blanking.
 
 ## Other harnesses
 
