@@ -121,6 +121,13 @@
       "source": "./plugins/fakoli-style"
     },
     {
+      "name": "gate-router",
+      "version": "1.0.0",
+      "description": "Deterministic changed-path gate routing: map changed files to the verify commands this repo requires before shipping, from a per-project rules file instead of session memory.",
+      "category": "development",
+      "source": "./plugins/gate-router"
+    },
+    {
       "name": "gws",
       "version": "0.4.1",
       "description": "Operate Google Workspace services through skills, commands, agents, and automation recipes.",

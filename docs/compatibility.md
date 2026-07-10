@@ -1,6 +1,6 @@
 # Runtime Compatibility Review
 
-Updated: 2026-07-09 (anvil-pulse added; validation re-run)
+Updated: 2026-07-09 (anvil-pulse, ship-loop, handoff freshness, gate-router added; validation re-run)
 
 This note records the T012 Claude Code compatibility pass and the T013 Codex
 compatibility pass for the active plugins under `plugins/`. It focuses on
@@ -20,7 +20,7 @@ The review used the local Claude Code runtime available in this workspace:
   warnings for marketplace-only metadata fields (`displayName`, `repository`,
   `categories`) that Claude Code ignores at load time.
 - `./scripts/validate.sh`: passed with 218 checks, 0 warnings, 0 failures
-  (re-run 2026-07-09 with anvil-pulse: 297 checks, 0 warnings, 0 failures).
+  (re-run 2026-07-09 through gate-router: 327 checks, 0 warnings, 0 failures).
 - `./scripts/test-path-resolution.sh`: passed with 27 checks, 0 warnings,
   0 errors (re-run 2026-07-09 with anvil-pulse: 44 checks, 0 warnings, 0 errors).
 - `claude -p "/flow"` and `claude -p "/flow:brainstorm"`: returned
@@ -81,6 +81,7 @@ plugin cache as the runtime surface:
 | `fakoli-speak` | 7 commands, hooks | Compatible | Command surface is intact. `/voices` now documents `OPENAI_TTS_VOICE`, matching the implementation. |
 | `fakoli-state` | 8 skills, 6 agents, hooks, MCP | Compatible | Manifest declares `mcpServers: "./.mcp.json"`; hooks and MCP paths use `${CLAUDE_PLUGIN_ROOT}`. Agents use `tools`. |
 | `fakoli-style` | 1 skill | Compatible | `style-ops` uses documented skill frontmatter and description-driven invocation. |
+| `gate-router` | 1 command, 1 skill, 1 script | Compatible | Script-backed; no hooks. |
 | `gws` | 15 commands, 100 skills, 11 agents, hooks | Compatible | Agent `allowed_tools` was replaced with `tools`. Old skill `trigger` and `version` fields were removed; replacement is description-driven skill invocation. |
 | `handoff` | 2 commands, 2 skills, hooks, 3 scripts | Compatible | Unsupported `author.github` was replaced by `author.url`. Missing `/handoff` and `/recall` command wrappers were added. |
 | `marketplace-manager` | 4 commands, 1 skill | Compatible with cleanup note | Manifest validates. Some command files include `name:` frontmatter; command identity should continue to come from the filename, so this is a cleanup candidate rather than a load blocker. |
@@ -104,6 +105,7 @@ plugin cache as the runtime surface:
 | `fakoli-speak` | None currently; ships Claude commands and a Stop hook | Not Codex-exposed | Do not promise automatic Codex TTS behavior. A Codex skill or app/tool integration is required before Codex support. |
 | `fakoli-state` | 8 Anvil-style skills; MCP requires Codex verification | Skill-compatible, MCP unverified | Skills can guide the workflow in Codex. Claude hooks are unavailable. MCP should be promised only after a Codex `.codex-plugin` manifest or installed-tool check proves the server is exposed; existing MCP paths also need Codex runtime path-variable verification. |
 | `fakoli-style` | `style-ops` skill | Skill-compatible | Use as a Codex skill for ledger work. |
+| `gate-router` | `gate-check` skill | Skill-compatible | Same bash script runs under Codex; Claude slash wrapper does not carry over. |
 | `gws` | 100 Google Workspace skills | Skill-compatible with command/agent/hook degradation | Skills document Google Workspace workflows. Claude slash commands, custom agents, and SessionStart hook do not carry over to Codex without adapters, so users should manually verify `gws` CLI/auth readiness. |
 | `handoff` | `handoff`, `recall` skills (0.2.0 freshness is skill-driven bash, so it carries to Codex) | Confirmed in Codex cache | Current Codex session can load the fakoli `handoff` skills. Claude slash wrappers and SessionStart hook are not required for Codex use; no automatic startup recall banner should be expected. |
 | `marketplace-manager` | `marketplace-manager` skill | Skill-compatible | Use the skill for Codex marketplace maintenance. Claude slash commands need Codex wrappers before being promised. |

@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-07-10T03:05:31Z",
+  "generatedAt": "2026-07-10T03:25:11Z",
   "categories": [
     {
       "category": "development",
-      "count": 6,
+      "count": 7,
       "plugins": [
         {
           "name": "cli-to-plugin",
@@ -22,6 +22,12 @@
           "version": "0.1.0",
           "description": "Audit Claude Code plugin agents, skills, hooks, MCP servers, and structure with specialist critics.",
           "path": "plugins/fakoli-plugin-critic"
+        },
+        {
+          "name": "gate-router",
+          "version": "1.0.0",
+          "description": "Deterministic changed-path gate routing: map changed files to the verify commands this repo requires before shipping, from a per-project rules file instead of session memory.",
+          "path": "plugins/gate-router"
         },
         {
           "name": "marketplace-manager",
