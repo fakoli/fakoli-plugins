@@ -170,6 +170,13 @@
       "source": "./plugins/quick-notes"
     },
     {
+      "name": "recall-mode-verifier",
+      "version": "1.0.0",
+      "description": "Spec-independent breakage probes (fail-closed, malformed-input, resource-exhaustion, state-drift) for pre-PR and anvil verify-left review.",
+      "category": "development",
+      "source": "./plugins/recall-mode-verifier"
+    },
+    {
       "name": "safe-fetch",
       "version": "1.1.3",
       "description": "Sanitize fetched web content before it reaches Claude Code.",
@@ -203,6 +210,13 @@
       "description": "Analyze infrastructure decisions for hidden costs, dependencies, caveats, and risks.",
       "category": "knowledge",
       "source": "./plugins/systems-thinking"
+    },
+    {
+      "name": "windows-cli-hygiene",
+      "version": "1.0.0",
+      "description": "Scan source for Windows/cross-platform CLI hazards before shipping: encoding, python3, heredocs, .cmd spawns, set -e in hooks.",
+      "category": "development",
+      "source": "./plugins/windows-cli-hygiene"
     }
   ]
 }

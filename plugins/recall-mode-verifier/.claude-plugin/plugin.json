@@ -1,0 +1,9 @@
+{
+  "name": "recall-mode-verifier",
+  "version": "1.0.0",
+  "description": "Generate spec-independent breakage probes for a change — attack it along fail-closed, malformed-input, resource-exhaustion, and state-drift axes rather than re-reading its own tests. A focused verify-left pass for anvil execute and pre-PR review.",
+  "author": { "name": "Sekou Doumbouya", "url": "https://github.com/fakoli" },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": ["verification", "adversarial-review", "red-team", "testing", "anvil"]
+}

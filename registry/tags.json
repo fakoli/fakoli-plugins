@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-07-10T03:25:11Z",
-  "totalTags": 152,
+  "generatedAt": "2026-07-10T03:54:40Z",
+  "totalTags": 158,
   "tags": [
     {
       "tag": "workflow",
@@ -72,11 +72,44 @@
       ]
     },
     {
+      "tag": "verification",
+      "count": 3,
+      "plugins": [
+        "gate-router",
+        "recall-mode-verifier",
+        "windows-cli-hygiene"
+      ]
+    },
+    {
+      "tag": "adversarial-review",
+      "count": 2,
+      "plugins": [
+        "recall-mode-verifier",
+        "ship-loop"
+      ]
+    },
+    {
+      "tag": "anvil",
+      "count": 2,
+      "plugins": [
+        "anvil-pulse",
+        "recall-mode-verifier"
+      ]
+    },
+    {
       "tag": "claude-code",
       "count": 2,
       "plugins": [
         "anvil-pulse",
         "fakoli-plugin-critic"
+      ]
+    },
+    {
+      "tag": "cli",
+      "count": 2,
+      "plugins": [
+        "cli-to-plugin",
+        "windows-cli-hygiene"
       ]
     },
     {
@@ -134,13 +167,6 @@
       ]
     },
     {
-      "tag": "adversarial-review",
-      "count": 1,
-      "plugins": [
-        "ship-loop"
-      ]
-    },
-    {
       "tag": "agent-coordination",
       "count": 1,
       "plugins": [
@@ -159,13 +185,6 @@
       "count": 1,
       "plugins": [
         "session-retro"
-      ]
-    },
-    {
-      "tag": "anvil",
-      "count": 1,
-      "plugins": [
-        "anvil-pulse"
       ]
     },
     {
@@ -246,13 +265,6 @@
       ]
     },
     {
-      "tag": "cli",
-      "count": 1,
-      "plugins": [
-        "cli-to-plugin"
-      ]
-    },
-    {
       "tag": "cli-to-plugin",
       "count": 1,
       "plugins": [
@@ -278,6 +290,13 @@
       "count": 1,
       "plugins": [
         "handoff"
+      ]
+    },
+    {
+      "tag": "cp1252",
+      "count": 1,
+      "plugins": [
+        "windows-cli-hygiene"
       ]
     },
     {
@@ -376,6 +395,13 @@
       "count": 1,
       "plugins": [
         "fakoli-speak"
+      ]
+    },
+    {
+      "tag": "encoding",
+      "count": 1,
+      "plugins": [
+        "windows-cli-hygiene"
       ]
     },
     {
@@ -771,6 +797,13 @@
       ]
     },
     {
+      "tag": "portability",
+      "count": 1,
+      "plugins": [
+        "windows-cli-hygiene"
+      ]
+    },
+    {
       "tag": "post-session",
       "count": 1,
       "plugins": [
@@ -831,6 +864,13 @@
       "count": 1,
       "plugins": [
         "gws"
+      ]
+    },
+    {
+      "tag": "red-team",
+      "count": 1,
+      "plugins": [
+        "recall-mode-verifier"
       ]
     },
     {
@@ -1002,6 +1042,13 @@
       ]
     },
     {
+      "tag": "testing",
+      "count": 1,
+      "plugins": [
+        "recall-mode-verifier"
+      ]
+    },
+    {
       "tag": "text-to-speech",
       "count": 1,
       "plugins": [
@@ -1044,13 +1091,6 @@
       ]
     },
     {
-      "tag": "verification",
-      "count": 1,
-      "plugins": [
-        "gate-router"
-      ]
-    },
-    {
       "tag": "visualization",
       "count": 1,
       "plugins": [
@@ -1083,6 +1123,13 @@
       "count": 1,
       "plugins": [
         "excalidraw-diagram"
+      ]
+    },
+    {
+      "tag": "windows",
+      "count": 1,
+      "plugins": [
+        "windows-cli-hygiene"
       ]
     },
     {

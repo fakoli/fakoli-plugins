@@ -1,0 +1,9 @@
+{
+  "name": "windows-cli-hygiene",
+  "version": "1.0.0",
+  "description": "Scan source for Windows/cross-platform CLI hazards before shipping: non-ASCII in printed strings (cp1252 console crashes), hardcoded python3, heredoc backslash mangling, Node .cmd/.bat spawns, and set -e in hooks.",
+  "author": { "name": "Sekou Doumbouya", "url": "https://github.com/fakoli" },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": ["windows", "encoding", "portability", "cli", "cp1252", "verification"]
+}

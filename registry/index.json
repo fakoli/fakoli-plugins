@@ -1,8 +1,8 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-07-10T03:25:11Z",
-  "pluginCount": 21,
+  "generatedAt": "2026-07-10T03:54:39Z",
+  "pluginCount": 23,
   "plugins": [
     {
       "name": "anvil-pulse",
@@ -24,7 +24,7 @@
         "autonomous-agents"
       ],
       "path": "plugins/anvil-pulse",
-      "indexedAt": "2026-07-10T03:25:08Z",
+      "indexedAt": "2026-07-10T03:54:36Z",
       "category": "workflow"
     },
     {
@@ -45,7 +45,7 @@
         "automation"
       ],
       "path": "plugins/cli-to-plugin",
-      "indexedAt": "2026-07-10T03:25:08Z",
+      "indexedAt": "2026-07-10T03:54:36Z",
       "category": "development"
     },
     {
@@ -67,7 +67,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-07-10T03:25:08Z",
+      "indexedAt": "2026-07-10T03:54:37Z",
       "category": "media"
     },
     {
@@ -91,7 +91,7 @@
         "workflow"
       ],
       "path": "plugins/fakoli-crew",
-      "indexedAt": "2026-07-10T03:25:08Z",
+      "indexedAt": "2026-07-10T03:54:37Z",
       "category": "development"
     },
     {
@@ -115,7 +115,7 @@
         "code-review"
       ],
       "path": "plugins/fakoli-flow",
-      "indexedAt": "2026-07-10T03:25:09Z",
+      "indexedAt": "2026-07-10T03:54:37Z",
       "category": "workflow"
     },
     {
@@ -140,7 +140,7 @@
         "claude-code"
       ],
       "path": "plugins/fakoli-plugin-critic",
-      "indexedAt": "2026-07-10T03:25:09Z",
+      "indexedAt": "2026-07-10T03:54:37Z",
       "category": "development"
     },
     {
@@ -167,7 +167,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-07-10T03:25:09Z",
+      "indexedAt": "2026-07-10T03:54:37Z",
       "category": "media"
     },
     {
@@ -193,7 +193,7 @@
         "terraform-for-work"
       ],
       "path": "plugins/fakoli-state",
-      "indexedAt": "2026-07-10T03:25:09Z",
+      "indexedAt": "2026-07-10T03:54:37Z",
       "category": "workflow"
     },
     {
@@ -214,7 +214,7 @@
         "documentation"
       ],
       "path": "plugins/fakoli-style",
-      "indexedAt": "2026-07-10T03:25:09Z",
+      "indexedAt": "2026-07-10T03:54:37Z",
       "category": "utilities"
     },
     {
@@ -235,7 +235,7 @@
         "workflow"
       ],
       "path": "plugins/gate-router",
-      "indexedAt": "2026-07-10T03:25:09Z",
+      "indexedAt": "2026-07-10T03:54:37Z",
       "category": "development"
     },
     {
@@ -284,7 +284,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-07-10T03:25:09Z",
+      "indexedAt": "2026-07-10T03:54:38Z",
       "category": "integrations"
     },
     {
@@ -307,7 +307,7 @@
       ],
       "homepage": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/handoff",
       "path": "plugins/handoff",
-      "indexedAt": "2026-07-10T03:25:09Z",
+      "indexedAt": "2026-07-10T03:54:38Z",
       "category": "productivity"
     },
     {
@@ -327,7 +327,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-07-10T03:25:09Z",
+      "indexedAt": "2026-07-10T03:54:38Z",
       "category": "development"
     },
     {
@@ -349,7 +349,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-07-10T03:25:10Z",
+      "indexedAt": "2026-07-10T03:54:38Z",
       "category": "media"
     },
     {
@@ -374,7 +374,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-07-10T03:25:10Z",
+      "indexedAt": "2026-07-10T03:54:38Z",
       "category": "integrations"
     },
     {
@@ -399,8 +399,29 @@
         "markdown-export"
       ],
       "path": "plugins/quick-notes",
-      "indexedAt": "2026-07-10T03:25:10Z",
+      "indexedAt": "2026-07-10T03:54:38Z",
       "category": "productivity"
+    },
+    {
+      "name": "recall-mode-verifier",
+      "version": "1.0.0",
+      "description": "Spec-independent breakage probes (fail-closed, malformed-input, resource-exhaustion, state-drift) for pre-PR and anvil verify-left review.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "verification",
+        "adversarial-review",
+        "red-team",
+        "testing",
+        "anvil"
+      ],
+      "path": "plugins/recall-mode-verifier",
+      "indexedAt": "2026-07-10T03:54:38Z",
+      "category": "development"
     },
     {
       "name": "safe-fetch",
@@ -422,7 +443,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-07-10T03:25:10Z",
+      "indexedAt": "2026-07-10T03:54:38Z",
       "category": "safety"
     },
     {
@@ -447,7 +468,7 @@
         "evaluation"
       ],
       "path": "plugins/session-retro",
-      "indexedAt": "2026-07-10T03:25:10Z",
+      "indexedAt": "2026-07-10T03:54:39Z",
       "category": "productivity"
     },
     {
@@ -468,7 +489,7 @@
         "worktree"
       ],
       "path": "plugins/ship-loop",
-      "indexedAt": "2026-07-10T03:25:10Z",
+      "indexedAt": "2026-07-10T03:54:39Z",
       "category": "development"
     },
     {
@@ -493,7 +514,7 @@
         "productivity"
       ],
       "path": "plugins/ship-task",
-      "indexedAt": "2026-07-10T03:25:10Z",
+      "indexedAt": "2026-07-10T03:54:39Z",
       "category": "development"
     },
     {
@@ -515,8 +536,30 @@
         "network-engineering"
       ],
       "path": "plugins/systems-thinking",
-      "indexedAt": "2026-07-10T03:25:11Z",
+      "indexedAt": "2026-07-10T03:54:39Z",
       "category": "knowledge"
+    },
+    {
+      "name": "windows-cli-hygiene",
+      "version": "1.0.0",
+      "description": "Scan source for Windows/cross-platform CLI hazards before shipping: encoding, python3, heredocs, .cmd spawns, set -e in hooks.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "windows",
+        "encoding",
+        "portability",
+        "cli",
+        "cp1252",
+        "verification"
+      ],
+      "path": "plugins/windows-cli-hygiene",
+      "indexedAt": "2026-07-10T03:54:39Z",
+      "category": "development"
     }
   ]
 }

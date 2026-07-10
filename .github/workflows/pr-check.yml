@@ -52,6 +52,9 @@ jobs:
       - name: Test gate-router
         run: bash ./plugins/gate-router/tests/test-gate-router.sh
 
+      - name: Test windows-cli-hygiene
+        run: bash ./plugins/windows-cli-hygiene/tests/test-scan-cli-hygiene.sh
+
       - name: Test anvil-pulse server
         run: bash ./plugins/anvil-pulse/tests/test-server.sh
 
