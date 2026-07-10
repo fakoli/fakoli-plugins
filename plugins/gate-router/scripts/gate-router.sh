@@ -77,7 +77,7 @@ changed="$( (git -C "$project_dir" diff --name-only "$base" 2>/dev/null;
              git -C "$project_dir" diff --name-only 2>/dev/null;
              git -C "$project_dir" ls-files --others --exclude-standard 2>/dev/null) \
             | sort -u | grep -v '^$' \
-            | grep -vx '.claude/gate-router.local.md' || true)"
+            | grep -Fvx '.claude/gate-router.local.md' || true)"
 # (the config itself is excluded: it is a local-only settings file that would
 # otherwise read as "changed" forever and defeat the clean-tree no-op)
 if [[ -z "$changed" ]]; then
@@ -86,73 +86,129 @@ if [[ -z "$changed" ]]; then
   exit 0
 fi
 
-# Glob match: translate `**`-globs into bash case patterns. `**` -> `*`
-# (case patterns already cross `/`); a leading `**/` also matches zero dirs.
+# Glob -> anchored ERE, matched with `[[ =~ ]]` (works on bash >= 3.2, so no
+# bash-4-only features anywhere in this script). Segment-aware, unlike a bare
+# `case`: a single `*` matches WITHIN one path segment (never crosses `/`),
+# `**` crosses segments, `**/` also matches zero leading segments, `?` is one
+# non-slash char. Character classes are NOT supported (`[` is literal) — keep
+# path globs to `*`/`**`/`?`. This closes the over-match where `src/*.py`
+# used to fire on `src/a/b/deep.py`.
+glob_to_regex() {
+  local glob="$1" re="" n=${#glob} i=0 c
+  while (( i < n )); do
+    c="${glob:i:1}"
+    if [[ "$c" == "*" ]]; then
+      if [[ "${glob:i:3}" == "**/" ]]; then re+='(.*/)?'; i=$((i+3)); continue; fi
+      if [[ "${glob:i:2}" == "**" ]];  then re+='.*';      i=$((i+2)); continue; fi
+      re+='[^/]*'; i=$((i+1)); continue
+    fi
+    case "$c" in
+      '?') re+='[^/]' ;;
+      .|+|\(|\)|\||\^|\$|\{|\}|\[|\]|\\) re+="\\$c" ;;
+      *) re+="$c" ;;
+    esac
+    i=$((i+1))
+  done
+  printf '%s' "$re"
+}
 matches_glob() { # path glob -> 0/1
-  local path="$1" glob="$2" pat alt
-  pat="${glob//\*\*/\*}"
-  case "$path" in $pat) return 0 ;; esac
-  if [[ "$glob" == "**/"* ]]; then
-    alt="${glob#**/}"; alt="${alt//\*\*/\*}"
-    case "$path" in $alt) return 0 ;; esac
-  fi
-  return 1
+  local re; re="$(glob_to_regex "$2")"
+  [[ "$1" =~ ^${re}$ ]]
 }
 
-# Collect per-command matched files, preserving rule order.
-cmds=()
-declare -A cmd_files
+# Per-command matched files, deduped, RULE ORDER — parallel indexed arrays
+# (no associative array, so bash 3.2 / macOS is not a hard break). Each
+# ucmd_files entry is a newline-joined file list; NL is a safe separator
+# because git emits path names one-per-line (quoting NL-in-name paths).
+ucmds=()
+ucmd_files=()
+cmd_index() { # echo index of "$1" in ucmds, or -1
+  local i=0 c
+  (( ${#ucmds[@]} == 0 )) && { echo -1; return; }
+  for c in "${ucmds[@]}"; do
+    [[ "$c" == "$1" ]] && { echo "$i"; return; }
+    i=$((i+1))
+  done
+  echo -1
+}
+
 while IFS= read -r rule; do
+  [[ "$rule" == *"=>"* ]] || continue
   glob="${rule%%=>*}"; glob="${glob%"${glob##*[![:space:]]}"}"
-  # Quotes wrap the GLOB (YAML-style: - "**/*.sh" => cmd) — strip them here,
-  # after the => split, so a closing quote mid-line is not left on the glob.
+  # A quoted glob (YAML style: - "**/*.sh" => cmd): strip one wrapping quote
+  # pair, after the => split so a stray quote isn't left on the glob.
   glob="${glob#\"}"; glob="${glob%\"}"
   cmd="${rule#*=>}"; cmd="${cmd#"${cmd%%[![:space:]]*}"}"
-  [[ -n "$glob" && -n "$cmd" && "$rule" == *"=>"* ]] || continue
+  [[ -n "$glob" && -n "$cmd" ]] || continue
   hits=""
   while IFS= read -r f; do
-    matches_glob "$f" "$glob" && hits+="${hits:+ }$f"
+    [[ -n "$f" ]] && matches_glob "$f" "$glob" && hits+="${hits:+$'\n'}$f"
   done <<<"$changed"
   [[ -n "$hits" ]] || continue
-  if [[ -z "${cmd_files[$cmd]+x}" ]]; then
-    cmds+=("$cmd")
-    cmd_files[$cmd]="$hits"
+  idx="$(cmd_index "$cmd")"
+  if [[ "$idx" == "-1" ]]; then
+    ucmds+=("$cmd")
+    ucmd_files+=("$hits")
   else
-    cmd_files[$cmd]+=" $hits"
+    ucmd_files[$idx]="${ucmd_files[$idx]}"$'\n'"$hits"
   fi
 done <<<"$rules"
 
-if (( ${#cmds[@]} == 0 )); then
+if (( ${#ucmds[@]} == 0 )); then
   [[ "$json_out" == "true" ]] && echo "{\"changed\":$(wc -l <<<"$changed"),\"gates\":[]}" || \
     echo "gate-router: changed files match no gates"
   exit 0
 fi
 
+json_escape() { local s="${1//\\/\\\\}"; printf '%s' "${s//\"/\\\"}"; }
+
 if [[ "$json_out" == "true" ]]; then
   out=""
-  for cmd in "${cmds[@]}"; do
+  for i in "${!ucmds[@]}"; do
     files_json=""
-    for f in ${cmd_files[$cmd]}; do files_json+="${files_json:+,}\"$f\""; done
-    esc_cmd="${cmd//\\/\\\\}"; esc_cmd="${esc_cmd//\"/\\\"}"
-    out+="${out:+,}{\"command\":\"$esc_cmd\",\"files\":[$files_json]}"
+    while IFS= read -r f; do
+      [[ -n "$f" ]] || continue
+      files_json+="${files_json:+,}\"$(json_escape "$f")\""
+    done <<<"${ucmd_files[$i]}"
+    out+="${out:+,}{\"command\":\"$(json_escape "${ucmds[$i]}")\",\"files\":[$files_json]}"
   done
   echo "{\"changed\":$(wc -l <<<"$changed"),\"gates\":[$out]}"
   exit 0
 fi
 
 rc=0
-for cmd in "${cmds[@]}"; do
-  final="${cmd//\{files\}/${cmd_files[$cmd]}}"
+for i in "${!ucmds[@]}"; do
+  cmd="${ucmds[$i]}"
+  # Read this command's files into a real array (quoted expansion → filenames
+  # with spaces/metacharacters stay ONE argument each).
+  files=()
+  while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done <<<"${ucmd_files[$i]}"
+
   if [[ "$mode" == "run" ]]; then
-    echo "gate-router: RUN $final"
-    ( cd "$project_dir" && bash -c "$final" )
+    # SECURITY: never interpolate a filename into the shell string. `{files}`
+    # is rewritten to "$@" and the matched files are passed as positional
+    # ARGV to bash -c, so a changed file literally named `$(rm -rf ~)` is an
+    # inert argument, not code. Commands without {files} still get the files
+    # as extra args (harmless).
+    template="${cmd//\{files\}/\"\$@\"}"
+    printf 'gate-router: RUN %s\n' "$cmd"
+    if (( ${#files[@]} )); then printf '  on: %s\n' "${files[*]}"; fi
+    ( cd "$project_dir" && bash -c "$template" gate-router "${files[@]}" )
     rc=$?
     if (( rc != 0 )); then
-      echo "gate-router: GATE FAILED ($rc): $final" >&2
+      echo "gate-router: GATE FAILED ($rc): $cmd" >&2
       exit $rc
     fi
   else
-    echo "$final"
+    # --list is copy-paste output: render {files} as shell-QUOTED names so a
+    # human pasting the line is also injection-safe.
+    if [[ "$cmd" == *"{files}"* ]]; then
+      quoted=""
+      for f in "${files[@]}"; do quoted+="${quoted:+ }$(printf '%q' "$f")"; done
+      printf '%s\n' "${cmd//\{files\}/$quoted}"
+    else
+      printf '%s\n' "$cmd"
+    fi
   fi
 done
 exit $rc

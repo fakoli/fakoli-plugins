@@ -112,6 +112,78 @@ git -C "$repo" add . && git -C "$repo" commit -qm docs
 out="$(bash "$ROUTER" "$repo" --base main)"
 assert_contains "$out" "echo DOCS-GATE" "committed changes vs --base counted"
 
+# ---- SECURITY: a changed filename with shell metachars is NOT executed -------
+repo3="$tmp/inj"
+mkdir -p "$repo3/.claude"
+git -C "$repo3" init -q -b main
+git -C "$repo3" config user.email t@t; git -C "$repo3" config user.name t
+echo x > "$repo3/seed"; git -C "$repo3" add .; git -C "$repo3" commit -qm init
+cat > "$repo3/.claude/gate-router.local.md" <<'EOF'
+---
+rules:
+  - "**/*.sh" => printf 'GOT:[%s]\n' {files}
+---
+EOF
+# Untracked files whose NAMES are shell-injection payloads (no '/', so they
+# are legal single path components). If {files} were interpolated into
+# `bash -c`, running --run would create these marker files in the repo.
+: > "$repo3/x;touch SEMIPWNED.sh"
+: > "$repo3/\$(touch SUBPWNED).sh"
+set +e
+out="$(bash "$ROUTER" "$repo3" --run 2>&1)"
+set -e 2>/dev/null || true
+if [[ -e "$repo3/SEMIPWNED" || -e "$repo3/SUBPWNED" ]]; then
+  echo "FAIL - injection: metachar filename executed as code"; fail=$((fail+1))
+  rm -f "$repo3/SEMIPWNED" "$repo3/SUBPWNED"
+else
+  echo "ok - metachar filenames passed as inert argv (no injection on --run)"; pass=$((pass+1))
+fi
+assert_contains "$out" "GOT:[x;touch SEMIPWNED.sh]" "literal metachar name reached the command as one arg"
+
+# --list of a {files} rule is copy-paste-safe (metachars shell-quoted) --------
+out="$(bash "$ROUTER" "$repo3" --list)"
+assert_contains "$out" "printf" "list renders the command"
+# a raw '; touch SEMIPWNED' would be a command separator on paste — must be quoted
+assert_not_contains "$out" "printf 'GOT:[%s]\n' x;touch SEMIPWNED.sh" "list output quotes metachar names"
+
+# ---- segment-aware globs: single * does NOT cross '/' ------------------------
+repo4="$tmp/seg"
+mkdir -p "$repo4/.claude" "$repo4/src/deep"
+git -C "$repo4" init -q -b main
+git -C "$repo4" config user.email t@t; git -C "$repo4" config user.name t
+echo x > "$repo4/seed"; git -C "$repo4" add .; git -C "$repo4" commit -qm init
+cat > "$repo4/.claude/gate-router.local.md" <<'EOF'
+---
+rules:
+  - src/*.py => echo SHALLOW
+  - src/**/*.py => echo DEEP
+---
+EOF
+echo a > "$repo4/src/top.py"
+echo b > "$repo4/src/deep/nested.py"
+out="$(bash "$ROUTER" "$repo4")"
+assert_contains "$out" "echo SHALLOW" "src/*.py matches a direct child"
+assert_contains "$out" "echo DEEP" "src/**/*.py matches a nested file"
+# top.py must NOT trigger DEEP-only expectations, and nested.py must NOT match src/*.py:
+json="$(bash "$ROUTER" "$repo4" --json)"
+assert_contains "$json" '"command":"echo SHALLOW","files":["src/top.py"]' "shallow rule excludes nested file"
+
+# ---- filenames with SPACES stay one argument --------------------------------
+repo5="$tmp/space"
+mkdir -p "$repo5/.claude/../docs" "$repo5/.claude"
+git -C "$repo5" init -q -b main
+git -C "$repo5" config user.email t@t; git -C "$repo5" config user.name t
+echo x > "$repo5/seed"; git -C "$repo5" add .; git -C "$repo5" commit -qm init
+cat > "$repo5/.claude/gate-router.local.md" <<'EOF'
+---
+rules:
+  - "docs/**" => printf 'ARG[%s]\n' {files}
+---
+EOF
+mkdir -p "$repo5/docs"; : > "$repo5/docs/my notes.md"
+out="$(bash "$ROUTER" "$repo5" --run 2>&1)"
+assert_contains "$out" "ARG[docs/my notes.md]" "space-containing filename is one argument"
+
 echo
 echo "passed=$pass failed=$fail"
 [[ $fail -eq 0 ]]

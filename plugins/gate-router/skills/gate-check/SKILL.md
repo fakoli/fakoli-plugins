@@ -42,13 +42,28 @@ Notes for humans below the fence (ignored by the router).
 ```
 
 - `**` crosses directories; a leading `**/` also matches paths at the root.
-- `{files}` expands to the matched files (space-separated) — use it for
-  linters; omit it for suite commands.
+- `{files}` passes the matched files to the command as separate arguments
+  (safe for names with spaces/metacharacters) — use it for linters; omit it
+  for suite commands that don't take a file list.
 - Duplicate commands from overlapping rules run once. Order = rule order.
 - Derive rules from the repo's own history: CI workflow steps, CLAUDE.md
   test instructions, and past incident classes (encoding, docs links) are
   the gate candidates. Keep each gate FAST — these run per-change, not
   nightly.
+
+## Trust boundary
+
+The rules file **executes shell commands** — treat `.claude/gate-router.local.md`
+like a Makefile: only run `--run` in repos you trust, and review a rules file
+you didn't write before running it. The script is injection-safe with respect
+to *filenames* (matched files are passed as argv, never interpolated into the
+shell, so a changed file named `x;rm -rf ~` is an inert argument), but the
+COMMANDS themselves are run verbatim with your privileges.
+
+`{files}` paths are repo-root-relative. Do **not** combine `{files}` with a
+command that changes directory (e.g. `cd bin && lint {files}`) — the files
+would resolve against the wrong directory. Either keep such gates directory-
+stable, or let the command run from the repo root.
 
 ## Composition
 
