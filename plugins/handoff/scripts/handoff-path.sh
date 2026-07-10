@@ -82,6 +82,10 @@ if common=$(git -C "$project_dir" rev-parse --git-common-dir 2>/dev/null); then
   # absolute, physical repo root so every worktree yields the same key.
   case "$common" in
     /*) ;;                                  # already absolute (linked worktree)
+    [A-Za-z]:/*) ;;                         # absolute Windows drive path: git on
+                                            # Windows/MSYS emits C:/... here, which
+                                            # the /* pattern misses; treating it as
+                                            # relative mangled the key hint to "-git"
     *)  common="${project_dir%/}/$common" ;;  # relative (main worktree) → absolute
   esac
   # dirname of the common ".git" dir is the repo root (standard non-bare layout);

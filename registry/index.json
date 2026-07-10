@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-07-10T02:56:19Z",
+  "generatedAt": "2026-07-10T03:05:31Z",
   "pluginCount": 20,
   "plugins": [
     {
@@ -24,7 +24,7 @@
         "autonomous-agents"
       ],
       "path": "plugins/anvil-pulse",
-      "indexedAt": "2026-07-10T02:56:16Z",
+      "indexedAt": "2026-07-10T03:05:28Z",
       "category": "workflow"
     },
     {
@@ -45,7 +45,7 @@
         "automation"
       ],
       "path": "plugins/cli-to-plugin",
-      "indexedAt": "2026-07-10T02:56:17Z",
+      "indexedAt": "2026-07-10T03:05:28Z",
       "category": "development"
     },
     {
@@ -67,7 +67,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-07-10T02:56:17Z",
+      "indexedAt": "2026-07-10T03:05:29Z",
       "category": "media"
     },
     {
@@ -91,7 +91,7 @@
         "workflow"
       ],
       "path": "plugins/fakoli-crew",
-      "indexedAt": "2026-07-10T02:56:17Z",
+      "indexedAt": "2026-07-10T03:05:29Z",
       "category": "development"
     },
     {
@@ -115,7 +115,7 @@
         "code-review"
       ],
       "path": "plugins/fakoli-flow",
-      "indexedAt": "2026-07-10T02:56:17Z",
+      "indexedAt": "2026-07-10T03:05:29Z",
       "category": "workflow"
     },
     {
@@ -140,7 +140,7 @@
         "claude-code"
       ],
       "path": "plugins/fakoli-plugin-critic",
-      "indexedAt": "2026-07-10T02:56:17Z",
+      "indexedAt": "2026-07-10T03:05:29Z",
       "category": "development"
     },
     {
@@ -167,7 +167,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-07-10T02:56:17Z",
+      "indexedAt": "2026-07-10T03:05:29Z",
       "category": "media"
     },
     {
@@ -193,7 +193,7 @@
         "terraform-for-work"
       ],
       "path": "plugins/fakoli-state",
-      "indexedAt": "2026-07-10T02:56:17Z",
+      "indexedAt": "2026-07-10T03:05:29Z",
       "category": "workflow"
     },
     {
@@ -214,7 +214,7 @@
         "documentation"
       ],
       "path": "plugins/fakoli-style",
-      "indexedAt": "2026-07-10T02:56:17Z",
+      "indexedAt": "2026-07-10T03:05:29Z",
       "category": "utilities"
     },
     {
@@ -263,12 +263,12 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-07-10T02:56:17Z",
+      "indexedAt": "2026-07-10T03:05:30Z",
       "category": "integrations"
     },
     {
       "name": "handoff",
-      "version": "0.1.4",
+      "version": "0.2.0",
       "description": "Store durable cross-session project handoff notes shared across same-remote checkouts.",
       "author": {
         "name": "Sekou Doumbouya",
@@ -286,7 +286,7 @@
       ],
       "homepage": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/handoff",
       "path": "plugins/handoff",
-      "indexedAt": "2026-07-10T02:56:18Z",
+      "indexedAt": "2026-07-10T03:05:30Z",
       "category": "productivity"
     },
     {
@@ -306,7 +306,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-07-10T02:56:18Z",
+      "indexedAt": "2026-07-10T03:05:30Z",
       "category": "development"
     },
     {
@@ -328,7 +328,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-07-10T02:56:18Z",
+      "indexedAt": "2026-07-10T03:05:30Z",
       "category": "media"
     },
     {
@@ -353,7 +353,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-07-10T02:56:18Z",
+      "indexedAt": "2026-07-10T03:05:30Z",
       "category": "integrations"
     },
     {
@@ -378,7 +378,7 @@
         "markdown-export"
       ],
       "path": "plugins/quick-notes",
-      "indexedAt": "2026-07-10T02:56:18Z",
+      "indexedAt": "2026-07-10T03:05:30Z",
       "category": "productivity"
     },
     {
@@ -401,7 +401,7 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-07-10T02:56:18Z",
+      "indexedAt": "2026-07-10T03:05:30Z",
       "category": "safety"
     },
     {
@@ -426,7 +426,7 @@
         "evaluation"
       ],
       "path": "plugins/session-retro",
-      "indexedAt": "2026-07-10T02:56:18Z",
+      "indexedAt": "2026-07-10T03:05:31Z",
       "category": "productivity"
     },
     {
@@ -447,7 +447,7 @@
         "worktree"
       ],
       "path": "plugins/ship-loop",
-      "indexedAt": "2026-07-10T02:56:18Z",
+      "indexedAt": "2026-07-10T03:05:31Z",
       "category": "development"
     },
     {
@@ -472,7 +472,7 @@
         "productivity"
       ],
       "path": "plugins/ship-task",
-      "indexedAt": "2026-07-10T02:56:19Z",
+      "indexedAt": "2026-07-10T03:05:31Z",
       "category": "development"
     },
     {
@@ -494,7 +494,7 @@
         "network-engineering"
       ],
       "path": "plugins/systems-thinking",
-      "indexedAt": "2026-07-10T02:56:19Z",
+      "indexedAt": "2026-07-10T03:05:31Z",
       "category": "knowledge"
     }
   ]

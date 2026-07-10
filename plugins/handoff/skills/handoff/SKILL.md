@@ -25,9 +25,20 @@ one left off.
 2. If `<HANDOFF>` already exists, `Read` it first so you preserve still-open
    items from earlier sessions instead of clobbering them.
 
-3. Compose a tight, scannable handoff and overwrite `<HANDOFF>` with `Write`.
-   If the user gave a one-line summary with the command (or in their message),
-   lead with it. Structure:
+3. Capture the state the note is being saved against (branch, HEAD, dirty
+   count, optional anvil claim snapshot — all best-effort):
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/handoff-meta.sh"
+   ```
+
+   Place its output (a `---`-fenced frontmatter block) at the very TOP of
+   `<HANDOFF>`, before the prose. `/recall` compares it against live state to
+   flag a stale note. Do not hand-edit the block or reorder its keys.
+
+4. Compose a tight, scannable handoff and write it below the frontmatter,
+   overwriting `<HANDOFF>` with `Write`. If the user gave a one-line summary
+   with the command (or in their message), lead with it. Structure:
 
    - **Resume** — the 1–3 concrete next actions, most important first (real
      commands, task IDs, file paths, PR numbers — not vague prose).
@@ -35,7 +46,7 @@ one left off.
    - **Recently shipped** — one or two lines for context.
    - **Gotchas** — non-obvious context the next session will need.
 
-4. Confirm to the user: the path written and a one-line summary of what you saved.
+5. Confirm to the user: the path written and a one-line summary of what you saved.
 
 ## Notes
 
