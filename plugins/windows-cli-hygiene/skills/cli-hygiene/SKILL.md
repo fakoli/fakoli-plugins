@@ -32,6 +32,15 @@ findings to the user and offer to fix them.
 | `CMD_SPAWN` | spawning `.cmd`/`.bat` from Node | `EINVAL` (CVE-2024-27980) unless shelled; resolve the real binary and spawn that |
 | `SET_E_HOOK` | `set -e` in a `hooks/` script | a probe's non-zero exit would abort the hook; use `set -uo pipefail` |
 
+## Precision
+
+Advisory line-based heuristics, tuned to under- rather than over-report:
+- Single-line matching — a `print`/`spawn` split across lines isn't seen.
+- `PYTHON3_HARDCODE` matches the literal `python3` anywhere on a line (a
+  comment or an error-message string counts). Treat findings as prompts to
+  look, not as failures.
+- CRLF is handled (a trailing carriage return is stripped before matching).
+
 ## Composition
 
 - `ship-loop` step 3/4: run before the review gate.

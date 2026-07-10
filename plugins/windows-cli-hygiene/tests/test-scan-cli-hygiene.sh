@@ -57,6 +57,43 @@ printf "const {spawn} = require('child_process');\nspawn('anvil.cmd', ['x']);\n"
 out="$(bash "$SCAN" "$proj")"
 has "$out" "run.js:2: CMD_SPAWN" ".cmd spawn from Node flagged"
 
+# --- HEREDOC state machine: bare-word body line must NOT reset (review #1) ----
+cat > "$proj/hd_bareword.sh" <<'OUTER'
+#!/usr/bin/env bash
+cat <<EOF
+foo
+later\nescape
+EOF
+OUTER
+out="$(bash "$SCAN" "$proj/hd_bareword.sh")"
+has "$out" "hd_bareword.sh:4: HEREDOC_BACKSLASH" "bare-word body line does not end the heredoc early"
+
+# --- HEREDOC with a DIGIT delimiter must reset (review #2) ---------------------
+cat > "$proj/hd_digit.sh" <<'OUTER'
+#!/usr/bin/env bash
+cat <<'EOF2'
+body\nwith escape
+EOF2
+echo "print(x)"
+OUTER
+out="$(bash "$SCAN" "$proj/hd_digit.sh")"
+has "$out" "hd_digit.sh:3: HEREDOC_BACKSLASH" "digit-delimiter heredoc body flagged"
+hasnt "$out" "hd_digit.sh:5" "digit delimiter resets — line after heredoc not falsely flagged"
+
+# --- HEREDOC_BACKSLASH only inside a heredoc, not in normal code ---------------
+printf '#!/usr/bin/env bash\nprintf "a\\\\nb"\n' > "$proj/notinhd.sh"
+out="$(bash "$SCAN" "$proj/notinhd.sh")"
+hasnt "$out" "notinhd.sh" "escaped backslash OUTSIDE a heredoc is not HEREDOC_BACKSLASH"
+
+# --- CRLF file: pure-ASCII print line is NOT flagged NON_ASCII (review #3) -----
+printf 'print("hello ascii")\r\nx = 1\r\n' > "$proj/crlf.py"
+out="$(bash "$SCAN" "$proj/crlf.py")"
+hasnt "$out" "crlf.py:1: NON_ASCII_OUTPUT" "CRLF line ending does not read as a non-ASCII byte"
+
+# --- explicit self-arg is skipped (review #4) ---------------------------------
+out="$(bash "$SCAN" "$SCAN")"
+has "$out" "no hazards found" "scanner passed as an explicit arg excludes itself"
+
 # --- --json shape + always exit 0 ----------------------------------------------
 out="$(bash "$SCAN" "$proj" --json)"; rc=$?
 [[ "$rc" == "0" ]] && ok "advisory exit 0" || bad "exit code" "got $rc"

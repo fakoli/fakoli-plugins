@@ -35,7 +35,12 @@ _self="$(basename "${BASH_SOURCE[0]}")"
 list_files() {
   local p
   for p in "${paths[@]}"; do
-    if [[ -f "$p" ]]; then echo "$p"; continue; fi
+    if [[ -f "$p" ]]; then
+      # Explicit file arg: still skip the scanner itself (self-exclusion must
+      # hold whether reached by walk or by a gate-router {files} list).
+      [[ "$(basename "$p")" == "$_self" ]] || echo "$p"
+      continue
+    fi
     find "$p" -type f \
       \( -name '*.py' -o -name '*.sh' -o -name '*.js' -o -name '*.cjs' \
          -o -name '*.mjs' -o -name '*.ts' \) \
@@ -48,15 +53,39 @@ list_files() {
 findings=()      # each: "file\tline\tRULE\tmessage"
 add() { findings+=("$1"$'\t'"$2"$'\t'"$3"$'\t'"$4"); }
 
+# ERE for a heredoc opener; captures the delimiter word (quotes optional,
+# `<<-` tab-strip variant allowed). In a var to keep the char class readable.
+_hd_open='<<-?[[:space:]]*["'"'"']?([A-Za-z_][A-Za-z0-9_]*)'
+
 scan_file() {
   local f="$1" ext="${1##*.}" lineno=0 line
+  local in_hd="" delim="" stripped
   while IFS= read -r line || [[ -n "$line" ]]; do
     lineno=$((lineno + 1))
+    line="${line%$'\r'}"   # strip a trailing CR so a CRLF checkout doesn't
+                            # read as a non-ASCII byte (0x0D) or a mismatched
+                            # heredoc delimiter.
 
-    # NON_ASCII_OUTPUT — a print/echo sink on a line containing a non-ASCII byte.
+    # --- inside a heredoc body: only HEREDOC_BACKSLASH applies -----------
+    if [[ -n "$in_hd" && "$ext" == "sh" ]]; then
+      stripped="${line#"${line%%[!$'\t']*}"}"   # drop leading tabs (<<- closer)
+      if [[ "$stripped" == "$delim" ]]; then
+        in_hd=""; delim=""
+      elif [[ "$line" == *'\n'* || "$line" == *'\t'* ]]; then
+        add "$f" "$lineno" "HEREDOC_BACKSLASH" \
+          "escaped \\n/\\t inside a heredoc — mangled across the shell boundary"
+      fi
+      continue
+    fi
+
+    # --- heredoc opener (start tracking; the opener line itself is code) -
+    if [[ "$ext" == "sh" && "$line" =~ $_hd_open ]]; then
+      in_hd=1; delim="${BASH_REMATCH[1]}"
+    fi
+
+    # NON_ASCII_OUTPUT — a print/echo sink on a line with a non-ASCII byte.
     # `[^<tab><space>-~]` under LC_ALL=C matches any byte outside printable
-    # ASCII (a BRE class, so no `grep -P` — which some builds refuse in the C
-    # locale). Em-dash / arrow / ✎ are multi-byte UTF-8, all high bytes.
+    # ASCII (BRE class, so no `grep -P` — some builds refuse it in C locale).
     if LC_ALL=C grep -q '[^'$'\t'' -~]' <<<"$line"; then
       case "$line" in
         *print\(*|*typer.echo*|*click.echo*|*console.log*|*process.stdout*|*'echo '*|*printf*)
@@ -70,7 +99,6 @@ scan_file() {
         [[ "$line" == *python3* ]] && add "$f" "$lineno" "PYTHON3_HARDCODE" \
           "literal 'python3' — may be a broken WindowsApps alias; resolve python3->python" ;;
       sh)
-        # set -e in a hooks/ path (bare, or leading segment of set -euo... is fine).
         if [[ "$f" == */hooks/* ]] && [[ "$line" =~ ^[[:space:]]*set[[:space:]]+-e([[:space:]]|$) ]]; then
           add "$f" "$lineno" "SET_E_HOOK" "set -e in a hook script — a probe's non-zero exit aborts the hook"
         fi ;;
@@ -80,20 +108,6 @@ scan_file() {
         fi ;;
     esac
   done < "$f"
-
-  # HEREDOC_BACKSLASH — an escaped \n/\t inside a bash heredoc body. Emitted as
-  # file<TAB>line by one awk pass; collected into the array below (process
-  # substitution, NOT a pipe, so `add` runs in THIS shell and the array keeps).
-  if [[ "$ext" == "sh" ]]; then
-    while IFS= read -r hl; do
-      [[ -n "$hl" ]] && add "$f" "$hl" "HEREDOC_BACKSLASH" \
-        "escaped \\n/\\t inside a heredoc — mangled across the shell boundary"
-    done < <(awk '
-      /<<-?[[:space:]]*[A-Za-z_"'"'"']+/ { inhd=1 }
-      inhd && /(\\n|\\t)/ { print NR }
-      inhd && /^[A-Za-z_]+[[:space:]]*$/ { inhd=0 }
-    ' "$f" 2>/dev/null)
-  fi
 }
 
 while IFS= read -r f; do
