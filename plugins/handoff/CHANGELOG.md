@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.0
+
+- **Handoff freshness** (the retro corpus's handoff-freshness opportunity):
+  `/handoff` now records the state it was saved against (branch, HEAD, dirty
+  count, optional anvil claim snapshot) as flat frontmatter via the new
+  `scripts/handoff-meta.sh`; `/recall` compares it against live repo/anvil
+  state via `scripts/handoff-freshness.sh` and surfaces STALE flags (branch
+  moved, HEAD advanced vs diverged, recorded claim no longer active, note
+  older than `HANDOFF_MAX_AGE_DAYS`, default 14). Legacy notes without
+  frontmatter degrade to "freshness unavailable" — fully backward compatible.
+- `tests/test-handoff-freshness.sh` (21 assertions, sandboxed git + fake
+  anvil shim).
+
+- Windows/MSYS: `git rev-parse --git-common-dir` can emit an absolute
+  `C:/...` path, which the absolute-path check (`/*`) missed — the key hint
+  degraded to `-git` and local-repo handoffs landed under the wrong key.
+  Drive-letter paths are now recognized as absolute (pre-existing; exposed
+  by the test suite on Windows).
+
 ## 0.1.4
 
 - Add a shell-free Python SessionStart hook that emits the required
