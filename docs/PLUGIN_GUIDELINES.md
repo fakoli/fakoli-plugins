@@ -110,7 +110,7 @@ Use pre-release tags for testing:
 ---
 name: skill-name
 description: Brief description shown in skill list
-user_invocable: true
+user-invocable: true
 ---
 
 # Skill Name
