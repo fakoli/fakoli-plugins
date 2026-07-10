@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-07-10T03:25:11Z",
+  "generatedAt": "2026-07-10T03:54:40Z",
   "categories": [
     {
       "category": "development",
-      "count": 7,
+      "count": 9,
       "plugins": [
         {
           "name": "cli-to-plugin",
@@ -36,6 +36,12 @@
           "path": "plugins/marketplace-manager"
         },
         {
+          "name": "recall-mode-verifier",
+          "version": "1.0.0",
+          "description": "Spec-independent breakage probes (fail-closed, malformed-input, resource-exhaustion, state-drift) for pre-PR and anvil verify-left review.",
+          "path": "plugins/recall-mode-verifier"
+        },
+        {
           "name": "ship-loop",
           "version": "1.0.0",
           "description": "The full ship loop as one invocable procedure: worktree isolation, ground-truth scoping, reality-faithful tests, an eight-angle adversarial review as the merge gate, and loop closure.",
@@ -46,6 +52,12 @@
           "version": "1.0.1",
           "description": "The mechanical tail of a one-PR-per-task loop as a single command: after review passes, push the branch, open a PR, wait for CI, squash-merge and delete the branch, sync the base, and optionally run a post-merge command (e.g. `anvil apply`). Keeps the repetitive git/gh/CI/merge dance out of the context window; makes no review decisions and stops if CI fails.",
           "path": "plugins/ship-task"
+        },
+        {
+          "name": "windows-cli-hygiene",
+          "version": "1.0.0",
+          "description": "Scan source for Windows/cross-platform CLI hazards before shipping: encoding, python3, heredocs, .cmd spawns, set -e in hooks.",
+          "path": "plugins/windows-cli-hygiene"
         }
       ]
     },
