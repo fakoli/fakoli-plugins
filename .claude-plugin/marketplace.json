@@ -177,6 +177,13 @@
       "source": "./plugins/session-retro"
     },
     {
+      "name": "ship-loop",
+      "version": "1.0.0",
+      "description": "The full ship loop as one invocable procedure: worktree isolation, ground-truth scoping, reality-faithful tests, an eight-angle adversarial review as the merge gate, and loop closure.",
+      "category": "development",
+      "source": "./plugins/ship-loop"
+    },
+    {
       "name": "ship-task",
       "version": "1.0.1",
       "description": "The mechanical tail of a one-PR-per-task loop as a single command: after review passes, push the branch, open a PR, wait for CI, squash-merge and delete the branch, sync the base, and optionally run a post-merge command (e.g. `anvil apply`). Keeps the repetitive git/gh/CI/merge dance out of the context window; makes no review decisions and stops if CI fails.",

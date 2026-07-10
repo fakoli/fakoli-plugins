@@ -364,15 +364,24 @@ validate_component_paths() {
             find "$plugin_dir/skills" "$plugin_dir/commands" -type f -name "*.md" 2>/dev/null
         )
         if [[ ${#fm_files[@]} -gt 0 ]]; then
-            local fm_out
-            if fm_out=$(python3 "$fm_linter" "${fm_files[@]}" 2>/dev/null); then
-                log_success "[$plugin_name] Skill/command frontmatter is valid YAML"
+            local fm_out fm_err
+            fm_err=$(mktemp)
+            if fm_out=$(python3 "$fm_linter" "${fm_files[@]}" 2>"$fm_err"); then
+                # Surface the linter's degraded-mode notice instead of silently
+                # discarding stderr: without PyYAML the "valid YAML" verdict is
+                # only heuristic and the operator should know.
+                if grep -qi "heuristic" "$fm_err" 2>/dev/null; then
+                    log_warning "[$plugin_name] frontmatter checked in REDUCED heuristic mode (install PyYAML for full validation)"
+                else
+                    log_success "[$plugin_name] Skill/command frontmatter is valid YAML"
+                fi
             else
                 while IFS= read -r line; do
                     [[ -n "$line" ]] && log_error "[$plugin_name] frontmatter: $line"
                 done <<< "$fm_out"
                 has_errors=1
             fi
+            rm -f "$fm_err"
         fi
     fi
 

@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-07-09T23:55:29Z",
+  "generatedAt": "2026-07-10T02:50:56Z",
   "categories": [
     {
       "category": "development",
-      "count": 5,
+      "count": 6,
       "plugins": [
         {
           "name": "cli-to-plugin",
@@ -28,6 +28,12 @@
           "version": "1.2.4",
           "description": "Manage marketplace plugins, validate manifests, and regenerate registry indices.",
           "path": "plugins/marketplace-manager"
+        },
+        {
+          "name": "ship-loop",
+          "version": "1.0.0",
+          "description": "The full ship loop as one invocable procedure: worktree isolation, ground-truth scoping, reality-faithful tests, an eight-angle adversarial review as the merge gate, and loop closure.",
+          "path": "plugins/ship-loop"
         },
         {
           "name": "ship-task",

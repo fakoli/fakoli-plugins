@@ -1,0 +1,13 @@
+{
+  "name": "ship-loop",
+  "version": "1.0.0",
+  "description": "The full ship loop as one invocable procedure: sync and isolate in a worktree, scope with ground-truth sweeps, implement with reality-faithful tests, gate on a multi-angle adversarial review, merge, and close the follow-up loop.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": ["workflow", "code-review", "adversarial-review", "shipping"],
+  "skills": "./skills"
+}

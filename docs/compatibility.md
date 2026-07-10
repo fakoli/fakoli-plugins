@@ -88,6 +88,7 @@ plugin cache as the runtime surface:
 | `notebooklm-enhanced` | 7 commands, 2 skills, 1 agent | Compatible | README now documents both `notebooklm-core` and `notebooklm-research`; no command removal found. |
 | `quick-notes` | 1 command, 2 skills | Compatible | `/note` still exists. Export behavior now writes `notes.md` next to `$NOTES_LOG` / `~/technical-notes/notes.jsonl` instead of into plugin code. |
 | `safe-fetch` | 3 commands, 1 skill, 1 agent, hooks, MCP | Compatible with config caveat | `mcpServers` resolves to `.mcp.json`; hooks use wrapper shape, matchers, timeouts, and `${CLAUDE_PLUGIN_ROOT}`. `/search` requires runtime Brave API configuration. |
+| `ship-loop` | 1 command, 1 skill | Compatible | Procedural skill (no scripts/hooks); `/ship-loop` wraps the skill. |
 | `session-retro` | 1 command, 1 skill | Compatible | The advertised `/session-retro` command wrapper now exists. Skill frontmatter uses `user-invocable`. |
 
 ## Codex Plugin Matrix
@@ -110,6 +111,7 @@ plugin cache as the runtime surface:
 | `notebooklm-enhanced` | `notebooklm-core`, `notebooklm-research` skills | Skill-compatible, external CLI dependent | Codex can use skills when installed, but NotebookLM CLI/auth remains a runtime dependency. Claude commands, slash setup examples, and research-agent delegation do not automatically become Codex surfaces. |
 | `quick-notes` | `take-note`, `find-notes` skills | Skill-compatible | Codex users should invoke skills rather than the Claude `/note` command. File behavior remains local and portable. |
 | `safe-fetch` | `safe-fetch` skill; MCP requires Codex verification | Skill-compatible, MCP unverified | Skill can document safe-fetch practice. MCP-backed commands/search require Codex tool exposure before being promised; Claude hooks blocking WebFetch/WebSearch do not intercept Codex web or shell behavior. |
+| `ship-loop` | `ship-loop` skill | Skill-compatible | The procedure is fully expressible as a Codex skill; the Claude slash wrapper does not carry over. |
 | `session-retro` | `session-retro` skill | Skill-compatible | Codex can run the local-log analysis as a skill. Claude `/session-retro` command is a Claude wrapper, not the Codex invocation surface. |
 
 ## Behavior Preservation And Replacements

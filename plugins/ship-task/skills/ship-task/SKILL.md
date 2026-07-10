@@ -1,7 +1,7 @@
 ---
 name: ship-task
 description: This skill should be used AFTER code review and verification pass, when the user wants to "ship this", "ship the task", "open and merge the PR", "push, PR, wait for CI, and merge", or otherwise run the mechanical tail of a one-PR-per-task loop. It pushes the current branch, opens a PR, waits for CI to reach a terminal state, merges (squash + delete branch), syncs the base branch, and optionally runs a post-merge command (e.g. `anvil apply`). It makes NO review decisions — the human or agent gates that first.
-user_invocable: true
+user-invocable: true
 ---
 
 # ship-task
