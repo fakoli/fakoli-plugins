@@ -14,10 +14,11 @@
 #     - bin/src/** => cd bin && uv run pytest -q
 #   ---
 #
-# Left of `=>` is a glob matched against each changed path (bash extended
-# patterns: `**` handled as "any path prefix"); right is the command. `{files}`
-# in a command expands to the space-separated matched files. Duplicate
-# commands (matched via several rules/files) run once.
+# Left of `=>` is a glob matched against each changed path (segment-aware:
+# `**` crosses directories, a single `*` stays within one path segment);
+# right is the command. `{files}` passes the matched files to the command as
+# separate ARGV (injection-safe — never interpolated into the shell).
+# Duplicate commands (matched via several rules/files) run once, in rule order.
 #
 # Usage: gate-router.sh [project_dir] [--base <ref>] [--list|--run] [--json]
 #   --base   diff base (default: origin/main if it exists, else HEAD)
@@ -49,6 +50,15 @@ if [[ ! -f "$cfg" ]]; then
   exit 0
 fi
 
+# Config path RELATIVE TO THE GIT ROOT — git diff/ls-files emit repo-root-
+# relative paths, so the self-exclusion below must match in that frame even
+# when project_dir is a subdirectory of the repo. `--show-prefix` returns the
+# repo-relative subdir ("" at root, "sub/dir/" below) in git's OWN path form,
+# so this is immune to the MSYS-vs-native drive-letter mismatch that a
+# show-toplevel string-strip would hit on Windows.
+_prefix="$(git -C "$project_dir" rev-parse --show-prefix 2>/dev/null || echo "")"
+cfg_rel="${_prefix}.claude/gate-router.local.md"
+
 # Rules = frontmatter lines shaped `- <glob> => <command>` (quotes optional).
 rules="$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1{print}' "$cfg" \
   | sed -n 's/^[[:space:]]*-[[:space:]]*//p')"
@@ -77,7 +87,7 @@ changed="$( (git -C "$project_dir" diff --name-only "$base" 2>/dev/null;
              git -C "$project_dir" diff --name-only 2>/dev/null;
              git -C "$project_dir" ls-files --others --exclude-standard 2>/dev/null) \
             | sort -u | grep -v '^$' \
-            | grep -Fvx '.claude/gate-router.local.md' || true)"
+            | grep -Fvx "$cfg_rel" || true)"
 # (the config itself is excluded: it is a local-only settings file that would
 # otherwise read as "changed" forever and defeat the clean-tree no-op)
 if [[ -z "$changed" ]]; then

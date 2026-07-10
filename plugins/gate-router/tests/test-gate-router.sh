@@ -184,6 +184,23 @@ mkdir -p "$repo5/docs"; : > "$repo5/docs/my notes.md"
 out="$(bash "$ROUTER" "$repo5" --run 2>&1)"
 assert_contains "$out" "ARG[docs/my notes.md]" "space-containing filename is one argument"
 
+# ---- run from a SUBDIRECTORY of the repo: config self-exclusion still holds --
+repo6="$tmp/mono"
+mkdir -p "$repo6/pkg/.claude"
+git -C "$repo6" init -q -b main
+git -C "$repo6" config user.email t@t; git -C "$repo6" config user.name t
+echo x > "$repo6/seed"; git -C "$repo6" add .; git -C "$repo6" commit -qm init
+cat > "$repo6/pkg/.claude/gate-router.local.md" <<'EOF'
+---
+rules:
+  - "**/*.md" => echo MD-GATE
+---
+EOF
+# project_dir = the subdir; the config (untracked, repo-relative pkg/.claude/..)
+# must NOT count as a changed file, so a clean subtree is a no-op.
+out="$(bash "$ROUTER" "$repo6/pkg")"
+assert_contains "$out" "no changed files" "config excluded even from a repo subdirectory"
+
 echo
 echo "passed=$pass failed=$fail"
 [[ $fail -eq 0 ]]

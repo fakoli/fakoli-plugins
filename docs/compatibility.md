@@ -1,6 +1,6 @@
 # Runtime Compatibility Review
 
-Updated: 2026-07-09 (anvil-pulse added; validation re-run)
+Updated: 2026-07-09 (anvil-pulse, ship-loop, handoff freshness, gate-router added; validation re-run)
 
 This note records the T012 Claude Code compatibility pass and the T013 Codex
 compatibility pass for the active plugins under `plugins/`. It focuses on
@@ -20,7 +20,7 @@ The review used the local Claude Code runtime available in this workspace:
   warnings for marketplace-only metadata fields (`displayName`, `repository`,
   `categories`) that Claude Code ignores at load time.
 - `./scripts/validate.sh`: passed with 218 checks, 0 warnings, 0 failures
-  (re-run 2026-07-09 with anvil-pulse: 297 checks, 0 warnings, 0 failures).
+  (re-run 2026-07-09 through gate-router: 327 checks, 0 warnings, 0 failures).
 - `./scripts/test-path-resolution.sh`: passed with 27 checks, 0 warnings,
   0 errors (re-run 2026-07-09 with anvil-pulse: 44 checks, 0 warnings, 0 errors).
 - `claude -p "/flow"` and `claude -p "/flow:brainstorm"`: returned
