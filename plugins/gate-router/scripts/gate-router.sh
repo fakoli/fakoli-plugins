@@ -50,12 +50,14 @@ if [[ ! -f "$cfg" ]]; then
   exit 0
 fi
 
-# Config path RELATIVE TO THE GIT ROOT — git diff/ls-files emit repo-root-
-# relative paths, so the self-exclusion below must match in that frame even
-# when project_dir is a subdirectory of the repo. `--show-prefix` returns the
-# repo-relative subdir ("" at root, "sub/dir/" below) in git's OWN path form,
-# so this is immune to the MSYS-vs-native drive-letter mismatch that a
+# Resolve the repo root and run every changed-file git command FROM it, so all
+# paths are uniformly repo-root-relative. (git diff is root-relative but
+# ls-files is cwd-relative — running both from the root removes that skew, and
+# also makes globs like `docs/**` mean the same thing from any subdirectory.)
+# `--show-prefix` gives the repo-relative subdir in git's own path form, so the
+# config's root-relative path is immune to the MSYS-vs-native mismatch a
 # show-toplevel string-strip would hit on Windows.
+_git_root="$(git -C "$project_dir" rev-parse --show-toplevel 2>/dev/null || echo "$project_dir")"
 _prefix="$(git -C "$project_dir" rev-parse --show-prefix 2>/dev/null || echo "")"
 cfg_rel="${_prefix}.claude/gate-router.local.md"
 
@@ -82,10 +84,10 @@ fi
 # Changed = committed diff vs base + staged + unstaged + UNTRACKED (a brand-
 # new file is the most common "about to ship" change and appears in no
 # `git diff`). Deduped, forward slashes.
-changed="$( (git -C "$project_dir" diff --name-only "$base" 2>/dev/null;
-             git -C "$project_dir" diff --name-only --cached 2>/dev/null;
-             git -C "$project_dir" diff --name-only 2>/dev/null;
-             git -C "$project_dir" ls-files --others --exclude-standard 2>/dev/null) \
+changed="$( (git -C "$_git_root" diff --name-only "$base" 2>/dev/null;
+             git -C "$_git_root" diff --name-only --cached 2>/dev/null;
+             git -C "$_git_root" diff --name-only 2>/dev/null;
+             git -C "$_git_root" ls-files --others --exclude-standard 2>/dev/null) \
             | sort -u | grep -v '^$' \
             | grep -Fvx "$cfg_rel" || true)"
 # (the config itself is excluded: it is a local-only settings file that would
@@ -203,7 +205,8 @@ for i in "${!ucmds[@]}"; do
     template="${cmd//\{files\}/\"\$@\"}"
     printf 'gate-router: RUN %s\n' "$cmd"
     if (( ${#files[@]} )); then printf '  on: %s\n' "${files[*]}"; fi
-    ( cd "$project_dir" && bash -c "$template" gate-router "${files[@]}" )
+    # Run from the repo root so root-relative {files} resolve correctly.
+    ( cd "$_git_root" && bash -c "$template" gate-router "${files[@]}" )
     rc=$?
     if (( rc != 0 )); then
       echo "gate-router: GATE FAILED ($rc): $cmd" >&2
