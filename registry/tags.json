@@ -1,13 +1,14 @@
 {
-  "generatedAt": "2026-07-10T02:56:19Z",
-  "totalTags": 148,
+  "generatedAt": "2026-07-10T03:25:11Z",
+  "totalTags": 152,
   "tags": [
     {
       "tag": "workflow",
-      "count": 5,
+      "count": 6,
       "plugins": [
         "fakoli-crew",
         "fakoli-flow",
+        "gate-router",
         "gws",
         "ship-loop",
         "ship-task"
@@ -207,6 +208,13 @@
       "count": 1,
       "plugins": [
         "gws"
+      ]
+    },
+    {
+      "tag": "changed-files",
+      "count": 1,
+      "plugins": [
+        "gate-router"
       ]
     },
     {
@@ -431,6 +439,13 @@
       "count": 1,
       "plugins": [
         "gws"
+      ]
+    },
+    {
+      "tag": "gates",
+      "count": 1,
+      "plugins": [
+        "gate-router"
       ]
     },
     {
@@ -763,6 +778,13 @@
       ]
     },
     {
+      "tag": "pre-commit",
+      "count": 1,
+      "plugins": [
+        "gate-router"
+      ]
+    },
+    {
       "tag": "principles",
       "count": 1,
       "plugins": [
@@ -1019,6 +1041,13 @@
       "count": 1,
       "plugins": [
         "systems-thinking"
+      ]
+    },
+    {
+      "tag": "verification",
+      "count": 1,
+      "plugins": [
+        "gate-router"
       ]
     },
     {

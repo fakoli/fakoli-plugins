@@ -49,6 +49,9 @@ jobs:
 
       # Linux gate for the pulse dashboard server (node is preinstalled on
       # ubuntu-latest; the suite is hermetic — fake anvil shim, no docker).
+      - name: Test gate-router
+        run: bash ./plugins/gate-router/tests/test-gate-router.sh
+
       - name: Test anvil-pulse server
         run: bash ./plugins/anvil-pulse/tests/test-server.sh
 
