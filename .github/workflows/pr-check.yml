@@ -44,6 +44,14 @@ jobs:
       - name: Test handoff path resolver
         run: ./plugins/handoff/tests/test-handoff-path.sh
 
+      - name: Test handoff freshness
+        run: ./plugins/handoff/tests/test-handoff-freshness.sh
+
+      # Linux gate for the pulse dashboard server (node is preinstalled on
+      # ubuntu-latest; the suite is hermetic — fake anvil shim, no docker).
+      - name: Test anvil-pulse server
+        run: bash ./plugins/anvil-pulse/tests/test-server.sh
+
       - name: Preview index changes
         run: |
           echo "Generating preview of registry index..."

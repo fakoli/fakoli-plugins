@@ -75,6 +75,14 @@ file would have caught it.)
   reads the environment — suites run inside harness sessions.
 - Run the FULL suite the repo's own way (check CLAUDE.md — e.g.
   `cd bin && uv run pytest -q`). All green before review.
+- **Cross-platform gate**: anything shipped must run on Windows AND Linux,
+  under Claude Code AND Codex. Concretely: (a) run shell/script suites on
+  real Linux before merge — WSL via the wsl-linux-check discipline
+  (git-archive export, never /mnt/c copies) or a CI job on ubuntu-latest;
+  (b) ensure the repo's CI actually EXECUTES the new suite on Linux (wire it
+  into the workflow — a merged suite nobody runs on Linux is not coverage);
+  (c) Codex exposure is skills-first (`.codex-plugin` manifest or documented
+  skill parity) — hooks and slash commands do not carry over.
 
 ## 5. Adversarial review — THE merge gate
 

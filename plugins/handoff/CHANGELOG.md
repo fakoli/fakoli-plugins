@@ -1,8 +1,6 @@
 # Changelog
 
-## [0.2.0] - 2026-07-09
-
-### Added
+## 0.2.0
 
 - **Handoff freshness** (the retro corpus's handoff-freshness opportunity):
   `/handoff` now records the state it was saved against (branch, HEAD, dirty
@@ -14,8 +12,6 @@
   frontmatter degrade to "freshness unavailable" — fully backward compatible.
 - `tests/test-handoff-freshness.sh` (21 assertions, sandboxed git + fake
   anvil shim).
-
-### Fixed
 
 - Windows/MSYS: `git rev-parse --git-common-dir` can emit an absolute
   `C:/...` path, which the absolute-path check (`/*`) missed — the key hint

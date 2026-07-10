@@ -137,13 +137,17 @@ chmod +x "$tmp/bin/anvil"
   echo "branch: $(git -C "$repo" rev-parse --abbrev-ref HEAD)"
   echo "head: $(git -C "$repo" rev-parse HEAD)"
   echo "dirty_files: 0"
-  echo "anvil_claims: T042:implement"
+  echo "anvil_claims: T042:implement,evidence-contracts:T007:verify"
   echo "---"
   echo "## Resume"
 } > "$note"
 out="$(PATH="$tmp/bin:$PATH" bash "$FRESH" "$repo")"
 assert_contains "$out" "T042" "released claim flagged by task id"
 assert_contains "$out" "no longer active" "claim staleness reason named"
+# Composite anvil ids (feature:Txxx) contain ':' — the task:phase split is on
+# the LAST colon, so the full id must round-trip, not its feature prefix.
+assert_contains "$out" "evidence-contracts:T007" "composite task id round-trips"
+assert_not_contains "$out" "claim on evidence-contracts recorded" "id not truncated at first colon"
 
 # ---- freshness: --json shape ----------------------------------------------------
 out="$(PATH="$tmp/bin:$PATH" bash "$FRESH" "$repo" --json)"

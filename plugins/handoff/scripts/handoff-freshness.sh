@@ -100,7 +100,10 @@ if [[ -n "$rec_claims" ]] && command -v anvil >/dev/null 2>&1; then
   if [[ -n "$live" ]]; then
     IFS=',' read -ra pairs <<<"$rec_claims"
     for pair in "${pairs[@]}"; do
-      task="${pair%%:*}"
+      # Split on the LAST colon: anvil task ids are composite
+      # (feature:Txxx, e.g. evidence-contracts:T007), so the id itself
+      # contains ':' — only the trailing :phase is ours.
+      task="${pair%:*}"
       [[ -n "$task" && "$task" != "?" ]] || continue
       if ! printf '%s' "$live" | grep -q "\"task_id\": *\"$task\"" \
          && ! printf '%s' "$live" | grep -q "\"task\": *\"$task\""; then

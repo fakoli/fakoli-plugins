@@ -30,6 +30,16 @@ note.
 - **`/handoff:recall`** — show it on demand.
 - **`scripts/handoff-path.sh`** — the single source of truth for path
   resolution, used by the hook and both skills.
+- **`scripts/handoff-meta.sh`** — captures save-time state (branch, HEAD,
+  dirty count, optional anvil claim snapshot) as a frontmatter block at the
+  top of the note; every field best-effort.
+- **`scripts/handoff-freshness.sh`** — compares that recorded state against
+  the live repo/anvil on `/handoff:recall` and reports STALE flags (branch
+  moved, HEAD advanced vs diverged, recorded claim no longer active, note
+  age). Notes older than **`HANDOFF_MAX_AGE_DAYS`** (default 14) are flagged;
+  legacy notes without frontmatter report "freshness unavailable". Both the
+  recall skill and the SessionStart banner show only the prose below the
+  metadata block.
 
 It **complements** native auto-memory (`MEMORY.md`): native memory is for durable
 facts/preferences; this handoff is the live "where we are right now."

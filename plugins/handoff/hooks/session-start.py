@@ -113,7 +113,18 @@ def main() -> None:
             legacy_source = str(repo_root.resolve())
         except OSError:
             legacy_source = str(repo_root)
-        legacy_hint = Path(legacy_source).name
+        # KEY PARITY with scripts/handoff-path.sh (the bash resolver): on
+        # Windows, bash `pwd -P` renders the repo root as /c/Users/... while
+        # pathlib renders a drive-letter backslash path; hashing different
+        # spellings of the SAME identity splits the storage key -- /handoff
+        # writes under the bash key and this banner reads another. Normalize
+        # to the bash form.
+        if len(legacy_source) > 1 and legacy_source[1] == ":":
+            legacy_source = (
+                "/" + legacy_source[0].lower()
+                + legacy_source[2:].replace(chr(92), "/")
+            )
+        legacy_hint = Path(repo_root).name
 
     source = legacy_source
     hint = legacy_hint
@@ -136,6 +147,15 @@ def main() -> None:
 
     if file_has_content(handoff):
         content = handoff.read_text(encoding="utf-8", errors="replace")
+        # Since 0.2.0 the note may open with a ----fenced metadata block
+        # (written by scripts/handoff-meta.sh, consumed by
+        # scripts/handoff-freshness.sh). The banner shows the PROSE -- same
+        # rule as the recall skill; raw saved_at/head/claims lines are
+        # machine metadata, not the resume point.
+        if content.startswith("---\n"):
+            _end = content.find("\n---\n", 4)
+            if _end != -1:
+                content = content[_end + 5:].lstrip("\n")
         write_context(
             "HANDOFF - resume point for this project (from the last session):\n\n"
             f"{content}\n"

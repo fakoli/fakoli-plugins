@@ -23,7 +23,10 @@ one left off.
    worktree-local `.remember/` or anywhere inside the repo — only to `<HANDOFF>`.
 
 2. If `<HANDOFF>` already exists, `Read` it first so you preserve still-open
-   items from earlier sessions instead of clobbering them.
+   items from earlier sessions instead of clobbering them. Treat everything
+   from a leading `---` line through the next `---` line as machine metadata:
+   DISCARD it when composing — step 3 regenerates a fresh block, and carrying
+   the old one forward stacks stale `saved_at`/`head` blocks into the prose.
 
 3. Capture the state the note is being saved against (branch, HEAD, dirty
    count, optional anvil claim snapshot — all best-effort):
