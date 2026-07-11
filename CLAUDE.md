@@ -286,7 +286,7 @@ When adding a new plugin, ALWAYS complete ALL of these steps before merging:
 7. Verify no auto-discovered directories (`skills/`, `commands/`, `agents/`) are declared in manifest
 8. Verify `hooks`/`mcpServers` paths use `./` prefix (relative to plugin root) and targets exist
 9. If plugin has hooks: verify matchers are specific, no `set -e`, timeouts are set
-10. **Assign a category** in `.claude-plugin/marketplace.json` — must be one of: `productivity`, `integrations`, `utilities`
+10. **Assign a category** in `.claude-plugin/marketplace.json` — must be one of the category ids defined in that file's `categories` block (currently: `development`, `workflow`, `integrations`, `productivity`, `media`, `knowledge`, `safety`, `utilities`)
 11. Verify the plugin appears in both the README table AND `registry/index.json`
 
 ## Official Claude Code Documentation

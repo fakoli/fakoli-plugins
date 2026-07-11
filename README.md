@@ -139,6 +139,7 @@ the moat is — see [docs/POSITIONING.md](docs/POSITIONING.md).
 |--------|-------------|
 | [**handoff**](plugins/handoff) | Store durable cross-session project handoff notes shared across same-remote checkouts. |
 | [**quick-notes**](plugins/quick-notes) | Capture, search, edit, and export dictation-friendly personal notes. |
+| [**session-evals**](plugins/session-evals) | Mine coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving — retro-first mining, deterministic checks, routing evidence. |
 | [**session-retro**](plugins/session-retro) | Analyze local Claude Code and Codex session logs into actionable retrospectives. |
 
 ---
@@ -272,7 +273,7 @@ pushing, run `./scripts/check-all.sh`.
 fakoli-plugins/
 ├── .claude-plugin/          # Marketplace-level manifest
 ├── .github/workflows/       # CI: validate, update-index, pr-check, schema-drift
-├── plugins/                 # All active plugins (17)
+├── plugins/                 # All active plugins (24)
 ├── archive/                 # Archived / deprecated plugins
 ├── registry/                # Auto-generated plugin index (do not edit manually)
 ├── schemas/                 # JSON Schema definitions for manifests

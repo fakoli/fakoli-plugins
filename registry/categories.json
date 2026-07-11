@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T03:54:40Z",
+  "generatedAt": "2026-07-11T21:24:47Z",
   "categories": [
     {
       "category": "development",
@@ -117,7 +117,7 @@
     },
     {
       "category": "productivity",
-      "count": 3,
+      "count": 4,
       "plugins": [
         {
           "name": "handoff",
@@ -130,6 +130,12 @@
           "version": "1.0.1",
           "description": "Capture, search, edit, and export dictation-friendly personal notes.",
           "path": "plugins/quick-notes"
+        },
+        {
+          "name": "session-evals",
+          "version": "1.0.0",
+          "description": "Mine coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving.",
+          "path": "plugins/session-evals"
         },
         {
           "name": "session-retro",

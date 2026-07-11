@@ -184,6 +184,13 @@
       "source": "./plugins/safe-fetch"
     },
     {
+      "name": "session-evals",
+      "version": "1.0.0",
+      "description": "Mine coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving.",
+      "category": "productivity",
+      "source": "./plugins/session-evals"
+    },
+    {
       "name": "session-retro",
       "version": "1.1.1",
       "description": "Analyze local Claude Code and Codex session logs into actionable retrospectives.",
