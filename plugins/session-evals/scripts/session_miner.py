@@ -25,6 +25,7 @@ unknown types are skipped, malformed lines are counted, never fatal.
 """
 
 import argparse
+import datetime
 import glob
 import json
 import os
@@ -34,6 +35,9 @@ import sys
 
 CLAUDE_ROOT = os.path.expanduser("~/.claude/projects")
 CODEX_ROOT = os.path.expanduser("~/.codex/sessions")
+# Codex relocates cold rollouts here (flat dir, same filename) - observed
+# live: a retro's session list can go stale within hours of the retro.
+CODEX_ARCHIVE = os.path.expanduser("~/.codex/archived_sessions")
 CURSOR_ROOT = os.path.expanduser("~/.cursor/projects")
 
 # Ranking weights: transparent and additive so the curator can see why a
@@ -74,17 +78,24 @@ CLIP = 2000  # max chars kept per captured text field
 # ---------------------------------------------------------------- helpers
 
 def _jsonl(path):
-    """Yield parsed objects from a JSONL file; skip lines that don't parse."""
+    """Yield parsed dict records from a JSONL file.
+
+    Tolerant by contract: unparseable lines, blank lines, and valid-JSON
+    non-objects (a bare `42` or `"note"`) are skipped, never fatal.
+    utf-8-sig eats a BOM that would otherwise kill the first record.
+    """
     try:
-        with open(path, encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8-sig", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    yield json.loads(line)
+                    d = json.loads(line)
                 except (json.JSONDecodeError, ValueError):
                     continue
+                if isinstance(d, dict):
+                    yield d
     except OSError as e:
         print("warn: cannot read %s: %s" % (path, e), file=sys.stderr)
 
@@ -97,7 +108,8 @@ def _text(content):
         parts = []
         for c in content:
             if isinstance(c, dict):
-                t = c.get("text") or c.get("input_text") or ""
+                t = c.get("text") or c.get("input_text") \
+                    or c.get("output_text") or ""
                 if isinstance(t, str):
                     parts.append(t)
             elif isinstance(c, str):
@@ -122,10 +134,15 @@ def _redaction_flags(*texts):
     return sorted(flags)
 
 
-def _guess_work_class(intent, action_text, est_ctx):
-    """Cheap keyword prior; the curator owns the final assignment."""
-    if est_ctx and est_ctx > MAX_LOCAL_CTX:
-        return "long-context"
+def _guess_work_class(intent, action_text, est_ctx=None):
+    """Cheap keyword prior; the curator owns the final assignment.
+
+    est_context_tokens deliberately does NOT force "long-context": in real
+    Claude sessions the cumulative context (cache reads) exceeds any local
+    bucket almost immediately, which would flatten every guess to
+    long-context (observed on the live corpus). The curator sizes context;
+    the guess only reads the task.
+    """
     blob = ((intent or "") + " " + (action_text or "")).lower()
     if re.search(r"\breview\b|\bcritique\b|\baudit\b", blob):
         return "review"
@@ -140,16 +157,32 @@ def _guess_work_class(intent, action_text, est_ctx):
     return "chat"
 
 
-def _mk_candidate(source, session_path, turn_ts, intent, action, est_ctx,
-                  followup=None):
-    """Assemble one candidate record + its transparent ranking score."""
-    action_text = action.get("text") or json.dumps(
-        action.get("input") or {}, ensure_ascii=False)
+def _mk_candidate(source, session_path, turn_ts, intent, action, est_ctx):
+    """Assemble one candidate record + its transparent ranking score.
+
+    followup_user_text/W_FOLLOWUP are attributed later by the miners'
+    `pending` loops - a followup is only known once the NEXT human turn
+    arrives.
+    """
+    # scan the RAW string values, not json.dumps(input): dumps escapes
+    # newlines, which would make the multiline diff regex below dead code
+    # for every tool call (a patch lives inside an input value)
+    inp = action.get("input")
+    parts = [action.get("text") or ""]
+    if isinstance(inp, dict):
+        parts += [v for v in inp.values() if isinstance(v, str)]
+    action_text = "\n".join(p for p in parts if p) or json.dumps(
+        inp or {}, ensure_ascii=False)
+    if inp is not None:
+        # keep tool args structured when small; clip huge payloads (whole
+        # file bodies in Edit/Write calls) so mining a 100MB corpus doesn't
+        # hold it all in memory just to keep the top 200 rows
+        blob = json.dumps(inp, ensure_ascii=False)
+        if len(blob) > 2 * CLIP:
+            inp = {"_clipped": _clip(blob)}
     score = 0
     if action.get("kind") == "tool_call" and action.get("input") is not None:
         score += W_TOOL_ARGS
-    if followup:
-        score += W_FOLLOWUP
     if re.search(r"^(---|\+\+\+|@@)", action_text or "", re.M):
         score += W_DIFF
     if est_ctx and est_ctx <= MAX_LOCAL_CTX:
@@ -162,30 +195,27 @@ def _mk_candidate(source, session_path, turn_ts, intent, action, est_ctx,
         "action": {
             "kind": action.get("kind"),
             "tool": action.get("tool"),
-            "input": action.get("input"),
+            "input": inp,
             "text": _clip(action.get("text") or ""),
         },
-        "followup_user_text": _clip(followup or "", 500) or None,
+        "followup_user_text": None,
         "est_context_tokens": est_ctx,
-        "work_class_guess": _guess_work_class(intent, action_text, est_ctx),
-        "redaction_flags": _redaction_flags(intent, action_text, followup),
+        "work_class_guess": _guess_work_class(intent, action_text),
+        "redaction_flags": _redaction_flags(intent, action_text),
         "score": score,
     }
 
 
 # ---------------------------------------------------------------- parsers
 
-def _is_codex(path):
-    for d in _jsonl(path):
-        return d.get("type") in {"session_meta", "turn_context",
-                                 "response_item", "event_msg"}
-    return False
-
-
-def _is_cursor(path):
-    for d in _jsonl(path):
-        return set(d.keys()) <= {"role", "message"} and "role" in d
-    return False
+def _attach_followup(pending, txt):
+    """Attribute the next human turn to candidates waiting for one."""
+    for c in pending:
+        c["followup_user_text"] = _clip(txt, 500)
+        c["score"] += W_FOLLOWUP
+        c["redaction_flags"] = sorted(
+            set(c["redaction_flags"]) | set(_redaction_flags(txt)))
+    pending.clear()
 
 
 def mine_claude(path):
@@ -206,10 +236,7 @@ def mine_claude(path):
             # session-retro's session_stats.py).
             if isinstance(m.get("content"), str) and txt.strip() \
                     and not txt.lstrip().startswith("<"):
-                for c in pending:
-                    c["followup_user_text"] = _clip(txt, 500)
-                    c["score"] += W_FOLLOWUP
-                pending = []
+                _attach_followup(pending, txt)
                 intent = txt
         elif d.get("type") == "assistant" and not d.get("isSidechain"):
             u = m.get("usage") or {}
@@ -244,10 +271,7 @@ def mine_codex(path, source="codex"):
         if ptype == "message" and payload.get("role") == "user":
             txt = _text(payload.get("content")).strip()
             if txt and not txt.lstrip().startswith("<"):
-                for c in pending:
-                    c["followup_user_text"] = _clip(txt, 500)
-                    c["score"] += W_FOLLOWUP
-                pending = []
+                _attach_followup(pending, txt)
                 intent = txt
         elif ptype == "function_call":
             try:
@@ -289,10 +313,7 @@ def mine_cursor(path):
             q = re.search(r"<user_query>\s*(.*?)\s*</user_query>", txt, re.S)
             txt = q.group(1) if q else txt
             if txt and not txt.lstrip().startswith("<"):
-                for c in pending:
-                    c["followup_user_text"] = _clip(txt, 500)
-                    c["score"] += W_FOLLOWUP
-                pending = []
+                _attach_followup(pending, txt)
                 intent = txt
         elif d.get("role") == "assistant":
             for c in (content or []):
@@ -302,15 +323,29 @@ def mine_cursor(path):
                         {"kind": "tool_call", "tool": c.get("name"),
                          "input": c.get("input")},
                         est_ctx)
+                    # no usage records in cursor transcripts; mark the
+                    # chars/4 number so it doesn't read as authoritative
+                    cand["est_context_estimated"] = True
                     cands.append(cand)
                     pending.append(cand)
     return cands
 
 
 def mine_session(path):
-    if _is_cursor(path):
+    """Route one session file to its parser by the first record's shape.
+
+    Cursor records carry top-level `role` and no `type`; Codex rollouts a
+    `type` from its rollout vocabulary; Claude Code always a `type`. Keyed
+    on `role`-vs-`type` (not exact key sets) so an added field in a future
+    release doesn't silently misroute the file.
+    """
+    first = next(iter(_jsonl(path)), None)
+    if first is None:
+        return []
+    if "role" in first and "type" not in first:
         return mine_cursor(path)
-    if _is_codex(path):
+    if first.get("type") in {"session_meta", "turn_context",
+                             "response_item", "event_msg", "compacted"}:
         src = "openclaw" if ".openclaw" in path.replace("\\", "/") else "codex"
         return mine_codex(path, src)
     return mine_claude(path)
@@ -335,12 +370,28 @@ def _wsl_openclaw_roots():
                 ["wsl.exe", "-l", "-q"], capture_output=True, timeout=10
             ).stdout.decode("utf-16-le", errors="ignore")
             for distro in out.split():
-                distro = distro.strip()
+                # wsl -l -q output starts with a BOM that split() keeps
+                distro = distro.strip().lstrip("\ufeff")
                 if distro:
                     roots.append(r"\\wsl$" + "\\" + distro + r"\home")
         except (OSError, subprocess.SubprocessError):
             pass
     return roots
+
+
+def resolve_session_path(p):
+    """Follow a recorded session path to where the file lives NOW.
+
+    Codex archives cold rollouts to CODEX_ARCHIVE keeping the basename;
+    retro session lists go stale accordingly. Returns None when the file
+    is gone for real (e.g. a retro from another machine).
+    """
+    if os.path.exists(p):
+        return p
+    archived = os.path.join(CODEX_ARCHIVE, os.path.basename(p))
+    if os.path.exists(archived):
+        return archived
+    return None
 
 
 def discover_sessions():
@@ -351,6 +402,8 @@ def discover_sessions():
         found.append(("claude", p))
     for p in glob.glob(os.path.join(CODEX_ROOT, "**", "*.jsonl"),
                        recursive=True):
+        found.append(("codex", p))
+    for p in glob.glob(os.path.join(CODEX_ARCHIVE, "*.jsonl")):
         found.append(("codex", p))
     for p in glob.glob(os.path.join(CURSOR_ROOT, "*", "agent-transcripts",
                                     "*", "*.jsonl")):
@@ -415,7 +468,6 @@ def cmd_list(args):
         rows.append((mtime, source, size, p))
     rows.sort()
     for mtime, source, size, p in rows:
-        import datetime
         d = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
         print("%s  %-8s %8dKB  %s" % (d, source, size // 1024, p))
     if not rows:
@@ -443,13 +495,15 @@ def cmd_mine(args):
     missing = []
     seen = set()
     for sp in sessions:
-        if sp in seen:
+        key = os.path.normcase(os.path.normpath(sp))
+        if key in seen:
             continue
-        seen.add(sp)
-        if not os.path.exists(sp):
+        seen.add(key)
+        live = resolve_session_path(sp)
+        if live is None:
             missing.append(sp)
             continue
-        candidates.extend(mine_session(sp))
+        candidates.extend(mine_session(live))
 
     candidates.sort(key=lambda c: -c["score"])
     if args.max_candidates:
@@ -495,7 +549,7 @@ def main(argv=None):
     sm.add_argument("--corpus", help="post-session-findings corpus dir "
                     "(mines every retro; carries cross-session themes)")
     sm.add_argument("--max-candidates", type=int, default=200,
-                    help="keep top N ranked candidates (default 200)")
+                    help="keep top N ranked candidates (default 200; 0 = no cap)")
     sm.add_argument("--out", help="write JSON here instead of stdout")
     sm.set_defaults(func=cmd_mine)
 

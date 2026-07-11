@@ -172,7 +172,7 @@ def test_openclaw_source_label(tmp_path):
     assert miner.mine_session(p)[0]["source"] == "openclaw"
 
 
-def test_mine_retro_and_ranking(tmp_path, capsys):
+def test_mine_retro_and_ranking(tmp_path):
     s1 = str(tmp_path / "a.jsonl")
     claude_session(s1)
     retro = tmp_path / "retro"
@@ -211,9 +211,72 @@ def test_mine_corpus_carries_themes(tmp_path):
     assert data["candidates"]
 
 
-def test_long_context_guess():
-    assert miner._guess_work_class("chat", "", 200000) == "long-context"
+def test_work_class_guess_ignores_session_context():
+    # session-cumulative context must NOT force long-context (it exceeds
+    # any local bucket in every real Claude session)
+    assert miner._guess_work_class("chat about x", "", 200000) == "chat"
     assert miner._guess_work_class("please review", "", 100) == "review"
+
+
+def test_diff_in_tool_input_scores_and_classifies():
+    patch = "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-x\n+y\n"
+    c = miner._mk_candidate(
+        "codex", "s.jsonl", "t", "apply this",
+        {"kind": "tool_call", "tool": "apply_patch",
+         "input": {"patch": patch}}, 1000)
+    assert c["score"] >= miner.W_TOOL_ARGS + miner.W_DIFF + miner.W_SMALL_CTX
+    assert c["work_class_guess"] == "bounded-edit"
+
+
+def test_jsonl_tolerates_non_dict_lines_and_bom(tmp_path):
+    p = tmp_path / "weird.jsonl"
+    p.write_bytes(
+        b'\xef\xbb\xbf{"type": "session_meta", "payload": {"cwd": "/x"}}\n'
+        b"42\n"
+        b'"bare string"\n'
+        b"[1, 2]\n"
+        b"null\n"
+        b"{not json\n"
+        b'{"type": "response_item", "payload": {"type": "function_call", '
+        b'"name": "t", "arguments": "{}"}}\n')
+    rows = list(miner._jsonl(str(p)))
+    assert [r.get("type") for r in rows] == ["session_meta", "response_item"]
+    # BOM must not hide the first record from format detection
+    cands = miner.mine_session(str(p))
+    assert len(cands) == 1 and cands[0]["source"] == "codex"
+
+
+def test_followup_secret_is_flagged(tmp_path):
+    p = str(tmp_path / "c.jsonl")
+    write_jsonl(p, [
+        {"type": "user", "isSidechain": False,
+         "message": {"content": "do the thing"}},
+        {"type": "assistant", "isSidechain": False,
+         "message": {"usage": {"input_tokens": 10},
+                     "content": [{"type": "tool_use", "name": "Bash",
+                                  "input": {"command": "ls"}}]}},
+        {"type": "user", "isSidechain": False,
+         "message": {"content": "no, use key sk-abcdefghijklmnop1234"}},
+    ])
+    c = miner.mine_session(p)[0]
+    assert "openai-style key" in c["redaction_flags"]
+
+
+def test_resolve_session_path_archived(tmp_path, monkeypatch):
+    archive = tmp_path / "archived_sessions"
+    archive.mkdir()
+    (archive / "rollout-z.jsonl").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(miner, "CODEX_ARCHIVE", str(archive))
+    stale = str(tmp_path / "sessions" / "2026" / "rollout-z.jsonl")
+    assert miner.resolve_session_path(stale) == \
+        str(archive / "rollout-z.jsonl")
+    assert miner.resolve_session_path(str(tmp_path / "gone.jsonl")) is None
+
+
+def test_work_classes_in_sync():
+    # duplicated on purpose (stdlib-only, no cross-script import under the
+    # importlib test loader); this guard is what keeps them from drifting
+    assert tuple(miner.WORK_CLASSES) == tuple(emitter.WORK_CLASSES)
 
 
 # -------------------------------------------------------------- emitter
@@ -238,7 +301,7 @@ def test_expect_tool_requires_tools():
                for p in emitter.validate_spec(spec))
 
 
-def test_emit_layout_and_no_clobber(tmp_path, capsys):
+def test_emit_layout_and_no_clobber(tmp_path):
     spec_path = str(tmp_path / "spec.json")
     with open(spec_path, "w", encoding="utf-8") as f:
         json.dump(make_spec(), f)
@@ -294,9 +357,11 @@ def test_run_suite_failures_and_exitcode(tmp_path):
     assert "wrong_tool" in ev["results"][1]["tool"]["error"]
 
 
-def test_validate_tool_call_semantics():
+def test_validate_tool_call_anvil_parity():
+    """Semantics must match anvil_serving.benchmark.validate_function_tool_call
+    exactly - a suite has to grade identically here and there."""
     v = emitter.validate_tool_call
-    assert v({}, {"name": "f"})["error"] == "no tool_calls in response"
+    assert "tool_calls" in v({}, {"name": "f"})["error"]
     good = {"tool_calls": [{"function": {
         "name": "f", "arguments": json.dumps({"a": "1", "b": "x"})}}]}
     assert v(good, {"name": "f", "required_args": {"a": "1", "b": None}}) \
@@ -305,6 +370,56 @@ def test_validate_tool_call_semantics():
     assert not v(good, {"name": "f", "required_args": {"c": None}})["valid"]
     badjson = {"tool_calls": [{"function": {"name": "f", "arguments": "{"}}]}
     assert not v(badjson, {"name": "f"})["valid"]
+    # anvil parity: a non-string arg value is INVALID even if it stringifies
+    intarg = {"tool_calls": [{"function": {
+        "name": "f", "arguments": json.dumps({"zip": 98101})}}]}
+    assert not v(intarg, {"name": "f", "required_args": {"zip": "98101"}})["valid"]
+    # anvil parity: presence-only (null) still demands a non-empty string
+    empty = {"tool_calls": [{"function": {
+        "name": "f", "arguments": json.dumps({"path": ""})}}]}
+    assert not v(empty, {"name": "f", "required_args": {"path": None}})["valid"]
+    # anvil parity: dict-typed arguments (vLLM/SGLang parsers) accepted as-is
+    dictargs = {"tool_calls": [{"function": {
+        "name": "f", "arguments": {"a": "1"}}}]}
+    assert v(dictargs, {"name": "f", "required_args": {"a": "1"}})["valid"]
+    # non-object arguments graded invalid, not crashed
+    nonobj = {"tool_calls": [{"function": {"name": "f", "arguments": "[1]"}}]}
+    assert not v(nonobj, {"name": "f"})["valid"]
+
+
+def test_validate_spec_dir_name_roundtrip():
+    spec = make_spec(work_class="chat", suite="fast-triage")
+    assert any("chat-fast" in p for p in emitter.validate_spec(spec))
+    assert emitter.validate_spec(make_spec(work_class="chat",
+                                           suite="triage")) == []
+
+
+def test_validate_spec_check_operand_types():
+    spec = make_spec()
+    spec["evals"][0]["checks"] = [
+        {"name": "n1", "contains": 123},
+        {"name": "n2", "contains_all": "notalist"},
+        {"name": "n3", "contains_any": []},
+    ]
+    problems = "\n".join(emitter.validate_spec(spec))
+    assert "contains must be a string" in problems
+    assert "contains_all must be a non-empty list" in problems
+    assert "contains_any must be a non-empty list" in problems
+
+
+def test_force_reemit_removes_stale_prompts(tmp_path):
+    spec = make_spec()
+    spec_path = str(tmp_path / "spec.json")
+    with open(spec_path, "w", encoding="utf-8") as f:
+        json.dump(spec, f)
+    root = str(tmp_path / "eval-data")
+    assert emitter.main(["emit", spec_path, "--root", root]) == 0
+    spec["evals"] = [spec["evals"][0]]  # drop zip-tool
+    with open(spec_path, "w", encoding="utf-8") as f:
+        json.dump(spec, f)
+    assert emitter.main(["emit", spec_path, "--root", root, "--force"]) == 0
+    d = os.path.join(root, "2026-07-11-planning-merge-safety", "prompts")
+    assert sorted(os.listdir(d)) == ["prompt_stale-base.txt"]
 
 
 def test_evaluate_text_checks_case_insensitive():

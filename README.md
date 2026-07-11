@@ -273,7 +273,7 @@ pushing, run `./scripts/check-all.sh`.
 fakoli-plugins/
 ├── .claude-plugin/          # Marketplace-level manifest
 ├── .github/workflows/       # CI: validate, update-index, pr-check, schema-drift
-├── plugins/                 # All active plugins (18)
+├── plugins/                 # All active plugins (24)
 ├── archive/                 # Archived / deprecated plugins
 ├── registry/                # Auto-generated plugin index (do not edit manually)
 ├── schemas/                 # JSON Schema definitions for manifests

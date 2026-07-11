@@ -31,7 +31,7 @@ Spec shape:
       "tools": [...],                  # optional OpenAI tools array
       "expect_tool": {                 # optional: grade the tool call
         "name": "record_weather_zip",
-        "required_args": {"zip": "10001"}   # value null = presence only
+        "required_args": {"zip": "10001"}   # null = present non-empty string
       },
       "checks": [                      # text checks on message content
         {"name": "mentions_fetch", "contains": "git fetch"},
@@ -50,6 +50,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import sys
 import time
 import urllib.error
@@ -82,6 +83,19 @@ def validate_spec(spec):
     date = spec.get("date")
     if date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         problems.append("date must be YYYY-MM-DD, got %r" % date)
+    if wc in WORK_CLASSES and suite:
+        # anvil-serving's profile bootstrap re-derives the work class from
+        # the dir name by longest-token match; make sure our
+        # <work_class>-<suite> round-trips (e.g. work_class "chat" + suite
+        # "fast-triage" would read back as "chat-fast")
+        slug = "%s-%s" % (wc, suite)
+        derived = next((c for c in sorted(WORK_CLASSES, key=len, reverse=True)
+                        if slug == c or slug.startswith(c + "-")), None)
+        if derived != wc:
+            problems.append(
+                "suite %r makes the dir name parse as work_class %r "
+                "(anvil-serving longest-token match); rename the suite"
+                % (suite, derived))
     evals = spec.get("evals")
     if not isinstance(evals, list) or not evals:
         problems.append("evals must be a non-empty list")
@@ -110,6 +124,21 @@ def validate_spec(spec):
                 problems.append(
                     "%s: check %r needs exactly one of contains/"
                     "contains_all/contains_any" % (where, c.get("name")))
+                continue
+            key = keys.pop()
+            val = c[key]
+            # type-check now so a bad operand is a spec error, not a
+            # crash mid-run (contains_all given a string would silently
+            # iterate characters instead)
+            if key == "contains" and not isinstance(val, str):
+                problems.append("%s: check %r: contains must be a string"
+                                % (where, c.get("name")))
+            if key in ("contains_all", "contains_any") and (
+                    not isinstance(val, list)
+                    or not all(isinstance(x, str) for x in val)
+                    or not val):
+                problems.append("%s: check %r: %s must be a non-empty "
+                                "list of strings" % (where, c.get("name"), key))
         et = ev.get("expect_tool")
         if et is not None:
             if not et.get("name"):
@@ -134,11 +163,14 @@ def cmd_emit(args):
     date = spec.get("date") or datetime.date.today().isoformat()
     dirname = "%s-%s-%s" % (date, spec["work_class"], spec["suite"])
     out_dir = os.path.join(os.path.expanduser(args.root), dirname)
-    if os.path.exists(out_dir) and not args.force:
-        # fail closed: an eval dir is measurement evidence; never clobber
-        print("refusing to overwrite %s (pass --force to replace)" % out_dir,
-              file=sys.stderr)
-        return 1
+    if os.path.exists(out_dir):
+        if not args.force:
+            # fail closed: an eval dir is measurement evidence; never clobber
+            print("refusing to overwrite %s (pass --force to replace)"
+                  % out_dir, file=sys.stderr)
+            return 1
+        # replace wholesale so prompts of since-removed evals don't linger
+        shutil.rmtree(out_dir)
 
     prompts_dir = os.path.join(out_dir, "prompts")
     os.makedirs(prompts_dir, exist_ok=True)
@@ -181,27 +213,40 @@ def evaluate_text_checks(content, checks):
 
 
 def validate_tool_call(message, expect):
-    """Mirror of anvil_serving.benchmark.validate_function_tool_call."""
+    """Faithful mirror of anvil_serving.benchmark.validate_function_tool_call.
+
+    Semantics must not drift (a suite has to grade identically here and in
+    a future anvil-serving --suite-file run): every required arg must be a
+    NON-EMPTY STRING even when its expected value is null (presence-only);
+    a dict-typed `arguments` from vLLM/SGLang tool parsers is accepted
+    as-is; expected values compare against value.strip().
+    """
     tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
     if not tool_calls:
-        return {"valid": False, "error": "no tool_calls in response"}
-    call = tool_calls[0]
-    fn = call.get("function") or {}
+        return {"valid": False, "error": "response did not include tool_calls"}
+    first = tool_calls[0] if isinstance(tool_calls[0], dict) else {}
+    fn = first.get("function") if isinstance(first, dict) else {}
+    if not isinstance(fn, dict):
+        return {"valid": False, "error": "tool_call missing function object"}
     if fn.get("name") != expect["name"]:
         return {"valid": False,
-                "error": "called %r, expected %r" % (fn.get("name"),
-                                                     expect["name"])}
+                "error": "wrong function name: %r" % fn.get("name")}
+    raw = fn.get("arguments")
     try:
-        got = json.loads(fn.get("arguments") or "{}")
-    except (json.JSONDecodeError, ValueError):
-        return {"valid": False, "error": "arguments not valid JSON"}
+        got = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, ValueError) as exc:
+        return {"valid": False,
+                "error": "arguments are not valid JSON: %s" % exc}
+    if not isinstance(got, dict):
+        return {"valid": False, "error": "arguments are not a JSON object"}
     for key, want in (expect.get("required_args") or {}).items():
-        if key not in got:
-            return {"valid": False, "error": "missing argument %r" % key}
-        if want is not None and str(got[key]).strip() != str(want):
+        value = got.get(key)
+        if not isinstance(value, str) or not value.strip():
             return {"valid": False,
-                    "error": "argument %s=%r, expected %r" % (key, got[key],
-                                                              want)}
+                    "error": "missing required string argument: %s" % key}
+        if want is not None and value.strip() != want:
+            return {"valid": False,
+                    "error": "wrong argument %s: %r" % (key, value)}
     return {"valid": True, "error": None}
 
 
@@ -228,6 +273,8 @@ def _post_chat(base, model, messages, max_tokens, timeout, tools=None,
 def run_suite(spec, base_url, model, timeout=120, api_key=None,
               post=_post_chat):
     """Execute every eval; return the evidence dict. `post` is the seam."""
+    if not spec.get("evals"):
+        raise ValueError("spec has no evals (validate_spec should gate this)")
     results = []
     failures = []
     for ev in spec["evals"]:
