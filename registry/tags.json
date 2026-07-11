@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-07-10T03:54:40Z",
-  "totalTags": 158,
+  "generatedAt": "2026-07-11T21:24:47Z",
+  "totalTags": 164,
   "tags": [
     {
       "tag": "workflow",
@@ -188,6 +188,13 @@
       ]
     },
     {
+      "tag": "anvil-serving",
+      "count": 1,
+      "plugins": [
+        "session-evals"
+      ]
+    },
+    {
       "tag": "append-only",
       "count": 1,
       "plugins": [
@@ -213,6 +220,13 @@
       "count": 1,
       "plugins": [
         "anvil-pulse"
+      ]
+    },
+    {
+      "tag": "benchmarking",
+      "count": 1,
+      "plugins": [
+        "session-evals"
       ]
     },
     {
@@ -402,6 +416,13 @@
       "count": 1,
       "plugins": [
         "windows-cli-hygiene"
+      ]
+    },
+    {
+      "tag": "evals",
+      "count": 1,
+      "plugins": [
+        "session-evals"
       ]
     },
     {
@@ -626,6 +647,13 @@
       "count": 1,
       "plugins": [
         "fakoli-state"
+      ]
+    },
+    {
+      "tag": "local-models",
+      "count": 1,
+      "plugins": [
+        "session-evals"
       ]
     },
     {
@@ -916,6 +944,13 @@
       ]
     },
     {
+      "tag": "routing",
+      "count": 1,
+      "plugins": [
+        "session-evals"
+      ]
+    },
+    {
       "tag": "rpc",
       "count": 1,
       "plugins": [
@@ -955,6 +990,13 @@
       "count": 1,
       "plugins": [
         "safe-fetch"
+      ]
+    },
+    {
+      "tag": "sessions",
+      "count": 1,
+      "plugins": [
+        "session-evals"
       ]
     },
     {

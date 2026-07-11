@@ -1,0 +1,37 @@
+name: session-evals tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/session-evals/**'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/session-evals/**'
+
+concurrency:
+  group: session-evals-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+
+      # Scripts are stdlib-only; pytest is the only test dependency.
+      - name: Run session-evals suite
+        run: |
+          uv run --with pytest pytest plugins/session-evals/tests/ -q

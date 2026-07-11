@@ -1,0 +1,19 @@
+{
+  "name": "session-evals",
+  "version": "1.0.0",
+  "description": "Mine coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving - retro-first candidate mining, deterministic check-based grading, evidence for quality-gated routing.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "evals",
+    "local-models",
+    "anvil-serving",
+    "sessions",
+    "benchmarking",
+    "routing"
+  ]
+}

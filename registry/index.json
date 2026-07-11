@@ -1,8 +1,8 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-07-10T03:54:39Z",
-  "pluginCount": 23,
+  "generatedAt": "2026-07-11T21:24:46Z",
+  "pluginCount": 24,
   "plugins": [
     {
       "name": "anvil-pulse",
@@ -24,7 +24,7 @@
         "autonomous-agents"
       ],
       "path": "plugins/anvil-pulse",
-      "indexedAt": "2026-07-10T03:54:36Z",
+      "indexedAt": "2026-07-11T21:24:44Z",
       "category": "workflow"
     },
     {
@@ -45,7 +45,7 @@
         "automation"
       ],
       "path": "plugins/cli-to-plugin",
-      "indexedAt": "2026-07-10T03:54:36Z",
+      "indexedAt": "2026-07-11T21:24:44Z",
       "category": "development"
     },
     {
@@ -67,7 +67,7 @@
         "whiteboard"
       ],
       "path": "plugins/excalidraw-diagram",
-      "indexedAt": "2026-07-10T03:54:37Z",
+      "indexedAt": "2026-07-11T21:24:44Z",
       "category": "media"
     },
     {
@@ -91,7 +91,7 @@
         "workflow"
       ],
       "path": "plugins/fakoli-crew",
-      "indexedAt": "2026-07-10T03:54:37Z",
+      "indexedAt": "2026-07-11T21:24:44Z",
       "category": "development"
     },
     {
@@ -115,7 +115,7 @@
         "code-review"
       ],
       "path": "plugins/fakoli-flow",
-      "indexedAt": "2026-07-10T03:54:37Z",
+      "indexedAt": "2026-07-11T21:24:44Z",
       "category": "workflow"
     },
     {
@@ -140,7 +140,7 @@
         "claude-code"
       ],
       "path": "plugins/fakoli-plugin-critic",
-      "indexedAt": "2026-07-10T03:54:37Z",
+      "indexedAt": "2026-07-11T21:24:44Z",
       "category": "development"
     },
     {
@@ -167,7 +167,7 @@
         "multi-provider"
       ],
       "path": "plugins/fakoli-speak",
-      "indexedAt": "2026-07-10T03:54:37Z",
+      "indexedAt": "2026-07-11T21:24:44Z",
       "category": "media"
     },
     {
@@ -193,7 +193,7 @@
         "terraform-for-work"
       ],
       "path": "plugins/fakoli-state",
-      "indexedAt": "2026-07-10T03:54:37Z",
+      "indexedAt": "2026-07-11T21:24:44Z",
       "category": "workflow"
     },
     {
@@ -214,7 +214,7 @@
         "documentation"
       ],
       "path": "plugins/fakoli-style",
-      "indexedAt": "2026-07-10T03:54:37Z",
+      "indexedAt": "2026-07-11T21:24:45Z",
       "category": "utilities"
     },
     {
@@ -235,7 +235,7 @@
         "workflow"
       ],
       "path": "plugins/gate-router",
-      "indexedAt": "2026-07-10T03:54:37Z",
+      "indexedAt": "2026-07-11T21:24:45Z",
       "category": "development"
     },
     {
@@ -284,7 +284,7 @@
         "automation"
       ],
       "path": "plugins/gws",
-      "indexedAt": "2026-07-10T03:54:38Z",
+      "indexedAt": "2026-07-11T21:24:45Z",
       "category": "integrations"
     },
     {
@@ -307,7 +307,7 @@
       ],
       "homepage": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/handoff",
       "path": "plugins/handoff",
-      "indexedAt": "2026-07-10T03:54:38Z",
+      "indexedAt": "2026-07-11T21:24:45Z",
       "category": "productivity"
     },
     {
@@ -327,7 +327,7 @@
         "validation"
       ],
       "path": "plugins/marketplace-manager",
-      "indexedAt": "2026-07-10T03:54:38Z",
+      "indexedAt": "2026-07-11T21:24:45Z",
       "category": "development"
     },
     {
@@ -349,7 +349,7 @@
         "image-optimization"
       ],
       "path": "plugins/nano-banana-pro",
-      "indexedAt": "2026-07-10T03:54:38Z",
+      "indexedAt": "2026-07-11T21:24:45Z",
       "category": "media"
     },
     {
@@ -374,7 +374,7 @@
         "rpc"
       ],
       "path": "plugins/notebooklm-enhanced",
-      "indexedAt": "2026-07-10T03:54:38Z",
+      "indexedAt": "2026-07-11T21:24:45Z",
       "category": "integrations"
     },
     {
@@ -399,7 +399,7 @@
         "markdown-export"
       ],
       "path": "plugins/quick-notes",
-      "indexedAt": "2026-07-10T03:54:38Z",
+      "indexedAt": "2026-07-11T21:24:45Z",
       "category": "productivity"
     },
     {
@@ -420,7 +420,7 @@
         "anvil"
       ],
       "path": "plugins/recall-mode-verifier",
-      "indexedAt": "2026-07-10T03:54:38Z",
+      "indexedAt": "2026-07-11T21:24:45Z",
       "category": "development"
     },
     {
@@ -443,8 +443,30 @@
         "web-search"
       ],
       "path": "plugins/safe-fetch",
-      "indexedAt": "2026-07-10T03:54:38Z",
+      "indexedAt": "2026-07-11T21:24:46Z",
       "category": "safety"
+    },
+    {
+      "name": "session-evals",
+      "version": "1.0.0",
+      "description": "Mine coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving.",
+      "author": {
+        "name": "Sekou Doumbouya",
+        "url": "https://github.com/fakoli"
+      },
+      "repository": "https://github.com/fakoli/fakoli-plugins",
+      "license": "MIT",
+      "keywords": [
+        "evals",
+        "local-models",
+        "anvil-serving",
+        "sessions",
+        "benchmarking",
+        "routing"
+      ],
+      "path": "plugins/session-evals",
+      "indexedAt": "2026-07-11T21:24:46Z",
+      "category": "productivity"
     },
     {
       "name": "session-retro",
@@ -468,7 +490,7 @@
         "evaluation"
       ],
       "path": "plugins/session-retro",
-      "indexedAt": "2026-07-10T03:54:39Z",
+      "indexedAt": "2026-07-11T21:24:46Z",
       "category": "productivity"
     },
     {
@@ -489,7 +511,7 @@
         "worktree"
       ],
       "path": "plugins/ship-loop",
-      "indexedAt": "2026-07-10T03:54:39Z",
+      "indexedAt": "2026-07-11T21:24:46Z",
       "category": "development"
     },
     {
@@ -514,7 +536,7 @@
         "productivity"
       ],
       "path": "plugins/ship-task",
-      "indexedAt": "2026-07-10T03:54:39Z",
+      "indexedAt": "2026-07-11T21:24:46Z",
       "category": "development"
     },
     {
@@ -536,7 +558,7 @@
         "network-engineering"
       ],
       "path": "plugins/systems-thinking",
-      "indexedAt": "2026-07-10T03:54:39Z",
+      "indexedAt": "2026-07-11T21:24:46Z",
       "category": "knowledge"
     },
     {
@@ -558,7 +580,7 @@
         "verification"
       ],
       "path": "plugins/windows-cli-hygiene",
-      "indexedAt": "2026-07-10T03:54:39Z",
+      "indexedAt": "2026-07-11T21:24:46Z",
       "category": "development"
     }
   ]
