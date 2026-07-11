@@ -211,11 +211,42 @@ def test_mine_corpus_carries_themes(tmp_path):
     assert data["candidates"]
 
 
-def test_work_class_guess_ignores_session_context():
-    # session-cumulative context must NOT force long-context (it exceeds
-    # any local bucket in every real Claude session)
-    assert miner._guess_work_class("chat about x", "", 200000) == "chat"
-    assert miner._guess_work_class("please review", "", 100) == "review"
+def test_work_class_guess_is_keyword_only():
+    # the guess reads the task text only; session-cumulative context would
+    # flatten every real Claude candidate to long-context
+    assert miner._guess_work_class("chat about x", "") == "chat"
+    assert miner._guess_work_class("please review", "") == "review"
+    assert "long-context" not in {
+        miner._guess_work_class(i, a)
+        for i, a in [("x", ""), ("plan", ""), ("", "--- a\n+++ b\n")]}
+
+
+def test_nested_input_secret_is_flagged():
+    # redaction must scan the FULL serialized input, not just top-level
+    # string values (regression: values-join refactor lost nested coverage)
+    c = miner._mk_candidate(
+        "codex", "s.jsonl", "t", "configure it",
+        {"kind": "tool_call", "tool": "mcp_tool",
+         "input": {"file_path": "x.py",
+                   "config": {"api_key": "sk-abcdefghijklmnop1234"}}}, 100)
+    assert "openai-style key" in c["redaction_flags"]
+
+
+def test_mine_dedups_live_and_archived_copies(tmp_path, monkeypatch):
+    archive = tmp_path / "archived_sessions"
+    archive.mkdir()
+    live_dir = tmp_path / "sessions"
+    live_dir.mkdir()
+    stale = str(live_dir / "rollout-a.jsonl")          # recorded pre-archive
+    archived = str(archive / "rollout-a.jsonl")        # where it lives now
+    codex_session(archived)
+    monkeypatch.setattr(miner, "CODEX_ARCHIVE", str(archive))
+    out = str(tmp_path / "cands.json")
+    miner.main(["mine", stale, archived, "--out", out])
+    data = json.loads(open(out, encoding="utf-8").read())
+    assert data["sessions_mined"] == 1          # same file, mined once
+    assert data["sessions_missing"] == []
+    assert len(data["candidates"]) == 2         # one session's candidates
 
 
 def test_diff_in_tool_input_scores_and_classifies():
@@ -420,6 +451,54 @@ def test_force_reemit_removes_stale_prompts(tmp_path):
     assert emitter.main(["emit", spec_path, "--root", root, "--force"]) == 0
     d = os.path.join(root, "2026-07-11-planning-merge-safety", "prompts")
     assert sorted(os.listdir(d)) == ["prompt_stale-base.txt"]
+
+
+def test_malformed_response_costs_one_eval_not_the_run():
+    calls = {"n": 0}
+
+    def weird_post(base, model, messages, max_tokens, timeout,
+                   tools=None, api_key=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # block-list content (some OpenAI-compatible bridges)
+            return 0.01, {"choices": [{"message": {
+                "content": [{"type": "text", "text": "git fetch"}]}}]}
+        return 0.01, ["not", "a", "dict"]   # top-level non-dict response
+
+    ev = emitter.run_suite(make_spec(), "http://x/v1", "m", post=weird_post)
+    assert ev["summary"]["total"] == 2       # run completed, nothing aborted
+    assert ev["summary"]["passed"] == 0
+    # block-list content grades as "" (anvil _message_text parity), no crash
+    assert ev["results"][0]["checks"][0]["passed"] is False
+    assert ev["results"][0]["error"] is None
+
+
+def test_run_exit_contract_and_out_file(tmp_path, monkeypatch):
+    spec_path = str(tmp_path / "spec.json")
+    with open(spec_path, "w", encoding="utf-8") as f:
+        json.dump(make_spec(), f)
+    tool_call = {"function": {"name": "record_zip",
+                              "arguments": json.dumps({"zip": "10001"})}}
+    monkeypatch.setattr(emitter, "_post_chat",
+                        fake_post_factory(tool_call=tool_call))
+    out = str(tmp_path / "evidence.json")
+    rc = emitter.main(["run", spec_path, "--base-url", "http://x/v1",
+                       "--model", "m", "--out", out])
+    assert rc == 0                            # all passed -> 0
+    evidence = json.loads(open(out, encoding="utf-8").read())
+    assert evidence["summary"]["pass_rate"] == 1.0
+    monkeypatch.setattr(emitter, "_post_chat",
+                        fake_post_factory(content="nope", tool_call=None))
+    rc = emitter.main(["run", spec_path, "--base-url", "http://x/v1",
+                       "--model", "m"])
+    assert rc == 2                            # some failed -> 2
+
+
+def test_required_args_must_be_string_or_null():
+    spec = make_spec()
+    spec["evals"][1]["expect_tool"]["required_args"] = {"zip": 10001}
+    assert any("must be a string or null" in p
+               for p in emitter.validate_spec(spec))
 
 
 def test_evaluate_text_checks_case_insensitive():

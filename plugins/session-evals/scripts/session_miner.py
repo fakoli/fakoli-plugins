@@ -60,8 +60,12 @@ WORK_CLASSES = (
 )
 
 # est_context_tokens above this can't fit the largest local bucket (32k)
-# without curation surgery; used for ranking and the long-context guess.
+# without curation surgery; used only for the W_SMALL_CTX ranking bonus.
 MAX_LOCAL_CTX = 32768
+
+# tool inputs whose serialized form exceeds this many chars lose their
+# structure and are stored clipped (memory bound for 100MB corpora)
+INPUT_CLIP = 16000
 
 SECRET_PATTERNS = [
     (re.compile(r"sk-[A-Za-z0-9-]{16,}"), "openai-style key"),
@@ -134,14 +138,14 @@ def _redaction_flags(*texts):
     return sorted(flags)
 
 
-def _guess_work_class(intent, action_text, est_ctx=None):
+def _guess_work_class(intent, action_text):
     """Cheap keyword prior; the curator owns the final assignment.
 
-    est_context_tokens deliberately does NOT force "long-context": in real
-    Claude sessions the cumulative context (cache reads) exceeds any local
-    bucket almost immediately, which would flatten every guess to
-    long-context (observed on the live corpus). The curator sizes context;
-    the guess only reads the task.
+    Deliberately blind to est_context_tokens: in real Claude sessions the
+    cumulative context (cache reads) exceeds any local bucket almost
+    immediately, which would flatten every guess to long-context (observed
+    on the live corpus). The curator sizes context; "long-context" is a
+    curator-only assignment.
     """
     blob = ((intent or "") + " " + (action_text or "")).lower()
     if re.search(r"\breview\b|\bcritique\b|\baudit\b", blob):
@@ -164,22 +168,24 @@ def _mk_candidate(source, session_path, turn_ts, intent, action, est_ctx):
     `pending` loops - a followup is only known once the NEXT human turn
     arrives.
     """
-    # scan the RAW string values, not json.dumps(input): dumps escapes
-    # newlines, which would make the multiline diff regex below dead code
-    # for every tool call (a patch lives inside an input value)
+    # Two views of the tool input, for two different scanners:
+    # - action_text joins the RAW top-level string values so the multiline
+    #   diff regex can fire (json.dumps escapes newlines - a patch lives
+    #   inside an input value)
+    # - redaction scans the FULL serialized input (nested values included);
+    #   scanning only top-level strings would let a secret inside
+    #   {"config": {"api_key": ...}} ship unflagged
     inp = action.get("input")
     parts = [action.get("text") or ""]
     if isinstance(inp, dict):
         parts += [v for v in inp.values() if isinstance(v, str)]
-    action_text = "\n".join(p for p in parts if p) or json.dumps(
-        inp or {}, ensure_ascii=False)
-    if inp is not None:
-        # keep tool args structured when small; clip huge payloads (whole
-        # file bodies in Edit/Write calls) so mining a 100MB corpus doesn't
-        # hold it all in memory just to keep the top 200 rows
-        blob = json.dumps(inp, ensure_ascii=False)
-        if len(blob) > 2 * CLIP:
-            inp = {"_clipped": _clip(blob)}
+    full_blob = json.dumps(inp, ensure_ascii=False) if inp is not None else ""
+    action_text = "\n".join(p for p in parts if p) or full_blob
+    if inp is not None and len(full_blob) > INPUT_CLIP:
+        # keep tool args structured up to INPUT_CLIP; beyond that (whole
+        # file bodies in Edit/Write calls) clip so mining a 100MB corpus
+        # doesn't hold it all in memory just to keep the top 200 rows
+        inp = {"_clipped": _clip(full_blob, 2 * CLIP)}
     score = 0
     if action.get("kind") == "tool_call" and action.get("input") is not None:
         score += W_TOOL_ARGS
@@ -201,7 +207,7 @@ def _mk_candidate(source, session_path, turn_ts, intent, action, est_ctx):
         "followup_user_text": None,
         "est_context_tokens": est_ctx,
         "work_class_guess": _guess_work_class(intent, action_text),
-        "redaction_flags": _redaction_flags(intent, action_text),
+        "redaction_flags": _redaction_flags(intent, action_text, full_blob),
         "score": score,
     }
 
@@ -494,15 +500,22 @@ def cmd_mine(args):
     candidates = []
     missing = []
     seen = set()
+    mined = 0
     for sp in sessions:
-        key = os.path.normcase(os.path.normpath(sp))
+        live = resolve_session_path(sp)
+        if live is None:
+            key = os.path.normcase(os.path.normpath(sp))
+            if key not in seen:
+                seen.add(key)
+                missing.append(sp)
+            continue
+        # dedup on the RESOLVED path: a rollout recorded live by one retro
+        # and post-archival by another is still the same file
+        key = os.path.normcase(os.path.normpath(live))
         if key in seen:
             continue
         seen.add(key)
-        live = resolve_session_path(sp)
-        if live is None:
-            missing.append(sp)
-            continue
+        mined += 1
         candidates.extend(mine_session(live))
 
     candidates.sort(key=lambda c: -c["score"])
@@ -513,7 +526,7 @@ def cmd_mine(args):
 
     out = {
         "tool": "session-evals/session_miner",
-        "sessions_mined": len(seen) - len(missing),
+        "sessions_mined": mined,
         "sessions_missing": missing,
         "retro": retro_label,
         "themes": themes,
@@ -525,7 +538,7 @@ def cmd_mine(args):
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(text + "\n")
         print("wrote %d candidates (%d sessions) -> %s"
-              % (len(candidates), len(seen) - len(missing), args.out))
+              % (len(candidates), mined, args.out))
         if missing:
             print("warn: %d session files missing (moved/deleted?)"
                   % len(missing), file=sys.stderr)

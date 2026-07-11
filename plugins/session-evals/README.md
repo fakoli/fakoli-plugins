@@ -39,7 +39,7 @@ Provenance is unbroken: theme -> session -> turn -> eval -> profile row.
 | Source | Location | Format |
 |--------|----------|--------|
 | Claude Code | `~/.claude/projects/**/*.jsonl` | Anthropic content blocks |
-| Codex CLI | `~/.codex/sessions/**/*.jsonl` | rollout (`type`+`payload`) |
+| Codex CLI | `~/.codex/sessions/**/*.jsonl` + `~/.codex/archived_sessions/` (cold rollouts move there) | rollout (`type`+`payload`) |
 | OpenClaw | `\\wsl$\<distro>\home\<u>\.openclaw\agents\*\agent\codex-home\sessions\**` | codex rollout (embedded agent) |
 | Cursor CLI | `~/.cursor/projects/*/agent-transcripts/*/*.jsonl` | role/message blocks |
 

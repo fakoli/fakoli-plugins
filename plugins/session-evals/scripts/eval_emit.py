@@ -146,6 +146,12 @@ def validate_spec(spec):
             if not ev.get("tools"):
                 problems.append("%s: expect_tool without tools array - the "
                                 "model can't call what isn't offered" % where)
+            for k, want in (et.get("required_args") or {}).items():
+                # anvil compares against the raw expected value, so a
+                # non-string (e.g. 10001 vs "10001") can never match
+                if want is not None and not isinstance(want, str):
+                    problems.append("%s: required_args[%r] must be a string "
+                                    "or null" % (where, k))
     return problems
 
 
@@ -270,11 +276,11 @@ def _post_chat(base, model, messages, max_tokens, timeout, tools=None,
     return time.time() - t0, data
 
 
-def run_suite(spec, base_url, model, timeout=120, api_key=None,
-              post=_post_chat):
+def run_suite(spec, base_url, model, timeout=120, api_key=None, post=None):
     """Execute every eval; return the evidence dict. `post` is the seam."""
     if not spec.get("evals"):
         raise ValueError("spec has no evals (validate_spec should gate this)")
+    post = post or _post_chat
     results = []
     failures = []
     for ev in spec["evals"]:
@@ -287,15 +293,24 @@ def run_suite(spec, base_url, model, timeout=120, api_key=None,
                                  ev.get("max_tokens", 256), timeout,
                                  tools=ev.get("tools"), api_key=api_key)
             row["latency_s"] = round(latency, 3)
-            choice = ((data.get("choices") or [{}])[0]).get("message") or {}
-            content = choice.get("content") or ""
+            choices = data.get("choices") if isinstance(data, dict) else None
+            choice = (choices or [{}])[0]
+            msg = choice.get("message") if isinstance(choice, dict) else None
+            msg = msg if isinstance(msg, dict) else {}
+            content = msg.get("content")
+            # anvil _message_text parity: block-list content grades as ""
+            # rather than crashing on list.lower()
+            content = content if isinstance(content, str) else ""
             row["checks"] = evaluate_text_checks(content, ev.get("checks") or [])
             ok = all(c["passed"] for c in row["checks"])
             if ev.get("expect_tool"):
-                row["tool"] = validate_tool_call(choice, ev["expect_tool"])
+                row["tool"] = validate_tool_call(msg, ev["expect_tool"])
                 ok = ok and row["tool"]["valid"]
             row["passed"] = ok
-        except (urllib.error.URLError, OSError, ValueError, KeyError) as e:
+        except (urllib.error.URLError, OSError, ValueError, KeyError,
+                TypeError, AttributeError, IndexError) as e:
+            # a malformed response from one local serve must cost one eval,
+            # never the whole evidence run
             row["error"] = "%s: %s" % (type(e).__name__, e)
         if not row["passed"]:
             failures.append({"id": ev["id"],
