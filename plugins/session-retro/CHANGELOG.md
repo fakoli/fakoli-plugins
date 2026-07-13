@@ -10,8 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `list`/`find` no longer crash with `UnicodeEncodeError` on default Windows
   cp1252 consoles: human output goes through an encoding-safe printer that
-  degrades the `↳` topic marker to `->` instead of dying (#135). JSON/report
-  modes are untouched.
+  degrades the `↳` topic marker to `->` instead of dying (#135).
 - Forked Codex rollouts are no longer duplicated or misclassified (#134):
   - `expand_paths()` canonicalizes paths before deduplication, so the same
     rollout selected as `C:\...` and `C:/...` counts once;
@@ -37,21 +36,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (post-review)
 
-- `report`/`html`/`stats` no longer crash on cp1252 consoles either: `main()`
-  reconfigures stdout with `errors="replace"`, so the report's `█` bar
-  characters degrade instead of raising (the initial fix only covered
-  `list`/`find`).
+- `report`/`html`/`stats` no longer crash on cp1252 consoles either: on an
+  interactive console `main()` reconfigures stdout with `errors="replace"`
+  (the `█` bars degrade instead of raising), and when output is redirected
+  it forces UTF-8 so the written file stays lossless and deterministic.
+  Both branches are covered by tests.
 - The HTML report renders unavailable token totals as `n/a` (runs table and
-  doughnut legend) instead of a measured `0`, matching the markdown report.
+  doughnut legend) and omits ALL legend percentages when delegated totals
+  are unavailable, matching the markdown report.
 - `workflow_by_type` no longer coerces unavailable totals to `0`: a type
   whose runs are all token-unavailable reports `tokens: null` (rendered
   `n/a`), mixed types carry an `unknown_runs` count, and the by-type table
   marks affected rows with `*`.
-- Forked rollouts' replayed parent history is now also excluded from tool
-  counts, assistant turns, skills/agent/workflow tallies, and the activity
-  timeline — not just token sums.
+- Replay exclusion now covers every counter and every rollout kind: a
+  rollout with multiple `session_meta` records (fork OR resume, subagent OR
+  main) is excluded from token, tool, assistant/human-turn, skill, agent,
+  named-workflow, and timeline sums; fork residue of a sibling no longer
+  duplicates its workflow run, steals its spawn pairing, or degrades its
+  measured totals to unavailable; a forked main's replayed `spawn_agent`
+  records no longer create duplicate workflow entries.
+- Session files are read with explicit `encoding="utf-8"` in `find`/`list`
+  breadcrumbs, so non-ASCII topics don't turn to mojibake (and non-ASCII
+  keyword search doesn't silently miss) under a cp1252 locale.
 - `expand_paths()` skips inputs already swept in by an earlier expansion
-  instead of re-scanning all of `~/.codex/sessions` per duplicate spelling.
+  instead of re-scanning all of `~/.codex/sessions` per duplicate spelling,
+  and `_canon` is exercised under Windows path semantics (ntpath) in tests.
 
 ## [1.1.1] - 2026-06-26
 

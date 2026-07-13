@@ -265,6 +265,30 @@ def _user_row(ts, text):
     }
 
 
+def _assistant_row(ts, text="done"):
+    return {
+        "timestamp": ts,
+        "type": "response_item",
+        "payload": {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": text}],
+        },
+    }
+
+
+def _spawn_row(ts, message, agent_type="worker", **extra):
+    return {
+        "timestamp": ts,
+        "type": "response_item",
+        "payload": {
+            "type": "function_call",
+            "name": "spawn_agent",
+            "arguments": json.dumps({"agent_type": agent_type, "message": message, **extra}),
+        },
+    }
+
+
 def test_list_and_find_survive_cp1252_stdout(tmp_path, monkeypatch):
     """Issue #135: default Windows consoles (cp1252) can't encode the ↳ marker."""
     mod = load_session_stats()
@@ -330,15 +354,8 @@ def test_forked_sibling_keeps_identity_and_reports_tokens_unavailable(tmp_path, 
     write_jsonl(root, [
         _codex_meta_row("2026-06-25T10:00:00Z", "sid", "sid"),
         _user_row("2026-06-25T10:01:00Z", "Kick off the heavy generation"),
-        {
-            "timestamp": "2026-06-25T10:02:00Z",
-            "type": "response_item",
-            "payload": {
-                "type": "function_call",
-                "name": "spawn_agent",
-                "arguments": json.dumps({"agent_type": "worker", "message": "Run subtask A"}),
-            },
-        },
+        _assistant_row("2026-06-25T10:01:30Z"),
+        _spawn_row("2026-06-25T10:02:00Z", "Run subtask A"),
         _token_count_row("2026-06-25T10:03:00Z", 400, in_tokens=1000, cached=500),
     ])
     # Forked sibling: its own meta (parent set) first, then the REPLAYED
@@ -348,15 +365,8 @@ def test_forked_sibling_keeps_identity_and_reports_tokens_unavailable(tmp_path, 
         _codex_meta_row("2026-06-25T10:04:00Z", "sid", "fork-1", parent="sid"),
         _codex_meta_row("2026-06-25T10:04:01Z", "sid", "sid"),
         _user_row("2026-06-25T10:04:02Z", "Kick off the heavy generation"),
-        {   # the parent's spawn_agent call, REPLAYED into the fork's history
-            "timestamp": "2026-06-25T10:04:03Z",
-            "type": "response_item",
-            "payload": {
-                "type": "function_call",
-                "name": "spawn_agent",
-                "arguments": json.dumps({"agent_type": "worker", "message": "Run subtask A"}),
-            },
-        },
+        _assistant_row("2026-06-25T10:04:02Z"),
+        _spawn_row("2026-06-25T10:04:03Z", "Run subtask A"),  # replayed parent call
         _user_row("2026-06-25T10:05:00Z", "Run subtask A"),
         _token_count_row("2026-06-25T10:06:00Z", 450, in_tokens=1200, cached=600),
     ])
@@ -386,8 +396,13 @@ def test_forked_sibling_keeps_identity_and_reports_tokens_unavailable(tmp_path, 
     # Replayed parent turns are not human messages in this corpus.
     assert agg["user_turns"] == 1
     # The fork's replayed copy of the parent's spawn_agent call and assistant
-    # history must not double the tool/turn counters.
+    # history must not double any counter: tools, agent types, assistant
+    # turns, or the activity timeline.
     assert agg["tools"]["spawn_agent"] == 1
+    assert agg["agent_types"] == {"worker": 1}
+    assert agg["assistant_turns"] == 1
+    assert sum(agg["workflows_named"].values()) == 1
+    assert sum(t["out"] for t in agg["timeline"]) == 400
     # A type whose only run is token-unavailable reports None, not 0.
     by_type = next(iter(agg["workflow_by_type"].values()))
     assert by_type["tokens"] is None
@@ -431,3 +446,144 @@ def test_encrypted_prompts_fall_back_to_agent_labels(tmp_path, monkeypatch):
     agg = mod.aggregate([mod.parse(p) for p in mod.expand_paths([str(root)])])
     assert agg["workflow_runs"][0]["summary"] == "critic-1"
     assert agg["user_turn_text"] == []
+
+
+def test_fork_residue_of_a_sibling_does_not_duplicate_the_run(tmp_path, monkeypatch):
+    """A fork of a SIBLING rollout is replay residue: the original sibling
+    carries the measured data, and the residue must not add a second run,
+    steal the spawn pairing, or degrade measured totals to unavailable."""
+    mod = load_session_stats()
+    codex_root = tmp_path / ".codex" / "sessions"
+    monkeypatch.setattr(mod, "CODEX_SESSIONS", str(codex_root))
+    monkeypatch.setattr(mod, "PROJECTS", str(tmp_path / ".claude" / "projects"))
+
+    day = codex_root / "2026" / "06" / "25"
+    write_jsonl(day / "rollout-root.jsonl", [
+        _codex_meta_row("2026-06-25T10:00:00Z", "sid", "sid"),
+        _spawn_row("2026-06-25T10:01:00Z", "Run subtask A"),
+        _token_count_row("2026-06-25T10:02:00Z", 400),
+    ])
+    write_jsonl(day / "rollout-sub1.jsonl", [
+        _codex_meta_row("2026-06-25T10:03:00Z", "sid", "sub-1", parent="sid"),
+        _user_row("2026-06-25T10:03:30Z", "Run subtask A"),
+        _token_count_row("2026-06-25T10:04:00Z", 120),
+    ])
+    # Fork residue of sub-1: own meta first, then sub-1's replayed meta.
+    write_jsonl(day / "rollout-sub1-fork.jsonl", [
+        _codex_meta_row("2026-06-25T10:05:00Z", "sid", "sub-1b", parent="sid"),
+        _codex_meta_row("2026-06-25T10:05:01Z", "sid", "sub-1", parent="sid"),
+        _user_row("2026-06-25T10:05:02Z", "Run subtask A"),
+        _token_count_row("2026-06-25T10:06:00Z", 130),
+    ])
+
+    expanded = mod.expand_paths([str(day / "rollout-root.jsonl")])
+    assert len(expanded) == 3
+    agg = mod.aggregate([mod.parse(p) for p in expanded])
+
+    assert agg["workflows"] == 1
+    assert agg["workflow_agents"] == 1
+    assert agg["workflow_runs"][0]["tokens"] == 120   # the real sibling's totals
+    assert agg["workflow_tokens_available"] is True
+    assert agg["main_output_tokens"] == 400
+
+
+def test_replayed_main_rollout_is_not_double_counted(tmp_path, monkeypatch):
+    """A fork/resume of the MAIN thread (no parent pointer, replayed meta)
+    must not be charged as a second main session."""
+    mod = load_session_stats()
+    codex_root = tmp_path / ".codex" / "sessions"
+    monkeypatch.setattr(mod, "CODEX_SESSIONS", str(codex_root))
+    monkeypatch.setattr(mod, "PROJECTS", str(tmp_path / ".claude" / "projects"))
+
+    day = codex_root / "2026" / "06" / "25"
+    write_jsonl(day / "rollout-orig.jsonl", [
+        _codex_meta_row("2026-06-25T10:00:00Z", "sid", "sid"),
+        _user_row("2026-06-25T10:00:30Z", "Do the thing"),
+        _spawn_row("2026-06-25T10:01:00Z", "Run subtask A"),
+        _token_count_row("2026-06-25T10:02:00Z", 500, in_tokens=2000, cached=900),
+    ])
+    write_jsonl(day / "rollout-resumed.jsonl", [
+        _codex_meta_row("2026-06-25T10:03:00Z", "sid", "sid-2"),   # no parent
+        _codex_meta_row("2026-06-25T10:03:01Z", "sid", "sid"),     # replayed
+        _user_row("2026-06-25T10:03:02Z", "Do the thing"),
+        _spawn_row("2026-06-25T10:03:03Z", "Run subtask A"),
+        _token_count_row("2026-06-25T10:04:00Z", 700, in_tokens=2500, cached=1100),
+    ])
+
+    agg = mod.aggregate([mod.parse(p) for p in
+                         mod.expand_paths([str(day / "rollout-orig.jsonl")])])
+
+    assert agg["main_output_tokens"] == 500
+    assert agg["fresh_input_tokens"] == 2000
+    assert agg["user_turns"] == 1
+    assert agg["tools"]["spawn_agent"] == 1
+    assert agg["workflows"] == 1
+    assert agg["measurement_notes"]
+
+
+def test_report_mode_survives_cp1252_tty(tmp_path, monkeypatch):
+    """Post-review #135 fix: `report` must not crash on a cp1252 console —
+    the █ bar characters degrade instead."""
+    mod = load_session_stats()
+    session = tmp_path / "claude.jsonl"
+    write_jsonl(session, [
+        {
+            "timestamp": "2026-06-25T10:00:00Z",
+            "cwd": "/repo",
+            "gitBranch": "main",
+            "type": "assistant",
+            "message": {"usage": {"output_tokens": 10, "input_tokens": 5}, "content": []},
+        },
+        {"timestamp": "2026-06-25T10:01:00Z", "type": "user",
+         "message": {"content": "hello"}},
+    ])
+
+    class Tty(io.TextIOWrapper):
+        def isatty(self):
+            return True
+
+    buf = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", Tty(buf, encoding="cp1252"))
+    rc = mod.main(["session_stats.py", "report", str(session)])
+    sys.stdout.flush()
+
+    assert rc == 0
+    assert "Token economy" in buf.getvalue().decode("cp1252")
+
+
+def test_report_mode_redirected_output_stays_utf8(tmp_path, monkeypatch):
+    """#135 acceptance: redirected report output stays UTF-8 even when the
+    locale stream encoding is cp1252."""
+    mod = load_session_stats()
+    session = tmp_path / "claude.jsonl"
+    write_jsonl(session, [
+        {
+            "timestamp": "2026-06-25T10:00:00Z",
+            "cwd": "/repo",
+            "gitBranch": "main",
+            "type": "assistant",
+            "message": {"usage": {"output_tokens": 10, "input_tokens": 5}, "content": []},
+        },
+    ])
+
+    buf = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(buf, encoding="cp1252"))
+    rc = mod.main(["session_stats.py", "report", str(session)])
+    sys.stdout.flush()
+
+    assert rc == 0
+    raw = buf.getvalue()
+    assert "█".encode("utf-8") in raw   # lossless UTF-8, bars intact
+    assert raw.decode("utf-8")          # whole document decodes as UTF-8
+
+
+def test_canon_unifies_windows_path_spellings(monkeypatch):
+    """#134: the reported duplication was C:\\ vs C:/ spellings of one file;
+    exercise _canon under Windows path semantics (ntpath)."""
+    import ntpath
+
+    mod = load_session_stats()
+    monkeypatch.setattr(mod.os, "path", ntpath)
+    a = mod._canon(r"C:\Users\Me\rollout.jsonl")
+    b = mod._canon("C:/users/me/ROLLOUT.JSONL")
+    assert a == b

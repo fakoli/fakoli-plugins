@@ -124,6 +124,11 @@ if [ -z "$BASE" ]; then
   BASE="$(_gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)"
   [ -n "$BASE" ] || BASE="main"
 fi
+
+# owner/repo for `gh pr merge --repo` — with an explicit --repo, gh performs
+# the merge purely against the API and skips its local checkout/sync of the
+# base branch, which is impossible when another worktree owns it (issue #137).
+NWO="$(_gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)"
 [ "$BRANCH" != "$BASE" ] || die "refusing to ship: you are on the base branch '$BASE'. Branch first." 1
 
 # body resolution
@@ -243,19 +248,30 @@ fi
 # --------------------------------------------------------------------------
 say "merging (${MERGE_METHOD#--}) ..."
 merge_args=(pr merge "$PR_NUM" "$MERGE_METHOD" --delete-branch)
+[ -n "$NWO" ] && merge_args+=(--repo "$NWO")
 $ADMIN && merge_args+=(--admin)
 MERGE_CMD_OK=true
 _gh "${merge_args[@]}" >/dev/null 2>&1 || MERGE_CMD_OK=false
 if ! $MERGE_CMD_OK; then
-  PR_STATE="$(_gh pr view "$PR_NUM" --json state -q .state 2>/dev/null)"
-  if [ "$PR_STATE" != "MERGED" ]; then
-    die "gh pr merge failed for #$PR_NUM (state: ${PR_STATE:-unknown}; PR left open) — check required reviews/branch protection, or pass --admin" 3
+  # Re-query with retries: a transient gh/network failure here must not
+  # convert an already-merged PR into a reported merge failure.
+  PR_STATE=""
+  for _ in 1 2 3; do
+    PR_STATE="$(_gh pr view "$PR_NUM" --json state -q .state 2>/dev/null)"
+    [ -n "$PR_STATE" ] && break
+    sleep 2
+  done
+  if [ "$PR_STATE" = "MERGED" ]; then
+    say "merge command exited nonzero but PR #$PR_NUM is MERGED remotely — finishing cleanup"
+    # gh's --delete-branch may not have completed; delete the remote branch explicitly.
+    _git_net push origin --delete "$BRANCH" >/dev/null 2>&1 \
+      && say "deleted remote branch $BRANCH" \
+      || say "WARNING: could not delete remote branch $BRANCH — it may already be gone or protected"
+  elif [ -z "$PR_STATE" ]; then
+    die "gh pr merge failed for #$PR_NUM and its state could not be verified (gh pr view failed) — check the PR on GitHub before retrying; it may already be merged" 3
+  else
+    die "gh pr merge failed for #$PR_NUM (state: $PR_STATE; PR left open) — check required reviews/branch protection, or pass --admin" 3
   fi
-  say "merge command exited nonzero but PR #$PR_NUM is MERGED remotely — finishing cleanup"
-  # gh's --delete-branch runs after its local sync, so it never happened.
-  _git_net push origin --delete "$BRANCH" >/dev/null 2>&1 \
-    && say "deleted remote branch $BRANCH" \
-    || say "WARNING: could not delete remote branch $BRANCH — it may already be gone or protected"
 fi
 MERGE_SHA="$(_gh pr view "$PR_NUM" --json mergeCommit -q .mergeCommit.oid 2>/dev/null | cut -c1-9)"
 
@@ -271,6 +287,9 @@ if git checkout "$BASE" >/dev/null 2>&1; then
     SYNC="pull-failed"
     say "WARNING: 'git pull' on $BASE did not fast-forward — reconcile manually"
   fi
+  # The --repo merge skips gh's local branch cleanup; drop the merged
+  # feature branch now that the base is checked out.
+  git branch -D "$BRANCH" >/dev/null 2>&1 || true
 elif git worktree list --porcelain 2>/dev/null | grep -qxF "branch refs/heads/$BASE"; then
   SYNC="worktree"
   say "NOTE: '$BASE' is checked out in another worktree — skipping local checkout; pull there to sync"

@@ -17,8 +17,10 @@ registry/categories.json merge=ours
 registry/tags.json merge=ours
 .claude-plugin/marketplace.json merge=ours
 
-# Bash assets must stay LF on every host: Windows checkouts (autocrlf=true)
-# feed the packaged plugin caches, and a CRLF *.sh cannot run under WSL bash
-# ("set: pipefail\r: invalid option name") — issue #136. validate.sh also
-# rejects any *.sh blob that carries CRLF.
+# Shell assets must stay LF on every host: Windows checkouts (autocrlf=true)
+# feed the packaged plugin caches, and a CRLF script cannot run under WSL
+# bash ("set: pipefail\r: invalid option name") — issue #136. validate.sh
+# also rejects plugin shell blobs (*.sh, *.bash, extensionless with an
+# sh/bash shebang) that carry CRLF line endings.
 *.sh text eol=lf
+*.bash text eol=lf

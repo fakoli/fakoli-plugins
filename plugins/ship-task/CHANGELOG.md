@@ -32,12 +32,23 @@ All notable changes to the ship-task plugin are documented here.
 
 ### Fixed (post-review)
 
+- The merge now runs with an explicit `--repo <owner/repo>` (issue #137's
+  suggested remediation): gh performs it purely against the API and never
+  attempts the local base checkout that fails in multi-worktree layouts.
+  ship deletes the merged local feature branch itself after syncing the
+  base, preserving the old cleanup behavior.
+- The post-failure PR-state query is retried (3 attempts) so a transient
+  gh/network error can no longer convert an already-merged PR into a
+  reported merge failure; when the state remains unverifiable, ship says
+  so explicitly instead of claiming "PR left open".
 - A non-fast-forward `git pull` after checkout previously kept `sync ok`,
   ran `--then` against the stale base, and exited 0 — now exit 5 with
   `--then` skipped, consistent with the other local-sync failures.
 - Worktree detection now matches the base branch as a fixed string
   (`grep -qxF`), so branch names containing regex metacharacters (e.g.
   `release-1.2`) cannot match a different worktree's branch line.
+- Docs no longer state the remote branch was deleted as fact on exit 5 —
+  ship attempts the cleanup and warns when it fails.
 
 ## [1.0.1] - 2026-07-08
 

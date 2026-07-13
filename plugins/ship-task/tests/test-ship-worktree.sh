@@ -30,7 +30,7 @@ assert_eq() { # label expected actual
 }
 
 assert_contains() { # label needle haystack
-  if printf '%s' "$3" | grep -qF "$2"; then ok "$1"; else fail "$1 (missing '$2')"; fi
+  if printf '%s' "$3" | grep -qF -- "$2"; then ok "$1"; else fail "$1 (missing '$2')"; fi
 }
 
 TMP="$(mktemp -d)"
@@ -67,6 +67,7 @@ cat > "$TMP/bin/gh" <<'GH'
 args="$*"
 case "$args" in
   *"pr merge"*)
+    printf '%s' "$args" > "$GH_STATE_DIR/merge-args"
     if [ -n "${GH_MERGE_REALLY_FAILS:-}" ]; then
       echo "GraphQL: Pull request is not mergeable" >&2
       exit 1
@@ -76,11 +77,17 @@ case "$args" in
     exit 1
     ;;
   *"--json state"*)
+    [ -n "${GH_STATE_VIEW_ALWAYS_FAILS:-}" ] && exit 1
+    if [ -n "${GH_STATE_VIEW_FAILS_ONCE:-}" ] && [ ! -f "$GH_STATE_DIR/view-failed-once" ]; then
+      touch "$GH_STATE_DIR/view-failed-once"
+      exit 1
+    fi
     if [ -f "$GH_STATE_DIR/merged" ]; then echo "MERGED"; else echo "OPEN"; fi
     ;;
   *"--json mergeCommit"*) echo "abc123def456789" ;;
   *"--json number"*)      echo "42" ;;
   *"--json url"*)         echo "https://example.test/pr/42" ;;
+  *"nameWithOwner"*)      echo "stub/repo" ;;
   *"defaultBranchRef"*)   echo "main" ;;
   *) : ;;
 esac
@@ -105,6 +112,7 @@ if git -C "$TMP/origin.git" show-ref --verify --quiet refs/heads/feature; then
 else
   ok "remote feature branch deleted after remote-only merge"
 fi
+assert_contains "merge invoked with explicit --repo" "--repo stub/repo" "$(cat "$GH_STATE_DIR/merge-args")"
 
 # ---------------------------------------------------------------------------
 # case 2: --then must not run when the base was never synced locally
@@ -168,6 +176,39 @@ unset GH_MERGE_REALLY_FAILS
 
 assert_eq "exit code is 3 (merge failure)" 3 "$rc"
 assert_contains "reports PR left open" "PR left open" "$out"
+
+# ---------------------------------------------------------------------------
+# case 5: transient state-query failure after a remote merge is retried,
+# not misreported as a merge failure
+# ---------------------------------------------------------------------------
+echo "case 5: transient gh pr view failure is retried"
+rm -f "$GH_STATE_DIR/merged" "$GH_STATE_DIR/view-failed-once"
+export GH_STATE_VIEW_FAILS_ONCE=1
+out="$(cd "$TMP/feature-wt" && bash "$SHIP" --no-wait "feature change" 2>&1)"
+rc=$?
+unset GH_STATE_VIEW_FAILS_ONCE
+
+assert_eq "exit code is 5 (merged despite one failed query)" 5 "$rc"
+assert_contains "still detects the remote merge" "MERGED remotely" "$out"
+
+# ---------------------------------------------------------------------------
+# case 6: state unverifiable after retries → exit 3 without claiming the
+# PR was left open
+# ---------------------------------------------------------------------------
+echo "case 6: unverifiable PR state is reported as such"
+rm -f "$GH_STATE_DIR/merged"
+export GH_STATE_VIEW_ALWAYS_FAILS=1
+out="$(cd "$TMP/feature-wt" && bash "$SHIP" --no-wait "feature change" 2>&1)"
+rc=$?
+unset GH_STATE_VIEW_ALWAYS_FAILS
+
+assert_eq "exit code is 3 when state is unknown" 3 "$rc"
+assert_contains "says the state could not be verified" "could not be verified" "$out"
+if printf '%s' "$out" | grep -qF "PR left open"; then
+  fail "does not assert 'PR left open' for an unverified state"
+else
+  ok "does not assert 'PR left open' for an unverified state"
+fi
 
 echo ""
 echo "test-ship-worktree: $PASS passed, $FAIL failed"

@@ -112,7 +112,7 @@ only need to re-run the post-merge step.
 | `2` | CI failed or timed out — PR left open |
 | `3` | merge failed — PR left open |
 | `4` | merge succeeded but the `--then` command failed |
-| `5` | **merged remotely**, but the local base sync was skipped or failed — the base branch is checked out in another worktree, the checkout errored, or the pull did not fast-forward. The PR is merged and the remote branch deleted; do not re-run ship — sync the base locally. `--then` is skipped. |
+| `5` | **merged remotely**, but the local base sync was skipped or failed — the base branch is checked out in another worktree, the checkout errored, or the pull did not fast-forward. The PR is merged; ship attempts remote-branch cleanup (a warning is printed if that fails). Do not re-run ship — sync the base locally. `--then` is skipped. |
 
 The summary line carries the sync outcome as `sync <ok|worktree|pull-failed|failed>`.
 

@@ -82,7 +82,7 @@ Each plugin in `plugins/<name>/` must have:
 | `set -e` in hook scripts | `validate.sh` | WARN |
 | Hook script not found | `validate.sh` | ERROR |
 | Missing hook timeout | `validate.sh` | WARN |
-| CRLF line endings in `*.sh` | `validate.sh` | ERROR |
+| CRLF line endings in shell scripts (`*.sh`, `*.bash`, `#!`sh/bash) | `validate.sh` | ERROR |
 | `cat \| grep` in hook scripts | `test-path-resolution.sh` | WARN |
 | All component path fields (deep) | `test-path-resolution.sh` | ERROR |
 

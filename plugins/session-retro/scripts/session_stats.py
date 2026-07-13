@@ -302,10 +302,11 @@ def parse_codex(path):
     s["inp"] = int(usage.get("input_tokens") or 0)
     s["cr"] = int(usage.get("cached_input_tokens") or 0)
     s["prompt_summary"] = _codex_prompt_summary(first_user or "")
-    # Multiple session_meta records in a subagent rollout mean the parent's
-    # history was replayed into it — its cumulative token totals include the
-    # parent's and cannot be attributed to this subagent alone.
-    s["codex_forked"] = bool(s["codex_is_subagent"] and s["meta_count"] > 1)
+    # Multiple session_meta records mean another rollout's history was
+    # replayed into this one (fork or resume — of a subagent OR of the main
+    # thread): its cumulative counters include the replayed rollout's and
+    # cannot be attributed to this rollout alone.
+    s["codex_forked"] = s["meta_count"] > 1
     return s
 
 
@@ -336,7 +337,11 @@ def _duration_ms(a, b):
 
 def aggregate(sessions):
     """Roll up one or more parsed sessions into a flat summary."""
-    codex_subagents = [s for s in sessions if s.get("runtime") == "codex" and s.get("codex_is_subagent")]
+    # Forked/resumed rollouts are replay residue: the original rollout (or
+    # the unpaired spawn record) carries the real data, so pairing a fork
+    # with a spawn would duplicate the run and misattribute its metadata.
+    codex_subagents = [s for s in sessions if s.get("runtime") == "codex"
+                       and s.get("codex_is_subagent") and not s.get("codex_forked")]
     codex_mains = [s for s in sessions if s.get("runtime") == "codex" and not s.get("codex_is_subagent")]
     claude_sessions = [s for s in sessions if s.get("runtime") != "codex"]
 
@@ -345,7 +350,8 @@ def aggregate(sessions):
         if s.get("runtime") != "codex":
             workflow_runs.extend(s["workflows"])
 
-    spawn_workflows = [w for s in codex_mains for w in s["workflows"] if w.get("codex_spawn")]
+    spawn_workflows = [w for s in codex_mains if not s.get("codex_forked")
+                       for w in s["workflows"] if w.get("codex_spawn")]
     for idx, sub in enumerate(codex_subagents):
         prompt = sub.get("prompt_summary") or (sub["user_turns"][0] if sub.get("user_turns") else "")
         label = _agent_label(sub)
@@ -376,16 +382,18 @@ def aggregate(sessions):
             kind=spawn.get("kind", "other"),
         ))
 
-    main_output_tokens = sum(s["out"] for s in claude_sessions + codex_mains)
     unknown_wf_runs = sum(1 for w in workflow_runs if w["tokens"] is None)
     workflow_tokens = sum(w["tokens"] for w in workflow_runs if w["tokens"] is not None)
     workflow_tokens_available = unknown_wf_runs == 0
-    # Forked rollouts replay the parent's history, so ALL their additive
-    # counters (input/cache totals, tool calls, assistant turns, timeline
-    # events) include the parent's — exclude them from the sums instead of
-    # double-charging the parent.
+    # Forked/resumed rollouts replay another rollout's history, so ALL their
+    # additive counters (output/input/cache totals, tool calls, assistant
+    # turns, human turns, timeline events) include the replayed rollout's —
+    # exclude them from every sum instead of double-charging it. This applies
+    # to replayed MAIN rollouts too, not just subagents.
     counted = [s for s in sessions if not s.get("codex_forked")]
-    human_sessions = claude_sessions + codex_mains
+    main_output_tokens = sum(s["out"] for s in claude_sessions + codex_mains
+                             if not s.get("codex_forked"))
+    human_sessions = [s for s in claude_sessions + codex_mains if not s.get("codex_forked")]
     out = dict(
         sessions=[s["path"] for s in sessions],
         cwd=next((s["cwd"] for s in sessions if s["cwd"]), None),
@@ -413,8 +421,8 @@ def aggregate(sessions):
                      f"{len(workflow_runs)} workflow runs in this log format")
     forked_count = sum(1 for s in sessions if s.get("codex_forked"))
     if forked_count:
-        notes.append(f"{forked_count} forked rollout(s) replay parent history; "
-                     "their cumulative totals are excluded from token and tool sums")
+        notes.append(f"{forked_count} forked/resumed rollout(s) replay prior history; "
+                     "their cumulative totals are excluded from token, tool, and turn sums")
     out["measurement_notes"] = notes
     out["skills_used"] = dict(sum((s["skills"] for s in counted), Counter()).most_common())
     at = sum((s["agent_types"] for s in counted), Counter())
@@ -667,7 +675,7 @@ $('meta').textContent = [D.cwd, D.branch, D.wall_hours? D.wall_hours+' h':''].fi
 $('kpis').innerHTML = [['Wall-clock',(D.wall_hours||0)+' h'],['Assistant turns',fmt(D.assistant_turns)],['Human messages',fmt(D.user_turns)],['Generated tokens',fmt(D.generative_total)],['Workflows',fmt(D.workflows)+' / '+fmt(D.workflow_agents)+' ag'],['Cache read',fmt(D.cache_read_tokens)]].map(([l,v])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
 function doughnut(parts){const tot=parts.reduce((a,p)=>a+p.value,0)||1,R=52,C=2*Math.PI*R;let off=0;const segs=parts.map(p=>{const dash=p.value/tot*C,s=`<circle r="${R}" cx="70" cy="70" fill="none" stroke="${p.color}" stroke-width="20" stroke-dasharray="${dash} ${C-dash}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"/>`;off+=dash;return s;}).join('');return `<svg width="140" height="140" viewBox="0 0 140 140">${segs}</svg><div class="legend">${parts.map(p=>`<div><span class="dot" style="background:${p.color}"></span><b>${fmt(p.value)}</b> ${p.label} (${Math.round(100*p.value/tot)}%)</div>`).join('')}</div>`;}
 $('dough').innerHTML=doughnut([{label:'delegated to workflows',value:D.workflow_tokens,color:'#bc8cff'},{label:'main-loop orchestrator',value:D.main_output_tokens,color:'#58a6ff'}]);
-if(D.workflow_tokens_available===false){$('dough').parentElement.querySelector('.note').textContent='Delegated token totals are unavailable in this log format — the chart shows known totals only.';const lg=$('dough').querySelector('.legend div');if(lg)lg.innerHTML=lg.innerHTML.replace(/<b>[^<]*<\/b>/,'<b>n/a</b>').replace(/\(\d+%\)/,'');}
+if(D.workflow_tokens_available===false){$('dough').parentElement.querySelector('.note').textContent='Delegated token totals are unavailable in this log format — percentages omitted.';$('dough').querySelectorAll('.legend div').forEach((lg,i)=>{lg.innerHTML=lg.innerHTML.replace(/\s*\(\d+%\)/,'');if(i===0)lg.innerHTML=lg.innerHTML.replace(/<b>[^<]*<\/b>/,'<b>n/a</b>');});}
 function hbars(el,items){const mx=Math.max(...items.map(i=>i.value),1);el.innerHTML=items.map(i=>`<div class="bar" title="${i.tip||''}"><div class="lab">${i.label}</div><div class="track"><div class="fill" style="width:${100*i.value/mx}%;background:${i.color}"></div><div class="val">${i.disp||fmt(i.value)}</div></div></div>`).join('');}
 hbars($('cache'),[{label:'cache read',value:D.cache_read_tokens,color:'#6e7681'},{label:'cache creation',value:D.cache_creation_tokens,color:'#484f58'},{label:'generated output',value:D.generative_total,color:'#58a6ff'},{label:'fresh input',value:D.fresh_input_tokens,color:'#3fb950'}]);
 hbars($('wftype'),Object.entries(D.workflow_by_type||{}).map(([k,v])=>({label:k,value:v.tokens,disp:fmt(v.tokens),tip:v.runs+' runs / '+v.agents+' agents / '+v.minutes+' min',color:'#3fb950'})));
@@ -694,7 +702,9 @@ def report_html(agg, narrative_html=""):
 def _head(path, maxlines=800):
     """Cheap breadcrumbs from the top of a session: cwd, branch, first-ts, topic."""
     cwd = branch = ts = topic = runtime = None
-    for i, line in enumerate(open(path, errors="replace")):
+    # Session JSONL is UTF-8; say so explicitly or Windows decodes it with
+    # the locale codepage and non-ASCII topics turn to mojibake.
+    for i, line in enumerate(open(path, encoding="utf-8", errors="replace")):
         if i > maxlines:
             break
         try:
@@ -825,7 +835,7 @@ def cmd_find(args):
     rows = []
     for _, _, f, h in _session_rows(sub):
         try:
-            hits = open(f, errors="replace").read().lower().count(kw)
+            hits = open(f, encoding="utf-8", errors="replace").read().lower().count(kw)
         except Exception:
             continue
         if hits:
@@ -843,12 +853,16 @@ def cmd_find(args):
 
 def main(argv):
     # Default Windows consoles are cp1252, which can't encode the report's
-    # █ bar characters or arbitrary session text. Replace unencodable
-    # characters at the output layer instead of crashing any subcommand;
-    # UTF-8 terminals are unaffected.
+    # █ bar characters or arbitrary session text. On an interactive console,
+    # replace unencodable characters instead of crashing; when redirected
+    # (report > retro.md, html > site.html), force UTF-8 so the file stays
+    # lossless and deterministic regardless of the locale encoding.
     if hasattr(sys.stdout, "reconfigure"):
         try:
-            sys.stdout.reconfigure(errors="replace")
+            if sys.stdout.isatty():
+                sys.stdout.reconfigure(errors="replace")
+            else:
+                sys.stdout.reconfigure(encoding="utf-8")
         except (ValueError, OSError):
             pass
     if len(argv) < 2 or argv[1] not in ("list", "find", "stats", "report", "html"):

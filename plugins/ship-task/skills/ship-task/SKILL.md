@@ -56,5 +56,6 @@ Exit codes: `0` shipped · `1` usage/preflight · `2` CI failed (PR left open) �
 `3` merge failed (PR left open) · `4` `--then` command failed · `5` **merged
 remotely** but the local base sync was skipped or failed (base branch owned by
 another worktree, checkout error, or non-fast-forward pull) — the PR is merged
-and the remote branch cleaned up; do NOT re-run ship, just sync the base
-locally (`--then` is skipped on exit 5). Full reference: see `README.md`.
+and ship attempts the remote-branch cleanup (warns if that fails); do NOT
+re-run ship, just sync the base locally (`--then` is skipped on exit 5).
+Full reference: see `README.md`.

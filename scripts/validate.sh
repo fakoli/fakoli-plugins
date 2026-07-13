@@ -267,20 +267,27 @@ validate_plugin() {
         log_warn "[$plugin_name] No skills/, commands/, agents/, or hooks/ directories found"
     fi
 
-    # CRLF scan — packaged Bash assets must be LF: a CRLF *.sh cannot run
+    # CRLF scan — packaged shell assets must be LF: a CRLF script cannot run
     # under WSL bash ("set: pipefail\r: invalid option name"). Windows
     # checkouts with autocrlf feed the plugin caches, so the repo blobs
     # themselves must never carry CRLF (issue #136; enforced for checkouts
-    # via `*.sh text eol=lf` in .gitattributes).
-    # Prune vendored/generated trees (.venv, node_modules, .git) — the check
+    # via `*.sh` / `*.bash text eol=lf` in .gitattributes).
+    # Covers *.sh, *.bash, AND extensionless scripts with an sh/bash shebang
+    # (hook commands frequently invoke those). Matches CR only at end-of-line
+    # so a legitimate embedded CR byte in a string doesn't false-positive.
+    # Prunes vendored/generated trees (.venv, node_modules, .git) — the check
     # targets repo blobs, not third-party scripts acquired by a local install.
     local shfile
     while IFS= read -r -d '' shfile; do
-        if grep -q $'\r' "$shfile"; then
+        case "$shfile" in
+            *.sh|*.bash) : ;;
+            *) head -c 128 "$shfile" 2>/dev/null | head -n 1 | grep -Eq '^#!.*(ba|da|k)?sh([[:space:]]|$)' || continue ;;
+        esac
+        if grep -q $'\r$' "$shfile"; then
             log_error "[$plugin_name] CRLF line endings in ${shfile#"$plugin_dir"/} — bash under WSL cannot run this; normalize to LF"
             has_errors=1
         fi
-    done < <(find "$plugin_dir" \( -name .venv -o -name node_modules -o -name .git \) -prune -o -name '*.sh' -type f -print0 2>/dev/null)
+    done < <(find "$plugin_dir" \( -name .venv -o -name node_modules -o -name .git \) -prune -o -type f -print0 2>/dev/null)
 
     # Validate component paths and hook safety
     validate_component_paths "$plugin_dir" "$plugin_name" "$manifest_file" || has_errors=1
