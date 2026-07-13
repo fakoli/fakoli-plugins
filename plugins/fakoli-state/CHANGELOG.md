@@ -10,6 +10,22 @@ _No unreleased changes._
 
 ---
 
+## [1.23.4] — 2026-07-13
+
+### Fixed
+
+- CLI `plan()` now surfaces `EventRejected` from its create/upsert/promotion
+  events as a clean exit 1, matching its MCP twin (`plan_tasks`) (#76).
+  Rather than duplicating the guard, the shared loops were extracted into
+  `planning/_plan_helpers.emit_plan_events()` — the same single-source
+  remedy previously applied to `emit_prune_events` for exactly this
+  "one layer caught it, the other didn't" defect class — with the CLI
+  mapping rejections to `typer.Exit` and the MCP to `ToolError`.
+  Regression test forces a rejection inside the loop and asserts a clean
+  non-zero exit.
+
+---
+
 ## [1.23.3] — 2026-07-04
 
 ### Fixed

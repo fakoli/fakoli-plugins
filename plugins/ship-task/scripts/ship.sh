@@ -60,7 +60,10 @@ Options:
   -h, --help           this help
 
 Exit codes: 0 shipped (and --then, if any, succeeded) · 1 usage/preflight
-error · 2 CI failed (PR left open) · 3 merge failed · 4 --then command failed.
+error · 2 CI failed (PR left open) · 3 merge failed · 4 --then command failed
+· 5 merged remotely but the local base sync was skipped or failed (base branch
+checked out in another worktree, checkout error, or a non-fast-forward pull) —
+the PR IS merged; finish the local sync manually. --then is skipped on exit 5.
 USAGE
 }
 
@@ -121,6 +124,11 @@ if [ -z "$BASE" ]; then
   BASE="$(_gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)"
   [ -n "$BASE" ] || BASE="main"
 fi
+
+# owner/repo for `gh pr merge --repo` — with an explicit --repo, gh performs
+# the merge purely against the API and skips its local checkout/sync of the
+# base branch, which is impossible when another worktree owns it (issue #137).
+NWO="$(_gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)"
 [ "$BRANCH" != "$BASE" ] || die "refusing to ship: you are on the base branch '$BASE'. Branch first." 1
 
 # body resolution
@@ -230,37 +238,87 @@ fi
 
 # --------------------------------------------------------------------------
 # 4. merge + delete branch
+#
+# A nonzero `gh pr merge` does NOT always mean the merge failed. When the
+# base branch is checked out in ANOTHER worktree, gh merges the PR remotely
+# and then dies on the local post-merge sync ("fatal: 'main' is already used
+# by worktree at ..."), leaving the remote feature branch undeleted. So the
+# remote merge state is re-queried before declaring failure, and remote
+# cleanup is finished explicitly when the merge actually landed.
 # --------------------------------------------------------------------------
 say "merging (${MERGE_METHOD#--}) ..."
 merge_args=(pr merge "$PR_NUM" "$MERGE_METHOD" --delete-branch)
+[ -n "$NWO" ] && merge_args+=(--repo "$NWO")
 $ADMIN && merge_args+=(--admin)
-if ! _gh "${merge_args[@]}" >/dev/null 2>&1; then
-  die "gh pr merge failed for #$PR_NUM (PR left open) — check required reviews/branch protection, or pass --admin" 3
+MERGE_CMD_OK=true
+_gh "${merge_args[@]}" >/dev/null 2>&1 || MERGE_CMD_OK=false
+if ! $MERGE_CMD_OK; then
+  # Re-query with retries: a transient gh/network failure here must not
+  # convert an already-merged PR into a reported merge failure.
+  PR_STATE=""
+  for _ in 1 2 3; do
+    PR_STATE="$(_gh pr view "$PR_NUM" --json state -q .state 2>/dev/null)"
+    [ -n "$PR_STATE" ] && break
+    sleep 2
+  done
+  if [ "$PR_STATE" = "MERGED" ]; then
+    say "merge command exited nonzero but PR #$PR_NUM is MERGED remotely — finishing cleanup"
+    # gh's --delete-branch may not have completed; delete the remote branch explicitly.
+    _git_net push origin --delete "$BRANCH" >/dev/null 2>&1 \
+      && say "deleted remote branch $BRANCH" \
+      || say "WARNING: could not delete remote branch $BRANCH — it may already be gone or protected"
+  elif [ -z "$PR_STATE" ]; then
+    die "gh pr merge failed for #$PR_NUM and its state could not be verified (gh pr view failed) — check the PR on GitHub before retrying; it may already be merged" 3
+  else
+    die "gh pr merge failed for #$PR_NUM (state: $PR_STATE; PR left open) — check required reviews/branch protection, or pass --admin" 3
+  fi
 fi
 MERGE_SHA="$(_gh pr view "$PR_NUM" --json mergeCommit -q .mergeCommit.oid 2>/dev/null | cut -c1-9)"
 
 # --------------------------------------------------------------------------
-# 5. sync base
+# 5. sync base — a separate stage with a separate outcome. The merge already
+# happened on GitHub; anything that goes wrong here is a LOCAL sync problem
+# and is reported as partial success (exit 5), never as a merge failure.
 # --------------------------------------------------------------------------
 say "syncing $BASE ..."
-git checkout "$BASE" >/dev/null 2>&1 || die "merged, but 'git checkout $BASE' failed — sync manually" 3
-_git_net pull --ff-only >/dev/null 2>&1 || say "WARNING: 'git pull' on $BASE did not fast-forward — reconcile manually"
+SYNC="ok"
+if git checkout "$BASE" >/dev/null 2>&1; then
+  if ! _git_net pull --ff-only >/dev/null 2>&1; then
+    SYNC="pull-failed"
+    say "WARNING: 'git pull' on $BASE did not fast-forward — reconcile manually"
+  fi
+  # The --repo merge skips gh's local branch cleanup; drop the merged
+  # feature branch now that the base is checked out.
+  git branch -D "$BRANCH" >/dev/null 2>&1 || true
+elif git worktree list --porcelain 2>/dev/null | grep -qxF "branch refs/heads/$BASE"; then
+  SYNC="worktree"
+  say "NOTE: '$BASE' is checked out in another worktree — skipping local checkout; pull there to sync"
+else
+  SYNC="failed"
+  say "WARNING: 'git checkout $BASE' failed — sync manually"
+fi
 
 # --------------------------------------------------------------------------
 # 6. post-merge hook
 # --------------------------------------------------------------------------
 THEN_STATUS="—"
 if [ -n "$THEN" ]; then
-  say "running post-merge: $THEN"
-  if eval "$THEN"; then THEN_STATUS="ok"; else
-    THEN_STATUS="FAILED"
-    printf 'ship: MERGED #%s (%s) but --then failed: %s\n' "$PR_NUM" "${MERGE_SHA:-?}" "$THEN"
-    exit 4
+  if [ "$SYNC" != "ok" ]; then
+    THEN_STATUS="skipped"
+    say "skipping --then: base '$BASE' was not synced locally"
+  else
+    say "running post-merge: $THEN"
+    if eval "$THEN"; then THEN_STATUS="ok"; else
+      THEN_STATUS="FAILED"
+      printf 'ship: MERGED #%s (%s) but --then failed: %s\n' "$PR_NUM" "${MERGE_SHA:-?}" "$THEN"
+      exit 4
+    fi
   fi
 fi
 
 # --------------------------------------------------------------------------
 # summary
 # --------------------------------------------------------------------------
-printf 'ship: PR #%s · CI %s · merged %s · then %s · %s\n' \
-  "$PR_NUM" "$CI" "${MERGE_SHA:-?}" "$THEN_STATUS" "$PR_URL"
+printf 'ship: PR #%s · CI %s · merged %s · sync %s · then %s · %s\n' \
+  "$PR_NUM" "$CI" "${MERGE_SHA:-?}" "$SYNC" "$THEN_STATUS" "$PR_URL"
+[ "$SYNC" = "ok" ] || exit 5

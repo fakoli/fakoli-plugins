@@ -24,8 +24,8 @@ SHIP="${CLAUDE_PLUGIN_ROOT}/scripts/ship.sh"
 ```
 
 It prints one `ship:` line per stage and a final summary
-(`ship: PR #161 · CI passed · merged abc123def · then ok · <url>`), not the raw
-git/gh output.
+(`ship: PR #161 · CI passed · merged abc123def · sync ok · then ok · <url>`),
+not the raw git/gh output.
 
 ## When to use it
 
@@ -53,4 +53,9 @@ git/gh output.
 | `--dry-run` | print the plan and exit |
 
 Exit codes: `0` shipped · `1` usage/preflight · `2` CI failed (PR left open) ·
-`3` merge failed · `4` `--then` command failed. Full reference: see `README.md`.
+`3` merge failed (PR left open) · `4` `--then` command failed · `5` **merged
+remotely** but the local base sync was skipped or failed (base branch owned by
+another worktree, checkout error, or non-fast-forward pull) — the PR is merged
+and ship attempts the remote-branch cleanup (warns if that fails); do NOT
+re-run ship, just sync the base locally (`--then` is skipped on exit 5).
+Full reference: see `README.md`.

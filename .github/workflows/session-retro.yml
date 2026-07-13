@@ -1,0 +1,37 @@
+name: session-retro tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/session-retro/**'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/session-retro/**'
+
+concurrency:
+  group: session-retro-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+
+      # session_stats.py is stdlib-only; pytest is the only test dependency.
+      - name: Run session-retro suite
+        run: |
+          uv run --with pytest pytest plugins/session-retro/tests/ -q
