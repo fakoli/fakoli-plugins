@@ -61,8 +61,9 @@ Options:
 
 Exit codes: 0 shipped (and --then, if any, succeeded) · 1 usage/preflight
 error · 2 CI failed (PR left open) · 3 merge failed · 4 --then command failed
-· 5 merged remotely but local base sync was skipped/failed (e.g. the base
-branch is checked out in another worktree) — finish the local sync manually.
+· 5 merged remotely but the local base sync was skipped or failed (base branch
+checked out in another worktree, checkout error, or a non-fast-forward pull) —
+the PR IS merged; finish the local sync manually. --then is skipped on exit 5.
 USAGE
 }
 
@@ -266,8 +267,11 @@ MERGE_SHA="$(_gh pr view "$PR_NUM" --json mergeCommit -q .mergeCommit.oid 2>/dev
 say "syncing $BASE ..."
 SYNC="ok"
 if git checkout "$BASE" >/dev/null 2>&1; then
-  _git_net pull --ff-only >/dev/null 2>&1 || say "WARNING: 'git pull' on $BASE did not fast-forward — reconcile manually"
-elif git worktree list --porcelain 2>/dev/null | grep -qx "branch refs/heads/$BASE"; then
+  if ! _git_net pull --ff-only >/dev/null 2>&1; then
+    SYNC="pull-failed"
+    say "WARNING: 'git pull' on $BASE did not fast-forward — reconcile manually"
+  fi
+elif git worktree list --porcelain 2>/dev/null | grep -qxF "branch refs/heads/$BASE"; then
   SYNC="worktree"
   say "NOTE: '$BASE' is checked out in another worktree — skipping local checkout; pull there to sync"
 else

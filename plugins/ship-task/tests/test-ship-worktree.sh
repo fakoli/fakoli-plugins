@@ -124,10 +124,43 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# case 3: genuine merge failure (PR still open) → merge failure (3)
+# case 3: merged, but base pull does not fast-forward → partial success (5)
 # ---------------------------------------------------------------------------
-echo "case 3: genuine merge failure still exits 3"
+echo "case 3: non-fast-forward base pull is partial success, --then skipped"
 rm -f "$GH_STATE_DIR/merged"
+git clone -q "$TMP/origin.git" "$TMP/repo2"
+GIT2="git -C $TMP/repo2 -c user.email=t@example.test -c user.name=t"
+$GIT2 checkout -q main
+$GIT2 checkout -q -b feature2
+echo change2 > "$TMP/repo2/change2.txt"
+$GIT2 add change2.txt
+$GIT2 commit -qm "feature2 change"
+# Diverge local main from origin main so `git pull --ff-only` must fail.
+$GIT2 branch -f main HEAD   # local main now carries the feature commit
+git clone -q "$TMP/origin.git" "$TMP/repo3"
+GIT3="git -C $TMP/repo3 -c user.email=t@example.test -c user.name=t"
+$GIT3 checkout -q main
+echo remote-advance > "$TMP/repo3/remote.txt"
+$GIT3 add remote.txt
+$GIT3 commit -qm "remote advance"
+$GIT3 push -q origin main
+out="$(cd "$TMP/repo2" && bash "$SHIP" --no-wait --then "touch $TMP/then-ran-2" "feature2 change" 2>&1)"
+rc=$?
+
+assert_eq "exit code is 5 on pull-failed" 5 "$rc"
+assert_contains "summary carries sync pull-failed" "sync pull-failed" "$out"
+if [ -e "$TMP/then-ran-2" ]; then
+  fail "--then did not run after a failed base pull"
+else
+  ok "--then did not run after a failed base pull"
+fi
+
+# ---------------------------------------------------------------------------
+# case 4: genuine merge failure (PR still open) → merge failure (3)
+# ---------------------------------------------------------------------------
+echo "case 4: genuine merge failure still exits 3"
+rm -f "$GH_STATE_DIR/merged"
+$GITF push -q -u origin feature 2>/dev/null || true   # restore branch for re-run
 export GH_MERGE_REALLY_FAILS=1
 out="$(cd "$TMP/feature-wt" && bash "$SHIP" --no-wait "feature change" 2>&1)"
 rc=$?

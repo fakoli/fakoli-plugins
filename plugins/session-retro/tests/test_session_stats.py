@@ -348,6 +348,15 @@ def test_forked_sibling_keeps_identity_and_reports_tokens_unavailable(tmp_path, 
         _codex_meta_row("2026-06-25T10:04:00Z", "sid", "fork-1", parent="sid"),
         _codex_meta_row("2026-06-25T10:04:01Z", "sid", "sid"),
         _user_row("2026-06-25T10:04:02Z", "Kick off the heavy generation"),
+        {   # the parent's spawn_agent call, REPLAYED into the fork's history
+            "timestamp": "2026-06-25T10:04:03Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "name": "spawn_agent",
+                "arguments": json.dumps({"agent_type": "worker", "message": "Run subtask A"}),
+            },
+        },
         _user_row("2026-06-25T10:05:00Z", "Run subtask A"),
         _token_count_row("2026-06-25T10:06:00Z", 450, in_tokens=1200, cached=600),
     ])
@@ -376,6 +385,13 @@ def test_forked_sibling_keeps_identity_and_reports_tokens_unavailable(tmp_path, 
     assert agg["measurement_notes"]
     # Replayed parent turns are not human messages in this corpus.
     assert agg["user_turns"] == 1
+    # The fork's replayed copy of the parent's spawn_agent call and assistant
+    # history must not double the tool/turn counters.
+    assert agg["tools"]["spawn_agent"] == 1
+    # A type whose only run is token-unavailable reports None, not 0.
+    by_type = next(iter(agg["workflow_by_type"].values()))
+    assert by_type["tokens"] is None
+    assert by_type["unknown_runs"] == 1
 
     report = mod.report_md(agg)
     assert "n/a" in report
@@ -415,4 +431,3 @@ def test_encrypted_prompts_fall_back_to_agent_labels(tmp_path, monkeypatch):
     agg = mod.aggregate([mod.parse(p) for p in mod.expand_paths([str(root)])])
     assert agg["workflow_runs"][0]["summary"] == "critic-1"
     assert agg["user_turn_text"] == []
-    assert not any("gAAAA" in t for t in agg["user_turn_text"])

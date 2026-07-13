@@ -35,6 +35,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test suite (`tests/test_session_stats.py`) now runs in CI via
   `.github/workflows/session-retro.yml`.
 
+### Fixed (post-review)
+
+- `report`/`html`/`stats` no longer crash on cp1252 consoles either: `main()`
+  reconfigures stdout with `errors="replace"`, so the report's `█` bar
+  characters degrade instead of raising (the initial fix only covered
+  `list`/`find`).
+- The HTML report renders unavailable token totals as `n/a` (runs table and
+  doughnut legend) instead of a measured `0`, matching the markdown report.
+- `workflow_by_type` no longer coerces unavailable totals to `0`: a type
+  whose runs are all token-unavailable reports `tokens: null` (rendered
+  `n/a`), mixed types carry an `unknown_runs` count, and the by-type table
+  marks affected rows with `*`.
+- Forked rollouts' replayed parent history is now also excluded from tool
+  counts, assistant turns, skills/agent/workflow tallies, and the activity
+  timeline — not just token sums.
+- `expand_paths()` skips inputs already swept in by an earlier expansion
+  instead of re-scanning all of `~/.codex/sessions` per duplicate spelling.
+
 ## [1.1.1] - 2026-06-26
 
 ### Fixed

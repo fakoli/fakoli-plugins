@@ -272,13 +272,15 @@ validate_plugin() {
     # checkouts with autocrlf feed the plugin caches, so the repo blobs
     # themselves must never carry CRLF (issue #136; enforced for checkouts
     # via `*.sh text eol=lf` in .gitattributes).
+    # Prune vendored/generated trees (.venv, node_modules, .git) — the check
+    # targets repo blobs, not third-party scripts acquired by a local install.
     local shfile
     while IFS= read -r -d '' shfile; do
         if grep -q $'\r' "$shfile"; then
             log_error "[$plugin_name] CRLF line endings in ${shfile#"$plugin_dir"/} — bash under WSL cannot run this; normalize to LF"
             has_errors=1
         fi
-    done < <(find "$plugin_dir" -name '*.sh' -type f -print0 2>/dev/null)
+    done < <(find "$plugin_dir" \( -name .venv -o -name node_modules -o -name .git \) -prune -o -name '*.sh' -type f -print0 2>/dev/null)
 
     # Validate component paths and hook safety
     validate_component_paths "$plugin_dir" "$plugin_name" "$manifest_file" || has_errors=1

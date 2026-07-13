@@ -19,5 +19,9 @@ and ask for a PR title (and an optional `--then` post-merge command, e.g.
 `--then "anvil apply <task> --approve --reviewer <me>"`).
 
 Report back only the final `ship:` summary line (PR number, CI result, merge SHA,
-post-merge status, URL). On a non-zero exit, surface the failing checks or error
-the script printed and leave the PR open for the user to decide.
+sync status, post-merge status, URL). On exit `5` the PR IS already merged and
+the remote branch deleted — only the local base sync was skipped or failed
+(e.g. the base branch lives in another worktree); tell the user the PR merged
+and how to finish the sync, and do NOT re-run ship. On any other non-zero exit,
+surface the failing checks or error the script printed and leave the PR open
+for the user to decide.

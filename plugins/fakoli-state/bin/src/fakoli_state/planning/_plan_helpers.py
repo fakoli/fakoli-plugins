@@ -37,6 +37,7 @@ __all__ = [
     "OrphanClassification",
     "PruneResult",
     "classify_orphans",
+    "emit_plan_events",
     "emit_prune_events",
     "has_tasks_section",
 ]
@@ -224,3 +225,101 @@ def emit_prune_events(
         pruned_task_ids=pruned_task_ids,
         pruned_feature_ids=pruned_feature_ids,
     )
+
+
+def emit_plan_events(
+    backend: Backend,
+    features: list[Feature],
+    tasks: list[Task],
+    *,
+    actor: str,
+    clock: Clock,
+    promotion_reason: str,
+):
+    """Emit the plan write-path events: create, infer, upsert, promote.
+
+    The single implementation of the loops that both the CLI ``plan`` and
+    the MCP ``plan_tasks`` previously carried as twins (issue #76 — the CLI
+    copy lacked the ``EventRejected`` guard the MCP copy had, the same
+    divergence class that drove the ``emit_prune_events`` extraction above):
+
+    1. ``feature.created`` per parsed feature.
+    2. ``task.created`` per parsed task (status ``proposed`` at creation).
+    3. ``infer_all`` over the parsed tasks, then re-upsert each task with
+       inferred dependencies/conflict groups via another ``task.created``.
+    4. Promote ``proposed → drafted`` — but ONLY for tasks currently at
+       ``proposed``. On re-plan, existing tasks may have advanced past
+       ``drafted`` (claimed, in_progress, …) and a status_changed for those
+       would error or silently regress them; the upsert does not touch
+       status (Greptile PR #38 fix), so existing-task status is preserved.
+
+    Args:
+        backend: Backend to apply events through.
+        features: Parsed features to create.
+        tasks: Parsed tasks to create and run inference over.
+        actor: Identity to record on the events (``fakoli-state-cli`` /
+            ``fakoli-state-mcp``).
+        clock: Source of timestamps.
+        promotion_reason: Reason string for the proposed → drafted
+            status_changed events (layer-specific wording).
+
+    Returns:
+        The ``infer_all`` result (tasks with inferred deps + conflict
+        groups) so callers can report conflict-group counts.
+
+    Raises:
+        EventRejected: If any ``_check_*`` refuses an event. Callers surface
+            it layer-appropriately (typer.Exit for CLI, ToolError for MCP).
+    """
+    from fakoli_state.planning.inference import infer_all
+    from fakoli_state.state.models import EventDraft
+
+    for feature in features:
+        backend.append(EventDraft(
+            timestamp=clock.now(),
+            actor=actor,
+            action="feature.created",
+            target_kind="feature",
+            target_id=feature.id,
+            payload_json=feature.model_dump(mode="json"),
+        ))
+
+    for task in tasks:
+        backend.append(EventDraft(
+            timestamp=clock.now(),
+            actor=actor,
+            action="task.created",
+            target_kind="task",
+            target_id=task.id,
+            payload_json=task.model_dump(mode="json"),
+        ))
+
+    inference_result = infer_all(tasks)
+
+    for inferred_task in inference_result.tasks:
+        backend.append(EventDraft(
+            timestamp=clock.now(),
+            actor=actor,
+            action="task.created",
+            target_kind="task",
+            target_id=inferred_task.id,
+            payload_json=inferred_task.model_dump(mode="json"),
+        ))
+
+        current = backend.get_task(inferred_task.id)
+        if current is not None and current.status.value == "proposed":
+            backend.append(EventDraft(
+                timestamp=clock.now(),
+                actor=actor,
+                action="task.status_changed",
+                target_kind="task",
+                target_id=inferred_task.id,
+                payload_json={
+                    "task_id": inferred_task.id,
+                    "from": "proposed",
+                    "to": "drafted",
+                    "reason": promotion_reason,
+                },
+            ))
+
+    return inference_result

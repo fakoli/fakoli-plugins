@@ -80,18 +80,29 @@ def _looks_encrypted(text):
     return bool(re.match(r"^gAAAA[A-Za-z0-9_\-=]{16,}$", (text or "").strip()))
 
 
+def _agent_label(d):
+    """Readable agent label from spawn args / thread_spawn metadata."""
+    label = d.get("agent_nickname") or d.get("nickname") or ""
+    if not label and d.get("agent_path"):
+        label = os.path.basename(str(d["agent_path"]))
+    return label
+
+
 def _print_safe(line=""):
     """Print human-facing text without dying on narrow console encodings.
 
     Default Windows consoles are cp1252, which can't encode the ↳ topic
-    marker (or emoji inside session topics). list/find go through here;
-    JSON/report output stays plain print() so it remains UTF-8 verbatim.
+    marker (or emoji inside session topics). Degrades the marker to '->'
+    and replaces anything else unencodable.
     """
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
     try:
-        print(line)
+        line.encode(enc)
     except UnicodeEncodeError:
-        enc = getattr(sys.stdout, "encoding", None) or "ascii"
-        print(line.replace("↳", "->").encode(enc, "replace").decode(enc))
+        line = line.replace("↳", "->").encode(enc, "replace").decode(enc)
+    except LookupError:
+        pass
+    print(line)
 
 
 def _wf_ref(inp):
@@ -254,9 +265,7 @@ def parse_codex(path):
                 if _looks_encrypted(prompt):
                     prompt = ""
                 agent_type = inp.get("agent_type") or "default"
-                label = inp.get("agent_nickname") or inp.get("nickname") or ""
-                if not label and inp.get("agent_path"):
-                    label = os.path.basename(str(inp["agent_path"]))
+                label = _agent_label(inp)
                 kind = _codex_kind(prompt or label, agent_type)
                 summary = _codex_prompt_summary(prompt) or label or f"{agent_type} subagent"
                 s["workflows"].append(dict(
@@ -339,8 +348,7 @@ def aggregate(sessions):
     spawn_workflows = [w for s in codex_mains for w in s["workflows"] if w.get("codex_spawn")]
     for idx, sub in enumerate(codex_subagents):
         prompt = sub.get("prompt_summary") or (sub["user_turns"][0] if sub.get("user_turns") else "")
-        label = sub.get("agent_nickname") or (
-            os.path.basename(str(sub["agent_path"])) if sub.get("agent_path") else "")
+        label = _agent_label(sub)
         spawn = spawn_workflows[idx] if idx < len(spawn_workflows) else {}
         summary = spawn.get("summary") or label or prompt or os.path.basename(sub["path"])
         kind = spawn.get("kind") or _codex_kind(prompt or label, sub.get("agent_type") or "")
@@ -369,11 +377,12 @@ def aggregate(sessions):
         ))
 
     main_output_tokens = sum(s["out"] for s in claude_sessions + codex_mains)
-    known_wf_tokens = [w["tokens"] for w in workflow_runs if w["tokens"] is not None]
-    workflow_tokens = sum(known_wf_tokens)
-    workflow_tokens_available = len(known_wf_tokens) == len(workflow_runs)
-    # Forked rollouts' input/cache totals also include the replayed parent
-    # history — exclude them from the processed-token sums instead of
+    unknown_wf_runs = sum(1 for w in workflow_runs if w["tokens"] is None)
+    workflow_tokens = sum(w["tokens"] for w in workflow_runs if w["tokens"] is not None)
+    workflow_tokens_available = unknown_wf_runs == 0
+    # Forked rollouts replay the parent's history, so ALL their additive
+    # counters (input/cache totals, tool calls, assistant turns, timeline
+    # events) include the parent's — exclude them from the sums instead of
     # double-charging the parent.
     counted = [s for s in sessions if not s.get("codex_forked")]
     human_sessions = claude_sessions + codex_mains
@@ -384,7 +393,7 @@ def aggregate(sessions):
         wall_hours=hours(min(s["ts_first"] for s in sessions if s["ts_first"]),
                          max(s["ts_last"] for s in sessions if s["ts_last"]))
         if any(s["ts_first"] for s in sessions) else 0.0,
-        assistant_turns=sum(s["asst"] for s in sessions),
+        assistant_turns=sum(s["asst"] for s in counted),
         user_turns=sum(len(s["user_turns"]) for s in human_sessions),
         runtimes=sorted({s.get("runtime", "claude") for s in sessions}),
         main_output_tokens=main_output_tokens,
@@ -395,43 +404,50 @@ def aggregate(sessions):
         workflow_agents=sum(w["agents"] for w in workflow_runs),
         workflow_tokens=workflow_tokens,
         workflow_tokens_available=workflow_tokens_available,
-        tools=dict(sum((s["tools"] for s in sessions), Counter()).most_common()),
+        tools=dict(sum((s["tools"] for s in counted), Counter()).most_common()),
         user_turn_text=[t for s in human_sessions for t in s["user_turns"]],
     )
     notes = []
-    unknown_runs = len(workflow_runs) - len(known_wf_tokens)
-    if unknown_runs:
-        notes.append(f"delegated token totals are unavailable for {unknown_runs} of "
+    if unknown_wf_runs:
+        notes.append(f"delegated token totals are unavailable for {unknown_wf_runs} of "
                      f"{len(workflow_runs)} workflow runs in this log format")
     forked_count = sum(1 for s in sessions if s.get("codex_forked"))
     if forked_count:
         notes.append(f"{forked_count} forked rollout(s) replay parent history; "
-                     "their cumulative totals are excluded from token sums")
+                     "their cumulative totals are excluded from token and tool sums")
     out["measurement_notes"] = notes
-    out["skills_used"] = dict(sum((s["skills"] for s in sessions), Counter()).most_common())
-    at = sum((s["agent_types"] for s in sessions), Counter())
+    out["skills_used"] = dict(sum((s["skills"] for s in counted), Counter()).most_common())
+    at = sum((s["agent_types"] for s in counted), Counter())
     for s in claude_sessions:
         at += scan_agent_types(s["path"])
     out["agent_types"] = dict(at.most_common())
-    out["workflows_named"] = dict(sum((s["wf_named"] for s in sessions), Counter()).most_common())
+    out["workflows_named"] = dict(sum((s["wf_named"] for s in counted), Counter()).most_common())
     # activity timeline: hourly buckets of main output tokens + workflow dispatches
     tl = defaultdict(lambda: [0, 0])
-    for s in sessions:
+    for s in counted:
         for ets, out_t in s["events"]:
             tl[ets[:13]][0] += out_t
         for wts in s["wf_ts"]:
             tl[wts[:13]][1] += 1
     out["timeline"] = [{"hour": k[5:].replace("T", " ") + ":00", "out": v[0], "wf": v[1]}
                        for k, v in sorted(tl.items())]
-    by = defaultdict(lambda: [0, 0, 0, 0])  # runs, agents, tokens, ms
+    by = defaultdict(lambda: [0, 0, 0, 0, 0])  # runs, agents, tokens, ms, unknown
     runs = []
     for w in workflow_runs:
         k = wf_kind(w["summary"])
         if w.get("kind"):
             k = w["kind"]
-        by[k][0] += 1; by[k][1] += w["agents"]; by[k][2] += w["tokens"] or 0; by[k][3] += w["ms"]
+        by[k][0] += 1; by[k][1] += w["agents"]; by[k][3] += w["ms"]
+        if w["tokens"] is None:
+            by[k][4] += 1
+        else:
+            by[k][2] += w["tokens"]
         runs.append({**w, "kind": k})
-    out["workflow_by_type"] = {k: dict(runs=v[0], agents=v[1], tokens=v[2],
+    # A type whose only runs are token-unavailable reports tokens=None, not a
+    # measured 0; a mixed type keeps the known sum and flags the unknown runs.
+    out["workflow_by_type"] = {k: dict(runs=v[0], agents=v[1],
+                                       tokens=(None if v[4] and not v[2] else v[2]),
+                                       unknown_runs=v[4],
                                        minutes=round(v[3] / 60000, 1))
                                for k, v in sorted(by.items(), key=lambda x: -x[1][2])}
     out["workflow_runs"] = sorted(runs, key=lambda r: -(r["tokens"] or 0))
@@ -502,10 +518,15 @@ def report_md(agg):
         L.append("## Workflow analysis\n")
         L.append(f"{a['workflows']} workflows, {a['workflow_agents']} subagents.\n")
         L.append("```")
-        mxw = max((v["tokens"] for v in a["workflow_by_type"].values()), default=1)
+        mxw = max((v["tokens"] or 0 for v in a["workflow_by_type"].values()), default=1)
+        any_unknown = False
         for k, v in a["workflow_by_type"].items():
-            L.append(f"{k:14} {v['runs']:>3} runs {v['agents']:>4} ag {fmt(v['tokens']):>12}  {bar(v['tokens'], mxw, 30)}")
+            mark = "*" if v.get("unknown_runs") else " "
+            any_unknown = any_unknown or bool(v.get("unknown_runs"))
+            L.append(f"{k:14} {v['runs']:>3} runs {v['agents']:>4} ag {fmt(v['tokens']):>12}{mark} {bar(v['tokens'], mxw, 30)}")
         L.append("```\n")
+        if any_unknown:
+            L.append("> \\* includes runs whose token totals are unavailable in this log format.\n")
         L.append("**Most expensive runs:**\n")
         L.append("| tokens | agents | min | summary |")
         L.append("|---:|---:|---:|---|")
@@ -641,12 +662,12 @@ footer{color:var(--mut);font-size:12px;margin-top:28px;text-align:center}
 <div class="narrative" id="narrative">__NARRATIVE__</div>
 <footer>Generated by the session-retro skill - reads only local ~/.claude / ~/.codex logs, sends nothing.</footer>
 </div><script>
-const D = __DATA__, fmt = n => (n||0).toLocaleString(), $ = id => document.getElementById(id);
+const D = __DATA__, fmt = n => (n==null ? 'n/a' : (n||0).toLocaleString()), $ = id => document.getElementById(id);
 $('meta').textContent = [D.cwd, D.branch, D.wall_hours? D.wall_hours+' h':''].filter(Boolean).join('  -  ');
 $('kpis').innerHTML = [['Wall-clock',(D.wall_hours||0)+' h'],['Assistant turns',fmt(D.assistant_turns)],['Human messages',fmt(D.user_turns)],['Generated tokens',fmt(D.generative_total)],['Workflows',fmt(D.workflows)+' / '+fmt(D.workflow_agents)+' ag'],['Cache read',fmt(D.cache_read_tokens)]].map(([l,v])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
 function doughnut(parts){const tot=parts.reduce((a,p)=>a+p.value,0)||1,R=52,C=2*Math.PI*R;let off=0;const segs=parts.map(p=>{const dash=p.value/tot*C,s=`<circle r="${R}" cx="70" cy="70" fill="none" stroke="${p.color}" stroke-width="20" stroke-dasharray="${dash} ${C-dash}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"/>`;off+=dash;return s;}).join('');return `<svg width="140" height="140" viewBox="0 0 140 140">${segs}</svg><div class="legend">${parts.map(p=>`<div><span class="dot" style="background:${p.color}"></span><b>${fmt(p.value)}</b> ${p.label} (${Math.round(100*p.value/tot)}%)</div>`).join('')}</div>`;}
 $('dough').innerHTML=doughnut([{label:'delegated to workflows',value:D.workflow_tokens,color:'#bc8cff'},{label:'main-loop orchestrator',value:D.main_output_tokens,color:'#58a6ff'}]);
-if(D.workflow_tokens_available===false)$('dough').parentElement.querySelector('.note').textContent='Delegated token totals are unavailable in this log format — the chart shows known totals only.';
+if(D.workflow_tokens_available===false){$('dough').parentElement.querySelector('.note').textContent='Delegated token totals are unavailable in this log format — the chart shows known totals only.';const lg=$('dough').querySelector('.legend div');if(lg)lg.innerHTML=lg.innerHTML.replace(/<b>[^<]*<\/b>/,'<b>n/a</b>').replace(/\(\d+%\)/,'');}
 function hbars(el,items){const mx=Math.max(...items.map(i=>i.value),1);el.innerHTML=items.map(i=>`<div class="bar" title="${i.tip||''}"><div class="lab">${i.label}</div><div class="track"><div class="fill" style="width:${100*i.value/mx}%;background:${i.color}"></div><div class="val">${i.disp||fmt(i.value)}</div></div></div>`).join('');}
 hbars($('cache'),[{label:'cache read',value:D.cache_read_tokens,color:'#6e7681'},{label:'cache creation',value:D.cache_creation_tokens,color:'#484f58'},{label:'generated output',value:D.generative_total,color:'#58a6ff'},{label:'fresh input',value:D.fresh_input_tokens,color:'#3fb950'}]);
 hbars($('wftype'),Object.entries(D.workflow_by_type||{}).map(([k,v])=>({label:k,value:v.tokens,disp:fmt(v.tokens),tip:v.runs+' runs / '+v.agents+' agents / '+v.minutes+' min',color:'#3fb950'})));
@@ -760,6 +781,8 @@ def expand_paths(paths):
             expanded.append(p)
 
     for path in paths:
+        if _canon(path) in seen:
+            continue  # already swept in via an earlier path's session expansion
         if not _is_codex(path):
             add(path)
             continue
@@ -768,13 +791,11 @@ def expand_paths(paths):
         if not session_id:
             add(path)
             continue
-        candidates = []
+        candidates = {_canon(path): path}
         for candidate in glob.glob(f"{CODEX_SESSIONS}/**/*.jsonl", recursive=True):
             if _codex_meta(candidate).get("session_id") == session_id:
-                candidates.append(candidate)
-        if _canon(path) not in {_canon(c) for c in candidates}:
-            candidates.append(path)
-        for candidate in sorted(candidates, key=_codex_sort_key):
+                candidates.setdefault(_canon(candidate), candidate)
+        for candidate in sorted(candidates.values(), key=_codex_sort_key):
             add(candidate)
     return expanded
 
@@ -821,6 +842,15 @@ def cmd_find(args):
 
 
 def main(argv):
+    # Default Windows consoles are cp1252, which can't encode the report's
+    # █ bar characters or arbitrary session text. Replace unencodable
+    # characters at the output layer instead of crashing any subcommand;
+    # UTF-8 terminals are unaffected.
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass
     if len(argv) < 2 or argv[1] not in ("list", "find", "stats", "report", "html"):
         print(__doc__)
         return 1

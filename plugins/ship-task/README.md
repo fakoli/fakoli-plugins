@@ -60,7 +60,7 @@ Or the slash command: `/ship "PR title" --then "…"`. Or let an agent invoke th
 Final line, e.g.:
 
 ```
-ship: PR #161 · CI passed · merged abc123def · then ok · https://github.com/org/repo/pull/161
+ship: PR #161 · CI passed · merged abc123def · sync ok · then ok · https://github.com/org/repo/pull/161
 ```
 
 ## Options
@@ -110,8 +110,11 @@ only need to re-run the post-merge step.
 | `0` | shipped (and `--then`, if any, succeeded) |
 | `1` | usage or preflight error (nothing changed) |
 | `2` | CI failed or timed out — PR left open |
-| `3` | merge or base-sync failed |
+| `3` | merge failed — PR left open |
 | `4` | merge succeeded but the `--then` command failed |
+| `5` | **merged remotely**, but the local base sync was skipped or failed — the base branch is checked out in another worktree, the checkout errored, or the pull did not fast-forward. The PR is merged and the remote branch deleted; do not re-run ship — sync the base locally. `--then` is skipped. |
+
+The summary line carries the sync outcome as `sync <ok|worktree|pull-failed|failed>`.
 
 ## Scope
 

@@ -14,12 +14,13 @@ _No unreleased changes._
 
 ### Fixed
 
-- CLI `plan()` now wraps its `feature.created` / `task.created` create-upsert
-  loops and the post-inference upsert + `proposed → drafted` promotion loop in
-  the same `except EventRejected → clean exit 1` guard its MCP twin
-  (`plan_tasks`) already had (#76). Previously only the `emit_prune_events`
-  call was guarded, so a future `_check_*` validation gate would have crashed
-  the CLI with a raw traceback while the MCP surfaced a clean error.
+- CLI `plan()` now surfaces `EventRejected` from its create/upsert/promotion
+  events as a clean exit 1, matching its MCP twin (`plan_tasks`) (#76).
+  Rather than duplicating the guard, the shared loops were extracted into
+  `planning/_plan_helpers.emit_plan_events()` — the same single-source
+  remedy previously applied to `emit_prune_events` for exactly this
+  "one layer caught it, the other didn't" defect class — with the CLI
+  mapping rejections to `typer.Exit` and the MCP to `ToolError`.
   Regression test forces a rejection inside the loop and asserts a clean
   non-zero exit.
 

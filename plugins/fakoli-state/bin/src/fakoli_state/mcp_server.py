@@ -1597,7 +1597,6 @@ def plan_tasks(
             first instead of losing claim/evidence history.
     """
     from fakoli_state.clock import SystemClock
-    from fakoli_state.planning.inference import infer_all
     from fakoli_state.planning.llm_planner import (
         PlannerProviderUnavailable,
         TaskGenerationError,
@@ -1605,7 +1604,6 @@ def plan_tasks(
     )
     from fakoli_state.planning.template import parse_prd as _parse_prd_impl
     from fakoli_state.state.backend import EventRejected
-    from fakoli_state.state.models import EventDraft
 
     state_dir = _resolve_state_dir(cwd)
     if not state_dir.exists():
@@ -1762,6 +1760,7 @@ def plan_tasks(
         # --------------------------------------------------------------
         from fakoli_state.planning._plan_helpers import (
             classify_orphans,
+            emit_plan_events,
             emit_prune_events,
         )
 
@@ -1801,71 +1800,20 @@ def plan_tasks(
         pruned_task_ids = prune_result.pruned_task_ids
         pruned_feature_ids = prune_result.pruned_feature_ids
 
-        # Emit feature.created per feature.
-        for feature in result.features:
-            now = clock.now()
-            try:
-                backend.append(EventDraft(
-                    timestamp=now,
-                    actor="fakoli-state-mcp",
-                    action="feature.created",
-                    target_kind="feature",
-                    target_id=feature.id,
-                    payload_json=feature.model_dump(mode="json"),
-                ))
-            except EventRejected as exc:
-                raise ToolError(str(exc)) from exc
-
-        # Emit task.created per task.
-        for task in result.tasks:
-            now = clock.now()
-            try:
-                backend.append(EventDraft(
-                    timestamp=now,
-                    actor="fakoli-state-mcp",
-                    action="task.created",
-                    target_kind="task",
-                    target_id=task.id,
-                    payload_json=task.model_dump(mode="json"),
-                ))
-            except EventRejected as exc:
-                raise ToolError(str(exc)) from exc
-
-        inference_result = infer_all(result.tasks)
-
-        for inferred_task in inference_result.tasks:
-            now = clock.now()
-            try:
-                backend.append(EventDraft(
-                    timestamp=now,
-                    actor="fakoli-state-mcp",
-                    action="task.created",
-                    target_kind="task",
-                    target_id=inferred_task.id,
-                    payload_json=inferred_task.model_dump(mode="json"),
-                ))
-            except EventRejected as exc:
-                raise ToolError(str(exc)) from exc
-
-            current = backend.get_task(inferred_task.id)
-            if current is not None and current.status.value == "proposed":
-                now = clock.now()
-                try:
-                    backend.append(EventDraft(
-                        timestamp=now,
-                        actor="fakoli-state-mcp",
-                        action="task.status_changed",
-                        target_kind="task",
-                        target_id=inferred_task.id,
-                        payload_json={
-                            "task_id": inferred_task.id,
-                            "from": "proposed",
-                            "to": "drafted",
-                            "reason": "plan_tasks: initial draft after inference",
-                        },
-                    ))
-                except EventRejected as exc:
-                    raise ToolError(str(exc)) from exc
+        # Create/upsert/promotion events share one implementation with the
+        # CLI twin (planning._plan_helpers.emit_plan_events, issue #76) —
+        # only the EventRejected surfacing is layer-specific here.
+        try:
+            inference_result = emit_plan_events(
+                backend,
+                result.features,
+                result.tasks,
+                actor="fakoli-state-mcp",
+                clock=clock,
+                promotion_reason="plan_tasks: initial draft after inference",
+            )
+        except EventRejected as exc:
+            raise ToolError(str(exc)) from exc
 
         return PlanTasksResponse(
             feature_count=len(result.features),

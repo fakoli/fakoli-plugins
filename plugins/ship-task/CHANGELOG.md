@@ -20,11 +20,24 @@ All notable changes to the ship-task plugin are documented here.
 ### Added
 
 - Exit code 5: merged remotely but local base sync was skipped or failed
-  (partial success). `--then` is skipped in that case (it would run against
-  an unsynced base), and the summary line now carries a `sync <status>` field.
+  (partial success) — the base branch owned by another worktree, a checkout
+  error, or a non-fast-forward `git pull`. `--then` is skipped in that case
+  (it would run against an unsynced base), and the summary line now carries
+  a `sync <ok|worktree|pull-failed|failed>` field. SKILL.md, README, and the
+  `/ship` command doc were updated to the new contract.
 - Integration test (`tests/test-ship-worktree.sh`, wired into pr-check CI):
   base branch in a dirty worktree A, feature branch in worktree B, stubbed
-  `gh` reproducing the merged-remotely-but-exited-nonzero failure mode.
+  `gh` reproducing the merged-remotely-but-exited-nonzero failure mode, plus
+  non-fast-forward-pull and genuine-merge-failure cases.
+
+### Fixed (post-review)
+
+- A non-fast-forward `git pull` after checkout previously kept `sync ok`,
+  ran `--then` against the stale base, and exited 0 — now exit 5 with
+  `--then` skipped, consistent with the other local-sync failures.
+- Worktree detection now matches the base branch as a fixed string
+  (`grep -qxF`), so branch names containing regex metacharacters (e.g.
+  `release-1.2`) cannot match a different worktree's branch line.
 
 ## [1.0.1] - 2026-07-08
 
