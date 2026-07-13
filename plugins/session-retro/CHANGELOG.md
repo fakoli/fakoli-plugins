@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-13
+
+### Fixed
+- `list`/`find` no longer crash with `UnicodeEncodeError` on default Windows
+  cp1252 consoles: human output goes through an encoding-safe printer that
+  degrades the `↳` topic marker to `->` instead of dying (#135). JSON/report
+  modes are untouched.
+- Forked Codex rollouts are no longer duplicated or misclassified (#134):
+  - `expand_paths()` canonicalizes paths before deduplication, so the same
+    rollout selected as `C:\...` and `C:/...` counts once;
+  - only the FIRST `session_meta` record sets a rollout's identity — replayed
+    parent metadata can no longer erase a non-null `parent_thread_id` and
+    reclassify a subagent as a main session;
+  - forked rollouts' cumulative token totals (which replay the parent's) are
+    excluded from main-loop/input/cache sums instead of being charged twice.
+
+### Added
+- Delegated token totals that cannot be proven from the log format are now
+  reported as unavailable (`tokens: null`, `workflow_tokens_available: false`,
+  human-readable `measurement_notes`) instead of a measured `0` (#134).
+  `report`/`html` render "n/a" and a note rather than a false "0% delegated".
+- Workflow labels fall back to `agent_nickname`/`agent_path` (from spawn args
+  or `session_meta.source.subagent.thread_spawn`) when the prompt text is an
+  encrypted `gAAAA…` blob; encrypted payloads are also excluded from the
+  human-turn list (#134).
+- `codex_is_subagent` now also recognizes rollouts marked via
+  `session_meta.source.subagent`.
+- Test suite (`tests/test_session_stats.py`) now runs in CI via
+  `.github/workflows/session-retro.yml`.
+
 ## [1.1.1] - 2026-06-26
 
 ### Fixed

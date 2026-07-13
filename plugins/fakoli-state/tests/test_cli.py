@@ -15,6 +15,7 @@ import os
 import sqlite3
 from pathlib import Path
 
+import pytest
 from click.testing import Result
 from typer.testing import CliRunner
 
@@ -722,6 +723,59 @@ class TestPlan:
         # No prd.md file written
         result = _invoke_cmd(tmp_path, ["plan"])
         assert result.exit_code == 1
+
+    def test_plan_event_rejection_exits_cleanly(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ``_check_*`` rejection inside the create/upsert loop must exit 1
+        with a clean error, mirroring the MCP twin — not a raw traceback.
+
+        Regression test for issue #76: the CLI ``plan()`` create/upsert/
+        promotion appends were bare while the MCP ``plan_tasks`` wrapped each
+        one in ``except EventRejected → ToolError``. The appends are upserts
+        that do not reject today, so the rejection is forced via a wrapped
+        backend.
+        """
+        import importlib
+
+        from fakoli_state.state.backend import EventRejected
+
+        # ``fakoli_state.cli.plan`` the attribute is the plan() function
+        # (re-exported by __init__), so resolve the MODULE explicitly —
+        # same pattern as test_cli_plan.py.
+        plan_module = importlib.import_module("fakoli_state.cli.plan")
+
+        _do_init(tmp_path)
+        _write_prd(tmp_path, _FULL_PRD_CONTENT)
+        _invoke_cmd(tmp_path, ["prd", "parse"])
+
+        class RejectingBackend:
+            """Delegates everything, but refuses task.created appends."""
+
+            def __init__(self, inner: object) -> None:
+                self._inner = inner
+
+            def append(self, draft):  # type: ignore[no-untyped-def]
+                if draft.action == "task.created":
+                    raise EventRejected(
+                        "task.created rejected by _check_task_created (forced by test)"
+                    )
+                return self._inner.append(draft)
+
+            def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
+                return getattr(self._inner, name)
+
+        real_open = plan_module._open_backend
+        monkeypatch.setattr(
+            plan_module,
+            "_open_backend",
+            lambda state_dir: RejectingBackend(real_open(state_dir)),
+        )
+
+        result = _invoke_cmd(tmp_path, ["plan"])
+        assert result.exit_code == 1
+        assert "plan event rejected" in result.output
+        assert "Traceback" not in result.output
 
 
 # ---------------------------------------------------------------------------

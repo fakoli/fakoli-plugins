@@ -47,6 +47,9 @@ jobs:
       - name: Test handoff freshness
         run: ./plugins/handoff/tests/test-handoff-freshness.sh
 
+      - name: Test ship-task worktree merge handling
+        run: bash ./plugins/ship-task/tests/test-ship-worktree.sh
+
       # Linux gate for the pulse dashboard server (node is preinstalled on
       # ubuntu-latest; the suite is hermetic — fake anvil shim, no docker).
       - name: Test gate-router

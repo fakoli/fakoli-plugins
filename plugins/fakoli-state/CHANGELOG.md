@@ -10,6 +10,21 @@ _No unreleased changes._
 
 ---
 
+## [1.23.4] — 2026-07-13
+
+### Fixed
+
+- CLI `plan()` now wraps its `feature.created` / `task.created` create-upsert
+  loops and the post-inference upsert + `proposed → drafted` promotion loop in
+  the same `except EventRejected → clean exit 1` guard its MCP twin
+  (`plan_tasks`) already had (#76). Previously only the `emit_prune_events`
+  call was guarded, so a future `_check_*` validation gate would have crashed
+  the CLI with a raw traceback while the MCP surfaced a clean error.
+  Regression test forces a rejection inside the loop and asserts a clean
+  non-zero exit.
+
+---
+
 ## [1.23.3] — 2026-07-04
 
 ### Fixed

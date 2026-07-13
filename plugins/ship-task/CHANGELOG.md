@@ -2,6 +2,30 @@
 
 All notable changes to the ship-task plugin are documented here.
 
+## [1.1.0] - 2026-07-13
+
+### Fixed
+
+- Remote merge state and local sync are now separate stages with separate
+  outcomes (#137). When the base branch is checked out in another worktree,
+  `gh pr merge` merges the PR on GitHub and then exits nonzero on its local
+  sync — ship treated that as an unqualified merge failure and left the
+  remote feature branch undeleted. Now, after any nonzero merge command, ship
+  re-queries the PR state: if it is `MERGED`, ship finishes the remote branch
+  cleanup itself and continues; only a genuinely un-merged PR exits 3.
+- The base-branch checkout is no longer required to succeed in multi-worktree
+  layouts: when another worktree owns the base branch, ship skips the local
+  checkout with a pointer to sync there instead of dying.
+
+### Added
+
+- Exit code 5: merged remotely but local base sync was skipped or failed
+  (partial success). `--then` is skipped in that case (it would run against
+  an unsynced base), and the summary line now carries a `sync <status>` field.
+- Integration test (`tests/test-ship-worktree.sh`, wired into pr-check CI):
+  base branch in a dirty worktree A, feature branch in worktree B, stubbed
+  `gh` reproducing the merged-remotely-but-exited-nonzero failure mode.
+
 ## [1.0.1] - 2026-07-08
 
 ### Fixed

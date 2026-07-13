@@ -75,6 +75,25 @@ def _codex_prompt_summary(text):
     return clean[:90]
 
 
+def _looks_encrypted(text):
+    """Opaque encrypted blobs (Fernet 'gAAAA…' payloads) carry no readable signal."""
+    return bool(re.match(r"^gAAAA[A-Za-z0-9_\-=]{16,}$", (text or "").strip()))
+
+
+def _print_safe(line=""):
+    """Print human-facing text without dying on narrow console encodings.
+
+    Default Windows consoles are cp1252, which can't encode the ↳ topic
+    marker (or emoji inside session topics). list/find go through here;
+    JSON/report output stays plain print() so it remains UTF-8 verbatim.
+    """
+    try:
+        print(line)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(line.replace("↳", "->").encode(enc, "replace").decode(enc))
+
+
 def _wf_ref(inp):
     """Canonical dynamic-workflow name from a Workflow tool_use input."""
     if inp.get("name"):
@@ -116,7 +135,9 @@ def _base_stats(path, runtime):
                 ts_last=None, cwd=None, branch=None, skills=Counter(),
                 agent_types=Counter(), wf_named=Counter(), events=[], wf_ts=[],
                 session_id=None, id=None, parent_thread_id=None,
-                codex_is_subagent=False, duration_ms=0, prompt_summary="")
+                codex_is_subagent=False, codex_forked=False, meta_count=0,
+                agent_nickname=None, agent_path=None,
+                duration_ms=0, prompt_summary="")
 
 
 def parse_claude(path):
@@ -186,11 +207,26 @@ def parse_codex(path):
         payload = d.get("payload") if isinstance(d.get("payload"), dict) else {}
 
         if top_type == "session_meta":
+            s["meta_count"] += 1
             s["cwd"] = s["cwd"] or payload.get("cwd")
-            s["session_id"] = payload.get("session_id")
-            s["id"] = payload.get("id")
-            s["parent_thread_id"] = payload.get("parent_thread_id")
-            s["codex_is_subagent"] = bool(payload.get("parent_thread_id"))
+            # Only the FIRST session_meta record is this rollout's own
+            # identity. Forked rollouts replay the parent's history —
+            # including its session_meta records — and letting a replayed
+            # record overwrite a non-null parent_thread_id reclassifies the
+            # subagent as a main session, double-counting its cumulative
+            # token totals as main-loop work.
+            if s["meta_count"] == 1:
+                s["session_id"] = payload.get("session_id")
+                s["id"] = payload.get("id")
+                s["parent_thread_id"] = payload.get("parent_thread_id")
+                src = payload.get("source")
+                sub_src = src.get("subagent") if isinstance(src, dict) else None
+                s["codex_is_subagent"] = bool(payload.get("parent_thread_id") or sub_src)
+                if isinstance(sub_src, dict):
+                    spawn = sub_src.get("thread_spawn")
+                    spawn = spawn if isinstance(spawn, dict) else {}
+                    s["agent_nickname"] = spawn.get("agent_nickname") or spawn.get("nickname")
+                    s["agent_path"] = spawn.get("agent_path")
         elif top_type == "turn_context":
             s["cwd"] = s["cwd"] or payload.get("cwd")
 
@@ -200,7 +236,8 @@ def parse_codex(path):
             text = _text(payload.get("content")).strip()
             if role == "assistant":
                 s["asst"] += 1
-            elif role == "user" and text and not text.lstrip().startswith("<"):
+            elif (role == "user" and text and not text.lstrip().startswith("<")
+                  and not _looks_encrypted(text)):
                 clean = text.replace("\n", " ").strip()
                 s["user_turns"].append(clean[:140])
                 if first_user is None:
@@ -214,14 +251,19 @@ def parse_codex(path):
                 except Exception:
                     inp = {}
                 prompt = inp.get("message") or ""
+                if _looks_encrypted(prompt):
+                    prompt = ""
                 agent_type = inp.get("agent_type") or "default"
-                kind = _codex_kind(prompt, agent_type)
-                summary = _codex_prompt_summary(prompt) or f"{agent_type} subagent"
+                label = inp.get("agent_nickname") or inp.get("nickname") or ""
+                if not label and inp.get("agent_path"):
+                    label = os.path.basename(str(inp["agent_path"]))
+                kind = _codex_kind(prompt or label, agent_type)
+                summary = _codex_prompt_summary(prompt) or label or f"{agent_type} subagent"
                 s["workflows"].append(dict(
                     summary=summary,
                     agents=1,
-                    tokens=0,
-                    tool_uses=0,
+                    tokens=None,   # unknown until paired with the sibling rollout
+                    tool_uses=None,
                     ms=0,
                     kind=kind,
                     codex_spawn=True,
@@ -251,6 +293,10 @@ def parse_codex(path):
     s["inp"] = int(usage.get("input_tokens") or 0)
     s["cr"] = int(usage.get("cached_input_tokens") or 0)
     s["prompt_summary"] = _codex_prompt_summary(first_user or "")
+    # Multiple session_meta records in a subagent rollout mean the parent's
+    # history was replayed into it — its cumulative token totals include the
+    # parent's and cannot be attributed to this subagent alone.
+    s["codex_forked"] = bool(s["codex_is_subagent"] and s["meta_count"] > 1)
     return s
 
 
@@ -293,15 +339,22 @@ def aggregate(sessions):
     spawn_workflows = [w for s in codex_mains for w in s["workflows"] if w.get("codex_spawn")]
     for idx, sub in enumerate(codex_subagents):
         prompt = sub.get("prompt_summary") or (sub["user_turns"][0] if sub.get("user_turns") else "")
+        label = sub.get("agent_nickname") or (
+            os.path.basename(str(sub["agent_path"])) if sub.get("agent_path") else "")
         spawn = spawn_workflows[idx] if idx < len(spawn_workflows) else {}
-        summary = spawn.get("summary") or prompt or os.path.basename(sub["path"])
-        kind = spawn.get("kind") or _codex_kind(prompt, sub.get("agent_type") or "")
+        summary = spawn.get("summary") or label or prompt or os.path.basename(sub["path"])
+        kind = spawn.get("kind") or _codex_kind(prompt or label, sub.get("agent_type") or "")
         ms = sub.get("duration_ms") or _duration_ms(sub.get("ts_first"), sub.get("ts_last"))
+        # A forked rollout's cumulative totals include the replayed parent
+        # history; the log format can't prove a per-subagent delta, so
+        # report those as unavailable (None) rather than 0 or the parent's
+        # totals counted twice.
+        forked = sub.get("codex_forked")
         workflow_runs.append(dict(
             summary=summary,
             agents=1,
-            tokens=sub["out"],
-            tool_uses=sum(sub["tools"].values()),
+            tokens=None if forked else sub["out"],
+            tool_uses=None if forked else sum(sub["tools"].values()),
             ms=ms,
             kind=kind,
         ))
@@ -309,14 +362,20 @@ def aggregate(sessions):
         workflow_runs.append(dict(
             summary=spawn.get("summary", ""),
             agents=spawn.get("agents", 1),
-            tokens=0,
-            tool_uses=0,
+            tokens=spawn.get("tokens"),
+            tool_uses=spawn.get("tool_uses"),
             ms=0,
             kind=spawn.get("kind", "other"),
         ))
 
     main_output_tokens = sum(s["out"] for s in claude_sessions + codex_mains)
-    workflow_tokens = sum(w["tokens"] for w in workflow_runs)
+    known_wf_tokens = [w["tokens"] for w in workflow_runs if w["tokens"] is not None]
+    workflow_tokens = sum(known_wf_tokens)
+    workflow_tokens_available = len(known_wf_tokens) == len(workflow_runs)
+    # Forked rollouts' input/cache totals also include the replayed parent
+    # history — exclude them from the processed-token sums instead of
+    # double-charging the parent.
+    counted = [s for s in sessions if not s.get("codex_forked")]
     human_sessions = claude_sessions + codex_mains
     out = dict(
         sessions=[s["path"] for s in sessions],
@@ -329,15 +388,26 @@ def aggregate(sessions):
         user_turns=sum(len(s["user_turns"]) for s in human_sessions),
         runtimes=sorted({s.get("runtime", "claude") for s in sessions}),
         main_output_tokens=main_output_tokens,
-        fresh_input_tokens=sum(s["inp"] for s in sessions),
-        cache_creation_tokens=sum(s["cc"] for s in sessions),
-        cache_read_tokens=sum(s["cr"] for s in sessions),
+        fresh_input_tokens=sum(s["inp"] for s in counted),
+        cache_creation_tokens=sum(s["cc"] for s in counted),
+        cache_read_tokens=sum(s["cr"] for s in counted),
         workflows=len(workflow_runs),
         workflow_agents=sum(w["agents"] for w in workflow_runs),
         workflow_tokens=workflow_tokens,
+        workflow_tokens_available=workflow_tokens_available,
         tools=dict(sum((s["tools"] for s in sessions), Counter()).most_common()),
         user_turn_text=[t for s in human_sessions for t in s["user_turns"]],
     )
+    notes = []
+    unknown_runs = len(workflow_runs) - len(known_wf_tokens)
+    if unknown_runs:
+        notes.append(f"delegated token totals are unavailable for {unknown_runs} of "
+                     f"{len(workflow_runs)} workflow runs in this log format")
+    forked_count = sum(1 for s in sessions if s.get("codex_forked"))
+    if forked_count:
+        notes.append(f"{forked_count} forked rollout(s) replay parent history; "
+                     "their cumulative totals are excluded from token sums")
+    out["measurement_notes"] = notes
     out["skills_used"] = dict(sum((s["skills"] for s in sessions), Counter()).most_common())
     at = sum((s["agent_types"] for s in sessions), Counter())
     for s in claude_sessions:
@@ -359,22 +429,22 @@ def aggregate(sessions):
         k = wf_kind(w["summary"])
         if w.get("kind"):
             k = w["kind"]
-        by[k][0] += 1; by[k][1] += w["agents"]; by[k][2] += w["tokens"]; by[k][3] += w["ms"]
+        by[k][0] += 1; by[k][1] += w["agents"]; by[k][2] += w["tokens"] or 0; by[k][3] += w["ms"]
         runs.append({**w, "kind": k})
     out["workflow_by_type"] = {k: dict(runs=v[0], agents=v[1], tokens=v[2],
                                        minutes=round(v[3] / 60000, 1))
                                for k, v in sorted(by.items(), key=lambda x: -x[1][2])}
-    out["workflow_runs"] = sorted(runs, key=lambda r: -r["tokens"])
+    out["workflow_runs"] = sorted(runs, key=lambda r: -(r["tokens"] or 0))
     out["generative_total"] = out["main_output_tokens"] + out["workflow_tokens"]
     return out
 
 
 def bar(v, mx, width=44):
-    return "█" * (round(width * v / mx) if mx else 0)
+    return "█" * (round(width * (v or 0) / mx) if mx else 0)
 
 
 def fmt(n):
-    return f"{n:,}"
+    return "n/a" if n is None else f"{n:,}"
 
 
 def report_md(agg):
@@ -397,14 +467,23 @@ def report_md(agg):
     L.append("## Token economy\n")
     L.append("**Generated (output) tokens — where the work happened:**\n")
     mo, wt = a["main_output_tokens"], a["workflow_tokens"]
+    wt_avail = a.get("workflow_tokens_available", True)
     mx = max(mo, wt, 1)
     tot = mo + wt
     pct = lambda x: f"{round(100*x/tot)}%" if tot else "0%"
     L.append("```")
-    L.append(f"delegated to workflows  {fmt(wt):>12}  {bar(wt, mx)}  {pct(wt)}")
-    L.append(f"main-loop orchestrator  {fmt(mo):>12}  {bar(mo, mx)}  {pct(mo)}")
+    if wt_avail:
+        L.append(f"delegated to workflows  {fmt(wt):>12}  {bar(wt, mx)}  {pct(wt)}")
+        L.append(f"main-loop orchestrator  {fmt(mo):>12}  {bar(mo, mx)}  {pct(mo)}")
+    else:
+        # Percentages would present the unknown delegated share as measured
+        # fact ("0% delegated") — omit them when totals are unavailable.
+        L.append(f"delegated to workflows  {'n/a':>12}  (totals unavailable in this log format)")
+        L.append(f"main-loop orchestrator  {fmt(mo):>12}  {bar(mo, mx)}")
     L.append(f"{'total generative':22}  {fmt(tot):>12}")
     L.append("```\n")
+    for note in a.get("measurement_notes", []):
+        L.append(f"> Note: {note}.\n")
     # Total processed incl cache
     cr, cc, inp, gen = a["cache_read_tokens"], a["cache_creation_tokens"], a["fresh_input_tokens"], a["generative_total"]
     gt = cr + cc + gen + inp
@@ -567,6 +646,7 @@ $('meta').textContent = [D.cwd, D.branch, D.wall_hours? D.wall_hours+' h':''].fi
 $('kpis').innerHTML = [['Wall-clock',(D.wall_hours||0)+' h'],['Assistant turns',fmt(D.assistant_turns)],['Human messages',fmt(D.user_turns)],['Generated tokens',fmt(D.generative_total)],['Workflows',fmt(D.workflows)+' / '+fmt(D.workflow_agents)+' ag'],['Cache read',fmt(D.cache_read_tokens)]].map(([l,v])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
 function doughnut(parts){const tot=parts.reduce((a,p)=>a+p.value,0)||1,R=52,C=2*Math.PI*R;let off=0;const segs=parts.map(p=>{const dash=p.value/tot*C,s=`<circle r="${R}" cx="70" cy="70" fill="none" stroke="${p.color}" stroke-width="20" stroke-dasharray="${dash} ${C-dash}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"/>`;off+=dash;return s;}).join('');return `<svg width="140" height="140" viewBox="0 0 140 140">${segs}</svg><div class="legend">${parts.map(p=>`<div><span class="dot" style="background:${p.color}"></span><b>${fmt(p.value)}</b> ${p.label} (${Math.round(100*p.value/tot)}%)</div>`).join('')}</div>`;}
 $('dough').innerHTML=doughnut([{label:'delegated to workflows',value:D.workflow_tokens,color:'#bc8cff'},{label:'main-loop orchestrator',value:D.main_output_tokens,color:'#58a6ff'}]);
+if(D.workflow_tokens_available===false)$('dough').parentElement.querySelector('.note').textContent='Delegated token totals are unavailable in this log format — the chart shows known totals only.';
 function hbars(el,items){const mx=Math.max(...items.map(i=>i.value),1);el.innerHTML=items.map(i=>`<div class="bar" title="${i.tip||''}"><div class="lab">${i.label}</div><div class="track"><div class="fill" style="width:${100*i.value/mx}%;background:${i.color}"></div><div class="val">${i.disp||fmt(i.value)}</div></div></div>`).join('');}
 hbars($('cache'),[{label:'cache read',value:D.cache_read_tokens,color:'#6e7681'},{label:'cache creation',value:D.cache_creation_tokens,color:'#484f58'},{label:'generated output',value:D.generative_total,color:'#58a6ff'},{label:'fresh input',value:D.fresh_input_tokens,color:'#3fb950'}]);
 hbars($('wftype'),Object.entries(D.workflow_by_type||{}).map(([k,v])=>({label:k,value:v.tokens,disp:fmt(v.tokens),tip:v.runs+' runs / '+v.agents+' agents / '+v.minutes+' min',color:'#3fb950'})));
@@ -658,34 +738,44 @@ def _codex_sort_key(path):
             path)
 
 
+def _canon(path):
+    """Canonical dedup key for a path.
+
+    On Windows the same file arrives as `C:\\...` from the user and
+    `C:/...` (or a mixed form) from glob(); comparing the raw strings
+    counts it twice, double-charging the whole rollout.
+    """
+    return os.path.normcase(os.path.abspath(os.path.normpath(path)))
+
+
 def expand_paths(paths):
     """Expand a Codex rollout to all rollout JSONLs from the same session_id."""
     expanded = []
     seen = set()
+
+    def add(p):
+        key = _canon(p)
+        if key not in seen:
+            seen.add(key)
+            expanded.append(p)
+
     for path in paths:
         if not _is_codex(path):
-            if path not in seen:
-                expanded.append(path)
-                seen.add(path)
+            add(path)
             continue
         meta = _codex_meta(path)
         session_id = meta.get("session_id")
         if not session_id:
-            if path not in seen:
-                expanded.append(path)
-                seen.add(path)
+            add(path)
             continue
         candidates = []
         for candidate in glob.glob(f"{CODEX_SESSIONS}/**/*.jsonl", recursive=True):
             if _codex_meta(candidate).get("session_id") == session_id:
                 candidates.append(candidate)
-        if path not in candidates:
+        if _canon(path) not in {_canon(c) for c in candidates}:
             candidates.append(path)
         for candidate in sorted(candidates, key=_codex_sort_key):
-            if candidate in seen:
-                continue
-            expanded.append(candidate)
-            seen.add(candidate)
+            add(candidate)
     return expanded
 
 
@@ -695,20 +785,20 @@ def cmd_list(args):
     rows = _session_rows(sub)
     for mt, sz, f, h in sorted(rows)[-40:]:
         proj = (h.get("cwd") or os.path.basename(os.path.dirname(f))).replace(os.path.expanduser("~/"), "~/")
-        print(f"{mt}  {h['runtime']:<6}  {sz//1024:>5}K  {(h['branch'] or '-'):22}  {proj[:46]}")
+        _print_safe(f"{mt}  {h['runtime']:<6}  {sz//1024:>5}K  {(h['branch'] or '-'):22}  {proj[:46]}")
         if h["topic"]:
-            print(f"            ↳ {h['topic']}")
-        print(f"            {f}")
+            _print_safe(f"            ↳ {h['topic']}")
+        _print_safe(f"            {f}")
     if rows:
-        print(f"\n# newest (likely the current session):\n{sorted(rows)[-1][2]}")
+        _print_safe(f"\n# newest (likely the current session):\n{sorted(rows)[-1][2]}")
     else:
-        print(f"no sessions found{f' matching {sub!r}' if sub else ''} under {PROJECTS} or {CODEX_SESSIONS}")
+        _print_safe(f"no sessions found{f' matching {sub!r}' if sub else ''} under {PROJECTS} or {CODEX_SESSIONS}")
 
 
 def cmd_find(args):
     """Find sessions whose content mentions a keyword (PR #, feature, filename...)."""
     if not args:
-        print("usage: find <keyword> [project-substr]   e.g. find '#93' anvil")
+        _print_safe("usage: find <keyword> [project-substr]   e.g. find '#93' anvil")
         return
     kw, sub = args[0].lower(), (args[1] if len(args) > 1 else "")
     rows = []
@@ -722,12 +812,12 @@ def cmd_find(args):
             rows.append((mt, hits, f, h))
     for mt, hits, f, h in sorted(rows):
         proj = (h.get("cwd") or os.path.basename(os.path.dirname(f))).replace(os.path.expanduser("~/"), "~/")
-        print(f"{mt}  {h['runtime']:<6}  {hits:>4}x  {(h['branch'] or '-'):22}  {proj[:46]}")
+        _print_safe(f"{mt}  {h['runtime']:<6}  {hits:>4}x  {(h['branch'] or '-'):22}  {proj[:46]}")
         if h["topic"]:
-            print(f"            ↳ {h['topic']}")
-        print(f"            {f}")
+            _print_safe(f"            ↳ {h['topic']}")
+        _print_safe(f"            {f}")
     if not rows:
-        print(f"no sessions mention {args[0]!r}{f' (filter {sub!r})' if sub else ''}")
+        _print_safe(f"no sessions mention {args[0]!r}{f' (filter {sub!r})' if sub else ''}")
 
 
 def main(argv):

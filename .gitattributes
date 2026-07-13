@@ -16,3 +16,9 @@ registry/index.json merge=ours
 registry/categories.json merge=ours
 registry/tags.json merge=ours
 .claude-plugin/marketplace.json merge=ours
+
+# Bash assets must stay LF on every host: Windows checkouts (autocrlf=true)
+# feed the packaged plugin caches, and a CRLF *.sh cannot run under WSL bash
+# ("set: pipefail\r: invalid option name") — issue #136. validate.sh also
+# rejects any *.sh blob that carries CRLF.
+*.sh text eol=lf

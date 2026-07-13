@@ -267,6 +267,19 @@ validate_plugin() {
         log_warn "[$plugin_name] No skills/, commands/, agents/, or hooks/ directories found"
     fi
 
+    # CRLF scan — packaged Bash assets must be LF: a CRLF *.sh cannot run
+    # under WSL bash ("set: pipefail\r: invalid option name"). Windows
+    # checkouts with autocrlf feed the plugin caches, so the repo blobs
+    # themselves must never carry CRLF (issue #136; enforced for checkouts
+    # via `*.sh text eol=lf` in .gitattributes).
+    local shfile
+    while IFS= read -r -d '' shfile; do
+        if grep -q $'\r' "$shfile"; then
+            log_error "[$plugin_name] CRLF line endings in ${shfile#"$plugin_dir"/} — bash under WSL cannot run this; normalize to LF"
+            has_errors=1
+        fi
+    done < <(find "$plugin_dir" -name '*.sh' -type f -print0 2>/dev/null)
+
     # Validate component paths and hook safety
     validate_component_paths "$plugin_dir" "$plugin_name" "$manifest_file" || has_errors=1
     validate_hook_safety "$plugin_dir" "$plugin_name" || true

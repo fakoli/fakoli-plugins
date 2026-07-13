@@ -425,78 +425,89 @@ def plan(
         deleted_task_ids = prune_result.pruned_task_ids
         deleted_feature_ids = prune_result.pruned_feature_ids
 
-        # Emit feature.created for each feature.
-        for feature in parsed.features:
-            now = clock.now()
-            feature_data = feature.model_dump(mode="json")
-            draft = EventDraft(
-                timestamp=now,
-                actor="fakoli-state-cli",
-                action="feature.created",
-                target_kind="feature",
-                target_id=feature.id,
-                payload_json=feature_data,
-            )
-            backend.append(draft)
-
-        # Emit task.created for each task (status proposed at creation time).
-        for task in parsed.tasks:
-            now = clock.now()
-            task_data = task.model_dump(mode="json")
-            draft = EventDraft(
-                timestamp=now,
-                actor="fakoli-state-cli",
-                action="task.created",
-                target_kind="task",
-                target_id=task.id,
-                payload_json=task_data,
-            )
-            backend.append(draft)
-
-        # Run inference on the parsed tasks (before they are stored with updated
-        # deps/conflict groups — we upsert them via task.created events again).
-        inference_result = infer_all(parsed.tasks)
-
-        # Re-upsert tasks with inferred dependencies and conflict groups,
-        # then promote proposed → drafted.
-        for inferred_task in inference_result.tasks:
-            now = clock.now()
-            # Upsert with full updated fields.
-            task_data = inferred_task.model_dump(mode="json")
-            upsert_draft = EventDraft(
-                timestamp=now,
-                actor="fakoli-state-cli",
-                action="task.created",
-                target_kind="task",
-                target_id=inferred_task.id,
-                payload_json=task_data,
-            )
-            backend.append(upsert_draft)
-
-            # Promote proposed → drafted, but ONLY if the task is currently
-            # at 'proposed'. On re-plan, existing tasks may have advanced
-            # past 'drafted' (Phase 4+: claimed, in_progress, etc.) and
-            # emitting a status_changed for those would error or worse
-            # silently regress them. The task.created upsert above does NOT
-            # touch status (Greptile PR #38 fix), so existing-task status
-            # is preserved; we only need to promote fresh proposed tasks.
-            current = backend.get_task(inferred_task.id)
-            if current is not None and current.status.value == "proposed":
+        # The create/upsert/promotion appends below carry the same
+        # EventRejected → clean-exit guard as their MCP twin (plan_tasks).
+        # These are INSERT OR REPLACE upserts that do not reject today, but
+        # if any _check_feature_created / _check_task_created ever grows a
+        # real validation gate, the CLI must fail with a clean error like
+        # the MCP does — not a raw traceback (issue #76; same
+        # one-layer-caught-it defect class as the _plan_helpers extraction).
+        try:
+            # Emit feature.created for each feature.
+            for feature in parsed.features:
                 now = clock.now()
-                status_draft = EventDraft(
+                feature_data = feature.model_dump(mode="json")
+                draft = EventDraft(
                     timestamp=now,
                     actor="fakoli-state-cli",
-                    action="task.status_changed",
+                    action="feature.created",
+                    target_kind="feature",
+                    target_id=feature.id,
+                    payload_json=feature_data,
+                )
+                backend.append(draft)
+
+            # Emit task.created for each task (status proposed at creation time).
+            for task in parsed.tasks:
+                now = clock.now()
+                task_data = task.model_dump(mode="json")
+                draft = EventDraft(
+                    timestamp=now,
+                    actor="fakoli-state-cli",
+                    action="task.created",
+                    target_kind="task",
+                    target_id=task.id,
+                    payload_json=task_data,
+                )
+                backend.append(draft)
+
+            # Run inference on the parsed tasks (before they are stored with updated
+            # deps/conflict groups — we upsert them via task.created events again).
+            inference_result = infer_all(parsed.tasks)
+
+            # Re-upsert tasks with inferred dependencies and conflict groups,
+            # then promote proposed → drafted.
+            for inferred_task in inference_result.tasks:
+                now = clock.now()
+                # Upsert with full updated fields.
+                task_data = inferred_task.model_dump(mode="json")
+                upsert_draft = EventDraft(
+                    timestamp=now,
+                    actor="fakoli-state-cli",
+                    action="task.created",
                     target_kind="task",
                     target_id=inferred_task.id,
-                    payload_json={
-                        "task_id": inferred_task.id,
-                        "from": "proposed",
-                        "to": "drafted",
-                        "reason": "plan: initial draft after inference",
-                    },
+                    payload_json=task_data,
                 )
-                backend.append(status_draft)
+                backend.append(upsert_draft)
+
+                # Promote proposed → drafted, but ONLY if the task is currently
+                # at 'proposed'. On re-plan, existing tasks may have advanced
+                # past 'drafted' (Phase 4+: claimed, in_progress, etc.) and
+                # emitting a status_changed for those would error or worse
+                # silently regress them. The task.created upsert above does NOT
+                # touch status (Greptile PR #38 fix), so existing-task status
+                # is preserved; we only need to promote fresh proposed tasks.
+                current = backend.get_task(inferred_task.id)
+                if current is not None and current.status.value == "proposed":
+                    now = clock.now()
+                    status_draft = EventDraft(
+                        timestamp=now,
+                        actor="fakoli-state-cli",
+                        action="task.status_changed",
+                        target_kind="task",
+                        target_id=inferred_task.id,
+                        payload_json={
+                            "task_id": inferred_task.id,
+                            "from": "proposed",
+                            "to": "drafted",
+                            "reason": "plan: initial draft after inference",
+                        },
+                    )
+                    backend.append(status_draft)
+        except EventRejected as exc:
+            typer.echo(f"Error: plan event rejected — {exc}", err=True)
+            raise typer.Exit(code=1) from exc
         # Echo summary inside the try block so it only runs on full success;
         # otherwise inference_result may be unbound (if append raised
         # before line 173) and the access below would NameError.
