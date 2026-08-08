@@ -112,9 +112,20 @@ dependency, older than the 30-day guard.
 | `claude-code-setup` | 1 | 101 | 41d | both roots; counted once |
 | `playground` | 1 | 73 | 41d | both roots; counted once |
 | `blog-tts-mlx@blog-tts-mlx` | 1 | 62 | 42d | |
-| **Total** | **49** | **3,891** | | |
+| **Subtotal** | **49** | **3,891** | | |
 
-**−3,891 tokens = −23.6% of the 16,508-token loaded roster listing.**
+The eight desktop-bundled suites in §3d are **also approved** — the operator
+signed off on §3a and §3d together on 2026-08-08. They are listed separately
+because the tool cannot age them and so never nominated them; the decision to
+disable them is human judgment on measured zero usage, not a tool verdict.
+
+| | Entries | Est. tokens |
+| --- | --- | --- |
+| §3a, tool-nominated | 49 | 3,891 |
+| §3d, operator judgment | 42 | 3,182 |
+| **Approved total** | **91** | **7,073** |
+
+**−7,073 tokens = −42.8% of the 16,508-token loaded roster listing.**
 
 **`systems-thinking` — the hook check, run rather than assumed.** §6 states
 that hook-driven plugins are invisible to the usage join, and §3b keeps
@@ -173,12 +184,14 @@ other" is not the reason for treating them together — the shared domain is.
 | 13 plugins under both install roots | one root per plugin | **No token win** — a session lists each once. A version-drift hazard, not a context cost. Follow-up, not this PR. |
 | 11 Cloudflare global skills | the 4 covering the live Worker | Split, not merged — see §3a. |
 
-### 3d. Out of scope — operator judgment required
+### 3d. Desktop-bundled suites — approved by operator judgment
 
-**Desktop-bundled suites the tool cannot age.** No `manifest.json` entry, so no
-install date exists and their files are re-materialised every launch; the
-under-30-days guard protects them by default. All show **zero recorded use**.
-The tool will not nominate them; the operator must decide directly.
+**The tool cannot age these.** No `manifest.json` entry, so no install date
+exists and their files are re-materialised every launch; the under-30-days
+guard protects them by default, and the tool therefore never nominated them.
+All show **zero recorded use** across 142 sessions. The operator approved
+disabling them on 2026-08-08 on that evidence — a human judgment on measured
+usage, explicitly not a tool verdict.
 
 | Unit | Entries | Est. tokens |
 | --- | --- | --- |
@@ -192,7 +205,10 @@ The tool will not nominate them; the operator must decide directly.
 | `skill-codex@rpm` | 1 | 41 |
 | **Total** | **42** | **3,182** |
 
-Disabling all eight brings the combined reduction to **−7,073 tokens (−42.8%)**.
+These carry the largest per-unit cost in the whole roster and the weakest
+evidence base — the audit can prove they were never invoked, but not how long
+the operator has had them. If any turns out to matter, re-enabling is one
+toggle in the desktop plugin UI.
 
 **MCP servers.** Out of scope per the issue — auth state is invisible to the
 audit — but the reason must be stated correctly. MCP tool *schemas* are
@@ -248,8 +264,9 @@ lesson for the next reader.
 
 ## 5. Operator action list
 
-Approve §3a (and optionally §3d) as a PR review, then apply. Nothing is
-destructive: every plugin remains installed and one flag flips back.
+§3a and §3d are both approved. Apply them at your convenience — merging this
+PR changes nothing on the machine. Nothing here is destructive: every plugin
+remains installed and one flag flips back.
 
 CLI-installed plugins — set these to `false` in `enabledPlugins` in
 `~/.claude/settings.json`:
@@ -275,8 +292,19 @@ mkdir -p ~/.claude/skills-disabled && cd ~/.claude/skills && mv cloudflare-one c
 `cloudflare`, `wrangler`, `durable-objects`, `workers-best-practices` and
 `web-perf` deliberately stay — see §3a.
 
-Desktop-installed plugins (§3d) — no config file; use the desktop app's plugin
-settings UI.
+Desktop-installed plugins (§3d) — no config file; disable these eight in the
+desktop app's plugin settings UI:
+
+```
+data
+operations
+finance
+design
+productivity
+cowork-plugin-management
+andrej-karpathy-skills
+skill-codex
+```
 
 Re-measure and confirm the delta. The desktop plugin root is session-scoped, so
 resolve it with a glob rather than pasting a stale id:
