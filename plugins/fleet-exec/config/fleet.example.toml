@@ -1,0 +1,24 @@
+# fleet-exec example configuration.
+#
+# This file ships with generic placeholders only. Real hostnames, IPs,
+# tailnet addresses, and usernames NEVER belong here — fleet-exec resolves
+# hosts through your local `~/.ssh/config` (Host aliases, HostName,
+# User, IdentityFile), the same way plain `ssh <alias>` does. This file
+# is a template for documenting fleet membership in your own private
+# operator config, not something fleet-exec reads at runtime.
+#
+# Example ~/.ssh/config entries this plugin expects to find:
+#
+#   Host host-a
+#       HostName 100.64.0.10
+#       User operator
+#
+#   Host host-b
+#       HostName 100.64.0.11
+#       User operator
+#
+# fleet-exec tools take the SSH alias (e.g. "host-a") as the `host`
+# argument — never a raw IP or a credential.
+
+[fleet]
+hosts = ["host-a", "host-b"]

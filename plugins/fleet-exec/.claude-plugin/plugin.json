@@ -1,0 +1,19 @@
+{
+  "name": "fleet-exec",
+  "version": "1.0.0",
+  "description": "Structured remote execution over SSH — run commands, fetch/push files, and read host facts across a fleet without hand-quoted ssh one-liners",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "ssh",
+    "remote-execution",
+    "fleet",
+    "mcp",
+    "ops"
+  ],
+  "mcpServers": "./.mcp.json"
+}
