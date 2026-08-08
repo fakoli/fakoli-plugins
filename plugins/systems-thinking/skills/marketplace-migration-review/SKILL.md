@@ -1,5 +1,5 @@
 ---
-name: Marketplace Migration Review
+name: marketplace-migration-review
 description: >
   Review a plugin, skill bundle, or agent workflow that has been moved from a standalone
   repository into a marketplace layout. Use this when you need to verify path rewrites,

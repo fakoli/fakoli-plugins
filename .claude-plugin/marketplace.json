@@ -87,7 +87,7 @@
     },
     {
       "name": "fakoli-flow",
-      "version": "1.3.6",
+      "version": "1.3.7",
       "description": "Orchestrate brainstorm, planning, and execution workflows through coordinated agents and critic gates.",
       "category": "workflow",
       "source": "./plugins/fakoli-flow"
@@ -220,7 +220,7 @@
     },
     {
       "name": "systems-thinking",
-      "version": "0.3.10",
+      "version": "0.3.11",
       "description": "Analyze infrastructure decisions for hidden costs, dependencies, caveats, and risks.",
       "category": "knowledge",
       "source": "./plugins/systems-thinking"

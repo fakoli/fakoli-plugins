@@ -1,5 +1,5 @@
 ---
-name: Pattern Remix
+name: pattern-remix
 description: >
   Generate high-quality first drafts by adapting prior proven work to new problems. Use this when
   you have successful prior designs, implementations, or architectural patterns and need a strong

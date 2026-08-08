@@ -1,5 +1,5 @@
 ---
-name: Context Sharding
+name: context-sharding
 description: >
   Split large or varied source material across parallel subagents for extraction before synthesis.
   Use this when documentation exceeds what can be processed in a single pass — typically more than

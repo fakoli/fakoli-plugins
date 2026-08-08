@@ -1,5 +1,5 @@
 ---
-name: Decision Brief
+name: decision-brief
 description: >
   Package extracted findings into a compact, decision-ready format for engineers, managers, or
   review bodies. Use this after running complexity-mapper, architecture-risk-review, or

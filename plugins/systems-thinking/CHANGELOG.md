@@ -5,6 +5,15 @@ All notable changes to systems-thinking will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.11] - 2026-08-08
+
+### Fixed
+
+- Normalized every skill's frontmatter `name` to its directory slug
+  (`architecture-risk-review`, `complexity-mapper`, `context-sharding`,
+  `decision-brief`, `marketplace-migration-review`, `pattern-remix`) so the
+  stricter `lint-frontmatter.py` directory-name check passes.
+
 ## [0.3.10] - 2026-06-27
 
 ### Added

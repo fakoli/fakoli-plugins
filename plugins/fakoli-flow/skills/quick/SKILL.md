@@ -1,4 +1,5 @@
 ---
+name: quick
 description: Fast path — skip the full workflow for small tasks under 3 files
 ---
 

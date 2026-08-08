@@ -6,15 +6,23 @@ a SKILL.md or command `.md` whose `--- ... ---` frontmatter is not valid YAML
 (e.g. `argument-hint: "PR title" [--flag]` — a quoted scalar followed by junk),
 which makes Claude Code silently ignore the whole block.
 
+For files named exactly `SKILL.md`, also enforces that the frontmatter `name`
+is present, matches the parent directory name, and is a valid slug
+(`^[a-z0-9]+(-[a-z0-9]+)*$`, 1-64 chars) — otherwise a rename of the skill
+directory silently orphans the advertised name.
+
 Usage:  lint-frontmatter.py <file.md> [<file.md> ...]
 Exit:   0 all frontmatter valid · 1 one or more invalid · prints one line per
         offending file. Requires PyYAML for authoritative parsing; without it,
         falls back to a conservative structural + quote-balance heuristic and
-        says so on stderr (never a false ERROR, only reduced coverage).
+        says so on stderr (never a false ERROR, only reduced coverage). The
+        SKILL.md name checks are plain-regex and run identically either way.
 """
 
 from __future__ import annotations
 
+import os
+import re
 import sys
 
 try:
@@ -22,6 +30,9 @@ try:
     _HAVE_YAML = True
 except Exception:  # pragma: no cover - environment without PyYAML
     _HAVE_YAML = False
+
+_SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+_NAME_LINE_RE = re.compile(r"^name:\s*(.*)$")
 
 
 def _extract(text: str) -> str | None:
@@ -52,6 +63,34 @@ def _heuristic_error(body: str) -> str | None:
     return None
 
 
+def _frontmatter_name(body: str) -> str | None:
+    """Best-effort `name:` value from a frontmatter body, without needing YAML."""
+    for raw in body.splitlines():
+        m = _NAME_LINE_RE.match(raw.strip())
+        if m:
+            value = m.group(1).strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                value = value[1:-1]
+            return value
+    return None
+
+
+def _skill_name_error(path: str, body: str) -> str | None:
+    """SKILL.md-only: name must be present, match its directory, and be a valid slug."""
+    name = _frontmatter_name(body)
+    if not name:
+        return "SKILL.md frontmatter has no name field"
+    dirname = os.path.basename(os.path.dirname(os.path.abspath(path)))
+    if name != dirname:
+        return f"SKILL.md name '{name}' does not match directory name '{dirname}'"
+    if not (1 <= len(name) <= 64) or not _SLUG_RE.match(name):
+        return (
+            f"SKILL.md name '{name}' is not a valid skill name "
+            "(lowercase alphanumerics and single hyphens, 1-64 chars)"
+        )
+    return None
+
+
 def check(path: str) -> str | None:
     """Return an error string, or None if the frontmatter is valid/absent."""
     try:
@@ -59,10 +98,13 @@ def check(path: str) -> str | None:
             text = fh.read()
     except OSError as exc:
         return f"unreadable: {exc}"
+    is_skill = os.path.basename(path) == "SKILL.md"
     body = _extract(text)
     if body is None:
         if text.startswith("---"):
             return "frontmatter opened with '---' but never closed"
+        if is_skill:
+            return _skill_name_error(path, "")  # no frontmatter → undiscoverable
         return None  # no frontmatter block at all — not this check's concern
     if _HAVE_YAML:
         try:
@@ -71,8 +113,11 @@ def check(path: str) -> str | None:
             return f"invalid YAML: {str(exc).splitlines()[0]}"
         if loaded is not None and not isinstance(loaded, dict):
             return "frontmatter is not a key/value mapping"
-        return None
-    return _heuristic_error(body)
+    else:
+        err = _heuristic_error(body)
+        if err:
+            return err
+    return _skill_name_error(path, body) if is_skill else None
 
 
 def main(argv: list[str]) -> int:

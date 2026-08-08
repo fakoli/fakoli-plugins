@@ -1,4 +1,5 @@
 ---
+name: finish
 description: Ship phase — merge, PR, keep, or discard with pre-merge verification
 ---
 
