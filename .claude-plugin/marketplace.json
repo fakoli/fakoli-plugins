@@ -206,7 +206,7 @@
     },
     {
       "name": "ship-loop",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "description": "The full ship loop as one invocable procedure: worktree isolation, ground-truth scoping, reality-faithful tests, an eight-angle adversarial review as the merge gate, and loop closure.",
       "category": "development",
       "source": "./plugins/ship-loop"
