@@ -40,6 +40,25 @@ All in `fakoli/anvil-serving`, battle-tested on the live fleet 2026-08-08:
 - The operator's memory files `subagent-dispatch-discipline` and
   `windows-fleet-shell-gotchas` restate the same facts session-side.
 
+## Skill format requirement (all workstreams)
+
+Every skill authored or touched by this program MUST follow the Agent Skills
+spec (agent-plugins.org/plugin-authors/skills → agentskills.io/specification):
+
+- Skills are immediate children of `skills/`; discovery requires a `SKILL.md`
+  exactly at that level (no recursive discovery).
+- Frontmatter: required `name` (1–64 chars, lowercase alnum + hyphens, no
+  leading/trailing/consecutive hyphens, **must match the directory name**) and
+  `description` (1–1024 chars, states what it does AND when to use it, with
+  trigger keywords). Optional: `license`, `compatibility` (only if genuinely
+  needed, ≤500 chars), `metadata` (string→string map), `allowed-tools`
+  (experimental, space-separated).
+- Progressive disclosure: `SKILL.md` body <500 lines / ~5k tokens; move detail
+  to `references/*.md` (loaded on demand), executables to `scripts/`, static
+  files to `assets/`. File references relative, one level deep.
+- Validate with `skills-ref validate ./skills/<name>` (or the repo's
+  fakoli-plugin-critic) before PR.
+
 ## Execution rules (all four workstreams)
 
 1. One workstream = one branch = one PR in `fakoli/fakoli-plugins`, mirroring
