@@ -28,7 +28,20 @@ Fakoli Plugins Marketplace - a curated distribution platform for Claude Code plu
 ### Validation Tests
 ```bash
 ./tests/test-hooks-validation.sh              # Run hook validation test suite
+./tests/test-roster-audit.sh                  # Guards for scripts/roster-audit.py
 ```
+
+### Roster Audit (fixed per-session context cost)
+```bash
+RPM="$(ls -d "$HOME/AppData/Roaming/Claude/local-agent-mode-sessions"/*/*/rpm | head -1)" && python scripts/roster-audit.py --roster-root ~/.claude --usage session-report.json --plugin-root "$RPM"
+```
+`--plugin-root` is required for a complete picture: the desktop app installs a
+second plugin set outside `~/.claude/plugins/cache`, and omitting it measures
+roughly half the roster. Its path is session-scoped, hence the glob.
+Measures what installed skills/plugins cost every session before any work
+happens, joins it against real usage, and nominates never-used units as prune
+candidates. It only ever nominates — a human assigns the bucket. Method,
+verdicts, and known ceilings: `docs/ROSTER-PRUNE.md`.
 
 ### Schema Drift Detection
 ```bash
