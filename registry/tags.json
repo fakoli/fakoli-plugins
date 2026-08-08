@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-07-11T21:24:47Z",
-  "totalTags": 164,
+  "generatedAt": "2026-08-08T22:35:35Z",
+  "totalTags": 168,
   "tags": [
     {
       "tag": "workflow",
@@ -35,6 +35,16 @@
       ]
     },
     {
+      "tag": "mcp",
+      "count": 4,
+      "plugins": [
+        "fakoli-plugin-critic",
+        "fakoli-state",
+        "fleet-exec",
+        "safe-fetch"
+      ]
+    },
+    {
       "tag": "productivity",
       "count": 4,
       "plugins": [
@@ -60,15 +70,6 @@
         "excalidraw-diagram",
         "fakoli-crew",
         "systems-thinking"
-      ]
-    },
-    {
-      "tag": "mcp",
-      "count": 3,
-      "plugins": [
-        "fakoli-plugin-critic",
-        "fakoli-state",
-        "safe-fetch"
       ]
     },
     {
@@ -475,6 +476,13 @@
       ]
     },
     {
+      "tag": "fleet",
+      "count": 1,
+      "plugins": [
+        "fleet-exec"
+      ]
+    },
+    {
       "tag": "flowchart",
       "count": 1,
       "plugins": [
@@ -776,6 +784,13 @@
       ]
     },
     {
+      "tag": "ops",
+      "count": 1,
+      "plugins": [
+        "fleet-exec"
+      ]
+    },
+    {
       "tag": "people",
       "count": 1,
       "plugins": [
@@ -909,6 +924,13 @@
       ]
     },
     {
+      "tag": "remote-execution",
+      "count": 1,
+      "plugins": [
+        "fleet-exec"
+      ]
+    },
+    {
       "tag": "research",
       "count": 1,
       "plugins": [
@@ -1032,6 +1054,13 @@
       "count": 1,
       "plugins": [
         "fakoli-state"
+      ]
+    },
+    {
+      "tag": "ssh",
+      "count": 1,
+      "plugins": [
+        "fleet-exec"
       ]
     },
     {

@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-07-13T10:30:15Z",
+  "generatedAt": "2026-08-08T22:39:55Z",
   "categories": [
     {
       "category": "development",
-      "count": 9,
+      "count": 10,
       "plugins": [
         {
           "name": "cli-to-plugin",
@@ -22,6 +22,12 @@
           "version": "0.1.0",
           "description": "Audit Claude Code plugin agents, skills, hooks, MCP servers, and structure with specialist critics.",
           "path": "plugins/fakoli-plugin-critic"
+        },
+        {
+          "name": "fleet-exec",
+          "version": "1.0.0",
+          "description": "Structured remote execution over SSH — run commands, fetch/push files, and read host facts across a fleet without hand-quoted ssh one-liners",
+          "path": "plugins/fleet-exec"
         },
         {
           "name": "gate-router",
