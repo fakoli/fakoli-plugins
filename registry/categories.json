@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-08-08T23:58:23Z",
+  "generatedAt": "2026-08-09T00:03:11Z",
   "categories": [
     {
       "category": "development",
-      "count": 10,
+      "count": 11,
       "plugins": [
         {
           "name": "cli-to-plugin",
@@ -58,6 +58,12 @@
           "version": "1.1.0",
           "description": "The mechanical tail of a one-PR-per-task loop as a single command: after review passes, push the branch, open a PR, wait for CI, squash-merge and delete the branch, sync the base, and optionally run a post-merge command (e.g. `anvil apply`). Keeps the repetitive git/gh/CI/merge dance out of the context window; makes no review decisions and stops if CI fails.",
           "path": "plugins/ship-task"
+        },
+        {
+          "name": "skill-spec-lint",
+          "version": "1.0.0",
+          "description": "Deterministic Agent Skills spec linter — name/description/body-ceiling/placement rules that manifest-validity checks miss. Stdlib-only, no CI required.",
+          "path": "plugins/skill-spec-lint"
         },
         {
           "name": "windows-cli-hygiene",

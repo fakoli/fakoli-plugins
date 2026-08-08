@@ -191,6 +191,13 @@
       "source": "./plugins/safe-fetch"
     },
     {
+      "name": "skill-spec-lint",
+      "version": "1.0.0",
+      "description": "Deterministic Agent Skills spec linter — name/description/body-ceiling/placement rules that manifest-validity checks miss. Stdlib-only, no CI required.",
+      "category": "development",
+      "source": "./plugins/skill-spec-lint"
+    },
+    {
       "name": "session-evals",
       "version": "1.0.0",
       "description": "Mine coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving.",
