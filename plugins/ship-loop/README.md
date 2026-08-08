@@ -39,6 +39,11 @@ process boundary.
 
 No scripts, no dependencies — the skill is the procedure.
 
+Delegating a step to a subagent (scoping, implementation, review)? Generate
+its prompt with the `dispatch-packet` skill instead of writing one freehand
+— freehand prompts stalled 2/7 in practice; packets shipped 8/8. Freehand
+dispatch is now the exception, not the default.
+
 ## License
 
 MIT
