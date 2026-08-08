@@ -10,11 +10,11 @@
 # Example ~/.ssh/config entries this plugin expects to find:
 #
 #   Host host-a
-#       HostName 100.64.0.10
+#       HostName 192.0.2.10
 #       User operator
 #
 #   Host host-b
-#       HostName 100.64.0.11
+#       HostName 192.0.2.11
 #       User operator
 #
 # fleet-exec tools take the SSH alias (e.g. "host-a") as the `host`

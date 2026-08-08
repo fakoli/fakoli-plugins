@@ -36,12 +36,17 @@ or `timeout` (the local ssh call exceeded `timeout_s`). See
 
 ### Refusals
 
+A `host` that is not a plain ssh alias (ssh reads a leading-dash positional
+as an option, and `-oProxyCommand=<cmd>` would run `<cmd>` locally),
 `run_on_host` with a string instead of a list argv, any argv element that
 looks like it carries a secret (`token`/`password`/`secret`/`apikey`,
 `key=`, or a 40+ char base64-ish run), and `fetch_text`/`push_file` on
 `.env*`/`id_rsa*`/`*.pem`/`credentials` paths are all refused before any
 read or transmission — returned as an MCP error result, never mistaken for
-a host condition.
+a host condition. `push_file` also refuses a local file over 16 000 bytes:
+the payload ships as one base64 ssh argv element, and past the OS
+argument-length cap ssh fails with an error that names neither the file nor
+the limit.
 
 ## Installation
 
@@ -59,8 +64,8 @@ protocol).
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `FLEET_EXEC_TIMEOUT` | `30` | Default `timeout_s` for `run_on_host`. |
-| `FLEET_EXEC_MAX_BYTES` | `256000` | Default `max_bytes` for `fetch_text`. |
+| `FLEET_EXEC_TIMEOUT` | `30` | Default `timeout_s` for `run_on_host` (clamped to 600). |
+| `FLEET_EXEC_MAX_BYTES` | `256000` | Default `max_bytes` for `fetch_text` (clamped to 1 000 000). |
 
 Hosts are resolved through the caller's `~/.ssh/config` — see
 `config/fleet.example.toml` for the placeholder shape. fleet-exec never

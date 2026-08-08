@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
+import sys
 
 import pytest
 
@@ -165,15 +166,98 @@ def test_state_not_installed_launcher_exhausted(monkeypatch):
     assert row["state"] == "not-installed"
 
 
+# --- the generated wrapper's OWN error handling ----------------------------
+#
+# Every other test fakes `_run`, which sits OUTSIDE the generated wrapper
+# script -- so no other test ever executes the wrapper's source. That blind
+# spot is exactly how a missing `except OSError` shipped: a reachable host
+# running a nonexistent binary crashed the wrapper, produced no JSON, and got
+# reported as `unreachable`. These tests run the real payload through a real
+# interpreter locally. No ssh, no network.
+
+
+def _exec_generated_payload(monkeypatch, call):
+    """Capture the script a tool generates, then run it locally and parse it."""
+    captured = {}
+
+    def capture(argv, **kwargs):
+        captured["payload"] = argv[-1]
+        return _cp(0, stdout='{"rc": 0, "stdout": "", "stderr": ""}')
+
+    monkeypatch.setattr(transport, "_run", capture)
+    call()
+    # argv[-1] is the client-side-quoted payload; strip the wrapping quotes and
+    # recover the base64'd script the remote interpreter would actually run.
+    quoted = captured["payload"]
+    assert quoted.startswith('"') and quoted.endswith('"')
+    encoded = quoted.split("'")[1]
+    script = base64.b64decode(encoded).decode("utf-8")
+    completed = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=30
+    )
+    assert completed.returncode == 0, completed.stderr
+    return json.loads(completed.stdout)
+
+
+def test_generated_wrapper_survives_a_missing_remote_binary(monkeypatch):
+    out = _exec_generated_payload(
+        monkeypatch,
+        lambda: transport.run_on_host("host-a", ["definitely-not-a-real-binary-xyz"]),
+    )
+    # The transport worked; only the requested command was absent.
+    assert out["rc"] == 127
+    assert out["stdout"] == ""
+    assert out["stderr"]
+    assert "timeout" not in out
+
+
+def test_generated_wrapper_reports_a_real_nonzero_exit(monkeypatch):
+    out = _exec_generated_payload(
+        monkeypatch,
+        lambda: transport.run_on_host("host-a", [sys.executable, "-c", "raise SystemExit(3)"]),
+    )
+    assert out["rc"] == 3
+
+
+def test_generated_fetch_wrapper_reports_a_missing_file(monkeypatch):
+    out = _exec_generated_payload(
+        monkeypatch,
+        lambda: transport.fetch_text("host-a", "/no/such/path/at/all.txt"),
+    )
+    assert out["rc"] == 1
+    assert out["stderr"]
+
+
+# --- server bounds ----------------------------------------------------------
+
+
+def test_server_clamps_an_oversized_timeout(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        transport, "run_on_host", lambda host, argv, timeout_s: seen.setdefault("t", timeout_s)
+    )
+    server._call_tool("run_on_host", {"host": "host-a", "argv": ["ls"], "timeout_s": 86400})
+    assert seen["t"] == server.MAX_TIMEOUT_S
+
+
+def test_server_clamps_an_oversized_max_bytes(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        transport, "fetch_text", lambda host, path, max_bytes: seen.setdefault("m", max_bytes)
+    )
+    server._call_tool("fetch_text", {"host": "host-a", "path": "/tmp/x", "max_bytes": 10**9})
+    assert seen["m"] == server.MAX_FETCH_BYTES
+
+
 # --- host id matching ----------------------------------------------------
 
 
 def test_local_hostname_matches_bare_token():
-    assert transport.local_hostname_matches("dark", "fakoli-dark") is True
+    assert transport.local_hostname_matches("alpha", "site-alpha") is True
 
 
 def test_local_hostname_matches_with_domain_suffix():
-    assert transport.local_hostname_matches("dark", "fakoli-dark.local") is True
+    assert transport.local_hostname_matches("alpha", "site-alpha.local") is True
 
 
 def test_local_hostname_matches_rejects_bare_containment():
@@ -191,6 +275,15 @@ def test_server_tools_list_returns_all_four_tools():
 
 def test_server_notifications_initialized_produces_no_response():
     response = server._handle_request({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    assert response is None
+
+
+def test_server_unimplemented_notification_produces_no_response():
+    # JSON-RPC 4.1: an id-less request is a notification and must never draw a
+    # reply -- not even the -32601 one. Real MCP clients send this.
+    response = server._handle_request(
+        {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}
+    )
     assert response is None
 
 

@@ -27,6 +27,10 @@ from pathlib import PurePosixPath
 _run = subprocess.run
 
 LAUNCHERS = ("python3", "python")  # Windows python3 = Store stub; tried first anyway
+
+# A pushed file rides as one base64 argv element; cmd.exe caps a command line
+# at ~32 KB, so cap the raw payload well under that and refuse by name.
+MAX_PUSH_BYTES = 16_000
 _LAUNCHER_MISS_MARKERS = ("not recognized", "not found")
 _TRANSPORT_FAILURE_MARKERS = (
     "connection refused",
@@ -39,6 +43,13 @@ _TRANSPORT_FAILURE_MARKERS = (
 _SECRET_SUBSTRINGS = ("token", "password", "secret", "apikey", "api_key")
 _SECRET_KEY_EQUALS = re.compile(r"\bkey=", re.IGNORECASE)
 _SECRET_BASE64ISH = re.compile(r"[A-Za-z0-9+/=]{40,}")
+
+# ssh takes its destination as a bare positional argument, so a `host` value
+# starting with "-" is parsed as an OPTION, not a hostname -- and
+# `-oProxyCommand=<cmd>` runs <cmd> locally before any connection is made.
+# argv being a list does not help here: the injection is into ssh's own option
+# parser, not a shell. Only an accepting charset closes it.
+_VALID_HOST = re.compile(r"^[A-Za-z0-9_](?:[A-Za-z0-9._-]*)(?:@[A-Za-z0-9_][A-Za-z0-9.-]*)?$")
 
 _REFUSED_BASENAME_PATTERNS = (
     re.compile(r"^\.env"),
@@ -59,22 +70,15 @@ class FleetExecRefusal(Exception):
 def prepare_remote_python(script: str) -> str:
     """Base64-wrap a python payload so it survives ssh -> cmd.exe re-splitting."""
     encoded = base64.b64encode(script.encode("utf-8")).decode("ascii")
-    # Built from parts so the runtime-composed call reads as "exec(...)" only
-    # once assembled -- the pieces below are not a security-scanner dodge for
-    # THIS code path (argv is never a shell string here, see refusals below);
-    # it just keeps the literal "exec(" out of static greps of this file.
-    call_name = "e" + "xec"
-    body = "import base64;" + call_name + "(base64.b64decode('%s').decode('utf-8'))" % encoded
-    return '"%s"' % body
+    return '"import base64;exec(base64.b64decode(\'%s\').decode(\'utf-8\'))"' % encoded
 
 
 def local_hostname_matches(host_id: str, hostname: str) -> bool:
     """Compare a configured host id against an observed hostname.
 
     First DNS label, then hyphen-token membership in both directions. Bare
-    prefix is wrong (``"dark"`` vs ``"fakoli-dark"`` as a substring check
-    would also match unrelated hosts); bare containment is wrong
-    (``"w" in "elsewhere"``) -- token membership avoids both.
+    prefix is wrong (``"alpha"`` vs ``"site-alpha"``); bare containment is
+    wrong (``"w" in "elsewhere"``) -- token membership avoids both.
     """
     host_label = host_id.split(".")[0].lower()
     hostname_label = hostname.split(".")[0].lower()
@@ -83,6 +87,16 @@ def local_hostname_matches(host_id: str, hostname: str) -> bool:
     host_tokens = set(host_label.split("-"))
     hostname_tokens = set(hostname_label.split("-"))
     return host_label in hostname_tokens or hostname_label in host_tokens
+
+
+def _refuse_if_bad_host(host) -> None:
+    if not isinstance(host, str) or not _VALID_HOST.match(host):
+        raise FleetExecRefusal(
+            "host %r is not a plain ssh alias -- a value starting with '-' is "
+            "read by ssh as an option (e.g. -oProxyCommand=<cmd> runs <cmd> "
+            "locally), so only [alnum._-] with an optional user@ prefix is "
+            "accepted" % (host,)
+        )
 
 
 def _refuse_if_str_command(argv) -> None:
@@ -151,6 +165,9 @@ def _classify(host: str, r: "subprocess.CompletedProcess") -> dict:
 
 
 def _run_remote_python(host: str, script: str, timeout_s: int) -> dict:
+    # The one chokepoint every tool passes through -- guarding here means a
+    # tool added later cannot reach ssh with an unvalidated host.
+    _refuse_if_bad_host(host)
     payload = prepare_remote_python(script)
     r = None
     for launcher in LAUNCHERS:
@@ -206,6 +223,13 @@ def run_on_host(host: str, argv, timeout_s: int = 30) -> dict:
         "    out = {'rc': r.returncode, 'stdout': r.stdout, 'stderr': r.stderr}\n"
         "except subprocess.TimeoutExpired:\n"
         "    out = {'rc': None, 'stdout': '', 'stderr': 'remote command timed out', 'timeout': True}\n"
+        # A missing remote binary raises FileNotFoundError here. Uncaught, the
+        # wrapper dies before writing JSON and the reachable host is reported
+        # as `unreachable` -- a live host misread as a dead one. 127 is the
+        # shell's command-not-found convention; the state stays "ok" because
+        # the transport worked fine.
+        "except OSError as e:\n"
+        "    out = {'rc': 127, 'stdout': '', 'stderr': str(e)}\n"
         "sys.stdout.write(json.dumps(out))\n"
     ) % (list(argv), int(timeout_s))
     row = _run_remote_python(host, script, timeout_s)
@@ -236,12 +260,24 @@ def fetch_text(host: str, path: str, max_bytes: int = 256000, timeout_s: int = 3
     return _unwrap_json_stdout(row)
 
 
-def push_file(host: str, local_path: str, remote_path: str, timeout_s: int = 30) -> dict:
+def push_file(
+    host: str, local_path: str, remote_path: str, timeout_s: int = 30, max_bytes: int = MAX_PUSH_BYTES
+) -> dict:
     """Write a local file to the host. Refuses secret-shaped local/remote paths."""
+    _refuse_if_bad_host(host)  # before the local read, not just before the ssh call
     _refuse_if_sensitive_basename(local_path)
     _refuse_if_sensitive_basename(remote_path)
     with open(local_path, "rb") as f:
-        data = f.read()
+        data = f.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        # The payload becomes one base64 argv element; every OS caps argv
+        # length (~32 KB on Windows cmd.exe), and past that ssh fails with an
+        # error that names neither the file nor the limit. Refuse with both.
+        raise FleetExecRefusal(
+            "%s exceeds the %d-byte push limit -- the payload ships as a single "
+            "ssh argv element and would hit the OS argument-length cap"
+            % (local_path, max_bytes)
+        )
     encoded = base64.b64encode(data).decode("ascii")
     script = (
         "import base64, json, sys\n"

@@ -24,7 +24,10 @@ multi-line payload.
   home dir. Facts come back as a JSON string in the row's `stdout`.
 
 `host` is an SSH alias resolved through the caller's `~/.ssh/config` — never
-a raw hostname, IP, or credential passed to the tool.
+a raw hostname, IP, or credential passed to the tool. It is *enforced*, not
+just conventional: only `[alnum._-]` with an optional `user@` prefix is
+accepted, because ssh reads a leading-dash positional as an option and
+`-oProxyCommand=<cmd>` would run `<cmd>` on the local machine.
 
 ## The four states
 
@@ -59,6 +62,8 @@ touch the network. A refusal comes back as an MCP error result, not a row:
 
 Refused, unconditionally:
 
+- A `host` that is not a plain ssh alias (anything with a leading `-`, a
+  space, or a shell metacharacter).
 - `run_on_host` called with a string instead of a list argv.
 - Any argv element that looks like it carries a secret: case-insensitive
   `token`, `password`, `secret`, `apikey`/`api_key`; a `key=` pattern; or a
@@ -67,6 +72,10 @@ Refused, unconditionally:
 - `fetch_text`/`push_file` on any path whose basename matches `.env*`,
   `id_rsa*`, `*.pem`, or `credentials` — checked on the path string itself,
   before the file is opened.
+- `push_file` on a local file over 16 000 bytes. The payload ships as a
+  single base64 ssh argv element and every OS caps argv length (~32 KB on
+  `cmd.exe`); the refusal names the file and the limit instead of letting
+  ssh fail with an unrelated error.
 
 ## Raw ssh is fallback-only
 
