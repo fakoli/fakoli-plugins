@@ -125,6 +125,72 @@ def run():
         check(has_err, "repo scan surfaces the seeded errors")
         check(count >= 10, "discovered every seeded immediate skill (count=%d)" % count)
 
+        # --- a SKILL.md-less skill dir is an ERROR, not silently skipped ---
+        empty = root / "skills" / "empty-skill"
+        empty.mkdir(parents=True, exist_ok=True)
+        dirs, _ = ssl.discover(root)
+        check(any(p.name == "empty-skill" for p in dirs), "SKILL.md-less dir is a candidate")
+        f = ssl.validate_skill(empty)
+        check(any("no SKILL.md" in m for _, m in _levels(f)), "SKILL.md-less dir -> ERROR")
+        findings2, _ = ssl.lint([str(root)])
+        check(
+            any("no SKILL.md" in x.message and "empty-skill" in x.path for x in findings2),
+            "repo scan surfaces the empty skill dir (not a silent 0)",
+        )
+
+        # --- SKILL.md that is a directory is an ERROR ----------------------
+        dskill = root / "skills" / "dir-md"
+        (dskill / "SKILL.md").mkdir(parents=True, exist_ok=True)
+        f = ssl.validate_skill(dskill)
+        check(any("is not a file" in m for _, m in _levels(f)), "SKILL.md-as-directory -> ERROR")
+
+        # --- a UTF-8 BOM must not fake a missing frontmatter block ---------
+        bom = root / "skills" / "bom-skill"
+        bom.mkdir(parents=True, exist_ok=True)
+        (bom / "SKILL.md").write_bytes(
+            b"\xef\xbb\xbf---\nname: bom-skill\ndescription: fine\n---\n# body\n"
+        )
+        f = ssl.validate_skill(bom)
+        check(f == [], "BOM-prefixed valid skill -> no findings (got: %s)" % _msgs(f))
+
+        # --- fallback parser parity with PyYAML on the bounded fields ------
+        # These are the divergences that would flip a length verdict by machine:
+        # an inline `# comment` on a plain scalar, and a multi-line plain scalar.
+        cases = [
+            "name: c1\ndescription: hello world  # trailing comment",
+            "name: c2\ndescription: first line\n  continued onto a second",
+            'name: c3\ndescription: "quoted # not a comment"',
+        ]
+        for src in cases:
+            fb = ssl._parse_scalars(src)
+            if ssl._HAVE_YAML:
+                import yaml as _y
+
+                auth = _y.safe_load(src)
+                check(
+                    fb.get("description") == auth.get("description"),
+                    "fallback matches PyYAML description for %r (fb=%r auth=%r)"
+                    % (src.split(chr(10))[1], fb.get("description"), auth.get("description")),
+                )
+
+        # --- validate through the FORCED fallback path (no PyYAML) ---------
+        # PyYAML is present in most envs, so pin the scalar-parser path too:
+        # a clean skill passes and an over-length description is caught the
+        # same way, proving the "runs on any machine" claim end to end.
+        saved = ssl._HAVE_YAML
+        try:
+            ssl._HAVE_YAML = False
+            d = _skill(root, "fb-clean", 'name: fb-clean\ndescription: "works with no yaml"')
+            check(ssl.validate_skill(d) == [], "forced-fallback: clean skill passes")
+            d = _skill(root, "fb-long", "name: fb-long\ndescription: %s" % ("y" * 1025))
+            f = ssl.validate_skill(d)
+            check(
+                any("description is 1025 chars" in m for _, m in _levels(f)),
+                "forced-fallback: over-length description caught",
+            )
+        finally:
+            ssl._HAVE_YAML = saved
+
         # --- a clean-only path exits 0 ------------------------------------
         with tempfile.TemporaryDirectory() as clean:
             croot = Path(clean)

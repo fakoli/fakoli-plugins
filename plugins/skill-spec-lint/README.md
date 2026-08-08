@@ -5,8 +5,9 @@ Manifest validators confirm a `SKILL.md`'s frontmatter parses as YAML;
 skill-spec-lint checks the *semantic* rules they don't — the ones that make a
 skill malformed even when its YAML is perfectly valid.
 
-Python standard library only. No install, no dependency, no CI wiring required —
-it runs from a command, a skill, or a plain `python` invocation, on any machine.
+Python standard library only (3.8+). No install, no dependency, no CI wiring
+required — it runs from a command, a skill, or a plain `python` invocation, on
+any machine.
 
 ## Why
 
@@ -38,6 +39,7 @@ Each finding prints as `path: LEVEL: message`. The run exits `1` if there is any
 | `compatibility` ≤500 chars when present | ERROR |
 | SKILL.md body ≤500 lines | ERROR |
 | Frontmatter `--- … ---` opens on line 1 and closes | ERROR |
+| A `skills/<name>/` dir with a missing or non-file SKILL.md | ERROR |
 | SKILL.md nested below an immediate child of `skills/` (undiscoverable) | WARN |
 | Frontmatter key outside the spec's optional set | WARN |
 

@@ -22,6 +22,7 @@ Exit:   0 no errors · 1 one or more ERROR findings. WARN never fails the run.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -109,10 +110,32 @@ def _parse_scalars(front: str) -> dict:
             continue
         if rest == "":
             out[key] = ""  # a bare mapping key (e.g. `metadata:`) -> present, empty scalar
-        else:
-            out[key] = rest.strip().strip("'\"")
+            i += 1
+            continue
+        if rest[0] in "'\"":
+            # Quoted scalar: a complete value, no continuation, no comment strip.
+            out[key] = rest.strip("'\"")
+            i += 1
+            continue
+        # Plain (unquoted) scalar. PyYAML strips a trailing ` # comment` and folds
+        # continuation lines into one space-joined string -- match both so the
+        # length this linter measures is the same with or without PyYAML.
+        value = _strip_plain_comment(rest)
+        parts = [value]
         i += 1
+        while i < len(lines) and lines[i][:1] in (" ", "\t"):
+            cont = lines[i].strip()
+            if cont:
+                parts.append(_strip_plain_comment(cont))
+            i += 1
+        out[key] = " ".join(p for p in parts if p).strip()
     return out
+
+
+def _strip_plain_comment(value: str) -> str:
+    """Drop a YAML trailing comment: ` #...` (a hash preceded by whitespace)."""
+    m = re.search(r"\s#", value)
+    return value[: m.start()].rstrip() if m else value.rstrip()
 
 
 def parse_frontmatter(front: str):
@@ -139,10 +162,15 @@ def validate_skill(skill_dir: Path) -> list:
     findings = []
     md = skill_dir / "SKILL.md"
     rel = md.as_posix()
+    if md.exists() and not md.is_file():
+        return [Finding(md.as_posix(), "ERROR", "SKILL.md exists but is not a file")]
     if not md.is_file():
         return [Finding(skill_dir.as_posix(), "ERROR", "no SKILL.md in skill directory")]
 
-    text = md.read_text(encoding="utf-8", errors="replace")
+    # utf-8-sig transparently drops a leading BOM (a common Windows-editor
+    # artifact) so a BOM'd but otherwise valid file is not misread as
+    # frontmatter-less.
+    text = md.read_text(encoding="utf-8-sig", errors="replace")
     front, body = split_frontmatter(text)
     if front is None:
         return [Finding(rel, "ERROR", "missing or unterminated `--- ... ---` frontmatter block")]
@@ -216,26 +244,37 @@ def validate_skill(skill_dir: Path) -> list:
 
 
 def discover(path: Path) -> tuple:
-    """Return (skill_dirs, findings). Finds skills and flags undiscoverable ones."""
+    """Return (skill_dirs, findings). Finds skill candidates and flags misplaced ones.
+
+    A *candidate* is any immediate child directory of a `skills/` dir, whether or
+    not it holds a valid SKILL.md — an empty or SKILL.md-less skill dir is a
+    defect to report, not a skill to skip silently. `os.walk(followlinks=False)`
+    is used (not `Path.rglob`) so a symlink loop cannot hang the scan on any
+    Python version.
+    """
     findings = []
-    if (path / "SKILL.md").is_file():
+    if (path / "SKILL.md").exists() or path.parent.name == "skills":
         return [path], findings
 
-    # Immediate children of any `skills/` dir are the discoverable skills.
-    discoverable = set()
-    for skills_dir in path.rglob("skills"):
-        if not skills_dir.is_dir():
-            continue
-        for child in sorted(skills_dir.iterdir()):
-            if child.is_dir() and (child / "SKILL.md").is_file():
-                discoverable.add(child.resolve())
+    candidates = []  # ordered, deduped by resolved path
+    seen = set()
+    md_files = []
+    for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
+        base = os.path.basename(dirpath)
+        if base == "skills":
+            for child in sorted(dirnames):
+                cd = Path(dirpath) / child
+                key = cd.resolve()
+                if key not in seen:
+                    seen.add(key)
+                    candidates.append(cd)
+        if "SKILL.md" in filenames:
+            md_files.append(Path(dirpath) / "SKILL.md")
 
-    # A SKILL.md nested deeper than an immediate child is never discovered.
-    for md in path.rglob("SKILL.md"):
-        parent = md.parent.resolve()
-        if parent in discoverable:
-            continue
-        # Only warn about ones that look like a misplaced skill under skills/.
+    discoverable = {c.resolve() for c in candidates}
+    for md in md_files:
+        if md.parent.resolve() in discoverable:
+            continue  # the normal skills/<name>/SKILL.md case
         if "skills" in md.parts:
             findings.append(
                 Finding(
@@ -245,7 +284,7 @@ def discover(path: Path) -> tuple:
                 )
             )
 
-    return sorted(discoverable), findings
+    return candidates, findings
 
 
 def lint(paths) -> tuple:
