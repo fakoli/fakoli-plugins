@@ -18,4 +18,11 @@ Plugins land here when they meet one or more of the following criteria:
 - They have no documented reuse path for outside users.
 - They were superseded by a more general plugin in `plugins/`.
 
+These criteria are about **reuse value**, not about how often any one operator
+happens to invoke a plugin. A plugin that goes unused on one machine already
+costs that machine nothing once it is disabled locally, while archiving it here
+removes it for every consumer of the marketplace. Local context cost is a
+configuration decision (`enabledPlugins`), not an archive decision — see
+[docs/ROSTER-PRUNE.md](../docs/ROSTER-PRUNE.md).
+
 Archived plugins are kept for historical reference and are not published to the marketplace registry.

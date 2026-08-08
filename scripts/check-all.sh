@@ -40,6 +40,7 @@ run_step "marketplace validation" ./scripts/validate.sh
 run_step "path-resolution and hook-safety scan" ./scripts/test-path-resolution.sh
 run_step "affected plugin tests: systems-thinking" bash -c 'cd plugins/systems-thinking && uv run pytest tests -q'
 run_step "affected hook validation suite" ./tests/test-hooks-validation.sh
+run_step "roster audit guards" ./tests/test-roster-audit.sh
 
 echo ""
 echo -e "${GREEN}[check-all] ALL PASSED${NC}"
