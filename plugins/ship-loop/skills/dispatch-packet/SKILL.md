@@ -11,7 +11,7 @@ description into a dispatch packet: a delegation prompt with every decision
 closed, every anchor grep-verified, and a mirror-PR to copy the shape of.
 Freehand subagent prompts stalled 2/7 in practice; packets with this
 discipline shipped 8/8. Template: `references/packet-template.md` (format
-`v1`) · rationale + model-tier rubric: `references/dispatch-discipline.md`
+`v2`) · rationale + model-tier rubric: `references/dispatch-discipline.md`
 · worked example: `references/example-packet-377.md`.
 
 ## 1. Read context first
@@ -22,11 +22,12 @@ persona/spec docs, then the precedent PRs.
 
 ## 2. Restate the decided design — never resolve an open one
 
-Enumerate the decisions the source already closed. If you hit an
-`OPEN-DECISION`, an unresolved question, or a design tension the source
-doesn't settle, **stop and flag it back to the requester** — do not choose
-for them. This is the single highest-leverage rule: delegated judgment is
-how specs go sideways.
+Enumerate the decisions the source already closed under `## Decided
+design`, and record `MODEL TIER: <sonnet|opus>` per the rubric in
+`dispatch-discipline.md`. An `OPEN-DECISION` or unresolved tension goes
+under `## Open decisions (BLOCKING)` instead, never Decided design — that
+marks the header `STATUS: BLOCKED` and returns the packet to the
+requester, not an executor.
 
 ## 3. Anchor every file:line reference
 
@@ -65,15 +66,14 @@ verbatim command tails in the report, not a summary.
 
 ## 8. Anti-stall clause
 
-State it explicitly in every packet: if blocked for more than ~5 tool calls
-on open-ended reading, stop and report the blocker rather than continuing to
-search. 2 of 7 freehand-dispatched agents stalled this way.
+Every packet header carries the two-line anti-stall block verbatim from
+`packet-template.md` — start deadline plus stop-and-report. 2 of 7
+freehand-dispatched agents stalled in open-ended reading.
 
 ## 9. `[operator]` markers
 
 Anything needing live hosts, credentials, or SSH gets an `[operator]`
-section: the executor produces the exact command but does not run it. A
-packet with nothing operator-shaped says so rather than omitting it.
+section — exact commands produced, not run. State it even when empty.
 
 ## 10. Report back
 
@@ -86,14 +86,14 @@ reviewer could not reproduce (`references/dispatch-discipline.md`).
 
 ## Refuse rather than guess
 
-If the source material lacks decisions, emit the packet skeleton from
-`packet-template.md` with `OPEN-DECISION` markers in place and STOP — do not
-fabricate a design. If a packet would be oversized, link to reference docs
-instead of inlining them, EXCEPT hardened/security code, which is always
-inlined — executors must not go spelunking for it.
+If the source material lacks decisions, emit the skeleton from
+`packet-template.md` with the gaps under `## Open decisions (BLOCKING)`
+and `STATUS: BLOCKED` in the header — return it to the requester, not an
+executor. Do not fabricate a design; link oversized detail to reference
+docs instead of inlining it, EXCEPT hardened/security code, always
+inlined.
 
 ## No auto-dispatch
 
-This skill only generates the packet. Dispatching it to an agent is a
-separate, human-reviewed step — the review of the packet itself is the
-quality gate, not a downstream review of what the agent did with it.
+This skill only generates the packet — dispatching it is a separate,
+human-reviewed step; reviewing the packet itself is the quality gate.

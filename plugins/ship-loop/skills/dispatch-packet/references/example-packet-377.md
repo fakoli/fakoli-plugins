@@ -12,27 +12,57 @@ and a re-verify grep that matches nothing. The corrections are shown
 inline in the Wiring section: the issue's claim, the reality, and the grep
 or read that establishes it. Verification also surfaced a genuine
 contradiction between the issue's design and the code it targets; that is
-marked `OPEN-DECISION` rather than resolved, per the skill's rule that the
-generator does not choose for the requester.
+recorded under `## Open decisions (BLOCKING)` rather than resolved, per
+the skill's rule that the generator does not choose for the requester.
 
 Line numbers are true as of 2026-08-08 against anvil-serving `main`. A
 regenerated packet re-greps rather than trusting this copy — `serves.py`
 moves.
 
+The `<anvil-serving worktree path>` and `<feature branch>` placeholders
+below are deliberate: this is a public-repo reference, and a live packet
+fills them in literally. Host names, addresses, and paths are operator
+state that never ship in a public example.
+
 ---
 
-```markdown
+````markdown
 # Dispatch packet: Run lint + rollback-check as implicit gates in promote and mode enter
 WORKING DIRECTORY: <anvil-serving worktree path>   BRANCH: <feature branch> (checked out — do NOT switch/commit/push)
+MODEL TIER: sonnet — anchored mechanics with grep-verified anchors and two mirror PRs; no design tension left open once the blocking item below is answered.
+STATUS: BLOCKED — do not dispatch until the item below is answered
 Begin editing within ~5 tool calls; the pointers below are sufficient.
+If blocked for more than ~5 tool calls on open-ended reading, STOP and report the blocker — do not keep searching.
+
+## Context reads (in order; playbook/spec first, then precedent PRs)
+1. `docs/FEATURE-EXECUTION-PLAYBOOK.md` — recipe A and the gate sequence.
+2. `docs/PRODUCT-DISCOVERY-PERSONAS.md` §3.
+3. Mirror PR #364.
+4. Mirror PR #368.
 
 ## Why
 `serves promote` and `serves mode enter` can currently complete a
-transaction against a manifest set that would fail lint or rollback-check —
-the checks exist standalone but aren't wired as preconditions. Source:
-anvil-serving `docs/FEATURE-EXECUTION-PLAYBOOK.md` (recipe A, gates) and
-`docs/PRODUCT-DISCOVERY-PERSONAS.md` §3; mirrors the gate-wiring shape of
-the two mirror precedent PRs, #364 and #368.
+transaction against a manifest set that would fail lint or
+rollback-check — the checks exist standalone but aren't wired as
+preconditions on the two entry points that actually mutate state.
+
+## Open decisions (BLOCKING)
+Issue #377 states "both already load the manifest set + promotions — pass
+them through, do NOT re-load." That premise is false for `mode enter`:
+`load_promotions(` appears in `serves.py` at line 717 (definition), 4776
+(rollback-check), 4923 (promote), and 4938 (switch) — never inside the
+mode dispatch block, `serves.py:4805-4842` (grep-checked: no
+`load_promotions` call in that span). `cmd_mode`'s signature,
+`serves.py:3740-3756`, takes no `promotions` parameter, and
+`rollback_check_manifest_set` requires one (`serves.py:2592`). So loading
+promotions in `mode enter` would be a FIRST load, not a re-load — the
+issue's "do NOT re-load" instruction does not apply to it; only the
+issue's false premise that mode already loads them does. One confirmation
+is needed from the issue author: should `mode enter` load promotions
+itself (a first load, consistent with decision 1's intent to gate both
+entry points on both checks), or should `mode enter` gate on
+`lint_manifest_set` only and skip the rollback-check gate? Do not pick —
+this packet does not dispatch until the author answers.
 
 ## Decided design
 1. `serves promote` and `serves mode enter` run `lint_manifest_set` +
@@ -42,27 +72,30 @@ the two mirror precedent PRs, #364 and #368.
 3. `--skip-preflight-checks` (exact flag name) overrides both checks,
    logged loudly when used.
 4. Dry-run paths run the checks too — they are read-only, so there's no
-   cost to skipping them.
+   cost to running them.
 5. The rollback-check's restore-group = the transaction's own
    `--restore-group` when the caller supplied one.
-6. `OPEN-DECISION` — issue #377 states "both already load the manifest set
-   + promotions — pass them through, do NOT re-load." Verification shows
-   this is false for `mode enter`: `mode` loads the full manifest set
-   (`serves.py:4739`) but loads no promotions at all — no `load_promotions`
-   call anywhere in the mode dispatch block (`serves.py:4805-4842`), and
-   `cmd_mode`'s signature (`serves.py:3740-3756`) takes no `promotions`
-   parameter. `rollback_check_manifest_set` requires a `promotions`
-   argument (`serves.py:2592`). So `mode enter` must do one of: (a) load
-   promotions itself before calling `rollback_check_manifest_set` —
-   contradicting the issue's "do NOT re-load" — or (b) run only
-   `lint_manifest_set` as a precondition and skip the rollback-check gate
-   for `mode enter` — contradicting decision 1's "run lint +
-   rollback-check ... in ... mode enter". The issue does not say which.
-   Do NOT pick one. Stop here and flag this contradiction back to the
-   issue author before wiring `mode enter`'s gate; everything else in this
-   packet is closed and can proceed.
 
 ## Wiring (mirror PRs #364 and #368; anchors grep-verified 2026-08-08)
+
+### Mirror PRs — the edit set to copy
+- PR #364 touched: `anvil_serving/serves.py`,
+  `anvil_serving/commands/serves.py`, `anvil_serving/deploy.py`,
+  `docs/CLI-COMMAND-MANIFEST.json`, `docs/CLI-REFERENCE-AUDIT.json`,
+  `CHANGELOG.md`, `anvil_serving/__init__.py`, plus scaffold templates.
+- PR #368 touched: `anvil_serving/serves.py`,
+  `anvil_serving/commands/serves.py`, `docs/CLI-COMMAND-MANIFEST.json`,
+  `docs/CLI-REFERENCE-AUDIT.json`, `docs/CLI.md`, `docs/cli/serves.md`,
+  `docs/PRODUCT-DISCOVERY-PERSONAS.md`, `mkdocs.yml`, `CHANGELOG.md`,
+  `anvil_serving/__init__.py`, `pyproject.toml`,
+  `tests/test_serves_rollback_check.py`.
+- Consequence: the new `--skip-preflight-checks` flag (decision 3) must
+  be declared in `anvil_serving/commands/serves.py` as well as wired in
+  `anvil_serving/serves.py` — the sibling `--restore-group` option is
+  declared at `anvil_serving/commands/serves.py:158` and `:181`. Omitting
+  the `commands/serves.py` edit makes this packet's own
+  `audit_cli_references.py` verify step report manifest drift with no
+  anchor pointing at the fix.
 
 Promote dispatch:
 - CORRECTION — issue claimed `serves.py:4640` for the promote dispatch
@@ -76,7 +109,7 @@ Promote dispatch:
 - `rollback_check_manifest_set` — `serves.py:2592`:
   `def rollback_check_manifest_set(serves, promotions, restore_group=None, _run=subprocess.run):`
   (name matches the issue exactly; note the required `promotions`
-  argument — this is why decision 6 is open).
+  argument — this is why the open decision above exists).
 - `_promotion_transition` — `serves.py:1125`:
   `def _promotion_transition(serves, plan, manifest_path, *, rollback=False,`
   (a distinct `_promotion_transition_cli` exists at `serves.py:1007` — do
@@ -96,16 +129,18 @@ Mode-enter dispatch:
   and `serves.py:4819`:
   `    if a.preserve_on_failure and a.mode_action != "enter":`
 
-Load sites (why decision 6 is open, not closed):
+Load sites (why the open decision above applies only to `mode enter`):
 - `use_set` is computed at `serves.py:4730`:
   `use_set = bool(a.groups) or a.action in {"groups", "lint", "rollback-check", "mode", "up-for"}`
   — note `"promote"` is NOT a member.
 - `mode` IS in `use_set`: its `serves` is the full manifest set, loaded at
   `serves.py:4739` via `load_manifest_set(manifest_path, reject_duplicates=not lenient)`.
   But mode never loads promotions.
-- `promote`'s `serves` comes from plain `load_manifest(manifest_path)`
-  (~`serves.py:4738-4741`), not the manifest set; the manifest set loads
-  separately as `ledger_serves` at `serves.py:4759`:
+- `promote`'s `serves` comes from `serves.py:4738-4741`, the expression
+  `serves = load_manifest_set(...) if use_set else load_manifest(...)`
+  (grep-verified) — since `"promote"` is not in `use_set`, this evaluates
+  the `load_manifest(...)` branch; the manifest set for promote's own
+  checks arrives separately as `ledger_serves` at `serves.py:4759`:
   `ledger_serves = serves if use_set else load_manifest_set(manifest_path)`.
   Promotions load at `serves.py:4923`: `promotions = load_promotions(manifest_path)`.
   Promote already has both objects in hand before its checks would run —
@@ -138,14 +173,22 @@ New-flag check:
   the fixture shape before adding a new one.
 - Mode tests live in `tests/test_serves_manage.py`. The fake-docker helper
   is `cmd_mode_with_fake_docker`, `tests/test_serves_manage.py:517`.
-- Neither test file defines a `class _Result` helper — grep-checked. Use
-  the fakes named above; do not invent a new result-object shape.
+- `tests/test_serves.py` and `tests/test_serves_manage.py` do not define
+  a `class _Result` helper — grep-checked; use `_inspect_returning` and
+  `cmd_mode_with_fake_docker` as named above for those two files. For the
+  rollback-check gate itself, this task's canonical `_Result` fake is
+  `tests/test_serves_rollback_check.py:84`, `class _Result:` — copy that
+  pattern (`docs/FEATURE-EXECUTION-PLAYBOOK.md:105-107`: "Inject
+  `_run=subprocess.run` and fake it ... Copy the `_Result` / fake-runner
+  helpers from `tests/test_serves_rollback_check.py` or
+  `tests/test_fleet_drift.py`."). Do not invent a new result-object shape.
 - Assert a manifest set with a duplicate name, or a manifest missing its
   rollback image, aborts `promote` before `_promotion_transition` is
   reached — inject the finding and assert the transition function's call
   count is zero.
-- Same assertion shape for `mode enter`, once decision 6 is resolved by
-  the issue author — do not write this case against a guessed resolution.
+- Same assertion shape for `mode enter`, once the open decision above is
+  resolved by the issue author — do not write this case against a guessed
+  resolution.
 - CLI-level test asserting exit code 3 on an aborting finding.
 - Tests must fail against a build that skips the new precondition call.
 
@@ -153,16 +196,40 @@ New-flag check:
 ```
 cd <anvil-serving worktree>
 python -m pytest tests/ -q
+```
+Full suite, not a `-k` filter (`docs/FEATURE-EXECUTION-PLAYBOOK.md:12` —
+"`python -m pytest tests/ -q` fully green (see *known local failures*
+below)"): a filtered run passes while a gate wired into a shared code
+path breaks promote/mode tests elsewhere in the file. Known local
+failure: `test_cli.py::test_top_level_version_reports_installed_version`
+fails whenever the source version is bumped, because the editable
+install's metadata goes stale — that is environment drift, not your
+change; the playbook explicitly says never to "fix" it by reinstalling
+from a scratch worktree. (This repo runs tests under plain
+`pytest`/`python -m pytest`, not `uv run pytest` — `uv run` is wrong for
+this repo.)
+
+Mutation check, by hand: comment out the new
+`lint_manifest_set`/`rollback_check_manifest_set` precondition call in
+`serves.py`, re-run `python -m pytest tests/ -q -k "promote or mode"` and
+confirm the new tests fail against the gate's own assertions (not an
+unrelated pre-existing failure), then restore the call and confirm the
+same tests pass again.
+
+```
 python -m ruff check anvil_serving tests
+python -m mkdocs build --strict
 git add -A
 python scripts/audit_cli_references.py --update --scope docs
 ```
-Full suite, not a `-k` filter (`docs/FEATURE-EXECUTION-PLAYBOOK.md:12`):
-a filtered run passes while a gate wired into a shared code path breaks
-promote/mode tests elsewhere in the file.
 `git add -A` runs BEFORE the audit — it is `git ls-files`-based, so an
-unstaged new file is invisible and the inventory reads stale. Paste the
-pytest and audit tails in the report, not a summary.
+unstaged new file is invisible and the inventory reads stale.
+
+CHANGELOG entry plus a version bump in BOTH `pyproject.toml` and
+`anvil_serving/__init__.py` — they drift if only one is bumped.
+
+Paste the pytest, mutation-check, ruff, mkdocs, and audit tails in the
+report, not a summary.
 
 ## [operator]
 Live fleet validation — an actual `serves promote` / `serves mode enter`
@@ -172,9 +239,7 @@ run them from this packet. (Host names, addresses, and credentials are
 operator state — never embed them in a packet.)
 
 ## Report back
-Files changed (path + line count), which of the two entry points needed
-the manifest-set pass-through vs a re-load and why (see the load-sites
-evidence above), how decision 6 was resolved once the issue author
-answers, verify-command tails verbatim, and anything found outside this
-diff's scope — reported, not fixed here.
-```
+Files changed (path + line count), how the open decision above was
+resolved once the issue author answers, verify-command tails verbatim,
+and anything found outside this diff's scope — reported, not fixed here.
+````

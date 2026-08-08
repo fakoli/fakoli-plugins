@@ -55,6 +55,9 @@ jobs:
       - name: Test gate-router
         run: bash ./plugins/gate-router/tests/test-gate-router.sh
 
+      - name: Test dispatch-packet section drift
+        run: bash ./plugins/ship-loop/tests/test-dispatch-packet-sections.sh
+
       - name: Test windows-cli-hygiene
         run: bash ./plugins/windows-cli-hygiene/tests/test-scan-cli-hygiene.sh
 

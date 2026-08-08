@@ -1,7 +1,7 @@
 {
   "name": "ship-loop",
-  "version": "1.1.0",
-  "description": "The full ship loop as one invocable procedure: sync and isolate in a worktree, scope with ground-truth sweeps, implement with reality-faithful tests, gate on a multi-angle adversarial review, merge, and close the follow-up loop (promotions ledger, out-of-diff issues).",
+  "version": "1.1.1",
+  "description": "The full ship loop as one invocable procedure: sync and isolate in a worktree, scope with ground-truth sweeps, implement with reality-faithful tests, gate on a multi-angle adversarial review, merge, and close the follow-up loop (promotions ledger, out-of-diff issues). Includes the dispatch-packet skill for generating self-contained subagent packets from issues.",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"
