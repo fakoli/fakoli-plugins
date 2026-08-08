@@ -90,24 +90,43 @@ repository move.**
 | --- | --- | --- | --- | --- |
 | `systems-thinking@fakoli-plugins` | 15 | 1,496 | 42d | 0 invocations; largest single line item |
 | `code-modernization@claude-plugins-official` | 17 | 841 | 30d | 0 invocations; no legacy-modernization work in window |
-| Cloudflare suite (11 global skills) | 11 | 1,064 | 47d | 0 invocations across all eleven — see note |
+| Cloudflare skills with no local tie (6) | 6 | 571 | 47d | 0 invocations; see the suite note below |
 | `microsoft-docs@claude-plugins-official` | 3 | 348 | 42d | 0 invocations |
 | `quick-notes@fakoli-plugins` | 3 | 282 | 56d | 0 invocations |
 | `claude-md-management` | 2 | 117 | 42d | 0 invocations |
 | `claude-code-setup` | 1 | 101 | 42d | 0 invocations |
 | `playground` | 1 | 73 | 30d | 0 invocations |
 | `blog-tts-mlx@blog-tts-mlx` | 1 | 62 | 42d | 0 invocations |
-| **Total** | **54** | **4,384** | | |
+| **Total** | **49** | **3,891** | | |
 
-**Cloudflare suite** = `cloudflare`, `cloudflare-one`, `cloudflare-one-migrations`,
-`cloudflare-email-service`, `workers-best-practices`, `durable-objects`,
-`agents-sdk`, `sandbox-sdk`, `wrangler`, `turnstile-spin`, `web-perf`. These are
-eleven separate global skills that cross-reference each other, so a
-per-unit rule keeps some and nominates others — an incoherent split. They are
-one suite and get one all-or-nothing decision. Zero recorded use of any member.
+`systems-thinking` is a first-party plugin of this repository and
+`scripts/check-all.sh` runs its test suite in CI. That is a *repository* role,
+not a session role: CI executes the tests from `plugins/systems-thinking/` in
+the checkout, which is unaffected by whether the operator's machine has the
+plugin enabled. The plugin stays published and CI-tested; only the local
+install is disabled.
 
-Against the deduplicated 16,926-token baseline this is a **−4,384 token
-(−25.9%) fixed-cost reduction**.
+**The Cloudflare suite is split, not archived wholesale.** Eleven global skills
+carry Cloudflare content and none has a recorded invocation, which initially
+read as one clean 1,064-token cut. It is not: `~/ai-code/sekoudoumbouya`
+deploys a **live Cloudflare Worker + D1 backend** (`workers/claps/`, wired
+through `npm run claps:setup` and `CLAPS_API` in `src/config.ts`). Zero
+invocations is not the same as no standing role, and the rubric says keep when
+torn. So:
+
+- **KEEP** — `cloudflare` (95), `wrangler` (86), `durable-objects` (100),
+  `workers-best-practices` (96) = 377 tokens. Directly covering a Worker + D1
+  deployment that exists on this machine.
+- **KEEP** — `web-perf` (116). Generic web-performance auditing rather than
+  Cloudflare, and the operator maintains a public site. Torn ⇒ keep.
+- **ARCHIVE** — `cloudflare-one` (85), `cloudflare-one-migrations` (53),
+  `cloudflare-email-service` (133), `turnstile-spin` (100), `sandbox-sdk` (89),
+  `agents-sdk` (111) = 571 tokens. Zero-Trust/SASE, transactional email, CAPTCHA,
+  sandboxed execution and the Cloudflare Agents SDK — none has any counterpart
+  in any repository on this machine.
+
+Against the deduplicated 16,926-token baseline this is a **−3,891 token
+(−23.0%) fixed-cost reduction**.
 
 ### 3b. KEEP — zero recorded use, but a standing role
 
@@ -130,7 +149,7 @@ reason that outranks the count.
 | Overlap | Survivor | Action |
 | --- | --- | --- |
 | 13 plugins installed under both the CLI cache and the desktop root | Pick one install root per plugin | **No token win** — a session lists each once. Deferred: this is a version-drift hazard, not a context cost. Worth a follow-up, not this PR. |
-| 11 Cloudflare global skills | — | Folded into the ARCHIVE decision above; they are one suite. |
+| 11 Cloudflare global skills | `cloudflare` + `wrangler` + `durable-objects` + `workers-best-practices` | Split, not merged — see §3a. The four that cover the live Worker + D1 deployment stay; the six with no local counterpart are archived. |
 
 ### 3d. Out of scope — operator judgment required
 
@@ -152,7 +171,7 @@ will not nominate them; the operator must decide directly.
 | **Total** | **42** | **3,182** |
 
 If the operator disables all eight, the combined reduction with §3a is
-**−7,566 tokens (−44.7%)** against the 16,926 baseline.
+**−7,073 tokens (−41.8%)** against the 16,926 baseline.
 
 **MCP servers.** Explicitly out of scope per the issue — auth state is
 invisible to the audit. Worth recording, though: in this harness MCP tool
@@ -214,8 +233,11 @@ Global skills — the Cloudflare suite. Move rather than delete, so restoring is
 one `mv`:
 
 ```bash
-mkdir -p ~/.claude/skills-disabled && cd ~/.claude/skills && mv cloudflare cloudflare-one cloudflare-one-migrations cloudflare-email-service workers-best-practices durable-objects agents-sdk sandbox-sdk wrangler turnstile-spin web-perf ~/.claude/skills-disabled/
+mkdir -p ~/.claude/skills-disabled && cd ~/.claude/skills && mv cloudflare-one cloudflare-one-migrations cloudflare-email-service turnstile-spin sandbox-sdk agents-sdk ~/.claude/skills-disabled/
 ```
+
+`cloudflare`, `wrangler`, `durable-objects`, `workers-best-practices` and
+`web-perf` deliberately stay — see §3a.
 
 Desktop-installed plugins (§3d) — no config file; use the desktop app's plugin
 settings UI.
@@ -244,6 +266,13 @@ Stated plainly so the next run is not misled:
   "dependency of 32" on that basis. Only slug-shaped (hyphenated) bare names,
   namespaced ids, and delimited forms (`` `name` ``, `/name`) count. The trade:
   a genuine single-word dependency expressed in undelimited prose is missed.
+- **Zero invocations does not establish zero standing role, and the tool cannot
+  tell the difference.** The Cloudflare suite looked like one clean 1,064-token
+  cut until a search of the machine turned up a live Worker + D1 deployment. A
+  usage count is evidence about the past; a standing role is a claim about the
+  future. Before archiving any domain-shaped unit, grep the operator's
+  repositories for artifacts of that domain — config files, deploy scripts,
+  SDK dependencies — and let a hit outrank the count.
 - **Usage is all-time, not a rolling window.** 142 sessions span 2026-06-27 to
   2026-08-08. A skill used once in June counts the same as one used yesterday.
 - **`--usage` is optional and its absence is silent.** Run without it, every
