@@ -32,7 +32,9 @@ Never reason about, or build on, a stale or shared tree:
 Dispatch read-only Explore agent(s) with PRECISE questions (file:line
 citations required), covering: the existing mechanics you are changing, every
 config/pattern precedent to mirror, existing test fixtures to reuse, and the
-doc surfaces that must track the change.
+doc surfaces that must track the change. Delegating implementation or review
+to a subagent? Generate its prompt with the `dispatch-packet` skill rather
+than writing one freehand.
 
 **Ground-truth rule**: verify every load-bearing assumption against reality
 before building on it — read the actual on-disk data format, the actual env
@@ -86,7 +88,10 @@ file would have caught it.)
 
 ## 5. Adversarial review — THE merge gate
 
-Fire it yourself; never wait to be asked. Launch parallel read-only finder
+Fire it yourself; never wait to be asked. Generate each finder's prompt
+with the `dispatch-packet` skill — a review packet must demand a REPRO per
+finding, severity ranking, an explicit SHIP/DO-NOT-SHIP verdict, and
+`SUSPECTED` on anything unreproduced. Launch parallel read-only finder
 agents over `git diff main...HEAD`, covering all eight angles (consolidate
 into ~4 agents when context is tight, but never drop an angle):
 
