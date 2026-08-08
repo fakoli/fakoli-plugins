@@ -56,6 +56,13 @@ mk_skill "$GS" "fresh-skill" "Never invoked, but brand new."         "body"
 mk_skill "$GS" "update" "Never invoked; its name is an ordinary word." "body"
 mk_skill "$GS" "prose-skill" "Mentions the word update in plain prose." \
   "Remember to update the changelog and analyze the results before shipping."
+# An unhyphenated name genuinely cited in prose. The strict rule cannot see it
+# (that is the documented trade), so it must appear as a WEAK reference.
+mk_skill "$GS" "oneword" "Unhyphenated name, genuinely depended on." "body"
+# Referenced only from inside a fenced code block — a sample, not a citation.
+mk_skill "$GS" "fenced-target" "Cited only inside a code fence." "body"
+# Referenced only as a markdown link path — a URL, not a slash command.
+mk_skill "$GS" "linked-target" "Cited only as a markdown link path." "body"
 
 # Age every skill well past the --new-days window, then make one genuinely new.
 "$PY" - "$GS" <<'EOF'
@@ -94,14 +101,59 @@ for base, _, files in os.walk(os.path.join(sys.argv[1], "plugins")):
         os.utime(p, (old, old))
 EOF
 
+# A plugin whose FILES are old but which installed_plugins.json says was
+# updated recently. Its age must come from the manifest, so it is kept as new.
+FV="$FIXTURE/plugins/cache/testmarket/freshplugin/1.0.0"
+mkdir -p "$FV/skills"
+mk_skill "$FV/skills" "epsilon" "A recently installed plugin with old files." "body"
+
+# A plugin sharing a bare name with the used global skill, to prove the exact-id
+# usage match is not also credited here.
+NV="$FIXTURE/plugins/cache/testmarket/namesake/1.0.0"
+mkdir -p "$NV/skills"
+mk_skill "$NV/skills" "used-skill" "Shares a bare name with the global skill." "body"
+
+# A plugin holding a skill AND a command of the same name: two entries, one id.
+TV="$FIXTURE/plugins/cache/testmarket/twins/1.0.0"
+mkdir -p "$TV/skills" "$TV/commands"
+mk_skill "$TV/skills" "shared" "Skill half of the id collision." "body"
+printf -- '---\nname: shared\ndescription: Command half of the id collision.\n---\n\nbody\n' \
+  > "$TV/commands/shared.md"
+
+"$PY" - "$FIXTURE/plugins" <<'EOF'
+import os, sys, time
+old = time.time() - 400 * 86400
+for base, _, files in os.walk(sys.argv[1]):
+    for f in files:
+        p = os.path.join(base, f)
+        os.utime(p, (old, old))
+EOF
+
 cat > "$FIXTURE/settings.json" <<'EOF'
 {
   "enabledPlugins": {
     "deadplugin@testmarket": true,
-    "offplugin@testmarket": false
+    "offplugin@testmarket": false,
+    "freshplugin@testmarket": true,
+    "namesake@testmarket": true,
+    "twins@testmarket": true
   }
 }
 EOF
+
+cat > "$FIXTURE/plugins/installed_plugins.json" <<'EOF'
+{
+  "version": 2,
+  "plugins": {
+    "freshplugin@testmarket": [
+      {"version": "1.0.0", "installedAt": "2026-08-01T00:00:00.000Z",
+       "lastUpdated": "2020-01-01T00:00:00.000Z"}
+    ]
+  }
+}
+EOF
+
+echo '[]' > "$FIXTURE/wrong-shape.json"
 
 # --- a second install mechanism: a directory of plugin roots -----------------
 # The desktop app materialises plugins this way; auditing only the CLI cache
@@ -140,11 +192,26 @@ EOF
 # session-report-shaped usage fixture: only used-skill has invocations.
 cat > "$FIXTURE/usage.json" <<'EOF'
 {
-  "by_skill": { "used-skill": { "api_calls": 12 } },
+  "by_skill": { "used-skill": { "api_calls": 12 }, "twins:shared": { "api_calls": 10 } },
   "overall": { "skill_invocations": { "used-skill": 3 } },
   "by_subagent_type": {}
 }
 EOF
+
+# An unclosed frontmatter fence must warn rather than silently zero the cost.
+mkdir -p "$GS/broken-fence"
+printf -- '---\nname: broken-fence\ndescription: Never closed.\n\nbody\n' \
+  > "$GS/broken-fence/SKILL.md"
+
+# Bodies that must NOT create edges: a fenced sample and a markdown link.
+mk_skill "$GS" "fence-citer" "Prints a sample containing another unit name." \
+  '```
+$ run fenced-target --now
+```'
+mk_skill "$GS" "link-citer" "Links to a path that looks like a command." \
+  "See [the docs](/linked-target) for background."
+mk_skill "$GS" "word-citer" "Genuinely depends on an unhyphenated unit." \
+  "Load the oneword skill first for shared context."
 
 echo "== roster-audit.py guards =="
 
@@ -238,13 +305,87 @@ else fail "expected manifest-derived age > 30d, got $age"; fi
 # 8c. a plugin present under two roots is counted once in the deduped total
 "$PY" - "$OUT" <<'EOF'
 import json, sys
-totals = json.load(open(sys.argv[1]))["totals"]
-raw, dedup = totals["cost_tokens"], totals["deduped_cost_tokens"]
-assert dedup < raw, f"deduped {dedup} should be below raw {raw}"
-assert totals["deduped_units"] < totals["units"], "deduped unit count should drop"
+data = json.load(open(sys.argv[1]))
+totals = data["totals"]
+raw, loaded = totals["cost_tokens"], totals["loaded_cost_tokens"]
+assert loaded < raw, f"loaded {loaded} should be below raw {raw}"
+assert totals["loaded_units"] < totals["units"], "loaded unit count should drop"
+
+# Recompute the loaded figure independently: max cost per plugin name across
+# enabled, non-project units only. A disabled unit contributing anything would
+# make disabling it show a zero delta on re-measure.
+expected = {}
+for u in data["units"]:
+    if not u["enabled"] or u["scope"] == "project":
+        continue
+    name = u["unit"].split("@")[0]
+    expected[name] = max(expected.get(name, 0), u["cost_tokens_est"])
+assert loaded == sum(expected.values()), \
+    f"loaded {loaded} != recomputed {sum(expected.values())}"
+assert totals["loaded_units"] == len(expected), "loaded unit count mismatch"
+
+off = next(u for u in data["units"] if u["unit"] == "offplugin@testmarket")
+assert off["cost_tokens_est"] > 0, "fixture disabled plugin should have a cost"
+assert "offplugin" not in expected, "disabled plugin contributed to the loaded total"
 EOF
-if [[ $? -eq 0 ]]; then pass "duplicate plugin counted once in deduped totals"
-else fail "dedup totals did not collapse the duplicate"; fi
+if [[ $? -eq 0 ]]; then pass "loaded total excludes duplicates and disabled units"
+else fail "loaded totals did not exclude duplicate/disabled cost"; fi
+
+# 8c-ii. CLI-cache plugins are aged from installed_plugins.json, not file mtime
+if [[ "$(field_of "freshplugin@testmarket" "age_days")" -lt 30 ]]; then
+  pass "CLI-cache plugin aged from installed_plugins.json"
+else fail "expected freshplugin age < 30d from installed_plugins.json, got $(field_of "freshplugin@testmarket" "age_days")"; fi
+expect_bucket "freshplugin@testmarket" "KEEP" "recently installed CLI plugin is kept as new"
+
+# 8d. a real dependency on an UNHYPHENATED name is missed by the strict rule,
+#     so it must still surface as a weak reference rather than vanishing.
+weak="$(field_of "oneword" "weak_referenced_by")"
+if grep -q "word-citer" <<<"$weak"; then pass "unhyphenated prose reference surfaces as weak"
+else fail "expected 'oneword' weak_referenced_by to name word-citer (got: $weak)"; fi
+expect_bucket "oneword" "CANDIDATE" "a weak reference does not classify as a dependency"
+
+# 8e. a reference inside a fenced code block is a sample, not a citation
+expect_bucket "fenced-target" "CANDIDATE" "reference inside a code fence is not a dependency"
+
+# 8f. a markdown link path is not a slash command
+expect_bucket "linked-target" "CANDIDATE" "markdown link path is not a command reference"
+
+# 8g. version directories sort numerically, not lexicographically
+if "$PY" - <<'EOF'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("ra", pathlib.Path("scripts/roster-audit.py"))
+ra = importlib.util.module_from_spec(spec); spec.loader.exec_module(ra)
+order = sorted(["1.2.0", "1.10.0", "1.9.0", "unknown"], key=ra.version_key)
+assert order[-1] == "1.10.0", order
+EOF
+then pass "version dirs sort numerically (1.10.0 > 1.9.0)"
+else fail "version_key sorted lexicographically"; fi
+
+# 8h. a usage file that is valid JSON but the wrong shape must not traceback
+if out="$("$PY" "$AUDIT" --roster-root "$FIXTURE" --usage "$FIXTURE/wrong-shape.json" \
+      --today "$TODAY" --json 2>&1)"; then
+  if grep -q "Traceback" <<<"$out"; then fail "wrong-shaped usage file produced a traceback"
+  else pass "wrong-shaped usage file degrades gracefully"; fi
+else fail "wrong-shaped usage file crashed the run"; fi
+
+# 8i. a usage key matching one unit's exact id is not also credited to another
+#     unit that merely shares the bare name.
+if [[ "$(field_of "used-skill" "uses")" == "15" && \
+      "$(field_of "namesake@testmarket" "uses")" == "0" ]]; then
+  pass "exact-id usage match is not double-credited to a bare-name namesake"
+else fail "namesake plugin wrongly credited (used-skill=$(field_of "used-skill" "uses"), namesake=$(field_of "namesake@testmarket" "uses"))"; fi
+
+# 8j. a skill and a command of the same name inside one plugin share an id;
+#     the unit must count that usage once, not once per entry.
+if [[ "$(field_of "twins@testmarket" "uses")" == "10" ]]; then
+  pass "colliding ids inside one unit count usage once"
+else fail "expected twins uses=10, got $(field_of "twins@testmarket" "uses")"; fi
+
+# 8k. an unclosed frontmatter fence must not silently zero the description
+if "$PY" "$AUDIT" --roster-root "$FIXTURE" --today "$TODAY" --json 2>&1 >/dev/null \
+     | grep -q "unclosed frontmatter"; then
+  pass "unclosed frontmatter fence warns on stderr"
+else fail "unclosed frontmatter fence was silent"; fi
 
 # 9. markdown mode renders and reports the candidate
 if "$PY" "$AUDIT" --roster-root "$FIXTURE" --usage "$FIXTURE/usage.json" \

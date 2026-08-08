@@ -84,6 +84,7 @@ class Unit:
         self.entries = []
         self.enabled = True
         self.referenced_by = []
+        self.weak_referenced_by = []
         self.uses = 0
         self.bucket = ""
         self.reason = ""
@@ -106,6 +107,7 @@ class Unit:
             "cost_tokens_est": self.cost_tokens(),
             "uses": self.uses,
             "referenced_by": sorted(self.referenced_by),
+            "weak_referenced_by": sorted(self.weak_referenced_by),
             "bucket": self.bucket,
             "reason": self.reason,
         }
@@ -118,16 +120,23 @@ def read_text(path):
         return ""
 
 
-def parse_frontmatter(text):
+def parse_frontmatter(text, path=None):
     """Return (fields, body). Handles quoted, unquoted, and folded descriptions."""
-    if not text.startswith("---"):
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
         return {}, text
-    end = text.find("\n---", 3)
-    if end == -1:
+    # The closing fence is a line that is exactly `---`. Searching for the
+    # substring "\n---" instead truncates any folded description whose
+    # continuation line happens to start with three hyphens.
+    close = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
+    if close is None:
+        if path:
+            print(f"warning: {path} has an unclosed frontmatter fence; "
+                  "description unreadable", file=sys.stderr)
         return {}, text
-    raw, body = text[3:end], text[end + 4 :]
+    raw_lines, body = lines[1:close], "\n".join(lines[close + 1 :])
     fields, key = {}, None
-    for line in raw.splitlines():
+    for line in raw_lines:
         match = re.match(r"^([A-Za-z][\w-]*):\s*(.*)$", line)
         if match:
             key, value = match.group(1), match.group(2).strip()
@@ -140,7 +149,10 @@ def parse_frontmatter(text):
             key = None
     for key, value in fields.items():
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            fields[key] = value[1:-1]
+            unquoted = value[1:-1]
+            # YAML escapes a single quote inside a single-quoted scalar by
+            # doubling it.
+            fields[key] = unquoted.replace("''", "'") if value[0] == "'" else unquoted
     return fields, body
 
 
@@ -152,7 +164,7 @@ def load_entry(path, namespace, kind, unit, source, enabled):
     real id is the slug. Directory name wins.
     """
     text = read_text(path)
-    fields, body = parse_frontmatter(text)
+    fields, body = parse_frontmatter(text, path)
     name = path.parent.name if path.name == "SKILL.md" else path.stem
     ident = f"{namespace}:{name}" if namespace else name
     entry = Entry(
@@ -171,9 +183,23 @@ def load_entry(path, namespace, kind, unit, source, enabled):
     return entry
 
 
+def version_key(name):
+    """Sort version directory names numerically, not lexicographically.
+
+    String sorting puts '1.9.0' after '1.10.0', so the fallback would audit a
+    stale version's skills and descriptions. Non-numeric segments (e.g.
+    'unknown') sort below any numbered release.
+    """
+    parts = []
+    for chunk in re.split(r"[._-]", name):
+        parts.append((1, int(chunk), "") if chunk.isdigit() else (0, 0, chunk))
+    return parts
+
+
 def plugin_version_dir(plugin_dir, pinned):
-    """Pick the installed version directory; fall back to the highest-sorting."""
-    versions = sorted(d for d in plugin_dir.iterdir() if d.is_dir())
+    """Pick the installed version directory; fall back to the highest version."""
+    versions = sorted((d for d in plugin_dir.iterdir() if d.is_dir()),
+                      key=lambda d: version_key(d.name))
     if not versions:
         return None
     if pinned:
@@ -199,12 +225,40 @@ def collect_plugin_entries(root, entries):
     if not cache.is_dir():
         return
 
-    enabled_map = load_json(root / "settings.json").get("enabledPlugins") or {}
-    pinned = {}
+    # If settings.json is missing or unreadable we cannot tell enabled from
+    # disabled. Assume enabled: a unit wrongly marked "not loaded" silently
+    # drops out of the cost totals and can never be nominated, which is a
+    # worse failure than overstating the tax.
+    settings = root / "settings.json"
+    enabled_map = None
+    if settings.is_file():
+        parsed = load_json(settings)
+        if isinstance(parsed.get("enabledPlugins"), dict):
+            enabled_map = parsed["enabledPlugins"]
+        else:
+            print(f"warning: {settings} has no readable enabledPlugins; "
+                  "treating every installed plugin as loaded", file=sys.stderr)
+    # installed_plugins.json carries both the pinned version and the real
+    # install/update dates. File mtimes here are a shared re-materialisation
+    # stamp -- sixteen unrelated plugins read the same age -- so they must not
+    # feed the --new-days guard any more than the desktop root's do.
+    pinned, updated = {}, {}
     for key, records in (load_json(root / "plugins" / "installed_plugins.json")
                          .get("plugins") or {}).items():
-        if records:
-            pinned[key] = records[0].get("version")
+        if not records:
+            continue
+        pinned[key] = records[0].get("version")
+        # installedAt, not lastUpdated. The --new-days guard exists to protect
+        # units too recently adopted to have a usage window; lastUpdated is a
+        # bulk cache refresh (sixteen unrelated plugins share one date here)
+        # and would reset that window for plugins the operator has had for
+        # months.
+        stamp = records[0].get("installedAt") or records[0].get("lastUpdated")
+        if isinstance(stamp, str):
+            try:
+                updated[key] = dt.date.fromisoformat(stamp[:10])
+            except ValueError:
+                pass
 
     for marketplace in sorted(d for d in cache.iterdir() if d.is_dir()):
         for plugin in sorted(d for d in marketplace.iterdir() if d.is_dir()):
@@ -213,12 +267,16 @@ def collect_plugin_entries(root, entries):
             if version is None:
                 continue
             source = f"{marketplace.name}/{plugin.name}"
-            enabled = bool(enabled_map.get(key, False))
+            enabled = True if enabled_map is None else bool(enabled_map.get(key, False))
+            found = []
             for skill in sorted(version.glob("skills/*/SKILL.md")):
-                entries.append(load_entry(skill, plugin.name, "skill", key, source, enabled))
+                found.append(load_entry(skill, plugin.name, "skill", key, source, enabled))
             for kind, sub in (("command", "commands"), ("agent", "agents")):
                 for path in sorted(version.glob(f"{sub}/*.md")):
-                    entries.append(load_entry(path, plugin.name, kind, key, source, enabled))
+                    found.append(load_entry(path, plugin.name, kind, key, source, enabled))
+            for entry in found:
+                entry.mtime = updated.get(key, entry.mtime)
+            entries.extend(found)
 
 
 def collect_extra_plugin_root(base, entries):
@@ -305,21 +363,39 @@ def build_units(entries):
     return list(units.values())
 
 
-def reference_patterns(entry):
+FENCED_BLOCK = re.compile(r"^```.*?^```", re.MULTILINE | re.DOTALL)
+
+
+def strip_code_blocks(text):
+    """Drop fenced code blocks before reference scanning.
+
+    Sample transcripts and CLI examples routinely print unit names; treating
+    those as citations invents dependency edges that make a unit unprunable.
+    """
+    return FENCED_BLOCK.sub("", text)
+
+
+def reference_patterns(entry, strict=True):
     """Regex forms that count as one unit pointing at this entry.
 
-    Deliberately strict. A bare name is only trusted when it is slug-shaped
-    (hyphenated): units named for a common word -- `update`, `analyze`,
-    `runbook` -- otherwise match ordinary prose in dozens of unrelated bodies,
-    and every false edge makes a never-used suite permanently unprunable.
-    Undelimited common words are ignored; a delimiter (`/name`, `` `name` ``)
-    or a namespace makes the reference explicit.
+    Strict mode drives classification. A bare name is trusted there only when
+    it is slug-shaped (hyphenated): units named for a common word -- `update`,
+    `analyze`, `runbook` -- otherwise match ordinary prose in dozens of
+    unrelated bodies, and every false edge makes a never-used suite
+    permanently unprunable.
+
+    That strictness has a cost in the dangerous direction: a real dependency on
+    an unhyphenated name (`cloudflare`, `review`) written as plain prose is
+    missed. Loose mode drops the slug requirement and feeds
+    `weak_referenced_by`, which is reported but never classifies -- so a human
+    sees the possible edge before approving an archive.
     """
     ident = re.escape(entry.id)
-    patterns = [r"(?<![\w:./-])/" + ident + r"(?![\w-])", "`" + ident + "`"]
+    # A slash form must open a token: `[docs](/name)` is a link, not a command.
+    patterns = [r"(?:(?<=\s)|\A)/" + ident + r"(?![\w-])", "`" + ident + "`"]
     if ":" in entry.id:
         patterns.append(r"(?<![\w:./-])" + ident + r"(?![\w-])")
-    if len(entry.bare) >= MIN_BARE_NAME_LEN and "-" in entry.bare:
+    if len(entry.bare) >= MIN_BARE_NAME_LEN and ("-" in entry.bare or not strict):
         patterns.append(r"(?<![\w:./-])" + re.escape(entry.bare) + r"(?![\w-])")
     return patterns
 
@@ -332,19 +408,24 @@ def scan_dependencies(units):
     are excluded: you archive a whole plugin, so its skills citing each other
     proves nothing.
     """
+    bodies = {unit.name: [strip_code_blocks(e.body) for e in unit.entries] for unit in units}
+
     for target in units:
-        patterns = []
-        for entry in target.entries:
-            patterns.extend(reference_patterns(entry))
-        needle = re.compile("|".join(patterns))
+        strict = re.compile("|".join(
+            p for e in target.entries for p in reference_patterns(e, strict=True)))
+        loose = re.compile("|".join(
+            p for e in target.entries for p in reference_patterns(e, strict=False)))
         target_plugin = target.name.split("@")[0]
         for other in units:
             # Same unit, or the same plugin installed under a second root: a
             # copy of a plugin citing itself is not a dependency on it.
             if other.name.split("@")[0] == target_plugin:
                 continue
-            if any(needle.search(e.body) for e in other.entries):
+            texts = bodies[other.name]
+            if any(strict.search(text) for text in texts):
                 target.referenced_by.append(other.name)
+            elif any(loose.search(text) for text in texts):
+                target.weak_referenced_by.append(other.name)
 
 
 def join_usage(units, usage_path):
@@ -352,25 +433,51 @@ def join_usage(units, usage_path):
     if not usage_path:
         return
     data = load_json(usage_path)
+    if not isinstance(data, dict):
+        print(f"warning: {usage_path} is not a session-report object; usage ignored",
+              file=sys.stderr)
+        return
+
     counts = {}
 
     def add(key, value):
-        counts[key] = counts.get(key, 0) + int(value or 0)
+        if not isinstance(key, str):
+            return
+        try:
+            counts[key] = counts.get(key, 0) + int(value or 0)
+        except (TypeError, ValueError):
+            pass
 
-    for key, value in (data.get("by_skill") or {}).items():
-        add(key, (value or {}).get("api_calls"))
-    for key, value in ((data.get("overall") or {}).get("skill_invocations") or {}).items():
-        add(key, value)
-    for key, value in (data.get("by_subagent_type") or {}).items():
-        add(key, (value or {}).get("api_calls"))
+    def add_calls(section):
+        if not isinstance(section, dict):
+            return
+        for key, value in section.items():
+            add(key, value.get("api_calls") if isinstance(value, dict) else value)
+
+    add_calls(data.get("by_skill"))
+    add_calls(data.get("by_subagent_type"))
+    overall = data.get("overall")
+    if isinstance(overall, dict) and isinstance(overall.get("skill_invocations"), dict):
+        for key, value in overall["skill_invocations"].items():
+            add(key, value)
+
+    # A usage key that exactly matches some unit's entry id belongs to that
+    # unit alone. Without this, a key like "review" is credited to the global
+    # `review` skill AND to every plugin owning a `plugin:review` entry, so a
+    # dead plugin sharing a bare name with a live skill can never be nominated.
+    claimed = {entry.id for unit in units for entry in unit.entries if entry.id in counts}
 
     for unit in units:
         # Transcripts record both the namespaced and the bare form of the same
-        # skill; counting only one form is the classic undercount. A global
-        # skill has no namespace, so id == bare -- de-duplicate the keys or it
-        # double-counts.
+        # skill, so both are counted -- but per UNIT, not per entry. A plugin
+        # may hold a skill and a command of the same name (identical ids), and
+        # a global skill has id == bare; summing per entry double-counts both.
+        keys = set()
         for entry in unit.entries:
-            unit.uses += sum(counts.get(key, 0) for key in {entry.id, entry.bare})
+            keys.add(entry.id)
+            if entry.bare not in claimed:
+                keys.add(entry.bare)
+        unit.uses = sum(counts.get(key, 0) for key in keys)
 
 
 def classify(unit, today, new_days, protected):
@@ -405,13 +512,17 @@ def totals_by_scope(units):
 
     # A plugin installed under two roots is listed once in a session, so summing
     # both copies overstates the tax. Deduplicate by plugin name, keeping the
-    # dearer copy.
+    # dearer copy. Disabled and project-scoped units are excluded: a disabled
+    # unit is not listed in any prompt, so charging for it would make the
+    # before/after delta of disabling something come out as zero.
     seen = {}
     for unit in units:
+        if not unit.enabled or unit.scope == "project":
+            continue
         name = unit.name.split("@")[0]
         seen[name] = max(seen.get(name, 0), unit.cost_tokens())
-    totals["deduped_units"] = len(seen)
-    totals["deduped_cost_tokens"] = sum(seen.values())
+    totals["loaded_units"] = len(seen)
+    totals["loaded_cost_tokens"] = sum(seen.values())
     return totals
 
 
@@ -438,9 +549,13 @@ def render(units, today, totals):
     lines.append(f"| **total** | **{totals['units']}** | **{totals['entries']}** "
                  f"| **{totals['cost_tokens']}** |")
     lines.append("")
-    lines.append(f"Deduplicated by plugin name (a plugin installed under two roots is "
-                 f"listed once per session): **{totals['deduped_units']} units, "
-                 f"{totals['deduped_cost_tokens']} est. tokens**.")
+    lines.append(f"**Loaded cost: {totals['loaded_units']} units, "
+                 f"{totals['loaded_cost_tokens']} est. tokens.** This is the figure a "
+                 "prune moves. It counts only enabled, non-project units and "
+                 "deduplicates by plugin name, since a plugin installed under two "
+                 "roots is listed once per session and a disabled one is not listed "
+                 "at all. The totals above are the full inventory, including units "
+                 "that cost nothing today.")
     lines += ["", "## Candidates", ""]
     candidates = [u for u in units if u.bucket == "CANDIDATE"]
     if not candidates:
@@ -451,8 +566,14 @@ def render(units, today, totals):
                      "Nomination is not a verdict -- a human assigns the bucket.")
         lines.append("")
         for unit in sorted(candidates, key=lambda u: -u.cost_tokens()):
+            weak = ", ".join(sorted(unit.weak_referenced_by))
+            note = f" — possibly cited by {weak}" if weak else ""
             lines.append(f"- `{unit.name}` ({len(unit.entries)} entries, "
-                         f"{unit.cost_tokens()} tok)")
+                         f"{unit.cost_tokens()} tok){note}")
+        if any(u.weak_referenced_by for u in candidates):
+            lines.append("")
+            lines.append("\"Possibly cited by\" is a loose prose match on an unhyphenated "
+                         "name. It does not classify — check it before archiving.")
     return "\n".join(lines) + "\n"
 
 
@@ -503,8 +624,8 @@ def main(argv=None):
                 "units": totals["units"],
                 "entries": totals["entries"],
                 "cost_tokens": totals["cost_tokens"],
-                "deduped_units": totals["deduped_units"],
-                "deduped_cost_tokens": totals["deduped_cost_tokens"],
+                "loaded_units": totals["loaded_units"],
+                "loaded_cost_tokens": totals["loaded_cost_tokens"],
                 "by_scope": {k: {"units": v[0], "entries": v[1], "cost_tokens": v[2]}
                              for k, v in totals["by_scope"].items()},
             },
