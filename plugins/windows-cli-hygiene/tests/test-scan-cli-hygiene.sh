@@ -27,8 +27,11 @@ hasnt "$out" "silent.py" "non-ASCII in a non-output string not flagged"
 
 # --- PYTHON3_HARDCODE -----------------------------------------------------------
 printf 'import subprocess\nsubprocess.run(["python3", "-c", "pass"])\n' > "$proj/hard.py"
+# A shebang is correct on POSIX and never consulted on Windows — not a hazard.
+printf '#!/usr/bin/env python3\nprint("ok")\n' > "$proj/shebang_only.py"
 out="$(bash "$SCAN" "$proj")"
 has "$out" "hard.py:2: PYTHON3_HARDCODE" "hardcoded python3 flagged"
+hasnt "$out" "shebang_only.py" "python3 shebang alone not flagged"
 
 # --- HEREDOC_BACKSLASH ----------------------------------------------------------
 cat > "$proj/hd.sh" <<'OUTER'

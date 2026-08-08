@@ -227,7 +227,7 @@
     },
     {
       "name": "windows-cli-hygiene",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Scan source for Windows/cross-platform CLI hazards before shipping: encoding, python3, heredocs, .cmd spawns, set -e in hooks.",
       "category": "development",
       "source": "./plugins/windows-cli-hygiene"

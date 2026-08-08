@@ -3,6 +3,15 @@
 All notable changes to the windows-cli-hygiene plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.1] - 2026-08-08
+
+### Fixed
+
+- `PYTHON3_HARDCODE` no longer fires on a `#!/usr/bin/env python3` shebang.
+  A shebang is correct on POSIX and never consulted on Windows (scripts run
+  as `python foo.py`); only an inline `python3` invocation hits the broken
+  WindowsApps alias. Regression test added for both directions.
+
 ## [1.0.0] - 2026-07-09
 
 ### Added

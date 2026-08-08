@@ -96,8 +96,13 @@ scan_file() {
 
     case "$ext" in
       py)
-        [[ "$line" == *python3* ]] && add "$f" "$lineno" "PYTHON3_HARDCODE" \
-          "literal 'python3' — may be a broken WindowsApps alias; resolve python3->python" ;;
+        # A `#!/usr/bin/env python3` shebang is correct on POSIX and never
+        # consulted on Windows (scripts run as `python foo.py`); only an
+        # inline python3 INVOCATION hits the WindowsApps alias.
+        if [[ "$line" == *python3* && ! "$line" =~ ^#! ]]; then
+          add "$f" "$lineno" "PYTHON3_HARDCODE" \
+            "literal 'python3' — may be a broken WindowsApps alias; resolve python3->python"
+        fi ;;
       sh)
         if [[ "$f" == */hooks/* ]] && [[ "$line" =~ ^[[:space:]]*set[[:space:]]+-e([[:space:]]|$) ]]; then
           add "$f" "$lineno" "SET_E_HOOK" "set -e in a hook script — a probe's non-zero exit aborts the hook"
