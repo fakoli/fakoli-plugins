@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T23:25:36Z",
+  "generatedAt": "2026-08-08T23:43:23Z",
   "categories": [
     {
       "category": "development",
@@ -61,7 +61,7 @@
         },
         {
           "name": "windows-cli-hygiene",
-          "version": "1.0.0",
+          "version": "1.0.1",
           "description": "Scan source for Windows/cross-platform CLI hazards before shipping: encoding, python3, heredocs, .cmd spawns, set -e in hooks.",
           "path": "plugins/windows-cli-hygiene"
         }
