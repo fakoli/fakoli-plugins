@@ -587,3 +587,170 @@ def test_canon_unifies_windows_path_spellings(monkeypatch):
     a = mod._canon(r"C:\Users\Me\rollout.jsonl")
     b = mod._canon("C:/users/me/ROLLOUT.JSONL")
     assert a == b
+
+
+def test_root_rollout_with_repeated_same_id_meta_is_counted_once(tmp_path, monkeypatch):
+    """Issue #140: a Codex Desktop root rollout legitimately repeats its OWN
+    session_meta on every resume (37 same-ID records observed in the wild).
+    meta_count > 1 alone must not zero out an otherwise-real session — only a
+    LATER record with a DIFFERENT id (foreign replay) may exclude it."""
+    mod = load_session_stats()
+    codex_root = tmp_path / ".codex" / "sessions"
+    monkeypatch.setattr(mod, "CODEX_SESSIONS", str(codex_root))
+    monkeypatch.setattr(mod, "PROJECTS", str(tmp_path / ".claude" / "projects"))
+
+    day = codex_root / "2026" / "06" / "25"
+    root = day / "rollout-root.jsonl"
+    write_jsonl(root, [
+        _codex_meta_row("2026-06-25T10:00:00Z", "root-sid", "root-sid"),
+        _user_row("2026-06-25T10:00:10Z", "Kick off the session"),
+        _assistant_row("2026-06-25T10:00:20Z"),
+        _spawn_row("2026-06-25T10:00:30Z", "Run subtask A"),
+        _token_count_row("2026-06-25T10:00:40Z", 500, in_tokens=1000, cached=200),
+        # Repeated resumes: same rollout, same id, replayed metadata only.
+        _codex_meta_row("2026-06-25T10:05:00Z", "root-sid", "root-sid"),
+        _codex_meta_row("2026-06-25T12:30:00Z", "root-sid", "root-sid"),
+        _codex_meta_row("2026-08-01T09:00:00Z", "root-sid", "root-sid"),
+        _user_row("2026-08-01T09:00:10Z", "Continue the session after resume"),
+        _assistant_row("2026-08-01T09:00:20Z"),
+        {
+            "timestamp": "2026-08-01T09:00:30Z",
+            "type": "response_item",
+            "payload": {"type": "function_call", "name": "exec_command", "arguments": "{}"},
+        },
+        _token_count_row("2026-08-01T09:00:40Z", 300, in_tokens=400, cached=100),
+    ])
+
+    parsed = mod.parse(str(root))
+    assert parsed["meta_count"] == 4
+    assert parsed["meta_same_id_repeats"] == 3
+    assert parsed["meta_foreign_ids"] == 0
+    assert parsed["codex_forked"] is False
+
+    agg = mod.aggregate([parsed])
+    assert agg["assistant_turns"] == 2
+    assert agg["user_turns"] == 2
+    assert agg["main_output_tokens"] == 300  # last cumulative token_count snapshot
+    assert agg["fresh_input_tokens"] == 400
+    assert agg["cache_read_tokens"] == 100
+    assert agg["tools"]["spawn_agent"] == 1
+    assert agg["tools"]["exec_command"] == 1
+    assert agg["workflows"] == 1
+    assert agg["workflow_agents"] == 1
+    assert not any(n.startswith("INTEGRITY WARNING") for n in agg["measurement_notes"])
+    same_id_notes = [n for n in agg["measurement_notes"] if "same-ID" in n]
+    assert same_id_notes and "3" in same_id_notes[0]
+
+    # stats / report / html all derive from the same aggregate.
+    report = mod.report_md(agg)
+    assert "| Assistant turns | 2 |" in report
+    html = mod.report_html(agg)
+    assert '"assistant_turns": 2' in html
+
+
+def test_child_rollout_with_replayed_root_meta_excluded_from_totals(tmp_path, monkeypatch):
+    """Issue #140: a subagent rollout's own metadata comes first
+    (parent_thread_id + source.subagent.thread_spawn present), followed by
+    REPLAYED root-id metadata. The child must stay excluded from additive
+    totals — the root's own numbers must not be double-charged."""
+    mod = load_session_stats()
+    codex_root = tmp_path / ".codex" / "sessions"
+    monkeypatch.setattr(mod, "CODEX_SESSIONS", str(codex_root))
+    monkeypatch.setattr(mod, "PROJECTS", str(tmp_path / ".claude" / "projects"))
+
+    day = codex_root / "2026" / "06" / "25"
+    root = day / "rollout-root.jsonl"
+    child = day / "rollout-child.jsonl"
+
+    write_jsonl(root, [
+        _codex_meta_row("2026-06-25T10:00:00Z", "root-sid", "root-sid"),
+        _user_row("2026-06-25T10:00:10Z", "Kick off the session"),
+        _spawn_row("2026-06-25T10:00:20Z", "Do the child work"),
+        _token_count_row("2026-06-25T10:00:30Z", 500, in_tokens=1000, cached=200),
+    ])
+    write_jsonl(child, [
+        _codex_meta_row(
+            "2026-06-25T10:01:00Z", "root-sid", "CHILD",
+            parent="root-sid",
+            source={"subagent": {"thread_spawn": {"parent_thread_id": "root-sid"}}},
+        ),
+        # Replayed parent metadata: same session_id, but the ROOT's id, no
+        # parent pointer — the sanitized shape from the issue body.
+        _codex_meta_row("2026-06-25T10:01:01Z", "root-sid", "root-sid", source="vscode"),
+        _user_row("2026-06-25T10:01:10Z", "Do the child work"),
+        _assistant_row("2026-06-25T10:01:20Z"),
+        {
+            "timestamp": "2026-06-25T10:01:30Z",
+            "type": "response_item",
+            "payload": {"type": "function_call", "name": "exec_command", "arguments": "{}"},
+        },
+        _token_count_row("2026-06-25T10:01:40Z", 9999, in_tokens=9999, cached=9999),
+    ])
+
+    parsed_child = mod.parse(str(child))
+    assert parsed_child["id"] == "CHILD"
+    assert parsed_child["parent_thread_id"] == "root-sid"
+    assert parsed_child["codex_is_subagent"] is True
+    assert parsed_child["meta_foreign_ids"] == 1
+    assert parsed_child["codex_forked"] is True
+
+    expanded = mod.expand_paths([str(root)])
+    agg = mod.aggregate([mod.parse(p) for p in expanded])
+    # The child's huge replayed-parent token snapshot (9999) must not leak
+    # into the root's own totals.
+    assert agg["main_output_tokens"] == 500
+    assert agg["fresh_input_tokens"] == 1000
+    assert agg["cache_read_tokens"] == 200  # the root's own cache only
+    assert agg["user_turns"] == 1  # only the root's own user turn
+    assert agg["assistant_turns"] == 0  # root has no assistant message here
+    foreign_notes = [n for n in agg["measurement_notes"] if "foreign-ID" in n]
+    assert foreign_notes and "1" in foreign_notes[0]
+
+
+def test_all_zero_aggregate_with_source_events_raises_integrity_warning(tmp_path, monkeypatch):
+    """Acceptance: if the parsed rollout(s) contained real user/assistant/tool/
+    token events but every one of them was excluded from aggregation (e.g. a
+    lone forked rollout with no sibling root available), the report must not
+    silently present a plausible-looking all-zero result."""
+    mod = load_session_stats()
+    codex_root = tmp_path / ".codex" / "sessions"
+    monkeypatch.setattr(mod, "CODEX_SESSIONS", str(codex_root))
+    monkeypatch.setattr(mod, "PROJECTS", str(tmp_path / ".claude" / "projects"))
+
+    day = codex_root / "2026" / "06" / "25"
+    orphan_fork = day / "rollout-orphan-fork.jsonl"
+    write_jsonl(orphan_fork, [
+        _codex_meta_row("2026-06-25T10:00:00Z", "sid", "fork-only", parent="sid"),
+        # Foreign-id replay with no sibling root present in this corpus at all.
+        _codex_meta_row("2026-06-25T10:00:01Z", "sid", "sid"),
+        _user_row("2026-06-25T10:00:10Z", "Do real work"),
+        _assistant_row("2026-06-25T10:00:20Z"),
+        {
+            "timestamp": "2026-06-25T10:00:30Z",
+            "type": "response_item",
+            "payload": {"type": "function_call", "name": "exec_command", "arguments": "{}"},
+        },
+        _token_count_row("2026-06-25T10:00:40Z", 700, in_tokens=1500, cached=300),
+    ])
+
+    parsed = mod.parse(str(orphan_fork))
+    assert parsed["codex_forked"] is True
+    # The rollout itself really did contain activity...
+    assert parsed["asst"] == 1
+    assert parsed["user_turns"]
+    assert sum(parsed["tools"].values()) == 1
+    assert parsed["out"] > 0
+
+    # ...but aggregated alone (its only "session"), it is entirely excluded.
+    agg = mod.aggregate([parsed])
+    assert agg["assistant_turns"] == 0
+    assert agg["user_turns"] == 0
+    assert agg["generative_total"] == 0
+    integrity_notes = [n for n in agg["measurement_notes"] if n.startswith("INTEGRITY WARNING")]
+    assert integrity_notes, "expected a prominent integrity warning, got: " + repr(agg["measurement_notes"])
+    assert agg["measurement_notes"][0].startswith("INTEGRITY WARNING")  # first, not buried
+
+    report = mod.report_md(agg)
+    assert "INTEGRITY WARNING" in report
+    html = mod.report_html(agg)
+    assert "INTEGRITY WARNING" in html

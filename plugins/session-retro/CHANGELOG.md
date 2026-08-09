@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-08-08
+
+### Fixed
+- `parse_codex()` no longer treats repeated `session_meta` count alone as
+  proof of replay residue (#140). A Codex Desktop root rollout legitimately
+  repeats its OWN metadata on every resume (same `id`) — that is now tracked
+  separately and stays countable. `codex_forked` is set only when a LATER
+  `session_meta` record carries a DIFFERENT id than the rollout's own first
+  record (a genuine foreign-ID replay, e.g. a subagent replaying its
+  parent/root's history). Previously any rollout with more than one
+  `session_meta` record — including a resumed root — was excluded from every
+  additive sum, which could silently report zero turns, tools, and tokens for
+  a fully populated session.
+- `measurement_notes` now distinguishes same-ID resume metadata (counted)
+  from foreign-ID replay metadata (excluded), instead of a single generic
+  "forked/resumed" note.
+
+### Added
+- Integrity guard: if the parsed rollout(s) contained real user/assistant/
+  tool/token events but the aggregate still comes out all-zero (every
+  rollout excluded rather than a genuinely empty session), `stats`,
+  `report`, and `html` now emit a prominent `INTEGRITY WARNING` measurement
+  note — as the first note, and highlighted in the HTML report — instead of
+  silently presenting a plausible-looking zero report (#140).
+
 ## [1.2.0] - 2026-07-13
 
 ### Fixed

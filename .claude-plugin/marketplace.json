@@ -206,7 +206,7 @@
     },
     {
       "name": "session-retro",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "description": "Analyze local Claude Code and Codex session logs into actionable retrospectives.",
       "category": "productivity",
       "source": "./plugins/session-retro"
