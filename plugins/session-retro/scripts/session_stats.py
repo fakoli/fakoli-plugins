@@ -147,6 +147,7 @@ def _base_stats(path, runtime):
                 agent_types=Counter(), wf_named=Counter(), events=[], wf_ts=[],
                 session_id=None, id=None, parent_thread_id=None,
                 codex_is_subagent=False, codex_forked=False, meta_count=0,
+                meta_same_id_repeats=0, meta_foreign_ids=0,
                 agent_nickname=None, agent_path=None,
                 duration_ms=0, prompt_summary="")
 
@@ -238,6 +239,17 @@ def parse_codex(path):
                     spawn = spawn if isinstance(spawn, dict) else {}
                     s["agent_nickname"] = spawn.get("agent_nickname") or spawn.get("nickname")
                     s["agent_path"] = spawn.get("agent_path")
+            else:
+                # A LATER session_meta record. A Codex Desktop rollout
+                # legitimately repeats its OWN metadata on every resume
+                # (same id) — that stays countable. A DIFFERENT id means
+                # another rollout's history (a parent/root) was replayed
+                # into this one — that's foreign replay and cannot be
+                # safely attributed to this rollout.
+                if payload.get("id") == s["id"]:
+                    s["meta_same_id_repeats"] += 1
+                else:
+                    s["meta_foreign_ids"] += 1
         elif top_type == "turn_context":
             s["cwd"] = s["cwd"] or payload.get("cwd")
 
@@ -302,11 +314,11 @@ def parse_codex(path):
     s["inp"] = int(usage.get("input_tokens") or 0)
     s["cr"] = int(usage.get("cached_input_tokens") or 0)
     s["prompt_summary"] = _codex_prompt_summary(first_user or "")
-    # Multiple session_meta records mean another rollout's history was
-    # replayed into this one (fork or resume — of a subagent OR of the main
-    # thread): its cumulative counters include the replayed rollout's and
-    # cannot be attributed to this rollout alone.
-    s["codex_forked"] = s["meta_count"] > 1
+    # A rollout is "forked" only when a LATER session_meta record carries a
+    # FOREIGN id (another rollout's history replayed into this one). Repeated
+    # metadata sharing this rollout's own id is ordinary resume behavior and
+    # must not exclude an otherwise-real session from aggregation.
+    s["codex_forked"] = s["meta_foreign_ids"] > 0
     return s
 
 
@@ -420,9 +432,15 @@ def aggregate(sessions):
         notes.append(f"delegated token totals are unavailable for {unknown_wf_runs} of "
                      f"{len(workflow_runs)} workflow runs in this log format")
     forked_count = sum(1 for s in sessions if s.get("codex_forked"))
+    same_id_repeats = sum(s.get("meta_same_id_repeats", 0) for s in sessions)
+    foreign_id_records = sum(s.get("meta_foreign_ids", 0) for s in sessions)
+    if same_id_repeats:
+        notes.append(f"{same_id_repeats} same-ID resume metadata record(s) observed "
+                     "across the rollout(s) (counted once each, not excluded)")
     if forked_count:
-        notes.append(f"{forked_count} forked/resumed rollout(s) replay prior history; "
-                     "their cumulative totals are excluded from token, tool, and turn sums")
+        notes.append(f"{foreign_id_records} foreign-ID replay metadata record(s) across "
+                     f"{forked_count} rollout(s) (excluded); their cumulative totals are "
+                     "excluded from token, tool, and turn sums")
     out["measurement_notes"] = notes
     out["skills_used"] = dict(sum((s["skills"] for s in counted), Counter()).most_common())
     at = sum((s["agent_types"] for s in counted), Counter())
@@ -460,6 +478,27 @@ def aggregate(sessions):
                                for k, v in sorted(by.items(), key=lambda x: -x[1][2])}
     out["workflow_runs"] = sorted(runs, key=lambda r: -(r["tokens"] or 0))
     out["generative_total"] = out["main_output_tokens"] + out["workflow_tokens"]
+    # A rollout can legitimately carry zero events (an empty/aborted session),
+    # so a zero report is not inherently wrong — but if the SOURCE rollouts
+    # plainly contained user/assistant/tool/token activity and the aggregate
+    # still comes out all-zero, that's every rollout having been silently
+    # excluded (e.g. by codex_forked), not an empty session. Never let that
+    # pass as a plausible zero report.
+    had_source_events = any(
+        s["asst"] or s["user_turns"] or sum(s["tools"].values()) or s["out"] or s["inp"]
+        for s in sessions
+    )
+    aggregate_is_all_zero = (
+        out["assistant_turns"] == 0 and out["user_turns"] == 0
+        and sum(out["tools"].values()) == 0 and out["generative_total"] == 0
+        and out["fresh_input_tokens"] == 0
+    )
+    if had_source_events and aggregate_is_all_zero:
+        out["measurement_notes"].insert(
+            0, "INTEGRITY WARNING: every headline metric is zero even though the "
+               "parsed rollout(s) contained user/assistant/tool/token events — "
+               "every rollout was excluded from aggregation rather than this "
+               "being a genuinely empty session; treat this report as unreliable")
     return out
 
 
@@ -645,12 +684,15 @@ th{color:var(--mut);cursor:pointer;user-select:none}th:hover{color:var(--fg)}td.
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px}
 .tl{max-height:330px;overflow:auto}.tl .t{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #21262d}.tl .i{color:var(--ac);font-weight:700;min-width:22px}
 .note{color:var(--mut);font-size:12px;margin-top:8px}
+.notes{margin-bottom:22px}.notes .n{border:1px solid var(--bd);border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:12px;color:var(--mut)}
+.notes .warn{border-color:#f85149;background:#3d1418;color:#ffb4ab;font-weight:700}
 .narrative{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:6px 22px 18px;margin-top:16px}
 .narrative h2{font-size:18px;border-bottom:1px solid var(--bd);padding-bottom:8px}.narrative h3{font-size:14px;color:var(--ac)}
 .narrative code{background:#0d1117;padding:2px 5px;border-radius:4px;font-size:12px}
 footer{color:var(--mut);font-size:12px;margin-top:28px;text-align:center}
 </style></head><body><div class="wrap">
 <header><h1>Session Retro</h1><div class="meta" id="meta"></div></header>
+<div class="notes" id="notes"></div>
 <div class="kpis" id="kpis"></div>
 <div class="grid">
 <div class="card"><h2>Generated tokens — orchestrator vs delegated</h2><div class="dough" id="dough"></div><div class="note">Output tokens (the real work). Cache reads are shown separately.</div></div>
@@ -672,6 +714,7 @@ footer{color:var(--mut);font-size:12px;margin-top:28px;text-align:center}
 </div><script>
 const D = __DATA__, fmt = n => (n==null ? 'n/a' : (n||0).toLocaleString()), $ = id => document.getElementById(id);
 $('meta').textContent = [D.cwd, D.branch, D.wall_hours? D.wall_hours+' h':''].filter(Boolean).join('  -  ');
+(D.measurement_notes||[]).forEach(n=>{const div=document.createElement('div'),warn=n.startsWith('INTEGRITY WARNING');div.className='n'+(warn?' warn':'');div.textContent=(warn?'⚠️ ':'')+n;$('notes').appendChild(div);});
 $('kpis').innerHTML = [['Wall-clock',(D.wall_hours||0)+' h'],['Assistant turns',fmt(D.assistant_turns)],['Human messages',fmt(D.user_turns)],['Generated tokens',fmt(D.generative_total)],['Workflows',fmt(D.workflows)+' / '+fmt(D.workflow_agents)+' ag'],['Cache read',fmt(D.cache_read_tokens)]].map(([l,v])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
 function doughnut(parts){const tot=parts.reduce((a,p)=>a+p.value,0)||1,R=52,C=2*Math.PI*R;let off=0;const segs=parts.map(p=>{const dash=p.value/tot*C,s=`<circle r="${R}" cx="70" cy="70" fill="none" stroke="${p.color}" stroke-width="20" stroke-dasharray="${dash} ${C-dash}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"/>`;off+=dash;return s;}).join('');return `<svg width="140" height="140" viewBox="0 0 140 140">${segs}</svg><div class="legend">${parts.map(p=>`<div><span class="dot" style="background:${p.color}"></span><b>${fmt(p.value)}</b> ${p.label} (${Math.round(100*p.value/tot)}%)</div>`).join('')}</div>`;}
 $('dough').innerHTML=doughnut([{label:'delegated to workflows',value:D.workflow_tokens,color:'#bc8cff'},{label:'main-loop orchestrator',value:D.main_output_tokens,color:'#58a6ff'}]);

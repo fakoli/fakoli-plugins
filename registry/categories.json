@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T00:03:11Z",
+  "generatedAt": "2026-08-09T00:13:46Z",
   "categories": [
     {
       "category": "development",
@@ -151,7 +151,7 @@
         },
         {
           "name": "session-retro",
-          "version": "1.2.0",
+          "version": "1.2.1",
           "description": "Analyze local Claude Code and Codex session logs into actionable retrospectives.",
           "path": "plugins/session-retro"
         }
