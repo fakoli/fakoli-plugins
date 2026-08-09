@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-08-08T22:35:35Z",
-  "totalTags": 168,
+  "generatedAt": "2026-08-09T00:03:11Z",
+  "totalTags": 172,
   "tags": [
     {
       "tag": "workflow",
@@ -138,11 +138,27 @@
       ]
     },
     {
+      "tag": "skills",
+      "count": 2,
+      "plugins": [
+        "fakoli-plugin-critic",
+        "skill-spec-lint"
+      ]
+    },
+    {
       "tag": "slides",
       "count": 2,
       "plugins": [
         "gws",
         "notebooklm-enhanced"
+      ]
+    },
+    {
+      "tag": "validation",
+      "count": 2,
+      "plugins": [
+        "marketplace-manager",
+        "skill-spec-lint"
       ]
     },
     {
@@ -172,6 +188,13 @@
       "count": 1,
       "plugins": [
         "fakoli-state"
+      ]
+    },
+    {
+      "tag": "agent-skills",
+      "count": 1,
+      "plugins": [
+        "skill-spec-lint"
       ]
     },
     {
@@ -497,6 +520,13 @@
       ]
     },
     {
+      "tag": "frontmatter",
+      "count": 1,
+      "plugins": [
+        "skill-spec-lint"
+      ]
+    },
+    {
       "tag": "gates",
       "count": 1,
       "plugins": [
@@ -641,6 +671,13 @@
       "count": 1,
       "plugins": [
         "fakoli-style"
+      ]
+    },
+    {
+      "tag": "lint",
+      "count": 1,
+      "plugins": [
+        "skill-spec-lint"
       ]
     },
     {
@@ -1043,10 +1080,10 @@
       ]
     },
     {
-      "tag": "skills",
+      "tag": "spec",
       "count": 1,
       "plugins": [
-        "fakoli-plugin-critic"
+        "skill-spec-lint"
       ]
     },
     {
@@ -1145,13 +1182,6 @@
       "count": 1,
       "plugins": [
         "fakoli-crew"
-      ]
-    },
-    {
-      "tag": "validation",
-      "count": 1,
-      "plugins": [
-        "marketplace-manager"
       ]
     },
     {
