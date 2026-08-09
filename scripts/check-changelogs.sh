@@ -74,7 +74,7 @@ for plugin_dir in "${plugin_dirs[@]}"; do
     fi
 
     version_re="$(escape_regex "$version")"
-    if grep -Eq "^#{1,6}[[:space:]]+\\[?v?$version_re\\]?([[:space:]-]|$)" "$changelog_file"; then
+    if grep -Eq "^#{1,6}[[:space:]]+\\[?v?$version_re(\\]|[[:space:]]|$)" "$changelog_file"; then
         log_ok "[$plugin_name] CHANGELOG.md contains version $version"
     else
         log_error "[$plugin_name] manifest version $version has no matching CHANGELOG.md heading"

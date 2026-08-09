@@ -1,4 +1,5 @@
 ---
+name: execute
 description: Execute phase — wave-based crew dispatch with critic gates and evidence-based verification
 ---
 

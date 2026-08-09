@@ -1,4 +1,5 @@
 ---
+name: brainstorm
 description: Design phase — refine ideas into specs through collaborative dialogue
 ---
 

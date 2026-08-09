@@ -1,5 +1,5 @@
 ---
-name: Complexity Mapper
+name: complexity-mapper
 description: >
   Surface hidden complexity, risks, dependencies, and likely project blow-up points in a proposed
   design or architecture. Use this when you have architecture docs, design proposals, or technical

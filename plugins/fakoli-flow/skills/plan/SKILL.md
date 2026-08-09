@@ -1,4 +1,5 @@
 ---
+name: plan
 description: Plan phase — break approved specs into intent-driven task lists for crew execution
 ---
 

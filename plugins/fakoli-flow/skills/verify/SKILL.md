@@ -1,4 +1,5 @@
 ---
+name: verify
 description: Verify phase — evidence-based validation with sentinel dispatch and pass/fail scorecard
 ---
 

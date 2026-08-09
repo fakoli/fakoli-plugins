@@ -1,5 +1,5 @@
 ---
-name: Architecture Risk Review
+name: architecture-risk-review
 description: >
   Targeted review of failure modes, hidden dependencies, limits, and operational burden in a
   specific architecture or design. Use this when you need a focused risk assessment without

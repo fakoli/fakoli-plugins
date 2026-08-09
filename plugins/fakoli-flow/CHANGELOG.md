@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.7 (2026-08-08)
+
+### Fixed
+- Added the missing `name` frontmatter field to every fakoli-flow skill's
+  `SKILL.md` (`brainstorm`, `execute`, `finish`, `plan`, `quick`, `verify`) so
+  the stricter `lint-frontmatter.py` directory-name check passes.
+
+---
+
 ## 1.3.6 (2026-07-04)
 
 ### Fixed
