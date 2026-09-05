@@ -1,0 +1,26 @@
+{
+  "safe-fetch": {
+    "command": "uv",
+    "args": [
+      "run",
+      "--frozen",
+      "--project",
+      ".",
+      "python",
+      "-m",
+      "safe_fetch"
+    ],
+    "env": {
+      "ALLOWED_DOMAINS": "",
+      "BLOCKED_DOMAINS": "",
+      "RATE_LIMIT_PER_DOMAIN": "10",
+      "RATE_LIMIT_GLOBAL": "60",
+      "SAFE_FETCH_TIMEOUT": "30",
+      "SAFE_FETCH_MAX_BODY": "5242880"
+    },
+    "cwd": ".",
+    "env_vars": [
+      "BRAVE_API_KEY"
+    ]
+  }
+}

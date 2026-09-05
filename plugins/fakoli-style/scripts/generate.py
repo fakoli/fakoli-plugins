@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import tempfile
 import sys
 from pathlib import Path
 
@@ -175,7 +177,7 @@ def render(ledger: dict) -> str:
     parts.append(
         "This ledger is the governed record of the Fakoli Style operating "
         "model. Each principle declares the failure it prevents and an honest "
-        "lifecycle status: **proven** (machine-verified), **asserted** "
+        "lifecycle status: **proven** (evidence-backed claim), **asserted** "
         "(claimed with a pointer, not yet machine-verified), or "
         "**aspirational** (not yet built)."
     )
@@ -219,25 +221,41 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Diff the projection against the committed doc without writing.",
     )
+    parser.add_argument('--data', type=Path, help='Ledger JSON outside the installed package')
+    parser.add_argument('--output', type=Path, help='Generated Markdown destination')
     opts = parser.parse_args(argv)
-
-    rendered = render(load_ledger(DATA_PATH))
+    if opts.data is not None and opts.output is None:
+        parser.error('--data requires --output (including with --check)')
+    data_path = opts.data or DATA_PATH
+    doc_path = opts.output or DOC_PATH
+    try:
+        rendered = render(load_ledger(data_path))
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f'error: invalid ledger: {exc}', file=sys.stderr)
+        return 1
 
     if opts.check:
-        current = DOC_PATH.read_text(encoding="utf-8") if DOC_PATH.exists() else ""
+        current = doc_path.read_text(encoding="utf-8") if doc_path.exists() else ""
         if normalize_for_comparison(current) != normalize_for_comparison(rendered):
             print(
-                f"error: {DOC_PATH} is stale; "
+                f"error: {doc_path} is stale; "
                 "run: uv run --script scripts/generate.py",
                 file=sys.stderr,
             )
             return 1
-        print(f"ok: {DOC_PATH} is up to date")
+        print(f"ok: {doc_path} is up to date")
         return 0
 
-    DOC_PATH.parent.mkdir(parents=True, exist_ok=True)
-    DOC_PATH.write_text(rendered, encoding="utf-8")
-    print(f"wrote {DOC_PATH}")
+    doc_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix='.' + doc_path.name, dir=doc_path.parent)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            stream.write(rendered)
+        os.replace(temp, doc_path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+    print(f"wrote {doc_path}")
     return 0
 
 

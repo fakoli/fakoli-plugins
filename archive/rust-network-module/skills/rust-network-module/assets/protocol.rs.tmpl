@@ -1,33 +1,30 @@
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tracing::debug;
+//! Example wire format, not SOCKS5: version:u8 + port:u16 (network byte order).
+//! Adapt the layout, bounds, and reply semantics to the actual protocol spec.
+use std::io;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use super::*;
+pub const VERSION: u8 = 1;
 
-/// Parsed __PROTOCOL__ request.
-#[derive(Debug)]
-pub struct __PROTOCOL__Request {
-    // TODO: Add parsed fields
+#[derive(Debug, PartialEq, Eq)]
+pub struct __TYPE__Request {
     pub port: u16,
 }
 
-/// Parse a __PROTOCOL__ request from the stream.
-pub async fn parse___PROTOCOL__(stream: &mut TcpStream) -> anyhow::Result<__PROTOCOL__Request> {
+/// Caller supplies a whole-handshake deadline. On error/cancellation, close the
+/// stream: read_exact/read_u16 can consume partial input and cannot be restarted.
+pub async fn parse___NAME__<R: AsyncRead + Unpin>(stream: &mut R) -> io::Result<__TYPE__Request> {
     let version = stream.read_u8().await?;
     if version != VERSION {
-        anyhow::bail!("unsupported __PROTOCOL__ version: {version}");
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "unsupported protocol version"));
     }
-
-    // TODO: Parse protocol-specific fields
-
     let port = stream.read_u16().await?;
-    debug!(port, "__PROTOCOL__ request parsed");
-
-    Ok(__PROTOCOL__Request { port })
+    if port == 0 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "port must be nonzero"));
+    }
+    Ok(__TYPE__Request { port })
 }
 
-/// Send a __PROTOCOL__ reply.
-pub async fn send_reply(stream: &mut TcpStream, status: u8) -> anyhow::Result<()> {
+pub async fn send_reply<W: AsyncWrite + Unpin>(stream: &mut W, status: u8) -> io::Result<()> {
     stream.write_all(&[VERSION, status]).await?;
-    Ok(())
+    stream.flush().await
 }

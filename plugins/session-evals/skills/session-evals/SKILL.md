@@ -1,8 +1,10 @@
 ---
 name: session-evals
 description: Mine past coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving. Retro-first — consumes session-retro output dirs and cross-session findings themes, curates candidates into deterministic check-based evals sized for local models, emits anvil-serving-compatible eval-data suites, and runs them against any OpenAI-compatible endpoint. Use when the user asks to "create evals from my sessions", "build local-model evals", "turn this retro into evals", "which work classes can my local model handle", or wants evidence for anvil-serving routing decisions. Reads only local session logs; writes only to the eval-data root the user chooses.
-user-invocable: true
 ---
+
+Resolve `PLUGIN_ROOT` from the host-provided `PLUGIN_ROOT` / `CLAUDE_PLUGIN_ROOT`, or from this loaded skill’s directory (`../..`). Use that absolute path for the bundled commands; do not assume the current directory is the install root.
+
 
 # Session Evals
 
@@ -13,8 +15,8 @@ curation** — choosing candidates, writing checks, redacting, sizing.
 ## Toolkit (bundled, stdlib-only)
 
 ```bash
-M="${CLAUDE_PLUGIN_ROOT}/scripts/session_miner.py"
-E="${CLAUDE_PLUGIN_ROOT}/scripts/eval_emit.py"
+M="${PLUGIN_ROOT}/scripts/session_miner.py"
+E="${PLUGIN_ROOT}/scripts/eval_emit.py"
 python3 "$M" list [substr]                      # browse sessions, all sources
 python3 "$M" mine --corpus <findings-dir> --out cands.json   # retro-first
 python3 "$M" mine --retro <retro-dir>  --out cands.json      # one retro
@@ -53,15 +55,13 @@ python3 "$E" run  <suite-dir> --base-url http://127.0.0.1:30001/v1 --model <m>
    `eval_emit.py`). 5-15 evals per suite is plenty; prefer several small
    themed suites over one grab-bag.
 
-3. **Confirm the batch with the user before emitting** — show the eval
-   ids, work classes, and any redaction calls you made.
+3. **Review the curated batch** for correct checks, scope, and redactions. If the user requested creating local evals, emit the reviewable files directly. Local emission needs no extra confirmation.
 
 4. **Emit.** `eval_emit.py emit spec.json` writes
    `~/.anvil-serving/eval-data/<date>-<work_class>-<suite>/` (suite.json,
    prompts/, provenance.json). It refuses to overwrite unless `--force`.
 
-5. **Run against a serve.** Bring up the tier
-   (`anvil-serving serves up fast`), then
+5. **Run against the requested endpoint and model** when running is in scope. Do not start services or send session content to an unspecified endpoint. After redaction, use
    `eval_emit.py run <suite-dir> --base-url ... --model ... --out
    evidence.json`. Exit 0 = all passed, 2 = some failed. Report the
    pass rate per work class and what it suggests for the quality profile
@@ -69,7 +69,7 @@ python3 "$E" run  <suite-dir> --base-url http://127.0.0.1:30001/v1 --model <m>
 
 ## Notes
 
-- **Privacy:** reads only local logs (`~/.claude`, `~/.codex`,
+- **Privacy:** mining reads local logs; running sends curated prompts and tool definitions to the selected endpoint. Redaction flags are indicators, not automatic removal or a completeness guarantee. Mining reads only local logs (`~/.claude`, `~/.codex`,
   `~/.cursor`, OpenClaw via `\\wsl$`); writes only candidates/spec/
   evidence files locally. Session text must be redacted at curation time.
 - **OpenClaw:** sessions live inside its WSL distro
@@ -79,5 +79,6 @@ python3 "$E" run  <suite-dir> --base-url http://127.0.0.1:30001/v1 --model <m>
 - **Formats drift.** Parsers are tolerant; if a source yields zero
   candidates from a session you know has tool calls, flag it — don't
   shrug (the schema probably moved).
-- See README.md for the spec schema, check semantics, and the
+- Existing candidate/evidence files require `--overwrite`; existing suites require `--force`. Use distinct output paths from the input sessions/spec.
+- See [README](../../README.md) for the spec schema, check semantics, and the
   anvil-serving integration story (`--suite-file` upstream plan).

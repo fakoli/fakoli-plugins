@@ -9,6 +9,7 @@ import sys
 
 HERE = os.path.dirname(__file__)
 SCRIPTS = os.path.join(HERE, "..", "scripts")
+sys.path.insert(0, SCRIPTS)
 
 
 def _load(name):
@@ -509,3 +510,43 @@ def test_evaluate_text_checks_case_insensitive():
         {"name": "d", "contains": "missing"},
     ])
     assert [r["passed"] for r in res] == [True, True, True, False]
+
+
+def test_validation_rejects_malformed_shapes_without_crashing():
+    import copy
+    assert emitter.validate_spec([])
+    for change in ({'evals':[None]}, {'date':'2026-02-30'}, {'suite':42}):
+        assert emitter.validate_spec(make_spec(**change))
+    for field, value in (('checks',[None]),('checks','x'),('expect_tool',[]),('max_tokens',True),('max_tokens',0),('messages',[1]),('prompt',42)):
+        spec=copy.deepcopy(make_spec());spec['evals'][0][field]=value
+        assert emitter.validate_spec(spec), (field,value)
+
+
+def test_failed_force_emit_preserves_previous_suite(tmp_path, monkeypatch):
+    import builtins
+    spec_path=tmp_path/'spec.json';spec_path.write_text(json.dumps(make_spec()))
+    root=tmp_path/'data'
+    assert emitter.main(['emit',str(spec_path),'--root',str(root)])==0
+    suite=next(root.iterdir()); original=(suite/'suite.json').read_bytes()
+    real_open=builtins.open
+    def failing_open(path,*args,**kwargs):
+        if 'prompt_' in str(path): raise OSError('synthetic disk failure')
+        return real_open(path,*args,**kwargs)
+    monkeypatch.setattr(builtins,'open',failing_open)
+    assert emitter.main(['emit',str(spec_path),'--root',str(root),'--force'])==1
+    assert (suite/'suite.json').read_bytes()==original
+
+
+def test_existing_evidence_blocks_before_endpoint_call(tmp_path, monkeypatch):
+    spec_path=tmp_path/'spec.json';spec_path.write_text(json.dumps(make_spec()))
+    out=tmp_path/'evidence.json';out.write_text('original evidence')
+    def forbidden(*args,**kwargs): raise AssertionError('endpoint must not be called')
+    monkeypatch.setattr(emitter,'_post_chat',forbidden)
+    assert emitter.main(['run',str(spec_path),'--base-url','http://unused/v1','--model','test','--out',str(out)])==1
+    assert out.read_text()=='original evidence'
+
+
+def test_candidate_output_cannot_overwrite_a_session(tmp_path):
+    path=tmp_path/'session.jsonl';claude_session(str(path));before=path.read_bytes()
+    assert miner.main(['mine',str(path),'--out',str(path)])==1
+    assert path.read_bytes()==before

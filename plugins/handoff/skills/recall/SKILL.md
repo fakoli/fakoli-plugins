@@ -1,8 +1,11 @@
 ---
 name: recall
 description: Show this project's saved cross-session handoff note (the resume point shared across checkouts of the same git remote and across linked worktrees). Use when the user types /recall, asks "where did we leave off?", "what's the handoff?", "what was I working on?", or "catch me up".
-allowed-tools: Bash, Read
+allowed-tools: Bash Read
 ---
+
+Resolve `PLUGIN_ROOT` from the host-provided `PLUGIN_ROOT` / `CLAUDE_PLUGIN_ROOT`, or from this loaded skill’s directory (`../..`). Use that absolute path for the bundled commands; do not assume the current directory is the install root.
+
 
 # Show the project handoff
 
@@ -14,7 +17,7 @@ checkout of the same git remote, and from every linked worktree of local repos).
 1. Resolve the path:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/handoff-path.sh"
+   bash "${PLUGIN_ROOT}/scripts/handoff-path.sh"
    ```
 
 2. If the file exists and is non-empty, `Read` it and show the user the
@@ -25,7 +28,7 @@ checkout of the same git remote, and from every linked worktree of local repos).
    items:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/handoff-freshness.sh"
+   bash "${PLUGIN_ROOT}/scripts/handoff-freshness.sh"
    ```
 
    Surface every `STALE` line to the user prominently (branch moved, HEAD

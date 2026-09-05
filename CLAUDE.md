@@ -75,7 +75,7 @@ Each plugin in `plugins/<name>/` must have:
 1. `validate.sh` checks: JSON syntax, required fields, semver format, name format, component directories, path resolution, hook safety
 2. `test-path-resolution.sh` performs deep scanning: all component path fields, script existence, `set -e` detection, `cat|grep` anti-patterns, matcher analysis
 3. GitHub Actions runs both scripts on push to `plugins/` or `schemas/`
-4. `update-index.yml` auto-regenerates registry on merge to main
+4. `update-index.yml` verifies committed catalogs without writing or pushing
 
 ### Validation Reference
 
@@ -314,3 +314,7 @@ Reference these official docs for detailed specifications:
 | Plugins Overview | https://code.claude.com/docs/en/plugins |
 | Sub-agents | https://code.claude.com/docs/en/sub-agents |
 | Skills | https://code.claude.com/docs/en/skills |
+
+## Codex and current conventions
+
+See [docs/PLUGIN_CONVENTIONS.md](docs/PLUGIN_CONVENTIONS.md). Active packages also ship `.codex-plugin/plugin.json`; `.agents/plugins/marketplace.json` is generated alongside the Claude catalog. `uv` is required for full YAML/schema validation and isolated tests. `check-all.sh` runs native checks and the combined offline package suite. The dated modernization plan records a parallel-work versioning exception: workers may edit owned versions directly while the root coordinator regenerates and validates all catalogs together.

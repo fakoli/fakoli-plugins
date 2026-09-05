@@ -9,6 +9,9 @@ description: >
   "path adaptation check", or "marketplace readiness review" to use this workflow.
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Marketplace Migration Review
 
 ## When to Use

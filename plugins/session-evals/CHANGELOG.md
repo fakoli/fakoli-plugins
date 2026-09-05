@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0 — 2026-09-05
+
+- Validate malformed specifications and resource bounds before running, stage replacement suites before touching prior evidence, and protect candidate/evidence outputs with explicit replacement.
+- Added native Codex discovery alongside the existing Claude entrypoints and focused offline regressions.
+
 All notable changes to the session-evals plugin.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

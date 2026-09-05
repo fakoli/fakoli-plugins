@@ -1,13 +1,32 @@
 {
   "name": "gate-router",
-  "version": "1.0.0",
-  "description": "Deterministic changed-path gate routing: map changed files to the verify commands this repo requires before shipping, from a per-project rules file.",
+  "version": "1.1.0",
+  "description": "Map changed Git files to local verification commands",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"
   },
   "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT",
-  "keywords": ["verification", "gates", "changed-files"],
-  "skills": "./skills"
+  "keywords": [
+    "verification",
+    "gates",
+    "changed-files",
+    "pre-commit",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Gate Router",
+    "shortDescription": "Map changed Git files to local verification commands",
+    "longDescription": "Map changed Git files to local verification commands. Read NUL-delimited Git paths, reject bad refs and malformed rules, preserve filenames as argv, deduplicate overlapping file sets, and support standard CLI help/errors.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use gate-router for the current request."
+    ]
+  }
 }

@@ -194,3 +194,13 @@ The tier table is published in `bin/src/fakoli_state/planning/llm.py` as `MODEL_
 | `haiku` | `claude-haiku-4-5` | `us.anthropic.claude-haiku-4-5` | File enumeration, regex/glob search, simple validation, mechanical regen. |
 
 See [`docs/model-strategy.md`](model-strategy.md) for the per-agent tier rationale and the 2026 cost figures.
+
+### Provider extras with the packaged launcher
+
+The plugin launcher uses a dedicated external environment. For the OpenAI-compatible provider, set `FAKOLI_STATE_EXTRAS=custom`; for Bedrock use `bedrock`; for both use `all-providers`. The launcher installs the selected locked optional dependencies into `FAKOLI_STATE_ENVIRONMENT` (or its default cache) on that invocation. For example:
+
+```bash
+FAKOLI_STATE_EXTRAS=custom /path/to/plugin/bin/fakoli-state --version
+```
+
+Keep this variable set for later CLI/MCP launches that need that provider. Native Codex MCP forwards `FAKOLI_STATE_EXTRAS` and `FAKOLI_STATE_ENVIRONMENT` when present in the host environment; it can also be configured through the host's MCP environment settings. This selects dependencies only, not credentials or a model. Existing standalone pip installations keep using their own environment.

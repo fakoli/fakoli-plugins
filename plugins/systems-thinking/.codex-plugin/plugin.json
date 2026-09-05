@@ -1,0 +1,32 @@
+{
+  "name": "systems-thinking",
+  "version": "0.4.0",
+  "description": "Extract evidence and evaluate architecture tradeoffs",
+  "author": {
+    "name": "Sekou Doumbouya"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "infrastructure",
+    "architecture",
+    "complexity",
+    "risk-analysis",
+    "decision-support",
+    "vendor-evaluation",
+    "network-engineering"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Systems Thinking",
+    "shortDescription": "Extract evidence and evaluate architecture tradeoffs",
+    "longDescription": "Extract evidence and evaluate architecture tradeoffs.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Review this architecture for hidden risks."
+    ]
+  },
+  "hooks": []
+}

@@ -11,12 +11,24 @@ command so it stays out of the context window. Runs **after** your review /
 verification pass — it never reviews code or decides whether to merge; if CI
 fails it stops and leaves the PR open.
 
+## Authorization and host tools
+
+Run the full command when push, PR creation and merge are within the user's request and review/
+verification have passed. A source-edit or review request alone does not authorize shipping. Use
+`--draft` for an authorized draft-only request. Never add `--admin`, `--no-wait`, or `--then` merely
+for convenience; these change the requested checks or actions. Discover available shell/GitHub tools
+and the installed script path; do not assume Claude-specific environment variables exist in Codex.
+
+CI lookup failures and unknown statuses stop the command. Merge requests are pinned to the pushed
+commit and successful enqueueing is not reported as a completed merge. No local cleanup or post-merge
+command runs before a confirmed merge; an unsynced or subsequently changed local branch is retained.
+
 ## The command
 
-`${CLAUDE_PLUGIN_ROOT}/scripts/ship.sh` — bash + `git` + `gh`, no other deps.
+`../../scripts/ship.sh` (resolved from this skill file) — bash + `git` + `gh`, no other deps.
 
 ```bash
-SHIP="${CLAUDE_PLUGIN_ROOT}/scripts/ship.sh"
+SHIP="<resolved-plugin-root>/scripts/ship.sh"
 "$SHIP" "PR title" --body-file /tmp/pr-body.md          # push → PR → CI → merge → sync
 "$SHIP" "PR title" --then "anvil apply T007 --approve --reviewer me"   # + post-merge step
 "$SHIP" "PR title" --dry-run                            # print the plan, touch nothing
@@ -58,4 +70,5 @@ remotely** but the local base sync was skipped or failed (base branch owned by
 another worktree, checkout error, or non-fast-forward pull) — the PR is merged
 and ship attempts the remote-branch cleanup (warns if that fails); do NOT
 re-run ship, just sync the base locally (`--then` is skipped on exit 5).
-Full reference: see `README.md`.
+Exit `6`: merge requested but not confirmed (possibly queued); local sync and `--then` were skipped.
+Full reference: see [README](../../README.md).

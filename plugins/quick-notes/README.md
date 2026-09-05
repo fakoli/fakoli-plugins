@@ -50,14 +50,15 @@ Backward compatible: a legacy line with no `"op"` key is treated as an `add`.
 ## Design highlights
 
 - **Append-only durability** with `fsync` on every write — survives power loss, not just clean exits.
-- **Concurrency-safe** appends via `fcntl.flock`, degrading gracefully where unavailable.
+- **Serialized appends** using a bounded cross-platform directory lock. Contention waits up to five seconds, then fails without writing. If a process crashes, confirm it stopped before removing the empty `notes.jsonl.lock` directory.
 - **Corrupt-line tolerance** — a malformed line is skipped, never fatal to a read or export.
 - **UTC-normalized timestamps** so search filters and export date-headings always agree.
 
 ## Tests
 
 ```bash
-python3 scripts/test_notes.py    # 24 unittest cases, on a temp log (never your real notes)
+python3 scripts/test_notes.py    # 25 original unittest cases, on a temp log (never your real notes)
+python3 -m unittest discover -s tests
 ```
 
 Covers add/edit/delete folding, legacy compatibility, keyword/tag/date filters, stats, Markdown export (including malformed-timestamp and non-UTC cases), tag-boundary/Unicode extraction, and the `source` field.
@@ -65,3 +66,9 @@ Covers add/edit/delete folding, legacy compatibility, keyword/tag/date filters, 
 ---
 
 Single-user, local-first, no dependencies. Your notes are just a text file you fully own.
+
+## Runtime and validation update
+
+Use a bounded cross-platform writer lock, preserve missing-newline tails, validate stored record shapes, reject stale CLI edits under lock, and prevent exports from replacing the log.
+
+Native Codex loads the bundled `skills/` directory. Claude command names remain available. Resolve the installed plugin root before running the scripts; runtime notes and session evidence belong outside the install directory. No user state is migrated by this update.

@@ -1,0 +1,19 @@
+{
+  "fleet-exec": {
+    "command": "uv",
+    "args": [
+      "run",
+      "--frozen",
+      "--project",
+      ".",
+      "python",
+      "-m",
+      "fleet_exec"
+    ],
+    "env": {
+      "FLEET_EXEC_TIMEOUT": "30",
+      "FLEET_EXEC_MAX_BYTES": "256000"
+    },
+    "cwd": "."
+  }
+}

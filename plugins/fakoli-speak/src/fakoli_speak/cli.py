@@ -20,9 +20,11 @@ def cmd_speak(args: argparse.Namespace) -> None:
         raise TTSError("No text provided. Pipe text in or pass as argument.")
 
     result = tts.speak(text)
+    if result.get("truncated"):
+        print(f"Truncated: spoke {result['characters']} of {result['requested_characters']} characters.", file=sys.stderr)
     print(
         f"Speaking ({result['characters']} chars, "
-        f"${result['cost_usd']:.4f})"
+        f"estimated ${result['cost_usd']:.4f})"
     )
 
 
@@ -74,12 +76,12 @@ def cmd_cost(args: argparse.Namespace) -> None:
         return
 
     s = cost.get_summary()
-    print(f"=== TTS Usage ({s['provider']}) ===")
+    print(f"=== Estimated TTS Usage ({s['provider']}) ===")
     print(f"Today:     {s['today_requests']} requests, "
           f"{s['today_characters']:,} chars, ${s['today_cost_usd']:.4f}")
     print(f"All time:  {s['total_requests']} requests, "
           f"{s['total_characters']:,} chars, ${s['total_cost_usd']:.4f}")
-    print(f"Rate:      ${s['cost_per_1k_chars']:.2f} per 1K characters")
+    print(f"Estimated rate:      ${s['cost_per_1k_chars']:.2f} per 1K characters")
 
 
 def cmd_provider(args: argparse.Namespace) -> None:
@@ -90,7 +92,7 @@ def cmd_provider(args: argparse.Namespace) -> None:
         print(f"Voice: {provider.get_voice_id()}")
         print(f"Model: {provider.get_model_id()}")
         rate = provider.get_default_cost_rate()
-        print(f"Rate: ${rate.cost_per_1k_chars:.4f}/1K chars")
+        print(f"Estimated rate: ${rate.cost_per_1k_chars:.4f}/1K chars")
         print(f"\nTo persist: add FAKOLI_SPEAK_PROVIDER={provider.name} to ~/.env")
     else:
         current = registry.get_provider()
@@ -98,7 +100,7 @@ def cmd_provider(args: argparse.Namespace) -> None:
         print(f"Active:    {current.display_name} ({current.name})")
         print(f"Available: {', '.join(all_names)}")
         rate = current.get_default_cost_rate()
-        print(f"Rate:      ${rate.cost_per_1k_chars:.4f}/1K chars")
+        print(f"Estimated rate:      ${rate.cost_per_1k_chars:.4f}/1K chars")
         print(f"\nSet FAKOLI_SPEAK_PROVIDER in ~/.env to switch.")
 
 
@@ -134,7 +136,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         prog="fakoli-speak",
-        description="Multi-provider TTS for Claude Code",
+        description="Multi-provider TTS for Codex and Claude Code",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -163,7 +165,7 @@ def main() -> None:
     p_cost.set_defaults(func=cmd_cost)
 
     # provider
-    p_provider = sub.add_parser("provider", help="Show or switch TTS provider")
+    p_provider = sub.add_parser("provider", help="Inspect TTS provider configuration")
     p_provider.add_argument("name", nargs="?", help="Provider name")
     p_provider.set_defaults(func=cmd_provider)
 
@@ -183,7 +185,7 @@ def main() -> None:
 
     try:
         args.func(args)
-    except TTSError as e:
+    except (TTSError, KeyError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 

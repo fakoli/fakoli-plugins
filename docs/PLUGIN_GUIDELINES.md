@@ -1,5 +1,8 @@
 # Plugin Development Guidelines
 
+For current Codex/Claude packaging, source paths, validation and maintenance commands, see [Plugin conventions](PLUGIN_CONVENTIONS.md). Native manifests and the `.agents/plugins/marketplace.json` catalog are required for this repository's active packages alongside Claude metadata.
+
+
 Best practices for creating high-quality Claude Code plugins.
 
 ## Plugin Quality Standards

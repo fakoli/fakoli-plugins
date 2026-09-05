@@ -1,6 +1,7 @@
 """Cost tracking for multi-provider TTS usage."""
 
 import json
+import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -153,13 +154,15 @@ def get_summary() -> dict:
         "today_cost_usd": round(today_cost, 4),
         "today_requests": today_reqs,
         "cost_per_1k_chars": round(
-            log.get("cost_per_char", DEFAULT_COST_PER_CHAR) * 1000, 4
+            _get_cost_per_char(provider_name) * 1000, 4
         ),
     }
 
 
 def set_cost_rate(cost_per_1k_chars: float, provider: str | None = None) -> None:
     """Update the cost-per-character rate for *provider* (defaults to active provider)."""
+    if not math.isfinite(cost_per_1k_chars) or cost_per_1k_chars < 0:
+        raise ValueError("Cost rate must be finite and nonnegative")
     if provider is None:
         from . import registry  # noqa: PLC0415
         provider = registry.get_provider().name

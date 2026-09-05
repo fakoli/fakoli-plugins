@@ -1,0 +1,36 @@
+{
+  "name": "nano-banana-pro",
+  "version": "1.4.0",
+  "description": "Generate, edit, remix, and optimize images with Google Gemini and a portable local CLI",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "image-generation",
+    "ai-images",
+    "gemini",
+    "design",
+    "creative",
+    "image-optimization"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Nano Banana Pro",
+    "shortDescription": "Generate and edit Gemini images; optimize local assets",
+    "longDescription": "Create, edit, and remix images using Gemini Pro or Flash, then optimize local images for web and sharing constraints. Includes portable scripts, configurable models, and optional Claude agent roles.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Design",
+    "capabilities": [
+      "Write"
+    ],
+    "websiteURL": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/nano-banana-pro",
+    "defaultPrompt": [
+      "Create a Gemini image from my description.",
+      "Edit an image with Nano Banana Pro.",
+      "Optimize a local image for a GitHub README."
+    ]
+  }
+}

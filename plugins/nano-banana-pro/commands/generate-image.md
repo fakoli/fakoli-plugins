@@ -1,57 +1,15 @@
 ---
-name: generate-image
-description: Generate an image from a text prompt using Gemini 3 Pro
-argument-hint: <prompt> [--aspect ratio] [--size tier] [--out path]
+description: Generate an image using Nano Banana Pro and the configured Gemini model
+argument-hint: '"prompt" [--model pro|flash|MODEL_ID] [--aspect 16:9] [--size 2K] [--out path.png]'
 ---
 
-# Generate Image Command
+Generate the image requested in `$ARGUMENTS`. Use [the generate skill](../skills/generate/SKILL.md) and [README](../README.md) for configuration and supported options.
 
-Generate an image from a text prompt using Google's Gemini 3 Pro Image Preview model.
-
-## Prerequisites
-
-- GEMINI_API_KEY configured (see [Configuration](../README.md#configuration))
-- Python 3.10+ installed
-- `uv` package manager installed
-
-## Execution
+Run directly from the user's project directory; preserve the user's prompt and model choice. Resolve arguments with proper shell quoting rather than evaluating their text as shell syntax.
 
 ```bash
-uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
-  --prompt "<prompt>" \
-  [--aspect "16:9"] \
-  [--size "2K"] \
-  [--out "./output.png"]
+uv run --script "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
+  --prompt "<prompt>" --out "./image.png"
 ```
 
-## Examples
-
-### Basic generation
-
-```bash
-uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
-  --prompt "A serene mountain landscape at sunset with golden light"
-```
-
-### Hero banner with specific dimensions
-
-```bash
-uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
-  --prompt "Hero banner for a SaaS product. Bold headline 'Ship Faster' on left, abstract tech illustration on right. Clean, modern, blue gradient background." \
-  --aspect "16:9" \
-  --size "2K" \
-  --out "./hero-banner.png"
-```
-
-### Social media avatar
-
-```bash
-uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" gen \
-  --prompt "Professional avatar icon, geometric abstract face, purple and teal gradient" \
-  --aspect "1:1" \
-  --size "1K"
-```
-
-## Output
-
-The command prints the output file path on success. Default location: `./.nanobanana/out/nanobanana-<timestamp>.png`
+Map requested flags to the CLI. Use defaults for unspecified options. Inspect and display the resulting image. Stop after one generation unless revisions were requested or an iteration budget was agreed; do not launch a mandatory agent pipeline.

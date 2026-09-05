@@ -1,0 +1,37 @@
+{
+  "name": "quick-notes",
+  "version": "1.1.0",
+  "description": "Capture, search, edit, and export private personal notes",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "notes",
+    "note-taking",
+    "dictation",
+    "productivity",
+    "jsonl",
+    "append-only",
+    "event-sourced",
+    "tags",
+    "markdown-export"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Quick Notes",
+    "shortDescription": "Capture, search, edit, and export private personal notes",
+    "longDescription": "Capture, search, edit, and export private personal notes. Use a bounded cross-platform writer lock, preserve missing-newline tails, validate stored record shapes, reject stale CLI edits under lock, and prevent exports from replacing the log.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use quick-notes for the current request."
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "marketplace-manager",
+  "version": "2.0.0",
+  "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "marketplace",
+    "plugin-management",
+    "registry",
+    "validation"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Marketplace Manager",
+    "shortDescription": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+    "longDescription": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
+    "developerName": "Sekou Doumbouya",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Validate this marketplace and report stale catalogs."
+    ]
+  }
+}

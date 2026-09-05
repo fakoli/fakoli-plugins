@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fleet-exec"
-version = "1.0.0"
+version = "1.0.1"
 description = "Structured remote-execution MCP server over SSH — stdlib only"
 requires-python = ">=3.10"
 dependencies = []

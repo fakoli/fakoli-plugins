@@ -1,0 +1,4 @@
+interface:
+  display_name: "K8s Sidecar Testing"
+  short_description: "Verify nat464 paths in an explicit test namespace"
+  default_prompt: "Use $k8s-sidecar-testing to validate nat464 translation in my test namespace."

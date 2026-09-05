@@ -152,3 +152,27 @@ class TestNormalFetch:
         body, _ctype, final = await _fetch_pinned(_START, transport=_transport(handler))
         assert body == b"done"
         assert final.endswith("/final")
+
+class TestModernizedNetworkBoundary:
+    async def test_environment_proxy_does_not_replace_pinned_transport(self, monkeypatch):
+        monkeypatch.setenv('HTTP_PROXY', 'http://127.0.0.1:1')
+        monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
+        monkeypatch.setenv('NO_PROXY', '')
+        seen = []
+        def handler(request):
+            seen.append(str(request.url))
+            return httpx.Response(200, content=b'controlled')
+        body, _, _ = await _fetch_pinned(_START, transport=httpx.MockTransport(handler))
+        assert body == b'controlled'
+        assert len(seen) == 1
+
+    async def test_ipv6_literal_host_header_is_bracketed(self):
+        def handler(request):
+            assert request.headers['Host'] == '[2606:4700:4700::1111]:8080'
+            return httpx.Response(200, content=b'ok')
+        await _fetch_pinned('http://[2606:4700:4700::1111]:8080/', transport=httpx.MockTransport(handler))
+
+    @pytest.mark.parametrize('url', ['http://[broken/', 'http://user:password@93.184.216.34/',
+                                      'http://100.64.0.1/', 'http://93.184.216.34/\ntext'])
+    async def test_malformed_or_nonpublic_url_is_reported_as_blocked(self, url):
+        assert (await server.fetch(url)).startswith('[BLOCKED]')

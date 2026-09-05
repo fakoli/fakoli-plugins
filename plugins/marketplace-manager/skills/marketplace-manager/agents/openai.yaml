@@ -1,0 +1,4 @@
+interface:
+  display_name: "Marketplace Manager"
+  short_description: "Validate and maintain source plugin marketplaces."
+  default_prompt: "Use $marketplace-manager to validate this source marketplace."

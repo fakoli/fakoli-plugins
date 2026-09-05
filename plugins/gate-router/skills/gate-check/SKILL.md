@@ -1,8 +1,10 @@
 ---
 name: gate-check
 description: Route changed file paths to the verify commands this repo requires before shipping — docs changed means docs strict build, shell changed means bash -n, CLI changed means the encoding smoke test. Use before committing/opening a PR, when the user asks "what checks do I need to run", "run the gates", "gate check", or after substantive edits in a repo with a .claude/gate-router.local.md rules file. Deterministic local gates instead of session memory; also helps AUTHOR the rules file for a new repo.
-user-invocable: true
 ---
+
+Resolve `PLUGIN_ROOT` from the host-provided `PLUGIN_ROOT` / `CLAUDE_PLUGIN_ROOT`, or from this loaded skill’s directory (`../..`). Use that absolute path for the bundled commands; do not assume the current directory is the install root.
+
 
 # Gate Check
 
@@ -13,13 +15,13 @@ marketplace's plugin-settings pattern).
 ## Check the current diff
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/gate-router.sh" --list       # what's required
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/gate-router.sh" --run        # run them, stop on failure
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/gate-router.sh" --list --json
+bash "${PLUGIN_ROOT}/scripts/gate-router.sh" --list       # what's required
+bash "${PLUGIN_ROOT}/scripts/gate-router.sh" --run        # run them, stop on failure
+bash "${PLUGIN_ROOT}/scripts/gate-router.sh" --list --json
 ```
 
 - Default diff base is `origin/main` (fall back `HEAD`); override with
-  `--base <ref>`. The changed set is committed-vs-base + staged + unstaged —
+  `--base <ref>`. The changed set is committed-vs-base + staged + unstaged + untracked —
   the full "about to ship" surface.
 - `--run` executes gates in rule order and stops at the first failure with
   its exit code — report that failure to the user verbatim, fix, re-run.
@@ -34,7 +36,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/gate-router.sh" --list --json
 ---
 rules:
   - docs/** => mkdocs build --strict
-  - "**/*.sh" => bash -n {files}
+  - "**/*.sh" => for file in {files}; do test ! -f "$file" || bash -n "$file" || exit; done
   - bin/src/** => cd bin && uv run pytest -q
   - plugins/** => bash scripts/validate.sh
 ---
@@ -43,7 +45,7 @@ Notes for humans below the fence (ignored by the router).
 
 - `**` crosses directories; a leading `**/` also matches paths at the root.
 - `{files}` passes the matched files to the command as separate arguments
-  (safe for names with spaces/metacharacters) — use it for linters; omit it
+  (safe for spaces, Unicode, tabs, and newlines). Keep `{files}` standalone and unquoted; the router adds quoting. Use it for linters; omit it
   for suite commands that don't take a file list.
 - Duplicate commands from overlapping rules run once. Order = rule order.
 - Derive rules from the repo's own history: CI workflow steps, CLAUDE.md

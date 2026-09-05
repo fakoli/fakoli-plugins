@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.0] - 2026-09-05
+
+Add native Codex discovery, stable scene IDs, strict skeleton validation, preserved scene data, frame sizing, and CLI regression tests.
+
+
 ## [1.0.2] - 2026-06-26
 
 ### Fixed

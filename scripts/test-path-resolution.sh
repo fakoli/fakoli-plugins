@@ -242,10 +242,14 @@ _scan_hook_entry() {
             log_ok "$event command hook has timeout: ${timeout}s"
         fi
 
-        # Resolve script path
-        if [[ "$command_str" =~ \$\{CLAUDE_PLUGIN_ROOT\}/(.*) ]]; then
-            local relative="${BASH_REMATCH[1]}"
-            relative="${relative%% *}"
+        # Parse argv without shell evaluation; quotes are not part of filenames.
+        local paths_json
+        if ! paths_json="$(python3 "$SCRIPT_DIR/hook_paths.py" "$command_str")"; then
+            log_error "Malformed hook command quoting"
+            return
+        fi
+        local relative
+        while IFS= read -r -d '' relative; do
             local script_path="$plugin_dir/$relative"
 
             if [[ -f "$script_path" ]]; then
@@ -265,7 +269,7 @@ _scan_hook_entry() {
             else
                 log_error "Script not found: $relative (expected at $script_path)"
             fi
-        fi
+        done < <(printf '%s' "$paths_json" | jq -j '.[] | ., "\u0000"')
     fi
 }
 

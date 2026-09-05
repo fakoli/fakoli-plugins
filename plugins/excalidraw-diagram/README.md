@@ -1,90 +1,18 @@
-# Excalidraw Diagram Plugin for Claude Code
+# Excalidraw Diagram
 
-Generate and modify Excalidraw diagrams from natural language descriptions and code analysis, directly from your Claude Code terminal session.
+Create editable `.excalidraw` scenes with a zero-dependency Node.js 18+ converter. Install this plugin through either the Codex or Claude marketplace in the repository README, then describe the diagram or provide an existing scene.
 
-## Features
-
-- **Natural language to diagram**: Describe what you want, get a `.excalidraw` file
-- **Code-aware**: Analyzes your codebase to generate architecture diagrams
-- **Modification support**: Add/remove elements from existing diagrams
-- **Multiple layouts**: Grid, top-down tree, left-right flow
-- **Color themes**: Default, blueprint, warm, monochrome
-- **Zero dependencies**: Only requires Node.js >= 18
-
-## Quick Start
-
-```
-/excalidraw Create a flowchart of user registration with email verification
+```sh
+node scripts/convert.js skeleton.json diagram.excalidraw
+node scripts/convert.js --stdin diagram.excalidraw < skeleton.json
+node scripts/convert.js --modify existing.excalidraw additions.json updated.excalidraw
+node --test tests/convert.test.js
 ```
 
-```
-/excalidraw Diagram the architecture of this project
-```
+Run those commands from this plugin directory or use absolute script paths. The converter prints a JSON result and exits nonzero on invalid input. It writes atomically, including in-place edits.
 
-```
-/excalidraw Add a Redis cache between the API and database in ./architecture.excalidraw
-```
+Skeleton IDs remain stable in output, so subsequent additions can connect to existing shapes by name. The modify operation supports additions with new IDs and a `remove` list. It preserves embedded images, extra scene fields, and app state; removing a frame detaches its children. Read older files to obtain their generated IDs.
 
-## How It Works
+Shapes, labeled arrows, lines, text and frames are supported. Frame bounds are computed from children, and explicit coordinates are preserved. Elbowed arrows are not supported. Text dimensions are approximate: import into an Excalidraw editor to verify complex or long-label layouts.
 
-1. You describe the diagram you want (or reference code to analyze)
-2. The diagram-architect agent generates a compact skeleton JSON
-3. A Node.js converter script expands it into a valid `.excalidraw` file
-4. The file is saved and you can open it in excalidraw.com or any compatible editor
-
-## Supported Diagram Types
-
-| Type | Layout | Use Case |
-|------|--------|----------|
-| Architecture | `grid` or `left-right` | System overviews, microservices |
-| Flowchart | `top-down` | Processes, decision trees |
-| Data Flow | `left-right` | Request pipelines, data processing |
-| ER Diagram | `grid` | Database relationships |
-| Dependency Graph | `top-down` | Package/module dependencies |
-
-## Supported Elements
-
-- **Shapes**: rectangle, diamond, ellipse
-- **Connectors**: arrow (with labels, styles, arrowheads), line
-- **Text**: standalone text elements
-- **Frames**: named groups that visually contain other elements
-
-## Color Themes
-
-| Theme | Description |
-|-------|-------------|
-| `default` | Colorful fills with matching strokes on white background |
-| `blueprint` | Light strokes on dark blue background, no fills |
-| `warm` | Warm-toned backgrounds on white |
-| `monochrome` | All gray tones |
-
-## Requirements
-
-- Claude Code
-- Node.js >= 18
-
-## File Structure
-
-```
-.claude-plugin/
-  plugin.json          # Plugin manifest
-agents/
-  diagram-architect.md # Isolated agent for diagram generation
-commands/
-  excalidraw.md        # /excalidraw slash command
-skills/
-  excalidraw/
-    SKILL.md           # Skill definition with workflow instructions
-    references/
-      format-reference.md  # Excalidraw JSON format reference
-scripts/
-  convert.js           # Zero-dep Node.js skeleton-to-excalidraw converter
-```
-
-## License
-
-MIT
-
-## Author
-
-Sekou Doumbouya ([@fakoli](https://github.com/fakoli))
+See [the skill](skills/excalidraw/SKILL.md) and [format reference](skills/excalidraw/references/format-reference.md). Browser previews use normal file import or the documented Excalidraw API, never internal React structures.

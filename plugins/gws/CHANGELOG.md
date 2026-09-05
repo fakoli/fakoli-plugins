@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.2] - 2026-09-05
+
+- Add/refresh native Codex manifest and UI metadata while retaining Claude support.
+- Repair shared shell quoting, scoped auth/account setup, NDJSON pagination and runtime schema conventions instead of rewriting service recipes.
+- Remove blanket repeat approvals, absolute-path bans, and claims that sanitizer/logging/auth availability guarantee safety or readiness.
+- Correct legacy validator requiring unsupported skill version fields; validate all 100 skills and run shell argument fixtures.
+
+
 ## [0.4.1] - 2026-06-26
 
 ### Fixed

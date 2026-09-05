@@ -1,10 +1,32 @@
 {
   "name": "recall-mode-verifier",
-  "version": "1.0.0",
-  "description": "Generate spec-independent breakage probes for a change along fail-closed, malformed-input, resource-exhaustion, and state-drift axes.",
-  "author": { "name": "Sekou Doumbouya", "url": "https://github.com/fakoli" },
+  "version": "1.1.0",
+  "description": "Review changes for concrete failure modes and evidence",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
   "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT",
-  "keywords": ["verification", "adversarial-review", "anvil"],
-  "skills": "./skills"
+  "keywords": [
+    "verification",
+    "adversarial-review",
+    "red-team",
+    "testing",
+    "anvil"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Recall Mode Verifier",
+    "shortDescription": "Review changes for concrete failure modes and evidence",
+    "longDescription": "Review changes for concrete failure modes and evidence. Review the actual requested base and working-tree scope, distinguish reproduced failures from code-supported risks, use isolated probes, and preserve existing authorization to fix defects.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use recall-mode-verifier for the current request."
+    ]
+  }
 }

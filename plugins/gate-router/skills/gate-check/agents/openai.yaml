@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gate Check"
+  short_description: "Map changed Git files to local verification commands"
+  default_prompt: "Use $gate-check for the current task."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fleet Exec"
+  short_description: "Run structured SSH commands and transfer small files"
+  default_prompt: "Use $fleet-exec to inspect the selected remote host."

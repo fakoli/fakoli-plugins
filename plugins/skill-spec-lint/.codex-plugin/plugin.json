@@ -1,0 +1,33 @@
+{
+  "name": "skill-spec-lint",
+  "version": "1.1.0",
+  "description": "Validate skill YAML, field types, names, and placement",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "validation",
+    "lint",
+    "agent-skills",
+    "spec",
+    "frontmatter"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Skill Spec Lint",
+    "shortDescription": "Validate skill YAML, field types, names, and placement",
+    "longDescription": "Validate skill YAML, field types, names, and placement. Require isolated PyYAML parsing, reject duplicate keys and wrong field types, support --help and direct SKILL.md inputs, deduplicate roots, and separate length guidance from schema errors.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use skill-spec-lint for the current request."
+    ]
+  }
+}

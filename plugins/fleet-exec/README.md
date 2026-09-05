@@ -1,99 +1,45 @@
 # fleet-exec
 
-Structured remote-execution MCP server for Claude Code. Replaces hand-quoted
-`ssh host "..."` one-liners with four typed tools that never raise on a
-remote-side failure and refuse secret-shaped or credential-file requests
-before anything is read or sent.
+Structured SSH execution for Codex and Claude Code. Four MCP tools run a list of arguments, read bounded text, write a small file, or inspect host facts. The remote Python wrapper preserves argument boundaries across POSIX and Windows shells.
 
-## Why
+## Requirements and launch
 
-A bare `ssh host "some command"` Bash call looks fine until the remote host
-is Windows: `cmd.exe` re-splits the ssh-joined command line, so any argv
-element with a space silently breaks, and a multi-line payload breaks
-always. fleet-exec fixes this by shipping every operation as a small Python
-script, base64-encoded into one shell-inert token, executed via
-`ssh host <launcher> -c <payload>` — the remote shell never sees anything it
-could misparse.
+Install through the repository marketplace for your runtime. The local machine needs `uv`, Python 3.10+, and `ssh`; remote hosts need Python 3. Configure SSH authentication and host aliases in the user's SSH configuration.
 
-## Features
+The native manifest loads `.codex-plugin/mcp.json`, whose `cwd: "."` resolves to the installed plugin root and launches `uv run --frozen --project . python -m fleet_exec`. Claude uses `.mcp.json` and its `${CLAUDE_PLUGIN_ROOT}` expansion. The launchers use the bundled lockfile. Package setup may download a Python interpreter/build tooling; the server has no runtime Python dependencies.
 
-### MCP Tools
+Native relative working-directory behavior is implemented by the [Codex MCP parser](https://github.com/openai/codex/blob/main/codex-rs/codex-mcp/src/plugin_config.rs). Native argument strings do not rely on the hook-only root variable convention.
+
+## Tools and results
 
 | Tool | Purpose |
-|------|---------|
-| `run_on_host(host, argv, timeout_s=30)` | Run a list-argv command on a host. |
-| `fetch_text(host, path, max_bytes=256000)` | Read a remote text file, truncated. |
-| `push_file(host, local_path, remote_path)` | Write a local file to a host. |
-| `host_facts(host)` | OS family, python launcher, home dir. |
+|---|---|
+| `run_on_host(host, argv, timeout_s=30)` | Execute a nonempty list of string arguments. |
+| `fetch_text(host, path, max_bytes=256000)` | Read remote UTF-8 text with replacement for invalid bytes. |
+| `push_file(host, local_path, remote_path)` | Replace the destination with a local file of at most 16,000 bytes. |
+| `host_facts(host)` | Read OS, Python launcher, and home information. |
 
-### The four states
+A completed remote command returns `state: "ok"` and its actual `rc`; a nonzero exit code is still an operation failure. Transport states are `unreachable`, `not-installed`, and `timeout`. The local deadline includes five seconds of grace for the remote timeout response. Multiple launcher attempts can extend total wall time. A timeout does not prove that all remote descendants stopped or that a write had no effect.
 
-Every tool call returns a row instead of raising: `state` is one of `ok`
-(the command ran — including a nonzero remote exit code), `unreachable`
-(ssh/transport failure), `not-installed` (no python launcher on the remote),
-or `timeout` (the local ssh call exceeded `timeout_s`). See
-`skills/fleet-exec/SKILL.md` for the full contract.
-
-### Refusals
-
-A `host` that is not a plain ssh alias (ssh reads a leading-dash positional
-as an option, and `-oProxyCommand=<cmd>` would run `<cmd>` locally),
-`run_on_host` with a string instead of a list argv, any argv element that
-looks like it carries a secret (`token`/`password`/`secret`/`apikey`,
-`key=`, or a 40+ char base64-ish run), and `fetch_text`/`push_file` on
-`.env*`/`id_rsa*`/`*.pem`/`credentials` paths are all refused before any
-read or transmission — returned as an MCP error result, never mistaken for
-a host condition. `push_file` also refuses a local file over 16 000 bytes:
-the payload ships as one base64 ssh argv element, and past the OS
-argument-length cap ssh fails with an error that names neither the file nor
-the limit.
-
-## Installation
-
-Add the `fakoli-plugins` marketplace and install `fleet-exec`, or reference
-it directly in your `.mcp.json`. The server launches via `uv run --directory
-${CLAUDE_PLUGIN_ROOT} python -m fleet_exec` — `uv` resolves a deterministic
-interpreter, sidestepping the same local `python`/`python3` launcher
-divergence this plugin fixes on the remote side. No dependency is
-installed; the project has none (stdlib only, hand-rolled MCP stdio
-protocol).
+Malformed calls return errors before SSH starts. The server also rejects string commands, malformed argument elements, option-shaped hosts, secret-shaped arguments, sensitive file basenames, and oversized uploads. These are heuristics, not comprehensive secret detection. Hosts can be aliases, simple hostnames, IPv4 addresses, or `user@host`; alias-only enforcement is not claimed. See the [skill](skills/fleet-exec/SKILL.md) for the full operating contract.
 
 ## Configuration
 
-`.mcp.json` sets two env vars, both overridable per tool call:
-
 | Variable | Default | Meaning |
-|----------|---------|---------|
-| `FLEET_EXEC_TIMEOUT` | `30` | Default `timeout_s` for `run_on_host` (clamped to 600). |
-| `FLEET_EXEC_MAX_BYTES` | `256000` | Default `max_bytes` for `fetch_text` (clamped to 1 000 000). |
+|---|---|---|
+| `FLEET_EXEC_TIMEOUT` | `30` | Default command timeout; MCP tool values are clamped to 600 seconds. |
+| `FLEET_EXEC_MAX_BYTES` | `256000` | Default text read limit; MCP tool values are clamped to 1,000,000 bytes. |
 
-Hosts are resolved through the caller's `~/.ssh/config` — see
-`config/fleet.example.toml` for the placeholder shape. fleet-exec never
-reads real hostnames, IPs, or credentials from its own config; it only
-takes the SSH alias you'd otherwise pass to `ssh`.
+Edit the appropriate runtime MCP configuration or pass explicit tool parameters. The example in `config/fleet.example.toml` documents host naming; the server does not load a fleet inventory.
 
-## Migration
+## Verification
 
-Remote execution in agent sessions now goes through the fleet-exec MCP
-tools (`run_on_host`, `fetch_text`, `push_file`, `host_facts`), not raw
-`ssh host "..."` calls via Bash. That pattern — a shell-quoted command
-string handed to Bash's `ssh` — is retired as the default remote-exec path;
-it's fallback-only now, for diagnosing fleet-exec itself when a tool call
-reports `unreachable` and you need to rule out a local ssh/config problem.
-
-This is a session-tool change, not a product-surface change: anvil-serving's
-own `fleet version` and `fleet drift` CLI verbs are a separate product
-surface and are unaffected — they keep working exactly as before.
-
-## Development
+From the repository root:
 
 ```bash
-uv run --directory plugins/fleet-exec --extra dev pytest tests -q
+uv run --project plugins/fleet-exec --extra dev pytest plugins/fleet-exec/tests -q
 ```
 
-Tests fake the `subprocess.run` boundary (`fleet_exec.transport._run`) — no
-real ssh or network calls.
+Tests fake SSH and cover quoting, refusals, transport failures, timeouts, missing remote commands, malformed wrapper output, and recoverable JSON-RPC input errors. They do not contact a host. The stdio protocol follows [MCP JSON-RPC conventions](https://modelcontextprotocol.io/specification/2025-06-18/basic).
 
-## License
-
-MIT
+MIT licensed.

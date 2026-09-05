@@ -2,7 +2,7 @@
 
 # Fakoli Style — Operating-Model Principles
 
-This ledger is the governed record of the Fakoli Style operating model. Each principle declares the failure it prevents and an honest lifecycle status: **proven** (machine-verified), **asserted** (claimed with a pointer, not yet machine-verified), or **aspirational** (not yet built).
+This ledger is the governed record of the Fakoli Style operating model. Each principle declares the failure it prevents and an honest lifecycle status: **proven** (evidence-backed claim), **asserted** (claimed with a pointer, not yet machine-verified), or **aspirational** (not yet built).
 
 Entries are ordered most load-bearing yet least-proven first — by credibility risk, then by status — so the claims that would most damage the project if false are confronted before the easy wins.
 

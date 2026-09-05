@@ -1,7 +1,7 @@
 # fakoli-flow
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.3.6-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](.claude-plugin/plugin.json)
 
 Intent-driven workflow orchestration for specialist agent teams.
 
@@ -228,3 +228,11 @@ Sekou Doumbouya — [github.com/fakoli](https://github.com/fakoli)
 ## License
 
 MIT — see [LICENSE](LICENSE)
+
+
+## Codex support (2026-09-05)
+
+This release includes `.codex-plugin/plugin.json` and native skills. Use the installed skills from
+a fresh Codex task; no custom agent types or model aliases are assumed. Read [native runtime behavior](references/codex-runtime.md) for role routing, evidence and limitations.
+The native manifest disables legacy transcript hooks; its skills apply review/coverage gates
+explicitly. Claude packaging retains its existing hooks. Hook execution/trust is not claimed for Codex.

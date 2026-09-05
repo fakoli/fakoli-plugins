@@ -6,7 +6,7 @@ allowed-tools: Bash
 Run this command to check TTS status:
 
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT} && uv run fakoli-speak status
+uv run --frozen --directory "${CLAUDE_PLUGIN_ROOT}" fakoli-speak status
 ```
 
 Show the output to the user.

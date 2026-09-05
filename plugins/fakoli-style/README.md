@@ -98,3 +98,7 @@ The document includes the ordering rule: entries are sorted most load-bearing ye
 
 Author: Sekou Doumbouya  
 License: MIT
+
+## Installed use and evidence scope
+
+Version 1.3 adds `validate.py --repo-root SOURCE_CHECKOUT --data LEDGER --doc REPORT` and `generate.py --data LEDGER --output REPORT [--check]`. Packaged scripts can operate on a durable source checkout without guessing its location from the install cache. Use an explicit destination when generating a custom ledger; writes replace the report atomically. Proof and embodiment paths stay inside the chosen checkout. Nested Python proof symbols are checked with AST structure, so a comment or a method in the wrong class cannot satisfy a pointer. Pointer validation does not run tests or certify their result.

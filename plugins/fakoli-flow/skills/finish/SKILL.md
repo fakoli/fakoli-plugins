@@ -3,6 +3,9 @@ name: finish
 description: Ship phase — merge, PR, keep, or discard with pre-merge verification
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Finish (`/fakoli-flow:finish`)
 
 ## Overview

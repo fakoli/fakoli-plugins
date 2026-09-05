@@ -38,7 +38,7 @@ log = logging.getLogger("safe-fetch")
 
 mcp = FastMCP(
     "safe-fetch",
-    instructions="Sanitizing web fetch — strips prompt injection vectors before content reaches the LLM.",
+    instructions="Sanitizing web fetch — reduces common injection vectors; returned content remains untrusted.",
 )
 
 _rate_limiter = RateLimiter()
@@ -98,6 +98,7 @@ async def _fetch_pinned(
         follow_redirects=False,
         timeout=_TIMEOUT,
         transport=transport,
+        trust_env=False,  # An environment proxy would bypass the validated-IP connection.
     )
     try:
         # current_url is always hostname-based (for policy checks + relative-redirect joins).
@@ -109,7 +110,8 @@ async def _fetch_pinned(
             # Host header must carry the port for non-default ports (RFC 7230 §5.4);
             # `.hostname` strips it. SNI is hostname-only (no port), so keep `host`
             # for the sni_hostname extension and the certificate-verification name.
-            host_header = f"{host}:{parsed_hop.port}" if parsed_hop.port else host
+            header_host = f"[{host}]" if ":" in host else host
+            host_header = f"{header_host}:{parsed_hop.port}" if parsed_hop.port else header_host
             request_url = _pin_to_ip(normalized, pinned_ip)
             headers = {"User-Agent": _USER_AGENT, "Host": host_header}
 
@@ -158,7 +160,7 @@ async def fetch(url: str, prompt: str = "", max_tokens: int = 0) -> str:
 
     Args:
         url: The URL to fetch (http/https only)
-        prompt: Optional — focus extraction on this topic (e.g. "extract the API reference section")
+        prompt: Optional extraction-focus annotation; does not filter or query page content
         max_tokens: Optional — truncate output to approximately this many tokens (0 = no limit)
     """
     # Layer 1: URL validation

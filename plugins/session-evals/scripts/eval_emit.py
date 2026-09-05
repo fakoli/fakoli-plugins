@@ -53,6 +53,8 @@ import re
 import shutil
 import sys
 import time
+import tempfile
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -74,16 +76,23 @@ WORK_CLASSES = (
 def validate_spec(spec):
     """Return a list of problems; empty list means the spec is emittable."""
     problems = []
+    if not isinstance(spec, dict):
+        return ["spec must be an object"]
     suite = spec.get("suite") or ""
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", suite):
+    if not isinstance(suite, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", suite):
         problems.append("suite must be kebab-case, got %r" % suite)
     wc = spec.get("work_class")
     if wc not in WORK_CLASSES:
         problems.append("work_class %r not in %s" % (wc, list(WORK_CLASSES)))
     date = spec.get("date")
-    if date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
-        problems.append("date must be YYYY-MM-DD, got %r" % date)
-    if wc in WORK_CLASSES and suite:
+    if date is not None:
+        try:
+            if not isinstance(date, str) or len(date) != 10:
+                raise ValueError()
+            datetime.date.fromisoformat(date)
+        except ValueError:
+            problems.append("date must be a valid YYYY-MM-DD calendar date")
+    if wc in WORK_CLASSES and isinstance(suite, str) and suite:
         # anvil-serving's profile bootstrap re-derives the work class from
         # the dir name by longest-token match; make sure our
         # <work_class>-<suite> round-trips (e.g. work_class "chat" + suite
@@ -102,10 +111,14 @@ def validate_spec(spec):
         return problems
     seen = set()
     for i, ev in enumerate(evals):
+        if not isinstance(ev, dict):
+            problems.append(f"evals[{i}]: must be an object")
+            continue
         eid = ev.get("id") or ""
         where = "evals[%d] (%s)" % (i, eid or "no id")
-        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", eid):
+        if not isinstance(eid, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", eid):
             problems.append("%s: id must be kebab/snake-case" % where)
+            continue
         if eid in seen:
             problems.append("%s: duplicate id" % where)
         seen.add(eid)
@@ -113,12 +126,35 @@ def validate_spec(spec):
             problems.append("%s: needs prompt or messages" % where)
         if ev.get("prompt") and ev.get("messages"):
             problems.append("%s: prompt and messages are exclusive" % where)
-        checks = ev.get("checks") or []
+        if "prompt" in ev and (not isinstance(ev["prompt"], str) or not ev["prompt"].strip()):
+            problems.append(f"{where}: prompt must be nonempty text")
+        if "messages" in ev:
+            messages = ev["messages"]
+            if not isinstance(messages, list) or not messages or not all(isinstance(m, dict) and m.get("role") in ("system", "developer", "user", "assistant", "tool") and isinstance(m.get("content"), (str, list)) for m in messages):
+                problems.append(f"{where}: messages must be a nonempty list of role/content objects")
+        tokens = ev.get("max_tokens", 256)
+        if isinstance(tokens, bool) or not isinstance(tokens, int) or not 1 <= tokens <= 65536:
+            problems.append(f"{where}: max_tokens must be an integer from 1 to 65536")
+        tools = ev.get("tools", [])
+        if not isinstance(tools, list) or not all(isinstance(t, dict) and t.get("type") == "function" and isinstance(t.get("function"), dict) and isinstance(t["function"].get("name"), str) for t in tools):
+            problems.append(f"{where}: tools must contain function definitions")
+        checks = ev.get("checks", [])
+        if not isinstance(checks, list):
+            problems.append(f"{where}: checks must be a list")
+            continue
+        check_names = set()
         if not checks and not ev.get("expect_tool"):
             problems.append("%s: needs checks or expect_tool" % where)
         for c in checks:
-            if not c.get("name"):
+            if not isinstance(c, dict):
+                problems.append(f"{where}: each check must be an object")
+                continue
+            if not isinstance(c.get("name"), str) or not c["name"].strip():
                 problems.append("%s: check without a name" % where)
+            elif c["name"] in check_names:
+                problems.append(f"{where}: duplicate check name")
+            else:
+                check_names.add(c["name"])
             keys = {"contains", "contains_all", "contains_any"} & set(c)
             if len(keys) != 1:
                 problems.append(
@@ -130,23 +166,30 @@ def validate_spec(spec):
             # type-check now so a bad operand is a spec error, not a
             # crash mid-run (contains_all given a string would silently
             # iterate characters instead)
-            if key == "contains" and not isinstance(val, str):
+            if key == "contains" and (not isinstance(val, str) or not val):
                 problems.append("%s: check %r: contains must be a string"
                                 % (where, c.get("name")))
             if key in ("contains_all", "contains_any") and (
                     not isinstance(val, list)
-                    or not all(isinstance(x, str) for x in val)
+                    or not all(isinstance(x, str) and x for x in val)
                     or not val):
                 problems.append("%s: check %r: %s must be a non-empty "
                                 "list of strings" % (where, c.get("name"), key))
         et = ev.get("expect_tool")
         if et is not None:
-            if not et.get("name"):
+            if not isinstance(et, dict):
+                problems.append(f"{where}: expect_tool must be an object")
+                continue
+            if not isinstance(et.get("name"), str) or not et["name"]:
                 problems.append("%s: expect_tool.name required" % where)
             if not ev.get("tools"):
                 problems.append("%s: expect_tool without tools array - the "
                                 "model can't call what isn't offered" % where)
-            for k, want in (et.get("required_args") or {}).items():
+            required = et.get("required_args", {})
+            if not isinstance(required, dict):
+                problems.append(f"{where}: required_args must be an object")
+                continue
+            for k, want in required.items():
                 # anvil compares against the raw expected value, so a
                 # non-string (e.g. 10001 vs "10001") can never match
                 if want is not None and not isinstance(want, str):
@@ -175,9 +218,12 @@ def cmd_emit(args):
             print("refusing to overwrite %s (pass --force to replace)"
                   % out_dir, file=sys.stderr)
             return 1
-        # replace wholesale so prompts of since-removed evals don't linger
-        shutil.rmtree(out_dir)
+        if os.path.islink(out_dir) or not os.path.isdir(out_dir):
+            raise ValueError("existing suite must be a regular directory")
 
+    final_dir = out_dir
+    os.makedirs(os.path.dirname(final_dir), exist_ok=True)
+    out_dir = tempfile.mkdtemp(prefix=".suite-", dir=os.path.dirname(final_dir))
     prompts_dir = os.path.join(out_dir, "prompts")
     os.makedirs(prompts_dir, exist_ok=True)
     spec.setdefault("date", date)
@@ -196,7 +242,23 @@ def cmd_emit(args):
               encoding="utf-8") as f:
         json.dump(provenance, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    print("emitted %d evals -> %s" % (len(spec["evals"]), out_dir))
+    backup = None
+    if os.path.exists(final_dir):
+        if not args.force:
+            shutil.rmtree(out_dir)
+            raise ValueError("suite was created by another writer; nothing overwritten")
+        backup = tempfile.mkdtemp(prefix=".previous-suite-", dir=os.path.dirname(final_dir))
+        os.rmdir(backup)
+        os.rename(final_dir, backup)
+    try:
+        os.rename(out_dir, final_dir)
+    except OSError:
+        if backup:
+            os.rename(backup, final_dir)
+        raise
+    if backup:
+        shutil.rmtree(backup)
+    print("emitted %d evals -> %s" % (len(spec["evals"]), final_dir))
     return 0
 
 
@@ -343,13 +405,16 @@ def cmd_run(args):
         for p in problems:
             print("spec error: %s" % p, file=sys.stderr)
         return 1
+    if args.out and Path(args.out).expanduser().resolve() == Path(suite_path).resolve():
+        raise ValueError("evidence output cannot replace the input specification")
+    if args.out and Path(args.out).expanduser().exists() and not args.overwrite:
+        raise ValueError("evidence output exists; choose a new path or --overwrite")
     api_key = os.environ.get(args.api_key_env) if args.api_key_env else None
     evidence = run_suite(spec, args.base_url, args.model,
                          timeout=args.timeout, api_key=api_key)
     text = json.dumps(evidence, indent=2, ensure_ascii=False)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as f:
-            f.write(text + "\n")
+        atomic_output(args.out, text + "\n", args.overwrite)
     else:
         print(text)
     s = evidence["summary"]
@@ -357,6 +422,23 @@ def cmd_run(args):
           % (spec["suite"], s["passed"], s["total"], 100 * s["pass_rate"],
              args.model), file=sys.stderr)
     return 0 if s["passed"] == s["total"] else 2
+
+
+def atomic_output(filename, text, overwrite=False):
+    path = Path(filename).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, temporary = tempfile.mkstemp(prefix=".evidence-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if overwrite:
+            os.replace(temporary, path)
+        else:
+            os.link(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def main(argv=None):
@@ -380,11 +462,18 @@ def main(argv=None):
     sr.add_argument("--api-key-env", default="",
                     help="env var holding a bearer key (never pass the key "
                     "itself on the command line)")
+    sr.add_argument("--overwrite", action="store_true", help="replace an existing evidence file")
     sr.add_argument("--out", help="write evidence JSON here")
     sr.set_defaults(func=cmd_run)
 
     args = ap.parse_args(argv)
-    return args.func(args)
+    if args.cmd == "run" and not 1 <= args.timeout <= 3600:
+        ap.error("--timeout must be from 1 to 3600 seconds")
+    try:
+        return args.func(args)
+    except (OSError, ValueError) as exc:
+        print(f"session-evals: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

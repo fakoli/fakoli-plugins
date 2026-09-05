@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Spec Lint"
+  short_description: "Validate skill YAML, field types, names, and placement"
+  default_prompt: "Use $skill-spec-lint for the current task."

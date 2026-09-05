@@ -1,0 +1,40 @@
+{
+  "name": "fakoli-speak",
+  "version": "2.1.0",
+  "description": "Multi-provider text-to-speech with owned playback, opt-in autospeak, and local cost estimates.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "tts",
+    "text-to-speech",
+    "elevenlabs",
+    "openai",
+    "deepgram",
+    "google",
+    "macos",
+    "accessibility",
+    "audio",
+    "streaming",
+    "multi-provider"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Fakoli Speak",
+    "shortDescription": "Speak text with owned playback and optional autospeak",
+    "longDescription": "Multi-provider text-to-speech with owned playback, opt-in autospeak, and local cost estimates.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use $speak to read the requested text aloud."
+    ]
+  }
+}

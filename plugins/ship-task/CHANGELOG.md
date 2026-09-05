@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.0] - 2026-09-05
+
+### Added
+
+- Native Codex manifest and documented runtime workflow.
+
+### Changed
+
+- Reject malformed timing/options, fail closed on unavailable CI, pin merges to the pushed commit, distinguish queued merges, and preserve unsynced local branches.
+
 All notable changes to the ship-task plugin are documented here.
 
 ## [1.1.0] - 2026-07-13

@@ -1,9 +1,10 @@
 [project]
 name = "nano-banana-pro"
-version = "1.3.4"
-description = "Generate, edit, remix, and optimize images using Google Gemini 3 Pro"
+version = "1.4.0"
+description = "Portable CLI for Gemini image generation and local optimization"
 requires-python = ">=3.10"
 dependencies = [
-    "python-dotenv>=1.0.0",
-    "pillow>=10.0.0; sys_platform != 'darwin'",
+    "python-dotenv>=1.0,<2",
+    "Pillow>=10,<13",
+    "PyYAML>=6,<7",
 ]

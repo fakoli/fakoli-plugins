@@ -1,115 +1,32 @@
 # Troubleshooting
 
-## Table of Contents
-- VM Issues
-- k3s / Cluster Issues
-- Pod / Sidecar Issues
-- Network / IPv6 Issues
+Read the failed command's stderr and the named context/namespace first. All diagnostic kubectl commands should retain `--context "$KUBE_CONTEXT" --namespace "$KUBE_NAMESPACE"`; changing the current context is unnecessary.
 
-## VM Issues
+## Cluster and VM setup
 
-**Multipass launch fails on Apple Silicon**
-```bash
-# Ensure virtualization framework is selected
-multipass set local.driver=qemu  # or virtualbox
-```
+- **VM daemon/launch failure:** inspect `multipass list` and `multipass info VM_NAME`. Do not recreate an existing VM automatically or change the global driver as a generic repair. Supported drivers depend on host architecture and installed Multipass version.
+- **Missing IPv6:** inspect the node's `ip -j addr show` and the Pod's `.status.podIPs`. The setup helper requires node addresses already assigned; it does not invent addresses or persist host networking. A missing IPv6 Pod address fails validation instead of falling back to IPv4.
+- **k3s network family mismatch:** dual-stack must be configured at initial cluster creation. IPv6-primary requires matching node address ordering. The bundled helper intentionally chooses IPv4-primary dual-stack. ULA masquerading does not itself provide upstream IPv6 connectivity.
+- **kubeconfig permission denied:** use the intended administrative user or a separate owner-readable kubeconfig with appropriate credentials. Do not use `chmod 644` on administrative credentials.
+- **CoreDNS/DNS64:** the plugin no longer injects a DNS64 stanza into CoreDNS. Verify installed CoreDNS plugin support, configuration loading, and actual NAT64 translation/routing before making a separate DNS64 change. AAAA synthesis alone does not implement NAT64.
 
-**Cannot SSH into VM**
-```bash
-multipass shell nat464-dev  # preferred over SSH
-```
+## Deployment and validation
 
-**Transfer files to VM**
-```bash
-multipass transfer ./file.txt nat464-dev:/home/ubuntu/
-# For directories, tar first:
-tar czf project.tar.gz -C /path/to nat464-sidecar && multipass transfer project.tar.gz nat464-dev:/home/ubuntu/
-```
+- **Missing manifest:** `--project-dir` identifies the nat464 source tree. Installing this skill does not provide that project's `deploy/` files. Inspect/adapt the actual project manifests and ensure the peer `app` image has curl and sh.
+- **Unowned resource:** use a fresh dedicated test namespace or inspect ownership manually. The helper deliberately does not label/adopt arbitrary pre-existing Pods and ConfigMaps.
+- **Immutable Pod update:** inspect the diff; if replacement is requested, run the targeted teardown and redeploy. Deployment never deletes resources preemptively.
+- **ImagePullBackOff/ErrImageNeverPull:** the built image must be imported into containerd on the node that will run the Pod. The helper imports only into the local VM. Use `--local-image` only when that image exists there; multi-node clusters need an appropriate registry or import on every eligible node.
+- **ss/netstat unavailable:** this is a prerequisite failure, not evidence that the app is IPv4-only. Prepare a diagnostic-capable test image instead of installing packages into running containers.
+- **Direct IPv6 failure:** require the successful peer-to-sidecar IPv6 control first. Curl 7 proves inability to connect at the target port in that setup; the additional socket check supports the IPv4-only explanation. Network policy rejection can also produce connection failure, so this is not a universal proof about application binding. Curl 28 means timeout and is a failed/inconclusive check.
+- **SOCKS5 failure:** inspect sidecar logs, the loopback proxy listener, peer IPv6 reachability, and DNS separately. `socks5h` resolves the hostname through the proxy. An external outage does not isolate a sidecar defect.
+- **Benchmark errors:** report sample counts and failures. Zero/invalid/non-finite timing values and HTTP errors do not become valid samples. Kubectl startup overhead is outside curl's reported timing, but the shared node and tiny payload still affect the experiment.
 
-## k3s / Cluster Issues
+## Upstream sources reviewed 2026-09-05
 
-**k3s fails to start with IPv6 CIDRs**
-Ensure the node has a real IPv6 address. Check with:
-```bash
-ip -6 addr show scope global
-# If empty, add a ULA:
-sudo ip -6 addr add fd00:node::1/64 dev enp0s1
-```
+- [K3s networking](https://docs.k3s.io/networking/basic-network-options): distinct dual-stack and IPv6-only configurations, initial-creation requirement, family ordering, ULA masquerading.
+- [K3s installer configuration](https://docs.k3s.io/installation/configuration): explicit version selection and installer/server arguments.
+- [kubectl exec](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_exec/): explicit container/command separation and client options.
+- [curl manual](https://curl.se/docs/manpage.html): failure exit codes, total/connect deadlines, proxy resolution, and write-out metrics.
+- [Multipass delete](https://canonical.com/multipass/docs/latest/reference/command-line-interface/delete/): targeted permanent deletion versus global deletion/purge behavior.
 
-**CoreDNS not resolving DNS64**
-```bash
-# Check CoreDNS logs
-kubectl -n kube-system logs -l k8s-app=kube-dns --tail=50
-# Verify custom config was loaded
-kubectl -n kube-system get cm coredns-custom -o yaml
-# Force restart
-kubectl -n kube-system rollout restart deployment coredns
-```
-
-**kubectl not working**
-```bash
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-# Or for non-root:
-sudo chmod 644 /etc/rancher/k3s/k3s.yaml
-```
-
-## Pod / Sidecar Issues
-
-**Pod stuck in ImagePullBackOff**
-The image must be imported into k3s containerd, not just in Docker:
-```bash
-sudo docker save nat464-sidecar:latest | sudo k3s ctr images import -
-# Verify
-sudo k3s ctr images ls | grep nat464
-```
-Ensure the pod spec has `imagePullPolicy: Never`.
-
-**Sidecar CrashLoopBackOff**
-```bash
-kubectl logs nat464-demo -c nat464-sidecar
-# Common causes:
-# - Port conflict (another process on 8080/1080/9464)
-# - App container not ready on forward port (race condition at startup)
-```
-
-**Health check failing**
-```bash
-kubectl exec nat464-demo -c nat464-sidecar -- wget -qO- http://localhost:9464/healthz
-# If wget not available (distroless):
-kubectl exec nat464-demo -c app -- wget -qO- http://localhost:9464/healthz
-```
-
-## Network / IPv6 Issues
-
-**Inbound test fails (curl -6 to pod IPv6)**
-```bash
-# Check pod has IPv6 address
-kubectl get pod nat464-demo -o jsonpath='{.status.podIPs}'
-# Should show fd00:42::... address
-
-# Check sidecar is listening
-kubectl exec nat464-demo -c app -- ss -tlnp | grep 8080
-
-# Check app is listening on IPv4 localhost
-kubectl exec nat464-demo -c app -- ss -tlnp | grep 80
-```
-
-**Outbound SOCKS5 test fails**
-```bash
-# Verify socks5 proxy is listening
-kubectl exec nat464-demo -c app -- ss -tlnp | grep 1080
-
-# Test with curl through SOCKS5
-kubectl exec nat464-demo -c app -- curl -v -x socks5h://127.0.0.1:1080 http://example.com
-
-# Check DNS resolution inside pod
-kubectl exec nat464-demo -c app -- nslookup example.com
-```
-
-**No IPv6 connectivity between pods**
-```bash
-# Verify flannel is running
-kubectl -n kube-system get pods -l app=flannel
-# Check node IPv6 routes
-ip -6 route show | grep fd00:42
-```
+These facts changed the helpers' design: explicit topology instead of EKS claims, no automatic DNS64, selected targets on every command, successful control requests before negative-test conclusions, and narrowly scoped cleanup.

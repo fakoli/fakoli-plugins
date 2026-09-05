@@ -1,7 +1,7 @@
 """FastMCP (stdio) server — 22 agent-facing tools for fakoli-state.
 
 Each tool opens a fresh SqliteBackend against the project's
-.fakoli-state/state.db. The server process cwd is fixed at startup — the
+.fakoli-state/state.db. Every tool accepts an optional target-project cwd; the server process cwd is fixed at startup — the
 bash wrapper cd-s to ORIGINAL_PWD before `exec uv run python -m
 fakoli_state.mcp_server`, so all tool calls within a single server session
 address the same project's state. To switch projects, restart the MCP
@@ -229,6 +229,8 @@ def _resolve_state_dir(cwd: str | None = None) -> Path:
     project root without restarting the MCP server.
     """
     base = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+    if cwd is None and ((base / '.claude-plugin/plugin.json').is_file() or (base / '.codex-plugin/plugin.json').is_file()):
+        raise ToolError("Server is running from its plugin directory. Pass cwd with the target project path.")
     return base / _STATE_DIR_NAME
 
 
@@ -287,13 +289,14 @@ def _find_active_claim_for_task(backend: Any, task_id: str) -> Any | None:
 
 
 @mcp.tool
-def get_project_summary() -> ProjectSummary:
+def get_project_summary(cwd: str | None = None) -> ProjectSummary:
     """Return a summary of project state: project info, task counts by status,
     active claims, blocked count, and ready count.
 
     Stale claim reaping runs at the top of this call per spec.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         _reap_stale(backend)
@@ -344,13 +347,15 @@ def list_tasks(
     status: str | None = None,
     feature_id: str | None = None,
     claimed_by: str | None = None,
+    cwd: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return tasks filtered by status, feature_id, and/or claimed_by.
 
     status and feature_id are pushed to SQL. claimed_by is an in-memory
     filter applied after retrieval (joins active claims).
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         tasks = backend.list_tasks(status=status, feature_id=feature_id)
@@ -374,12 +379,13 @@ def list_tasks(
 
 
 @mcp.tool
-def get_task(task_id: str) -> dict[str, Any]:
+def get_task(task_id: str, cwd: str | None = None) -> dict[str, Any]:
     """Return the Task with the given ID.
 
     Raises a structured ToolError if the task is not found.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         task = backend.get_task(task_id)
@@ -398,15 +404,16 @@ def get_task(task_id: str) -> dict[str, Any]:
 
 
 @mcp.tool
-def get_next_task(actor: str | None = None) -> dict[str, Any] | None:
+def get_next_task(actor: str | None = None, cwd: str | None = None) -> dict[str, Any] | None:
     """Return the highest-priority ready task with no overlapping active claim.
 
     Priority ordering (per spec): HIGH > MEDIUM > LOW (critical treated as
     higher than high). Tiebreak: agent_suitability score desc, then id asc.
 
     Returns null if no claimable task is available.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         # Read-only listers don't reap (per module docstring); MCP clients
@@ -477,6 +484,7 @@ def claim_task(
     claimed_by: str,
     expected_files: list[str] | None = None,
     lease_duration_seconds: int = 900,
+    cwd: str | None = None,
 ) -> ClaimResponse:
     """Acquire an exclusive lease on task_id for claimed_by.
 
@@ -487,8 +495,9 @@ def claim_task(
 
     lease_duration_seconds controls the lease length (default 900 = 15 min).
     The ClaimManager uses minutes; we convert.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         from fakoli_state.claims.manager import ClaimError, ClaimManager
@@ -544,12 +553,14 @@ def release_task(
     task_id: str,
     actor: str,
     reason: str | None = None,
+    cwd: str | None = None,
 ) -> ReleaseResponse:
     """Release the active claim on task_id held by actor.
 
     Stale-claim reaping runs first. Returns the claim_id that was released.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         from fakoli_state.claims.manager import ClaimError, ClaimManager
@@ -590,13 +601,15 @@ def renew_claim(
     task_id: str,
     actor: str,
     extend_seconds: int = 900,
+    cwd: str | None = None,
 ) -> RenewResponse:
     """Extend the lease on the active claim for task_id.
 
     Stale-claim reaping runs first.
     extend_seconds controls how far the lease is extended (default 900 = 15 min).
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         from fakoli_state.claims.manager import ClaimError, ClaimManager
@@ -640,13 +653,15 @@ def renew_claim(
 def generate_work_packet(
     task_id: str,
     format: Literal["markdown", "json"] = "markdown",
+    cwd: str | None = None,
 ) -> WorkPacketResponse:
     """Render a work packet for task_id in markdown or JSON format.
 
     Delegates to context.packets.render_packet. Returns the rendered content
     (str for markdown, dict for json) plus the format name.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         from fakoli_state.context.packets import render_packet
@@ -697,6 +712,7 @@ def submit_progress(
     task_id: str,
     actor: str,
     notes: str,
+    cwd: str | None = None,
 ) -> ProgressResponse:
     """Record an in-progress status note for task_id.
 
@@ -704,8 +720,9 @@ def submit_progress(
     The JSONL row is the audit record.
 
     Stale-claim reaping runs first.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         from fakoli_state.clock import SystemClock
@@ -753,6 +770,7 @@ def submit_completion_evidence(
     output_excerpt: str | None = None,
     pr_url: str | None = None,
     commit_sha: str | None = None,
+    cwd: str | None = None,
 ) -> EvidenceResponse:
     """Submit completion evidence for task_id.
 
@@ -761,8 +779,9 @@ def submit_completion_evidence(
     transitions the task to needs_review.
 
     Stale-claim reaping runs first.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         from fakoli_state.clock import SystemClock
@@ -838,13 +857,15 @@ def submit_completion_evidence(
 def check_conflicts(
     task_id: str,
     proposed_files: list[str],
+    cwd: str | None = None,
 ) -> ConflictCheckResponse:
     """Cross-reference proposed_files against active claims (excluding task_id's own claim).
 
     Returns a list of conflict entries — one per overlapping file per claim.
     An empty conflicts list means no conflicts were detected.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         proposed_set = set(proposed_files)
@@ -880,6 +901,7 @@ def check_conflicts(
 def get_dependency_graph(
     scope: Literal["all", "feature", "task"] = "all",
     target_id: str | None = None,
+    cwd: str | None = None,
 ) -> DependencyGraphResponse:
     """Return the task dependency graph with nodes, edges, and ready_to_claim set.
 
@@ -889,8 +911,9 @@ def get_dependency_graph(
 
     ready_to_claim is the list of task IDs that are in 'ready' status, have
     all dependencies done, and have no active claim.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         all_tasks = backend.list_tasks()
@@ -986,6 +1009,7 @@ def update_task_status(
     to_status: Literal["drafted", "ready", "blocked", "in_progress"],
     actor: str,
     reason: str | None = None,
+    cwd: str | None = None,
 ) -> StatusUpdateResponse:
     """Transition task_id to a new status.
 
@@ -997,8 +1021,9 @@ def update_task_status(
     Any other transition returns a structured ToolError.
 
     Stale-claim reaping runs first.
+    Project selection: pass cwd for the target project when the server runs from an installed plugin.
     """
-    state_dir = _resolve_state_dir()
+    state_dir = _resolve_state_dir(cwd)
     backend = _open_backend(state_dir)
     try:
         from fakoli_state.clock import SystemClock
@@ -1061,8 +1086,7 @@ def update_task_status(
 #
 # All workflow tools accept an optional ``cwd`` parameter so a single MCP
 # session can target multiple project roots; the existing 13 tools resolve
-# state from ``Path.cwd()`` only (their session-pinned behavior is
-# preserved). ``cwd`` is documented in each tool's docstring.
+# state from an explicit ``cwd`` when supplied, preserving the prior session default otherwise. ``cwd`` is documented in each tool's docstring.
 
 _PRD_FILENAME = "prd.md"
 

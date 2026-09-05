@@ -7,7 +7,7 @@
 > fakoli-state turns rough ideas and PRDs into reviewed, lockable, evidence-backed work packets that humans and AI coding agents can execute in parallel without stepping on each other — the canonical project-state layer that fakoli-flow and fakoli-crew compose around.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-1.23.3-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-1.24.0-blue.svg)](.claude-plugin/plugin.json)
 [![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
 [![Tests](https://img.shields.io/badge/tests-1103%20passing-brightgreen.svg)](tests)
 
@@ -31,7 +31,7 @@ fakoli-flow defines how work moves, fakoli-crew defines who does the work, and f
 
 ---
 
-## What ships today (v1.23.3)
+## What ships today (v1.24.0)
 
 | Surface | Count | Notes |
 |---|---|---|
@@ -229,3 +229,28 @@ Sekou Doumbouya — [github.com/fakoli](https://github.com/fakoli)
 ## License
 
 MIT — see [LICENSE](LICENSE)
+
+## Portable launcher and verification
+
+The bundled CLI and MCP launchers preserve the caller's project directory, use `uv run --locked --no-dev`, and keep the Python environment under `${XDG_CACHE_HOME:-~/.cache}/fakoli-state/envs/`. Set `FAKOLI_STATE_ENVIRONMENT` for an explicit environment path. Runtime startup never silently rewrites the package lockfile or ignores a failed dependency sync. The package's README is inside its Python project so current Hatchling can build both source and wheel distributions.
+
+Run offline tests with provider extras installed (the SDKs are mocked; this does not call them):
+
+```bash
+uv run --project bin --extra all-providers pytest -c bin/pyproject.toml tests -q
+bash tests/test_hooks.sh
+```
+
+The `live_github` tests are explicitly excluded by the test configuration. Do not treat the offline suite as a live provider check. Native Codex manifests expose the skills, hooks and MCP package; actual hook delivery depends on host trust and event support.
+
+The native Codex MCP config uses a relative `cwd` resolved by the host and a plain launcher argument; it does not assume shell-style `${PLUGIN_ROOT}` expansion in MCP arguments. Its server starts at the installed plugin directory, so pass the project's absolute `cwd` to MCP calls. All state tools now accept that parameter. Omitting it from an installed-root state query produces a clear diagnostic rather than selecting the cache as a project. The CLI still defaults to the caller's project directory.
+
+### Provider extras with the packaged launcher
+
+The plugin launcher uses a dedicated external environment. For the OpenAI-compatible provider, set `FAKOLI_STATE_EXTRAS=custom`; for Bedrock use `bedrock`; for both use `all-providers`. The launcher installs the selected locked optional dependencies into `FAKOLI_STATE_ENVIRONMENT` (or its default cache) on that invocation. For example:
+
+```bash
+FAKOLI_STATE_EXTRAS=custom /path/to/plugin/bin/fakoli-state --version
+```
+
+Keep this variable set for later CLI/MCP launches that need that provider. Native Codex MCP forwards `FAKOLI_STATE_EXTRAS` and `FAKOLI_STATE_ENVIRONMENT` when present in the host environment; it can also be configured through the host's MCP environment settings. This selects dependencies only, not credentials or a model. Existing standalone pip installations keep using their own environment.

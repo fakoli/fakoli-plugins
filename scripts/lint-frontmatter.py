@@ -14,9 +14,8 @@ directory silently orphans the advertised name.
 Usage:  lint-frontmatter.py <file.md> [<file.md> ...]
 Exit:   0 all frontmatter valid · 1 one or more invalid · prints one line per
         offending file. Requires PyYAML for authoritative parsing; without it,
-        falls back to a conservative structural + quote-balance heuristic and
-        says so on stderr (never a false ERROR, only reduced coverage). The
-        SKILL.md name checks are plain-regex and run identically either way.
+        checks command syntax conservatively but fails skill validation with a
+        dependency diagnostic rather than claiming full Agent Skills validity.
 """
 
 from __future__ import annotations
@@ -37,12 +36,8 @@ _NAME_LINE_RE = re.compile(r"^name:\s*(.*)$")
 
 def _extract(text: str) -> str | None:
     """Return the frontmatter body, or None if the file has no `---` block."""
-    if not text.startswith("---"):
-        return None
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return None  # opening fence but no closing fence
-    return parts[1]
+    match = re.match(r'\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)', text, re.S)
+    return match.group(1) if match else None
 
 
 def _heuristic_error(body: str) -> str | None:
@@ -75,11 +70,13 @@ def _frontmatter_name(body: str) -> str | None:
     return None
 
 
-def _skill_name_error(path: str, body: str) -> str | None:
+def _skill_name_error(path: str, body: str, loaded: dict | None = None) -> str | None:
     """SKILL.md-only: name must be present, match its directory, and be a valid slug."""
-    name = _frontmatter_name(body)
-    if not name:
+    name = loaded.get("name") if loaded is not None else _frontmatter_name(body)
+    if name is None or name == "":
         return "SKILL.md frontmatter has no name field"
+    if not isinstance(name, str):
+        return "SKILL.md name must be a string"
     dirname = os.path.basename(os.path.dirname(os.path.abspath(path)))
     if name != dirname:
         return f"SKILL.md name '{name}' does not match directory name '{dirname}'"
@@ -117,7 +114,16 @@ def check(path: str) -> str | None:
         err = _heuristic_error(body)
         if err:
             return err
-    return _skill_name_error(path, body) if is_skill else None
+    if is_skill:
+        if not _HAVE_YAML:
+            return "PyYAML is required to validate skill metadata; run via uv with PyYAML"
+        name_error = _skill_name_error(path, body, loaded or {})
+        if name_error:
+            return name_error
+        description = (loaded or {}).get('description')
+        if not isinstance(description, str) or not description.strip() or len(description) > 1024:
+            return "SKILL.md description must be a non-empty string of at most 1024 characters"
+    return None
 
 
 def main(argv: list[str]) -> int:

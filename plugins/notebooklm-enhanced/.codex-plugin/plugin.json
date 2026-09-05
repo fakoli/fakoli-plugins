@@ -1,0 +1,37 @@
+{
+  "name": "notebooklm-enhanced",
+  "version": "0.2.0",
+  "description": "Comprehensive Google NotebookLM automation \u2014 create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "notebooklm",
+    "google",
+    "research",
+    "podcast",
+    "automation",
+    "notebook",
+    "quiz",
+    "slides",
+    "rpc"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "NotebookLM Enhanced",
+    "shortDescription": "Query notebooks and track requested research artifacts",
+    "longDescription": "Comprehensive Google NotebookLM automation \u2014 create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+    "developerName": "Sekou Doumbouya",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use $notebooklm-core to query a selected notebook."
+    ]
+  }
+}

@@ -65,3 +65,9 @@ externally.
 ## License
 
 MIT
+
+## Runtime and validation update
+
+Handle non-object JSONL records, reject missing requested inputs, deduplicate symlink aliases, and escape HTML labels and unsafe narrative links.
+
+Native Codex loads the bundled `skills/` directory. Claude command names remain available. Resolve the installed plugin root before running the scripts; runtime notes and session evidence belong outside the install directory. No user state is migrated by this update.

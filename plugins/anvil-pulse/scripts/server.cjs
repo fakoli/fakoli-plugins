@@ -165,7 +165,7 @@ function workspaceKeyCandidates(projectDir) {
     const digest = crypto.createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 8);
     keys.add(`${slug}-${digest}`);
   }
-  keys.add(slug); // legacy layout: workspaces/<basename> with no hash suffix
+  // Legacy name-only workspace paths require explicit PULSE_STATE_DIR.
   return { slug, keys };
 }
 
@@ -200,30 +200,6 @@ function discoverEventsPath() {
   for (const key of keys) {
     const p = path.join(wsRoot, key, '.anvil', 'events.jsonl');
     if (fs.existsSync(p)) return { path: p, warning: null };
-  }
-  // Last resort: same-slug prefix match (covers canonicalization drift between
-  // this mirror and anvil's own hashing). Explicitly warned — could be a
-  // different checkout of a same-named project.
-  try {
-    const matches = fs
-      .readdirSync(wsRoot)
-      .filter((e) => e === slug || e.startsWith(slug + '-'))
-      .map((e) => path.join(wsRoot, e, '.anvil', 'events.jsonl'))
-      .filter((p) => fs.existsSync(p));
-    if (matches.length === 1) {
-      return {
-        path: matches[0],
-        warning: `events.jsonl matched by project name only (${path.basename(path.dirname(path.dirname(matches[0])))}); set PULSE_STATE_DIR if this is the wrong checkout`,
-      };
-    }
-    if (matches.length > 1) {
-      return {
-        path: null,
-        warning: `multiple workspaces match project name '${slug}'; set PULSE_STATE_DIR to disambiguate — event feed disabled`,
-      };
-    }
-  } catch (_) {
-    /* no workspace root */
   }
   return {
     path: null,
@@ -375,7 +351,9 @@ function thresholdsFrom(url) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  let url;
+  try { url = new URL(req.url, 'http://localhost'); }
+  catch (_) { sendJson(res, 400, { error: 'invalid URL' }); return; }
   if (req.method !== 'GET') {
     sendJson(res, 405, { error: 'method not allowed' });
     return;

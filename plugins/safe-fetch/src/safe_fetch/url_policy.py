@@ -47,7 +47,7 @@ def _is_private_ip(ip_str: str) -> bool:
     except ValueError:
         return True  # Can't parse → block
     return (
-        addr.is_private
+        not addr.is_global
         or addr.is_loopback
         or addr.is_link_local
         or addr.is_reserved
@@ -92,7 +92,14 @@ def validate_and_resolve(url: str) -> tuple[str, str]:
     DNS-rebinding TOCTOU that defeats the SSRF guard entirely. Returning the
     exact validated IP closes that gap: resolution happens once, here.
     """
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+    except (ValueError, TypeError) as exc:
+        raise URLPolicyError(f"Invalid URL: {exc}") from None
+    if parsed.username is not None or parsed.password is not None:
+        raise URLPolicyError("Credentials in URLs are not supported; use a public URL.")
+    if any(ord(char) < 32 or ord(char) == 127 for char in url):
+        raise URLPolicyError("Control characters in URLs are not allowed.")
 
     # Scheme check
     if parsed.scheme not in ("http", "https"):

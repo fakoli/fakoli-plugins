@@ -6,8 +6,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TMP="$SCRIPT_DIR/.tmp"
-rm -rf "$TMP"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/anvil-pulse-test.XXXXXX")"
 mkdir -p "$TMP/bin" "$TMP/project/.anvil"
 
 fail() { echo "FAIL: $1"; cleanup; exit 1; }
@@ -16,7 +15,8 @@ pass() { echo "ok - $1"; PASS_COUNT=$((PASS_COUNT + 1)); }
 
 SERVER_PID=""
 cleanup() {
-  [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null
+  if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; fi
+  rm -rf "$TMP"
 }
 trap cleanup EXIT
 

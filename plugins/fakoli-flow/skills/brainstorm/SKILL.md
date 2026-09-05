@@ -3,6 +3,9 @@ name: brainstorm
 description: Design phase — refine ideas into specs through collaborative dialogue
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Brainstorm — Design Phase
 
 Turn ideas into fully-formed specs through structured dialogue: explore context, assess scope, ask one question at a time, propose approaches, present the design section by section, and hand off to `/fakoli-flow:plan`.

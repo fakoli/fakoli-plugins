@@ -1,0 +1,320 @@
+{
+  "name": "fakoli-plugins",
+  "interface": {
+    "displayName": "Fakoli Plugins"
+  },
+  "plugins": [
+    {
+      "name": "anvil-pulse",
+      "source": {
+        "source": "local",
+        "path": "./plugins/anvil-pulse"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "cli-to-plugin",
+      "source": {
+        "source": "local",
+        "path": "./plugins/cli-to-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "excalidraw-diagram",
+      "source": {
+        "source": "local",
+        "path": "./plugins/excalidraw-diagram"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Design"
+    },
+    {
+      "name": "fakoli-crew",
+      "source": {
+        "source": "local",
+        "path": "./plugins/fakoli-crew"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "fakoli-flow",
+      "source": {
+        "source": "local",
+        "path": "./plugins/fakoli-flow"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "fakoli-plugin-critic",
+      "source": {
+        "source": "local",
+        "path": "./plugins/fakoli-plugin-critic"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "fakoli-speak",
+      "source": {
+        "source": "local",
+        "path": "./plugins/fakoli-speak"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "fakoli-state",
+      "source": {
+        "source": "local",
+        "path": "./plugins/fakoli-state"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "fakoli-style",
+      "source": {
+        "source": "local",
+        "path": "./plugins/fakoli-style"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "fleet-exec",
+      "source": {
+        "source": "local",
+        "path": "./plugins/fleet-exec"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "gate-router",
+      "source": {
+        "source": "local",
+        "path": "./plugins/gate-router"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "gws",
+      "source": {
+        "source": "local",
+        "path": "./plugins/gws"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "handoff",
+      "source": {
+        "source": "local",
+        "path": "./plugins/handoff"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "marketplace-manager",
+      "source": {
+        "source": "local",
+        "path": "./plugins/marketplace-manager"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "nano-banana-pro",
+      "source": {
+        "source": "local",
+        "path": "./plugins/nano-banana-pro"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Design"
+    },
+    {
+      "name": "notebooklm-enhanced",
+      "source": {
+        "source": "local",
+        "path": "./plugins/notebooklm-enhanced"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "quick-notes",
+      "source": {
+        "source": "local",
+        "path": "./plugins/quick-notes"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "recall-mode-verifier",
+      "source": {
+        "source": "local",
+        "path": "./plugins/recall-mode-verifier"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "safe-fetch",
+      "source": {
+        "source": "local",
+        "path": "./plugins/safe-fetch"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "skill-spec-lint",
+      "source": {
+        "source": "local",
+        "path": "./plugins/skill-spec-lint"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "session-evals",
+      "source": {
+        "source": "local",
+        "path": "./plugins/session-evals"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "session-retro",
+      "source": {
+        "source": "local",
+        "path": "./plugins/session-retro"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "ship-loop",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ship-loop"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "ship-task",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ship-task"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "systems-thinking",
+      "source": {
+        "source": "local",
+        "path": "./plugins/systems-thinking"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "windows-cli-hygiene",
+      "source": {
+        "source": "local",
+        "path": "./plugins/windows-cli-hygiene"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "name": "fakoli-flow",
+  "version": "1.4.0",
+  "description": "Plan, execute and verify changes in dependency order",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "orchestration",
+    "planning",
+    "brainstorming",
+    "intent-driven",
+    "agents",
+    "wave-engine",
+    "code-review"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Fakoli Flow",
+    "shortDescription": "Plan, execute and verify changes in dependency order",
+    "longDescription": "Plan, execute and verify changes in dependency order.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Execute this plan with review and verification."
+    ]
+  },
+  "hooks": []
+}

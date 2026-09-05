@@ -53,31 +53,21 @@ Agent(
 
 **Fixture:** `plugins/fakoli-crew/tests/fixtures/audit-targets/bad-skill/SKILL.md`
 
-**Antipatterns intentionally present:**
-- Vague description ("a skill that helps with things") — fails the `description must include specific quoted trigger phrases` rule. Claude reads the description to decide when to load a skill; this phrasing will never match concrete user input.
-- No numbered decision flow / no enumerated steps — the skill is a wall of prose with no `Step 1 — ...`, `Step 2 — ...` headings, and no decision branches called out. Fails the `multi-step skills MUST present their flow as a numbered workflow or explicit decision table` rule.
+This is a valid metadata shape with deliberately poor workflow guidance: the description does
+not identify a useful trigger, the body specifies no concrete actions, and the output is undefined.
+Numbered steps, third-person phrasing, and quoted trigger phrases are optional authoring choices.
 
-**Dispatch one-liner (run in Claude Code):**
+Dispatch the available skill critic with the fixture path and request an evidence-based report.
+For Claude Code, the installed critic role is `fakoli-plugin-critic:skill-critic`. In Codex, follow
+[the runtime adapter](../references/codex-runtime.md) and use exposed tools or review sequentially.
+Write the report to `.fakoli/runs/smoke/agent-skill-critic-smoke-status.md`.
 
-```
-Agent(
-  subagent_type="fakoli-plugin-critic:skill-critic",
-  prompt="Review the skill at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-skill/SKILL.md. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to .fakoli/runs/smoke/agent-skill-critic-smoke-status.md."
-)
-```
+**Pass criteria:** Report actionable SHOULD FIX findings for the vague trigger and missing concrete
+actions/output, quoting the relevant fixture text. PASS with quality findings is acceptable; a
+MUST FIX requires a specific consequence under the selected contract.
 
-**Pass criteria** (read `.fakoli/runs/smoke/agent-skill-critic-smoke-status.md` after dispatch):
-- At least 1 finding at **MUST FIX** or **SHOULD FIX** severity flagging the vague description (must reference the description being a vague capability claim, not naming concrete trigger phrases).
-- At least 1 **SHOULD FIX** finding flagging the absence of numbered steps / decision flow on a multi-step skill.
-- **VERDICT: FAIL** if either finding is MUST FIX; otherwise PASS with two SHOULD FIX items called out is acceptable.
-- The critic should explicitly cite the third-person + quoted-trigger-phrases rule from its standards.
-
-**Fail criteria:**
-- Zero findings on the description → critic is not applying the description-quality bar; re-read `plugins/fakoli-crew/agents/skill-critic.md` `Frontmatter` checklist.
-- Zero findings on the missing decision flow → critic skipped the `Decision Flow` checklist; the prose body is plainly multi-step.
-- Critic invents broken-reference findings (e.g., `references/foo.md does not exist`) when the fixture references no such file → hallucination; the critic is not actually reading the SKILL.md.
-
-**Note:** The fixture intentionally keeps the frontmatter `name: bad-skill` matching the directory name `bad-skill/` so the only frontmatter finding is on the description quality — that isolation is on purpose. If skill-critic also flags a path or naming issue, double-check the fixture has not drifted.
+**Fail criteria:** Invented schema rules requiring numbered steps, quoted triggers, or a grammatical
+person; findings that do not match the fixture; no useful workflow critique.
 
 ---
 
@@ -117,33 +107,21 @@ Agent(
 
 **Fixture:** `plugins/fakoli-crew/tests/fixtures/audit-targets/bad-mcp.json`
 
-**Antipatterns intentionally present:**
-- stdio server entry missing the required `args` field. Per the mcp-critic Manifest Schema checklist: "stdio servers have `command` (string) and `args` (array of strings); missing or wrong-typed fails install." The server will silently fail to start because Claude Code's MCP loader requires `args` (even an empty `[]`) for stdio transports.
+The stdio server supplies `args` as a string. When present, `args` must be an array of strings;
+omitting it is valid. This is a Claude plugin fixture, where `${CLAUDE_PLUGIN_ROOT}` is supported.
+For native Codex MCP configs, verify the separate runtime path rules; shell-style expansion in
+argument strings is not implied by the hook environment.
 
-Note: the fixture intentionally uses `${CLAUDE_PLUGIN_ROOT}` for the `command` path so portability is satisfied — the MUST FIX is scoped strictly to the missing `args` field, not to portability noise.
+Dispatch `fakoli-plugin-critic:mcp-critic` when that Claude role is exposed; otherwise use the
+[runtime adapter](../references/codex-runtime.md). Review the manifest only; there is no companion
+server implementation. Write `.fakoli/runs/smoke/agent-mcp-critic-smoke-status.md`.
 
-**Dispatch one-liner (run in Claude Code):**
+**Pass criteria:** At least one MUST FIX for string-valued `args`, suggesting `["--stdio"]`, and
+VERDICT: FAIL. Cite the selected host's current configuration contract.
 
-```
-Agent(
-  subagent_type="fakoli-plugin-critic:mcp-critic",
-  prompt="Review the MCP manifest at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-mcp.json. Treat this as a standalone .mcp.json (there is no companion server implementation source — the fixture is manifest-only). Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to .fakoli/runs/smoke/agent-mcp-critic-smoke-status.md."
-)
-```
-
-**Pass criteria** (read `.fakoli/runs/smoke/agent-mcp-critic-smoke-status.md` after dispatch):
-- At least 1 **MUST FIX** finding flagging the missing `args` field on the `bad-server` stdio entry, with the suggested fix to add `"args": []` (or a populated array if the wrapper takes arguments).
-- The finding cites the Manifest Schema rule from the critic's checklist.
-- **VERDICT: FAIL**.
-- The critic does NOT flag `${CLAUDE_PLUGIN_ROOT}` usage as a problem (the fixture uses it correctly).
-- The critic may also note absence of a server implementation file — that is acceptable, but flag it as a CONSIDER (no source to audit) rather than a MUST FIX (the fixture is manifest-only by design).
-
-**Fail criteria:**
-- Zero MUST FIX → the schema check regressed; re-read `plugins/fakoli-crew/agents/mcp-critic.md` `Manifest Schema` checklist.
-- Critic flags hardcoded paths or secret leaks → hallucination; the fixture has neither (the `command` uses `${CLAUDE_PLUGIN_ROOT}` and there is no `env` block).
-- VERDICT is PASS → mathematically wrong given the fixture; the verdict rule regressed.
-
-**Note:** This fixture is intentionally narrow — one antipattern, one expected MUST FIX. If `mcp-critic` finds additional MUST FIX items, verify the fixture file has not been edited.
+**Fail criteria:** Claims that args is missing or universally required, invented secret leaks,
+or fabricated execution results. Missing server source can be recorded as unverified, not as
+proof of a server implementation defect.
 
 ---
 
@@ -151,33 +129,22 @@ Agent(
 
 **Fixture:** `plugins/fakoli-crew/tests/fixtures/audit-targets/bad-plugin.json`
 
-**Antipatterns intentionally present:**
-- `version` field is MISSING. Per the Manifest Required Fields checklist: "`version` present, valid semver (`X.Y.Z` or `X.Y.Z-prerelease`)." Without `version`, structure-critic cannot run its version-sync-across-sources check and the plugin cannot be released. Expected: **MUST FIX**.
-- `description` is 6 characters long (`"tiny."`). The spec requires `non-empty, accurately describes the plugin` — a placeholder fails the bar. Expected: **SHOULD FIX** (or MUST FIX depending on how strictly the critic enforces the meaningful-description bar).
+Select the **publisher release profile** for this recipe: this marketplace requires an explicit
+release version and a meaningful description. The fixture omits version and uses `tiny.` as its
+description. Version is optional in the general runtime plugin manifest; this release requirement
+must not be presented as a universal loader rule.
 
-The fixture keeps `name`, `author`, `repository`, `license`, and `keywords` valid so the critic's findings concentrate on the two intentional bugs.
+Dispatch `fakoli-plugin-critic:structure-critic` when that Claude role is exposed; otherwise use the
+[runtime adapter](../references/codex-runtime.md). State the publisher release profile in the prompt.
+The fixture is standalone, with no marketplace, registry, README, or Python metadata to compare.
+Write `.fakoli/runs/smoke/agent-structure-critic-smoke-status.md`.
 
-**Dispatch one-liner (run in Claude Code):**
+**Pass criteria:** MUST FIX for the absent release version under this explicit publisher policy,
+SHOULD FIX for the uninformative description, and VERDICT: FAIL for this release profile. A second
+review under the runtime profile must not fail merely because version is absent.
 
-```
-Agent(
-  subagent_type="fakoli-plugin-critic:structure-critic",
-  prompt="Review the plugin manifest at plugins/fakoli-crew/tests/fixtures/audit-targets/bad-plugin.json. Treat it as a standalone plugin.json (no surrounding marketplace.json, registry/index.json, CHANGELOG, README, or pyproject.toml — the fixture is manifest-only by design). Apply the Manifest Required Fields checklist. Report findings using the standard MUST FIX / SHOULD FIX / CONSIDER / NIT severity rubric. Write the structured report to .fakoli/runs/smoke/agent-structure-critic-smoke-status.md."
-)
-```
-
-**Pass criteria** (read `.fakoli/runs/smoke/agent-structure-critic-smoke-status.md` after dispatch):
-- At least 1 **MUST FIX** finding flagging the missing `version` field, with the suggested fix to add a semver `"version": "0.1.0"` (or whatever the author intends).
-- At least 1 finding (MUST FIX or SHOULD FIX) flagging the placeholder 6-char `description: "tiny."` as not accurately describing the plugin.
-- **VERDICT: FAIL** (any MUST FIX → FAIL).
-- The critic may note the absence of marketplace.json/registry/CHANGELOG and either skip those sections or call them out as CONSIDER (no companion files to cross-check) — both behaviours are acceptable given the manifest-only fixture.
-
-**Fail criteria:**
-- Zero MUST FIX → the `version` required-field check regressed; re-read `plugins/fakoli-crew/agents/structure-critic.md` `Manifest (plugin.json) Required Fields` checklist.
-- Critic flags `name`, `author`, `repository`, `license`, or `keywords` as missing → hallucination; the fixture has all five.
-- Critic attempts to verify cross-file version sync against marketplace.json/registry/index.json and reports a fabricated mismatch (no such files exist for this fixture) → the critic is grading from a hallucinated repo layout rather than what is on disk.
-
-**Note:** Because this fixture is manifest-only, the version-sync-across-sources check has nothing to compare against — that is expected. The smoke test is specifically validating the single-file required-field discipline; the cross-file sync logic is exercised in real plugin audits (e.g., the live `fakoli-state` and `fakoli-crew` plugins), not in this fixture.
+**Fail criteria:** Claiming every host requires version, flagging supported fields that are present
+as missing, or inventing cross-file version drift without companion files.
 
 ---
 

@@ -6,7 +6,7 @@ allowed-tools: Bash
 Run this command to stop any currently playing TTS audio:
 
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT} && uv run fakoli-speak stop
+uv run --frozen --directory "${CLAUDE_PLUGIN_ROOT}" fakoli-speak stop
 ```
 
-After running, respond with only: "Stopped." — nothing else.
+Report the command result; do not claim successful stopping if it failed. The command targets this plugin's verified worker only.

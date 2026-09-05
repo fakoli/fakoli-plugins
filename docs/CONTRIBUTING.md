@@ -1,5 +1,8 @@
 # Contributing to Fakoli Plugins
 
+For current Codex/Claude packaging, source paths, validation and maintenance commands, see [Plugin conventions](PLUGIN_CONVENTIONS.md). Native manifests and the `.agents/plugins/marketplace.json` catalog are required for this repository's active packages alongside Claude metadata.
+
+
 Thank you for your interest in contributing to the Fakoli Plugins Marketplace!
 
 ## Before You Start

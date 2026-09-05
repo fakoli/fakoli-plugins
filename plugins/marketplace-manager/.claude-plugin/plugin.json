@@ -1,6 +1,6 @@
 {
   "name": "marketplace-manager",
-  "version": "1.2.4",
+  "version": "2.0.0",
   "description": "Manage the fakoli-plugins marketplace: add/remove plugins, validate manifests, and regenerate registry indices",
   "author": {
     "name": "Sekou Doumbouya",
@@ -8,5 +8,10 @@
   },
   "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT",
-  "keywords": ["marketplace", "plugin-management", "registry", "validation"]
+  "keywords": [
+    "marketplace",
+    "plugin-management",
+    "registry",
+    "validation"
+  ]
 }

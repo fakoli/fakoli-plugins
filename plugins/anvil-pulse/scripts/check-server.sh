@@ -3,13 +3,17 @@
 # Usage: check-server.sh [--project-dir <path>]
 # Prints {"running": true|false, ...} and exits 0 when running, 1 when not.
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/process-identity.sh"
 PROJECT_DIR="$(pwd)"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --project-dir) PROJECT_DIR="$2"; shift 2 ;;
-    *) echo "{\"error\": \"Unknown argument: $1\"}"; exit 1 ;;
+    --project-dir) [[ $# -ge 2 && -n "$2" ]] || { echo '{"error":"--project-dir requires a value"}'; exit 2; }; PROJECT_DIR="$2"; shift 2 ;;
+    *) echo '{"error":"unknown option"}'; exit 2 ;;
   esac
 done
+
+PROJECT_DIR="$(cd -- "$PROJECT_DIR" && pwd -P)" || exit 1
 
 PULSE_HOME="${PROJECT_DIR}/.anvil-pulse"
 PID_FILE="${PULSE_HOME}/server.pid"
@@ -21,8 +25,8 @@ if [[ ! -f "$PID_FILE" ]]; then
 fi
 
 pid=$(cat "$PID_FILE")
-if ! kill -0 "$pid" 2>/dev/null; then
-  echo "{\"running\": false, \"note\": \"stale pid file (pid $pid not alive)\"}"
+if ! pulse_pid_is_ours "$pid" "$PROJECT_DIR"; then
+  echo '{"running":false,"note":"unverified or stale pid file"}'
   exit 1
 fi
 

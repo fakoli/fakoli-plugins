@@ -1,45 +1,8 @@
 ---
-name: remove-plugin
-description: Remove a plugin from the fakoli-plugins marketplace
-argument-hint: <plugin-name> [--force]
+description: Remove a named plugin from a source marketplace
+argument-hint: <arguments>
 ---
 
-# Remove Plugin Command
+Read `../skills/marketplace-manager/SKILL.md` relative to this command file. Verify the exact requested name and target checkout, then use the remove workflow.
 
-Remove a plugin from the fakoli-plugins marketplace.
-
-**Arguments:**
-- `plugin-name` (required) — Name of the plugin to remove
-- `--force` (optional) — Skip confirmation prompt
-
-## Process
-
-1. Verify the plugin exists in `plugins/` or `external_plugins/`
-2. Confirm removal with the user (unless --force is specified)
-3. Remove the plugin directory
-4. Remove the plugin entry from marketplace.json if present
-5. Regenerate the registry index
-
-## Execution
-
-Run the remove_plugin.sh script:
-
-```bash
-# With confirmation prompt
-./plugins/marketplace-manager/skills/marketplace-manager/scripts/remove_plugin.sh <plugin-name>
-
-# Skip confirmation
-./plugins/marketplace-manager/skills/marketplace-manager/scripts/remove_plugin.sh <plugin-name> --force
-```
-
-## After Removal
-
-Regenerate the registry index:
-
-```bash
-./scripts/generate-index.sh
-```
-
-## Warning
-
-This action is permanent. The plugin directory and all its contents will be deleted. Make sure to backup any important data before removing a plugin.
+User request: $ARGUMENTS

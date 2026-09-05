@@ -1,13 +1,13 @@
 {
-  "name": "my-plugin",
+  "name": "basic",
   "version": "0.1.0",
-  "description": "A brief description of what this plugin does (10+ characters)",
+  "description": "An unfinished workflow scaffold for plugin development.",
   "author": {
-    "name": "Your Name",
-    "email": "your.email@example.com",
-    "url": "https://github.com/your-username"
+    "name": "Fakoli"
   },
-  "repository": "https://github.com/your-username/my-plugin",
   "license": "MIT",
-  "keywords": ["claude-code", "plugin"]
+  "keywords": [
+    "claude-code",
+    "plugin"
+  ]
 }

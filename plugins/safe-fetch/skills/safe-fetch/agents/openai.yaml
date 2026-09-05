@@ -1,0 +1,4 @@
+interface:
+  display_name: "Safe Fetch"
+  short_description: "Fetch public pages with network policy and sanitization"
+  default_prompt: "Use $safe-fetch to fetch a public URL as sanitized text."

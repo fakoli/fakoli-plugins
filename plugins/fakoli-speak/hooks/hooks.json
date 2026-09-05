@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd ${CLAUDE_PLUGIN_ROOT} && uv run fakoli-speak autospeak-hook",
+            "command": "uv run --frozen --directory \"${CLAUDE_PLUGIN_ROOT}\" fakoli-speak autospeak-hook",
             "async": true,
             "timeout": 30
           }

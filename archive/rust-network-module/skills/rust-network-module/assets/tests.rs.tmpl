@@ -1,49 +1,63 @@
+// Append to protocol.rs after substituting __NAME__. Uses the example wire
+// format in protocol.rs.tmpl; update the bytes/assertions when adapting it.
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
+    use std::time::Duration;
+    use tokio::io::{duplex, AsyncReadExt, AsyncWriteExt};
+    use tokio::time::timeout;
 
-    /// Create a connected TCP pair for testing.
-    async fn test_pair() -> (TcpStream, TcpStream) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let client = TcpStream::connect(addr).await.unwrap();
-        let (server, _) = listener.accept().await.unwrap();
-        (client, server)
+    #[tokio::test]
+    async fn valid_request_and_reply() {
+        timeout(Duration::from_secs(2), async {
+            let (mut client, mut server) = duplex(16);
+            client.write_all(&[VERSION, 0x1f, 0x90]).await.unwrap();
+            assert_eq!(parse___NAME__(&mut server).await.unwrap().port, 8080);
+            send_reply(&mut server, 0).await.unwrap();
+            let mut reply = [0; 2];
+            client.read_exact(&mut reply).await.unwrap();
+            assert_eq!(reply, [VERSION, 0]);
+        }).await.expect("handshake timed out");
     }
 
     #[tokio::test]
-    async fn test___NAME___valid() {
-        let (mut client, mut server) = test_pair().await;
-
-        let client_task = tokio::spawn(async move {
-            // TODO: Send protocol bytes
-            client.write_all(&[]).await.unwrap();
-            client
-        });
-
-        // TODO: Parse and assert
-        // let result = parse_request(&mut server).await.unwrap();
-        // assert_eq!(result.field, expected);
-
-        client_task.await.unwrap();
+    async fn rejects_wrong_version_zero_port_and_truncated_request() {
+        timeout(Duration::from_secs(2), async {
+            for (bytes, kind) in [
+                (vec![0xff], io::ErrorKind::InvalidData),
+                (vec![VERSION, 0, 0], io::ErrorKind::InvalidData),
+                (vec![VERSION, 0x1f], io::ErrorKind::UnexpectedEof),
+                (vec![], io::ErrorKind::UnexpectedEof),
+            ] {
+                let (mut client, mut server) = duplex(16);
+                client.write_all(&bytes).await.unwrap();
+                client.shutdown().await.unwrap();
+                assert_eq!(parse___NAME__(&mut server).await.unwrap_err().kind(), kind);
+            }
+        }).await.expect("error cases timed out");
     }
 
     #[tokio::test]
-    async fn test___NAME___invalid() {
-        let (mut client, mut server) = test_pair().await;
+    async fn fragmented_request_and_stalled_handshake() {
+        timeout(Duration::from_secs(2), async {
+            let (mut client, mut server) = duplex(16);
+            let writer = tokio::spawn(async move {
+                for byte in [VERSION, 0, 80] {
+                    client.write_all(&[byte]).await.unwrap();
+                    tokio::task::yield_now().await;
+                }
+            });
+            assert_eq!(parse___NAME__(&mut server).await.unwrap().port, 80);
+            writer.await.unwrap();
+            let (_client, mut stalled) = duplex(16);
+            assert!(timeout(Duration::from_millis(20), parse___NAME__(&mut stalled)).await.is_err());
+        }).await.expect("fragmentation test timed out");
+    }
 
-        let client_task = tokio::spawn(async move {
-            // TODO: Send invalid bytes
-            client.write_all(&[0xFF]).await.unwrap();
-            client
-        });
-
-        // TODO: Assert error
-        // let result = parse_request(&mut server).await;
-        // assert!(result.is_err());
-
-        client_task.await.unwrap();
+    #[tokio::test]
+    async fn reply_propagates_closed_writer_error() {
+        let (mut server, client) = duplex(16);
+        drop(client);
+        assert!(timeout(Duration::from_secs(2), send_reply(&mut server, 0)).await.unwrap().is_err());
     }
 }

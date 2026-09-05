@@ -2,6 +2,12 @@
 
 All notable changes to fakoli-style are documented here.
 
+## [1.3.0] - 2026-09-05
+
+- Add explicit ledger, projection and evidence-root paths for installed use; atomically replace generated reports.
+- Resolve proof symbols structurally, reject comments/wrong-class matches and paths escaping the evidence checkout.
+- Add native Codex skill metadata and distinguish evidence pointers from executed test results.
+
 ## [Unreleased]
 
 _No unreleased changes._

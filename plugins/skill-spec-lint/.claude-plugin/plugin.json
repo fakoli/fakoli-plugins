@@ -1,12 +1,19 @@
 {
   "name": "skill-spec-lint",
-  "version": "1.0.0",
-  "description": "Deterministic Agent Skills spec linter: checks each SKILL.md's name charset/length/dir-match, description length, body line ceiling, and immediate-child placement — the semantic rules manifest-validity checks miss. Stdlib-only Python, runs anywhere, no CI required.",
+  "version": "1.1.0",
+  "description": "Validate skill YAML, field types, names, and placement",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"
   },
   "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT",
-  "keywords": ["skills", "validation", "lint", "agent-skills", "spec", "frontmatter"]
+  "keywords": [
+    "skills",
+    "validation",
+    "lint",
+    "agent-skills",
+    "spec",
+    "frontmatter"
+  ]
 }

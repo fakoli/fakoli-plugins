@@ -1,0 +1,35 @@
+{
+  "name": "rust-network-module",
+  "version": "1.1.0",
+  "description": "Adapt Rust networking modules to the target crate with bounded TCP listeners, protocol examples, and executable tests.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "rust",
+    "networking",
+    "tokio",
+    "scaffold",
+    "async",
+    "tcp",
+    "proxy"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Rust Network Module",
+    "shortDescription": "Build Rust network modules with lifecycle tests",
+    "longDescription": "Adapt Rust networking modules to the target crate with bounded TCP listeners, protocol examples, and executable tests.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use $rust-network-module to add a tested TCP listener to this Rust project."
+    ]
+  }
+}

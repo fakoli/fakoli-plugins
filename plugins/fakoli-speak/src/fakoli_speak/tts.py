@@ -73,6 +73,7 @@ def speak(text: str) -> dict:
     playback.find_player()  # pre-check before making the API call
 
     provider = registry.get_provider()
+    requested_characters = len(text)
     limit = min(provider.max_chars, MAX_CHARS)
     text = text[:limit]
     provider.validate_config()
@@ -90,6 +91,8 @@ def speak(text: str) -> dict:
 
     return {
         "characters": result.char_count,
+        "requested_characters": requested_characters,
+        "truncated": requested_characters > limit,
         "cost_usd": entry["cost_usd"],
         "voice_id": result.voice_id,
         "model_id": result.model_id,

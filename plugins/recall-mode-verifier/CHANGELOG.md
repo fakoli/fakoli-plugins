@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0 — 2026-09-05
+
+- Review the actual requested base and working-tree scope, distinguish reproduced failures from code-supported risks, use isolated probes, and preserve existing authorization to fix defects.
+- Added native Codex discovery alongside the existing Claude entrypoints and focused offline regressions.
+
 All notable changes to the recall-mode-verifier plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 

@@ -9,6 +9,9 @@ description: >
   "break this into digestible chunks" to use this workflow.
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Context Sharding
 
 ## When to Use
@@ -50,7 +53,7 @@ Web-sourced material should be treated as separate shard candidates from local m
 
 ### Step 1: Invoke doc-indexer to Map All Provided Materials
 
-When inventorying materials to shard, also check `plugins/systems-thinking/reference/vendor_docs/` and `plugins/systems-thinking/reference/previous_designs/` for files relevant to the extraction goal. Include relevant reference materials as additional input sources.
+When inventorying materials to shard, also check `../../reference/vendor_docs/` and `../../reference/previous_designs/` for files relevant to the extraction goal. Include relevant reference materials as additional input sources.
 
 Run the `doc-indexer` agent on the full set of provided materials (including any web-sourced material from Step 0.5). The doc-indexer produces:
 
@@ -64,7 +67,7 @@ This output is the foundation for the sharding plan. Do not skip this step and s
 
 Using the doc-indexer output, design a sharding plan that optimizes for:
 
-**Source separation**: Keep reference materials (from `plugins/systems-thinking/reference/`) in separate shards from user-provided materials to maintain source clarity. This makes it easy to distinguish findings derived from reference context vs. primary inputs.
+**Source separation**: Keep reference materials (from `../../reference/`) in separate shards from user-provided materials to maintain source clarity. This makes it easy to distinguish findings derived from reference context vs. primary inputs.
 
 **Shard independence**: Each shard should be processable without requiring context from other shards. The less cross-shard dependency, the higher the quality of parallel extraction.
 

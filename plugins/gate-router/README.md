@@ -14,7 +14,7 @@ deterministic local checks nobody consistently ran.
 ---
 rules:
   - docs/** => mkdocs build --strict
-  - "**/*.sh" => bash -n {files}
+  - "**/*.sh" => for file in {files}; do test ! -f "$file" || bash -n "$file" || exit; done
   - bin/src/** => cd bin && uv run pytest -q
 ---
 Notes for humans (ignored by the router).
@@ -56,3 +56,11 @@ in CI on Linux and locally on Windows.
 ## License
 
 MIT
+
+## Runtime and validation update
+
+Read NUL-delimited Git paths, reject bad refs and malformed rules, preserve filenames as argv, deduplicate overlapping file sets, and support standard CLI help/errors.
+
+Native Codex loads the bundled `skills/` directory. Claude command names remain available. Resolve the installed plugin root before running the scripts; runtime notes and session evidence belong outside the install directory. No user state is migrated by this update.
+
+Python 3.10+ and Git are required; the Bash entrypoint selects `python3` or `python`. `--json` is a listing mode and cannot be combined with `--run`. Bad refs, malformed configuration, and unreadable Git state return 2. Place `{files}` as a standalone, unquoted shell argument; the router adds quoting. Files include deletions, so choose checks that handle deleted paths.

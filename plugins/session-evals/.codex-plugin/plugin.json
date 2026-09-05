@@ -1,0 +1,34 @@
+{
+  "name": "session-evals",
+  "version": "1.1.0",
+  "description": "Build and run deterministic evals from coding sessions",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "evals",
+    "local-models",
+    "anvil-serving",
+    "sessions",
+    "benchmarking",
+    "routing"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Session Evals",
+    "shortDescription": "Build and run deterministic evals from coding sessions",
+    "longDescription": "Build and run deterministic evals from coding sessions. Validate malformed specifications and resource bounds before running, stage replacement suites before touching prior evidence, and protect candidate/evidence outputs with explicit replacement.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use session-evals for the current request."
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Start Prd"
+  short_description: "Bootstrap a Fakoli State PRD from an idea, notes or an existing"

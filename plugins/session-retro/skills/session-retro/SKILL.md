@@ -1,8 +1,10 @@
 ---
 name: session-retro
 description: Analyze a Claude Code or Codex session (or a multi-session arc) from local JSONL logs and produce a markdown retro — token economy (main-loop vs delegated workflows), workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Use when the user asks to "do a session retro", "analyze this session", "pull stats on this session", "how many tokens did this session use", "session statistics / report", "post-session findings", "evaluate how we worked", or wants to review a long autonomous run. Reads only local ~/.claude and ~/.codex logs and writes to a project-local post-session-findings directory by default; sends nothing externally.
-user-invocable: true
 ---
+
+Resolve `PLUGIN_ROOT` from the host-provided `PLUGIN_ROOT` / `CLAUDE_PLUGIN_ROOT`, or from this loaded skill’s directory (`../..`). Use that absolute path for the bundled commands; do not assume the current directory is the install root.
+
 
 # Session Retro
 
@@ -12,10 +14,10 @@ time.
 
 ## Toolkit (bundled)
 
-`${CLAUDE_PLUGIN_ROOT}/scripts/session_stats.py` — stdlib-only Python, three modes:
+`${PLUGIN_ROOT}/scripts/session_stats.py` — stdlib-only Python, five modes:
 
 ```bash
-P="${CLAUDE_PLUGIN_ROOT}/scripts/session_stats.py"
+P="${PLUGIN_ROOT}/scripts/session_stats.py"
 python3 "$P" list  [substr]                       # browse sessions (date/branch/topic)
 python3 "$P" find  <keyword> [substr]             # find sessions by content (PR#, feature, file)
 python3 "$P" stats  <a.jsonl> [b...]              # JSON aggregates (combined if >1)
@@ -32,16 +34,14 @@ minutes, timestamps) and ends the `report` with the ordered list of human turns.
 1. **Locate the session(s) — any session, not only the current one.** Two
    discovery modes; both print a date, runtime, git branch when available,
    first-message **topic**, and the path for each session:
-   - `session_stats.py list [substr]` — browse sessions, newest last. The **newest
-     is almost always the current session** (its JSONL is still being written).
+   - `session_stats.py list [substr]` — browse sessions, newest last. The newest file is only a candidate: background agents or other projects may be newer.
      `substr` filters by project/worktree path, e.g. `list anvil`.
    - `session_stats.py find <keyword> [substr]` — find sessions whose **content**
      mentions a keyword (a PR number like `find '#93'`, a feature name, a filename,
      an error message), ranked by hit count. This is how to locate "the session
      where we did X" when the user does not remember which one.
 
-   Use the topic/branch/date breadcrumbs to confirm with the user which session(s)
-   they mean, then pass the path(s) to `stats`/`report`. Default to the current
+   Use the topic/branch/date breadcrumbs and the request to select the session; clarify only if several remain equally plausible. Pass the selected path(s) to `stats`/`report`. Default to the current
    (newest) session only when they do not name one. For Codex, passing a main
    rollout path automatically includes sibling subagent rollouts with the same
    `session_id`.
@@ -83,7 +83,7 @@ minutes, timestamps) and ends the `report` with the ordered list of human turns.
    directory at the project root. Resolve that root from the session's `cwd` (it is
    in the `stats`/`report` output):
    `git -C "<cwd>" rev-parse --show-toplevel 2>/dev/null || echo "<cwd>"`.
-   **Confirm the location with the user and honor any alternate they ask for** — the
+   **Honor the requested location; otherwise use the documented default and state where it was saved** — the
    most common one is **outside the repo** (e.g. `~/post-session-findings/`) when the
    project is public/shared and the retro shouldn't be committed, or when they just
    want it kept separate. Create the dir and write **three deliverables**:

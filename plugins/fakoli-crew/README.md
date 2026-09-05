@@ -1,7 +1,7 @@
 # fakoli-crew
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-2.9.2-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-2.10.0-blue.svg)](.claude-plugin/plugin.json)
 
 Nine specialized AI agents — generalist engineering roles (polyglot architect, Staff Engineer code reviewer, security auditor, API researcher, plugin engineer, integration specialist, documentation writer, infrastructure keeper, QA validator) — that run independently or as coordinated multi-wave crews for complex development projects.
 
@@ -185,3 +185,9 @@ Sekou Doumbouya — [github.com/fakoli](https://github.com/fakoli)
 ## License
 
 MIT — see [LICENSE](LICENSE)
+
+
+## Codex support (2026-09-05)
+
+This release includes `.codex-plugin/plugin.json` and native skills. Use the installed skills from
+a fresh Codex task; no custom agent types or model aliases are assumed. Read [native runtime behavior](references/codex-runtime.md) for role routing, evidence and limitations.

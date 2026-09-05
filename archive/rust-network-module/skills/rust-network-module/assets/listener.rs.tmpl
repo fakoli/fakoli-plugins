@@ -1,26 +1,70 @@
-use tokio::net::{TcpListener, TcpStream};
-use tracing::{debug, error, info};
+use std::{future::Future, io, sync::Arc, time::Duration};
+use tokio::{net::{TcpListener, TcpStream}, task::JoinSet};
+use tracing::{debug, info, warn};
 
-/// Run the __NAME__ server on the given port.
-pub async fn run___NAME__(port: u16) -> anyhow::Result<()> {
-    let addr = format!("[::]:{port}");
-    let listener = TcpListener::bind(&addr).await?;
-    info!(listen_addr = %addr, "__NAME__ listening");
-
-    loop {
-        let (stream, src_addr) = listener.accept().await?;
-        debug!(%src_addr, "accepted __NAME__ connection");
-
-        tokio::spawn(async move {
-            if let Err(e) = handle___NAME__(stream).await {
-                error!(%src_addr, error = %e, "__NAME__ connection failed");
-            }
-        });
+/// Serve a caller-bound listener until shutdown or a listener/task failure.
+/// Stop accepting, allow active handlers to finish for `drain_timeout`, then
+/// abort and join any remaining handlers. The caller owns signals and binding.
+pub async fn run___NAME__<S, F, H>(
+    listener: TcpListener,
+    shutdown: S,
+    max_connections: usize,
+    drain_timeout: Duration,
+    handler: F,
+) -> io::Result<()>
+where
+    S: Future<Output = ()>,
+    F: Fn(TcpStream) -> H + Send + Sync + 'static,
+    H: Future<Output = io::Result<()>> + Send + 'static,
+{
+    if max_connections == 0 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "max_connections must be positive"));
     }
-}
-
-async fn handle___NAME__(stream: TcpStream) -> anyhow::Result<()> {
-    // TODO: Implement connection handling
-    let _ = stream;
-    Ok(())
+    info!(listen_addr = %listener.local_addr()?, "__NAME__ listening");
+    let handler = Arc::new(handler);
+    let mut tasks = JoinSet::new();
+    tokio::pin!(shutdown);
+    let outcome = loop {
+        tokio::select! {
+            biased;
+            _ = &mut shutdown => break Ok(()),
+            completed = tasks.join_next(), if !tasks.is_empty() => {
+                if let Some(Err(error)) = completed {
+                    break Err(io::Error::other(format!("__NAME__ handler task failed: {error}")));
+                }
+            }
+            accepted = listener.accept(), if tasks.len() < max_connections => {
+                let (stream, peer) = match accepted {
+                    Ok(connection) => connection,
+                    Err(error) => break Err(error),
+                };
+                let handle = Arc::clone(&handler);
+                tasks.spawn(async move {
+                    debug!(%peer, "accepted __NAME__ connection");
+                    if let Err(error) = handle(stream).await {
+                        warn!(%peer, %error, "__NAME__ connection failed");
+                    }
+                });
+            }
+        }
+    };
+    // Close the listening socket before draining, so shutdown stops new accepts.
+    drop(listener);
+    let drained = tokio::time::timeout(drain_timeout, async {
+        while let Some(result) = tasks.join_next().await {
+            result.map_err(|error| io::Error::other(format!("__NAME__ handler task failed: {error}")))?;
+        }
+        Ok::<(), io::Error>(())
+    }).await;
+    // shutdown() aborts and joins; a task cannot outlive this server future.
+    tasks.shutdown().await;
+    info!("__NAME__ stopped");
+    outcome?;
+    match drained {
+        Ok(result) => result,
+        Err(_) => {
+            warn!("__NAME__ drain deadline reached; remaining handlers aborted");
+            Ok(())
+        }
+    }
 }

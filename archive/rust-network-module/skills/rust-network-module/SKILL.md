@@ -1,72 +1,23 @@
 ---
 name: rust-network-module
-description: "Scaffold new Rust async networking modules for the nat464-sidecar project. Use when adding TCP/UDP listeners, protocol handlers, proxies, or translation modules. Triggers: 'scaffold module', 'add new module', 'create listener', 'create proxy', 'add protocol handler', 'new networking module', 'scaffold UDP', 'add ICMP translation'."
+description: Add Rust async networking modules with project-adapted listener lifecycle, protocol parsing, and meaningful tests. Includes Tokio TCP and example wire-protocol templates for nat464-sidecar or compatible Rust projects.
 ---
 
-# Rust Network Module Scaffolding
+# Rust Network Module
 
-Scaffold new async networking modules following nat464-sidecar's established patterns.
+Start with the actual repository: read its instructions, `Cargo.toml`, lockfile, toolchain/MSRV settings, a neighboring networking module, and existing shutdown/configuration/tests. Preserve the crate's layout, error types, runtime, visibility, feature flags, tracing conventions, and wiring. Do not assume a nat464 dependency list, require directory modules, or register everything in `main.rs`/`try_join!`.
 
-## Workflow
+Choose the smallest relevant starting point in [assets](assets/). Resolve these files relative to this installed skill directory, not the user's project. Copy/adapt only the required templates into the requested crate:
 
-### 1. Determine Module Type
+| Asset | Purpose |
+|---|---|
+| `listener.rs.tmpl` | TCP accept loop with caller-owned binding/shutdown, bounded handler count, task observation, and bounded drain |
+| `protocol.rs.tmpl` | Executable example framing and parser/reply logic; replace with the actual protocol contract |
+| `tests.rs.tmpl` | Assertions for the example protocol's bytes, fragmentation, invalid/truncated input, timeout, and write failure |
+| `mod.rs.tmpl` | Optional module root; use a flat file if that matches the project |
 
-| Type | Pattern | Example |
-|------|---------|---------|
-| **Listener** | Accept connections, spawn handler tasks | `proxy/inbound.rs` |
-| **Protocol handler** | Parse/serialize protocol messages | `socks5/handshake.rs` |
-| **Relay/proxy** | Bidirectional byte forwarding between streams | `proxy/copy.rs`, `socks5/relay.rs` |
-| **Resolver/racer** | DNS resolution, connection racing | `happy_eyeballs/resolver.rs`, `racer.rs` |
-| **HTTP server** | Hyper-based HTTP endpoint | `health.rs` |
+Substitute `__NAME__` with a snake_case identifier, `__TYPE__` with a PascalCase type prefix, `__PRIMARY__` with the actual child module, and `__DESCRIPTION__` with its purpose. The example protocol is **not SOCKS5**. TCP assets do not implement UDP, ICMP, DNS racing, or HTTP: use [patterns](references/patterns.md) to choose those architectures without pretending a TCP scaffold implements them.
 
-### 2. Create Module Files
+Implement the requested behavior before claiming completion. Define frame/size limits, deadlines, overload policy, shutdown ownership, and error handling appropriate to the real feature. Keep binding explicit; `[::]` is not a portable guarantee of dual-stack behavior. A handshake interrupted during a partial read must be discarded or resumed from saved state, not blindly restarted.
 
-Every module is a directory under `src/` with `mod.rs` + implementation files.
-
-```
-src/<module_name>/
-├── mod.rs           # Re-exports, shared types/constants
-├── <primary>.rs     # Main logic
-└── (optional).rs    # Additional files as needed
-```
-
-Register in parent: add `pub mod <module_name>;` to `src/main.rs` or parent `mod.rs`.
-
-### 3. Apply Project Conventions
-
-See [references/patterns.md](references/patterns.md) for the full pattern catalog with code templates.
-
-**Key conventions:**
-- `pub async fn run_<name>(port: u16, ...) -> anyhow::Result<()>` for server entry points
-- `tokio::spawn` per connection, errors logged inside spawn (never crash the server)
-- `tracing` structured fields: `debug!` per-connection, `info!` lifecycle, `error!` failures
-- `anyhow::Result` everywhere, `anyhow::bail!` for protocol errors
-- In-module `#[cfg(test)] mod tests` with `test_pair()` helper for TCP stream pairs
-- Tests bind to port 0 for random allocation
-
-### 4. Add to Cargo.toml If Needed
-
-Only add dependencies if the new module requires crates not already in Cargo.toml. Current deps: `tokio`, `clap`, `tracing`, `tracing-subscriber`, `hyper`, `hyper-util`, `http-body-util`, `tokio-util`, `anyhow`, `thiserror`.
-
-### 5. Wire Into main.rs
-
-Add the new server to `tokio::try_join!` in `main.rs` if it runs as a long-lived server. Add CLI flags to `config.rs` if the module needs configuration.
-
-### 6. Verify
-
-```bash
-cargo build          # Compiles
-cargo test           # All tests pass
-cargo clippy -- -W clippy::all  # No new warnings
-```
-
-## Module Templates
-
-Use the asset templates as starting points:
-
-| Template | Use For |
-|----------|---------|
-| `assets/listener.rs.tmpl` | TCP/UDP listener with spawn-per-connection |
-| `assets/protocol.rs.tmpl` | Protocol parser with handshake + types |
-| `assets/mod.rs.tmpl` | Module root with constants and re-exports |
-| `assets/tests.rs.tmpl` | Test block with `test_pair()` helper |
+Wire through the crate's existing lifecycle. Add only missing dependencies/features compatible with its MSRV; template requirements and verification commands are in [the README](../../README.md). Run formatting, the relevant tests, and the project's normal checks. Include observable success, error/protocol, and shutdown paths when implementing a server. Tests use port 0 or in-memory duplex streams and deadlines; empty writes or successful compilation alone do not verify networking behavior.

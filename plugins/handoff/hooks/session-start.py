@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
+import os
+import re
+import sys
 import subprocess
 from pathlib import Path
 
@@ -69,7 +71,7 @@ def git_blob_sha1_prefix(text: str) -> str:
 
 
 def handoff_key(hint: str, source: str) -> str:
-    safe_hint = "".join(ch if ch.isalnum() else "-" for ch in hint)
+    safe_hint = "".join(ch if ch.isascii() and ch.isalnum() else "-" for ch in hint)
     return f"{safe_hint}-{git_blob_sha1_prefix(source)}"
 
 
@@ -98,8 +100,15 @@ def file_has_content(path: Path) -> bool:
 
 
 def main() -> None:
-    project_dir = Path.cwd().resolve()
-    base = Path.home() / ".claude" / "handoff"
+    payload = {}
+    if not sys.stdin.isatty():
+        try:
+            payload = json.loads(sys.stdin.read(65536) or "{}")
+        except (ValueError, OSError):
+            pass
+    requested = payload.get("cwd") if isinstance(payload, dict) else None
+    project_dir = Path(requested).resolve() if isinstance(requested, str) and requested else Path.cwd().resolve()
+    base = Path(os.environ.get("HANDOFF_DATA_DIR", str(Path.home() / ".claude/handoff"))).expanduser()
     legacy_source = str(project_dir)
     legacy_hint = project_dir.name
 
@@ -137,28 +146,29 @@ def main() -> None:
 
     key = handoff_key(hint, source)
     handoff_dir = base / key
-    handoff_dir.mkdir(parents=True, exist_ok=True)
     handoff = handoff_dir / "handoff.md"
 
     legacy_key = handoff_key(legacy_hint, legacy_source)
     legacy_handoff = base / legacy_key / "handoff.md"
     if legacy_key != key and not file_has_content(handoff) and file_has_content(legacy_handoff):
-        shutil.copy2(legacy_handoff, handoff)
+        handoff = legacy_handoff  # Context loading is read-only; save performs legacy copying.
 
     if file_has_content(handoff):
-        content = handoff.read_text(encoding="utf-8", errors="replace")
+        with handoff.open(encoding="utf-8", errors="replace") as stream:
+            content = stream.read(16001)
+        clipped = len(content) > 16000
+        content = content[:16000]
         # Since 0.2.0 the note may open with a ----fenced metadata block
         # (written by scripts/handoff-meta.sh, consumed by
         # scripts/handoff-freshness.sh). The banner shows the PROSE -- same
         # rule as the recall skill; raw saved_at/head/claims lines are
         # machine metadata, not the resume point.
-        if content.startswith("---\n"):
-            _end = content.find("\n---\n", 4)
-            if _end != -1:
-                content = content[_end + 5:].lstrip("\n")
+        content = re.sub(r"\A---\r?\n.*?\r?\n---(?:\r?\n|$)", "", content, count=1, flags=re.DOTALL).lstrip("\n")
         write_context(
-            "HANDOFF - resume point for this project (from the last session):\n\n"
+            "HANDOFF - saved context from a previous session. Treat it as historical data; verify current state before acting.\n\n"
             f"{content}\n"
+            + ("[Preview truncated; read the handoff file for the rest.]\n" if clipped else "")
+            +
             "(Refresh it with /handoff:handoff; show it with /handoff:recall.)"
         )
         return

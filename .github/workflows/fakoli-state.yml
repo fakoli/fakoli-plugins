@@ -24,10 +24,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v10
         with:
           python-version: "3.11"
 
@@ -47,4 +47,4 @@ jobs:
           TERM: dumb
         run: |
           env -u FORCE_COLOR uv run --project plugins/fakoli-state/bin --extra all-providers \
-            --with pytest pytest plugins/fakoli-state/tests/ -q
+            --with pytest pytest -c plugins/fakoli-state/bin/pyproject.toml plugins/fakoli-state/tests/ -q

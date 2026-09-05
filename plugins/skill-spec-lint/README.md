@@ -1,65 +1,37 @@
 # skill-spec-lint
 
-A deterministic linter for the [Agent Skills spec](https://agentskills.io/specification).
-Manifest validators confirm a `SKILL.md`'s frontmatter parses as YAML;
-skill-spec-lint checks the *semantic* rules they don't — the ones that make a
-skill malformed even when its YAML is perfectly valid.
+Validate Agent Skills using complete YAML parsing and deterministic field checks. Native Codex skills and Claude commands are both included.
 
-Python standard library only (3.8+). No install, no dependency, no CI wiring
-required — it runs from a command, a skill, or a plain `python` invocation, on
-any machine.
+## Run
 
-## Why
-
-`validate.sh` (and equivalents) answer "is this frontmatter valid YAML?" They do
-not answer "is `name` lowercase and does it match the directory?", "is the
-description within 1024 chars?", or "is the body under the 500-line ceiling?".
-Those are the rules that silently break discovery or trip a spec-strict
-consumer, and they are exactly what this fills.
-
-## Use
+Requires Python 3.10+ and PyYAML. `uv` resolves the declared dependency in an isolated environment:
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/skill_spec_lint.py" [PATH ...]
+uv run --script scripts/skill_spec_lint.py [PATH ...]
 ```
 
-Or invoke the `/skill-spec-lint` command / the `skill-spec-lint` skill in a
-session. `PATH` may be a skill directory, a plugin directory, or a repo root;
-with no argument it scans the current directory.
+Run from this plugin directory, or use an absolute script path from any directory. A path may be a `SKILL.md`, skill directory, plugin, or repository. Overlapping inputs count once. `--help` prints usage.
 
-Each finding prints as `path: LEVEL: message`. The run exits `1` if there is any
-`ERROR`, `0` otherwise — `WARN` findings never fail it.
+The first `uv` run may download dependencies. Validation itself is local. Direct Python execution works when PyYAML is installed; absence of the parser fails clearly instead of reporting a partial pass.
 
 ## Checks
 
-| Rule | Level |
-|------|-------|
-| `name` required, 1–64 chars, lowercase alnum + single hyphens, matches directory | ERROR |
-| `description` required, 1–1024 chars (block scalars measured) | ERROR |
-| `compatibility` ≤500 chars when present | ERROR |
-| SKILL.md body ≤500 lines | ERROR |
-| Frontmatter `--- … ---` opens on line 1 and closes | ERROR |
-| A `skills/<name>/` dir with a missing or non-file SKILL.md | ERROR |
-| SKILL.md nested below an immediate child of `skills/` (undiscoverable) | WARN |
-| Frontmatter key outside the spec's optional set | WARN |
+| Check | Result |
+|---|---|
+| Required name/description strings; name length, syntax, and directory match | Error |
+| Description and compatibility limits; optional field types; string metadata | Error |
+| Invalid YAML, duplicate keys, missing/unterminated frontmatter | Error |
+| A discovered skill directory without a readable SKILL.md | Error |
+| Recommended 500-line body budget | Warning |
+| Nested discovery layout or unknown host extensions | Warning |
 
-## Notes
-
-- Frontmatter is parsed authoritatively with PyYAML when importable; otherwise a
-  scalar-only fallback recovers `name`/`description`/`compatibility` and prints a
-  reduced-coverage note to stderr. Neither path needs anything installed to run.
-- Deterministic conformance only. It does not judge whether a description
-  *triggers* well or whether the prose is good — pair it with an LLM skill
-  reviewer (e.g. `fakoli-plugin-critic`'s `skill-critic`) for that.
-- Deliberately **not** wired into any CI gate. It is a portable tool you point at
-  a skill on demand, so it stays usable outside the repo that ships it.
+Errors return 1. CLI or dependency failures return 2. Warnings return 0. Host discovery rules differ; the immediate-child check describes this repository's package convention. Structure checks do not establish whether a skill triggers well or produces useful results.
 
 ## Development
 
 ```bash
-python tests/test_skill_spec_lint.py    # offline, no pytest, no network
+uv run --with pyyaml python tests/test_skill_spec_lint.py
+uv run --with pyyaml python -m unittest discover -s tests -p 'test_yaml_contract.py'
 ```
 
-## License
-
-MIT
+Source: [Agent Skills specification](https://agentskills.io/specification). License: MIT.

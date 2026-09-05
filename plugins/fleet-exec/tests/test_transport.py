@@ -290,3 +290,50 @@ def test_server_unimplemented_notification_produces_no_response():
 def test_server_unknown_method_returns_minus_32601():
     response = server._handle_request({"jsonrpc": "2.0", "id": 7, "method": "not/a/method"})
     assert response["error"]["code"] == -32601
+
+@pytest.mark.parametrize('value', [None, 1, [], {'host': 'example'}, [42], ['a\x00b']])
+def test_malformed_argv_refused_before_ssh(value, monkeypatch):
+    fake = FakeRun([])
+    monkeypatch.setattr(transport, '_run', fake)
+    with pytest.raises(transport.FleetExecRefusal):
+        transport.run_on_host('host-a', value)
+    assert fake.calls == []
+
+@pytest.mark.parametrize('value', [[], 1, None, 'request'])
+def test_invalid_jsonrpc_shape_does_not_crash(value):
+    response = server._handle_request(value)
+    assert response['error']['code'] == -32600
+
+
+def test_ping_and_invalid_tool_arguments():
+    assert server._handle_request({'jsonrpc': '2.0', 'id': 1, 'method': 'ping'})['result'] == {}
+    assert server._call_tool('run_on_host', ['invalid'])['isError']
+    assert server._call_tool('run_on_host', {'host': 'a', 'argv': ['ls'], 'timeout_s': 'bad'})['isError']
+
+
+def test_remote_wrapper_array_is_not_a_host_result(monkeypatch):
+    fake = FakeRun([_cp(0, stdout='[]')])
+    monkeypatch.setattr(transport, '_run', fake)
+    assert transport.run_on_host('host-a', ['ls'])['state'] == 'unreachable'
+
+
+def test_stdio_recovers_after_parse_error_and_nonobject_messages(monkeypatch):
+    import io
+    monkeypatch.setattr(sys, 'stdin', io.StringIO('not-json\n[]\n{"jsonrpc":"2.0","id":3,"method":"ping"}\n'))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, 'stdout', output)
+    server.main()
+    responses = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert responses[0]['error']['code'] == -32700
+    assert responses[1]['error']['code'] == -32600
+    assert responses[2]['id'] == 3 and responses[2]['result'] == {}
+
+
+def test_invalid_request_id_cannot_dispatch_a_tool():
+    from fleet_exec import server
+    from unittest.mock import patch
+    for req_id in [None, True, [], {}, 1.5]:
+        with patch.object(server, '_call_tool') as call:
+            response = server._handle_request({'jsonrpc': '2.0', 'id': req_id, 'method': 'tools/call', 'params': {}})
+            assert response['error']['code'] == -32600
+            call.assert_not_called()

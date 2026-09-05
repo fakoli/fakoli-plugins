@@ -27,11 +27,11 @@ for writing — status is a read verb and the JSONL is opened read-only. Binds
 
 ```bash
 # from your anvil project
-bash <plugin>/scripts/start-server.sh
+bash "<plugin>/scripts/start-server.sh" --project-dir "/path/to/project"
 # -> {"event":"server-started","url":"http://localhost:PORT/", ...}
 
-bash <plugin>/scripts/check-server.sh
-bash <plugin>/scripts/stop-server.sh
+bash "<plugin>/scripts/check-server.sh" --project-dir "/path/to/project"
+bash "<plugin>/scripts/stop-server.sh" --project-dir "/path/to/project"
 ```
 
 In Claude Code, just use `/pulse` (or ask: "watch this run"). Add
@@ -45,8 +45,12 @@ Requirements: `node` (any recent LTS), the `anvil` CLI on PATH, `bash`
 | Harness | Produce heartbeats | Display |
 |---|---|---|
 | Claude Code | anvil plugin hooks (already shipping) | this dashboard + optional statusline segment (`/pulse statusline`) |
-| Codex | same anvil hooks (loaded from the plugin cache) | this dashboard in a browser — Codex has no in-TUI surface |
+| Codex | heartbeat events supplied by your Anvil workflow | this dashboard in a browser |
 | OpenClaw | anvil's native OpenClaw plugin | this dashboard, plus zero-code Gateway cron digest — see [docs/openclaw.md](docs/openclaw.md) |
+
+Both `.codex-plugin/plugin.json` and `.claude-plugin/plugin.json` expose the dashboard skill. Resolve scripts from the installed plugin, then pass the intended project explicitly. Start in a persistent terminal when the runtime reaps detached processes. A running dashboard does not itself schedule assistant monitoring.
+
+State discovery checks local `.anvil` directories and the exact path-hashed Anvil workspace. Same-named workspaces are not a fallback. For custom/legacy layouts pass `--state-dir` explicitly. Start/check/stop verify the recorded PID belongs to this package's server and this project; unrelated Node processes are left alone.
 
 ## Stuck detection
 
@@ -58,8 +62,16 @@ operator decides.
 ## API
 
 - `GET /api/pulse` — everything the page renders (status + enriched claims +
-  events + warnings), for scripting: `curl -s localhost:PORT/api/pulse`
+  events + warnings), for scripting: `curl --fail --max-time 10 localhost:PORT/api/pulse`
 - `GET /healthz` — liveness
+
+## Verification
+
+```bash
+python3 -m unittest discover -s plugins/anvil-pulse/tests -p 'test_*.py' -v
+```
+
+Requires Bash, Node, curl, and Python. Tests use temporary projects, a fake Anvil command, and local ephemeral HTTP ports. They cover isolated workspace discovery, malformed input, and preservation of unrelated processes; no real Anvil project is modified.
 
 ## License
 

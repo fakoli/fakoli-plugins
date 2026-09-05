@@ -2,13 +2,16 @@
 name: crew-ops
 description: "This skill should be used when coordinating multiple fakoli-crew agents on a single project — assembling crews, planning waves, assigning file ownership, or routing work across guido, critic, warden, scout, smith, welder, herald, keeper, and sentinel. Provides wave patterns, file-ownership rules, status-file protocol, and language-style references shared across the crew. Trigger phrases: \"assemble a crew\", \"who owns this file\", \"plan the waves\", \"run the crew on X\", \"coordinate agents to Y\", \"which agent should handle\", \"multi-agent orchestration\". Each agent writes its status to the path the orchestrator provides; the default scratch root is `.fakoli/runs/<run-id>/`."
 ---
+
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
 # Crew Operations
 
 To orchestrate multi-agent work, assign one owner per file, route work through the wave pattern below, and have each agent write status to the path the orchestrator provides in the dispatch prompt. The default scratch root is `.fakoli/runs/<run-id>/`; the orchestrator supplies the absolute path so agents remain path-agnostic.
 
 ## Available Agents
 
-See `skills/crew-ops/references/agent-roster.md` for the full 9-agent roster with roles, colors, and file paths.
+See `references/agent-roster.md` for the full 9-agent roster with roles, colors, and file paths.
 
 ## Pre-Built Crews
 
@@ -23,11 +26,11 @@ See `skills/crew-ops/references/agent-roster.md` for the full 9-agent roster wit
 
 ## Related Skill
 
-`debugging` — systematic 4-phase root cause analysis (see `skills/debugging/SKILL.md`).
+`debugging` — systematic 4-phase root cause analysis (see `../debugging/SKILL.md`).
 
 ## Wave Pattern
 
-See `skills/crew-ops/references/wave-patterns.md` for the full multi-wave protocol, including timing, hand-off rules, and gate criteria.
+See `references/wave-patterns.md` for the full multi-wave protocol, including timing, hand-off rules, and gate criteria.
 
 1. **Research**: scout gathers information
 2. **Build** (parallel): guido + smith + herald create new artifacts
@@ -50,7 +53,7 @@ Use the full 5-wave pattern when >5 files change or multiple concerns overlap.
 
 ## File Ownership
 
-Each agent owns specific files. No two agents modify the same file. If overlap is needed, one agent is primary and the other coordinates via status files. See `skills/crew-ops/references/file-ownership.md` for the full per-agent ownership matrix.
+Each agent owns specific files. No two agents modify the same file. If overlap is needed, one agent is primary and the other coordinates via status files. See `references/file-ownership.md` for the full per-agent ownership matrix.
 
 ## Communication
 
@@ -59,12 +62,12 @@ Agents write status to the path the orchestrator provides in the dispatch prompt
 - Decisions: key choices other agents need to know
 - Files Modified: list of changed files
 
-See `skills/crew-ops/references/communication.md` for the full status-file protocol and inter-agent hand-off format.
+See `references/communication.md` for the full status-file protocol and inter-agent hand-off format.
 
 ## Language Style References
 
 Shared across guido and welder when working in TypeScript, Python, or Rust:
-- `skills/crew-ops/references/guido-style.md` — TypeScript design conventions
-- `skills/crew-ops/references/python-style.md` — Python design conventions (PEP 8/20/544)
-- `skills/crew-ops/references/rust-style.md` — Rust design conventions (API Guidelines)
-- `skills/crew-ops/references/welder-patterns.md` — integration patterns (re-exports, facades, adapters, shims) across all three languages
+- `references/guido-style.md` — TypeScript design conventions
+- `references/python-style.md` — Python design conventions (PEP 8/20/544)
+- `references/rust-style.md` — Rust design conventions (API Guidelines)
+- `references/welder-patterns.md` — integration patterns (re-exports, facades, adapters, shims) across all three languages

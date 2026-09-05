@@ -2,13 +2,17 @@
 # Stop the anvil-pulse dashboard server for a project.
 # Usage: stop-server.sh [--project-dir <path>]
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/process-identity.sh"
 PROJECT_DIR="$(pwd)"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --project-dir) PROJECT_DIR="$2"; shift 2 ;;
-    *) echo "{\"error\": \"Unknown argument: $1\"}"; exit 1 ;;
+    --project-dir) [[ $# -ge 2 && -n "$2" ]] || { echo '{"error":"--project-dir requires a value"}'; exit 2; }; PROJECT_DIR="$2"; shift 2 ;;
+    *) echo '{"error":"unknown option"}'; exit 2 ;;
   esac
 done
+
+PROJECT_DIR="$(cd -- "$PROJECT_DIR" && pwd -P)" || exit 1
 
 PID_FILE="${PROJECT_DIR}/.anvil-pulse/server.pid"
 
@@ -22,10 +26,9 @@ pid=$(cat "$PID_FILE")
 # Guard against PID recycling: refuse to kill a process that no longer looks
 # like the dashboard (node/server.cjs) - a crashed server leaves a stale pid
 # file and the OS may reassign the number to an unrelated process.
-cmd=$(ps -p "$pid" -o args= 2>/dev/null || ps -p "$pid" 2>/dev/null)
-if [[ -n "$cmd" ]] && ! echo "$cmd" | grep -qE "node|server\.cjs"; then
+if ! pulse_pid_is_ours "$pid" "$PROJECT_DIR"; then
   rm -f "$PID_FILE"
-  echo "{\"event\": \"server-stopped\", \"note\": \"pid $pid belongs to an unrelated process now; cleaned stale pid file without killing\"}"
+  echo '{"event":"server-stopped","note":"unverified or stale PID; no process signalled"}'
   exit 0
 fi
 
@@ -37,7 +40,7 @@ if kill "$pid" 2>/dev/null; then
     fi
     sleep 0.1
   done
-  kill -9 "$pid" 2>/dev/null
+  pulse_pid_is_ours "$pid" "$PROJECT_DIR" && kill -9 "$pid" 2>/dev/null
   rm -f "$PID_FILE"
   echo "{\"event\": \"server-stopped\", \"pid\": $pid}"
 else

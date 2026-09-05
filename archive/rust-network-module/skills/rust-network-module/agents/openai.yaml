@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rust Network Module"
+  short_description: "Build Rust network modules with lifecycle tests"
+  default_prompt: "Use $rust-network-module to add a tested TCP listener to this Rust project."

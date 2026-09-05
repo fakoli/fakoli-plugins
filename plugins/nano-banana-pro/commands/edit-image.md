@@ -1,76 +1,13 @@
 ---
-name: edit-image
-description: Edit an existing image with natural language instructions
-argument-hint: <input-image> <edit-instructions> [--aspect ratio] [--size tier] [--out path]
+description: Edit a PNG, JPEG, or WebP image with Gemini and natural language instructions
+argument-hint: 'image-path "edit instructions" [--model pro|flash|MODEL_ID] [--out path.png]'
 ---
 
-# Edit Image Command
-
-Edit an existing image using natural language instructions with Google's Gemini 3 Pro Image Preview model.
-
-## Prerequisites
-
-- GEMINI_API_KEY configured (see [Configuration](../README.md#configuration))
-- Python 3.10+ installed
-- `uv` package manager installed
-- Input image file (PNG recommended)
-
-## Execution
+Edit the image requested in `$ARGUMENTS`. Inspect the input, preserve the user's requested details, and follow [the generate skill](../skills/generate/SKILL.md).
 
 ```bash
-uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
-  --in "<input-file>" \
-  --prompt "<edit-instructions>" \
-  [--aspect "1:1"] \
-  [--size "2K"] \
-  [--out "./edited.png"]
+uv run --script "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
+  --in "<image-path>" --prompt "<edit instructions>" --out "./edited.png"
 ```
 
-## Examples
-
-### Adjust typography
-
-```bash
-uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
-  --in "./hero-banner.png" \
-  --prompt "Increase the headline size by 15%. Add more whitespace above the subhead. Keep everything else the same."
-```
-
-### Change colors
-
-```bash
-uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
-  --in "./logo.png" \
-  --prompt "Replace the blue with a gradient from #6366F1 to #8B5CF6. Keep the shape and layout identical."
-```
-
-### Add elements
-
-```bash
-uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
-  --in "./product-shot.png" \
-  --prompt "Add a subtle drop shadow beneath the product. Add a small 'NEW' badge in the top-right corner."
-```
-
-### Remove elements
-
-```bash
-uv run --directory "${CLAUDE_PLUGIN_ROOT}" python "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" edit \
-  --in "./photo.png" \
-  --prompt "Remove the text watermark in the bottom-right corner. Fill the area naturally with the surrounding background."
-```
-
-## Output
-
-The command prints the output file path on success. Default location: `./.nanobanana/out/nanobanana-<timestamp>.png`
-
-## Common Edit Patterns
-
-| Goal | Prompt Pattern |
-|------|----------------|
-| Resize element | "Increase/decrease [element] by [percentage]" |
-| Reposition | "Move [element] to [location]" |
-| Recolor | "Change [element] color from [old] to [new]" |
-| Add | "Add [element] in/at [location]" |
-| Remove | "Remove [element]. Fill naturally with surrounding [context]" |
-| Transform | "Convert [element] to [style]. Keep [preserved aspects]" |
+Run from the user's project directory. Quote each argument safely, map requested flags, and choose a new output path unless the user requests replacement. The script detects the actual input MIME type. Inspect and display the output; do not automatically launch paid revision loops. See [README](../README.md#usage) for options and limits.

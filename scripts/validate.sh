@@ -8,6 +8,17 @@
 
 set -euo pipefail
 
+# Full skill validation requires real YAML parsing in child Python processes.
+if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+    if [ "${FAKOLI_VALIDATE_ENV_READY:-}" = 1 ]; then
+        echo "validate: PyYAML unavailable in validation environment" >&2
+        exit 2
+    fi
+    command -v uv >/dev/null 2>&1 || { echo "validate: install uv to load PyYAML" >&2; exit 127; }
+    export FAKOLI_VALIDATE_ENV_READY=1
+    exec uv run --no-project --with 'PyYAML>=6,<7' bash "$0" "$@"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 SCHEMA_FILE="$ROOT_DIR/schemas/plugin.schema.json"
@@ -538,16 +549,14 @@ _check_hook_safety() {
 
     # Command-type: check script existence and for set -e
     if [[ "$hook_type" == "command" && -n "$command_str" ]]; then
-        # Extract script path from command (handle bash/sh prefix and ${CLAUDE_PLUGIN_ROOT})
-        local script_path=""
-        if [[ "$command_str" =~ \$\{CLAUDE_PLUGIN_ROOT\}/(.*) ]]; then
-            local relative="${BASH_REMATCH[1]}"
-            # Strip any arguments after the script path
-            relative="${relative%% *}"
-            script_path="$plugin_dir/$relative"
+        local paths_json
+        if ! paths_json="$(python3 "$SCRIPT_DIR/hook_paths.py" "$command_str")"; then
+            log_error "[$plugin_name] Malformed hook command quoting"
+            return
         fi
-
-        if [[ -n "$script_path" ]]; then
+        local relative script_path
+        while IFS= read -r -d '' relative; do
+            script_path="$plugin_dir/$relative"
             if [[ ! -f "$script_path" ]]; then
                 log_error "[$plugin_name] $event hook references script that does not exist: $script_path"
             else
@@ -556,7 +565,7 @@ _check_hook_safety() {
                     log_warn "[$plugin_name] $event hook script '$script_path' uses 'set -e' — breaks || fallback patterns, can cause false blocks"
                 fi
             fi
-        fi
+        done < <(printf '%s' "$paths_json" | jq -j '.[] | ., "\u0000"')
     fi
 }
 

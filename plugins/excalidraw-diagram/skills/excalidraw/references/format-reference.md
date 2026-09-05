@@ -1,3 +1,5 @@
+> Converter behavior: IDs are preserved, edits add/remove elements, and `files`/app state survive modification. Elbowed routing is not supported. See the skill for validation and preview requirements.
+
 # Excalidraw Format Reference
 
 This document describes the `.excalidraw` JSON file format for reference when generating or debugging diagrams.
@@ -21,7 +23,7 @@ Every element has these properties:
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `id` | string | generated | Unique ID (20-char alphanumeric) |
+| `id` | string | generated | Stable input ID; generated for unnamed elements |
 | `type` | string | required | Element type |
 | `x` | number | 0 | X position |
 | `y` | number | 0 | Y position |

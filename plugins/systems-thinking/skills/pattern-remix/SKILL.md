@@ -9,6 +9,9 @@ description: >
   draft from prior patterns" to use this workflow.
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Pattern Remix
 
 ## When to Use
@@ -29,7 +32,7 @@ Do **not** use Pattern Remix when:
 
 | Input           | Required | Description                                                                                                                                                        |
 | --------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Prior artifacts | Yes      | Designs, implementations, architecture docs, or decision records from previous successful work. Source from `plugins/systems-thinking/reference/previous_designs/` or user-specified locations. |
+| Prior artifacts | Yes      | Designs, implementations, architecture docs, or decision records from previous successful work. Source from `../../reference/previous_designs/` or user-specified locations. |
 | Target state    | Yes      | Clear description of what the new design must achieve — goals, success criteria, user/system requirements.                                                         |
 | Constraints     | Yes      | Hard boundaries: budget, timeline, technology mandates, compliance requirements, team capabilities.                                                                |
 | Anti-patterns   | No       | Known failure modes, rejected approaches, or patterns explicitly ruled out for the new context.                                                                    |
@@ -40,11 +43,11 @@ Do **not** use Pattern Remix when:
 
 Collect all prior artifacts that may be structurally relevant to the new problem. Check the following sources in order:
 
-1. `plugins/systems-thinking/reference/previous_designs/` directory for indexed prior work, proposals, and architecture notes.
+1. `../../reference/previous_designs/` directory for indexed prior work, proposals, and architecture notes.
 2. User-specified file paths or repositories.
 3. Context Packets from prior workflow runs that contain relevant design extractions.
 
-When scanning `plugins/systems-thinking/reference/previous_designs/`, present any found materials to the user for selection before proceeding — not all prior work will be relevant to the current remix.
+When scanning `../../reference/previous_designs/`, present any found materials to the user for selection before proceeding — not all prior work will be relevant to the current remix.
 
 For each artifact, note:
 
@@ -68,7 +71,7 @@ Document these as structured inputs. Do not proceed with ambiguity on target sta
 
 ### Step 3: Invoke pattern-remix-planner Agent
 
-Before invoking, check `plugins/systems-thinking/reference/prompts/` for analysis prompts relevant to the problem domain. If found, use them to guide the remix approach and framing. Also check `plugins/systems-thinking/reference/examples/` for sample Pattern Remix Draft outputs to calibrate quality and depth expectations for the output.
+Before invoking, check `../../reference/prompts/` for analysis prompts relevant to the problem domain. If found, use them to guide the remix approach and framing. Also check `../../reference/examples/` for sample Pattern Remix Draft outputs to calibrate quality and depth expectations for the output.
 
 Pass the following context to the `pattern-remix-planner` agent:
 

@@ -19,6 +19,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+source "$SCRIPT_DIR/process-identity.sh"
 PROJECT_DIR="$(pwd)"
 STATE_DIR_ARG=""
 PORT=""
@@ -28,6 +29,10 @@ BIND_HOST="127.0.0.1"
 URL_HOST=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --project-dir|--state-dir|--port|--host|--url-host)
+      if [[ $# -lt 2 || -z "$2" ]]; then echo '{"error":"option requires a value"}'; exit 2; fi ;;
+  esac
+  case "$1" in
     --project-dir) PROJECT_DIR="$2"; shift 2 ;;
     --state-dir)   STATE_DIR_ARG="$2"; shift 2 ;;
     --port)        PORT="$2"; shift 2 ;;
@@ -35,7 +40,7 @@ while [[ $# -gt 0 ]]; do
     --url-host)    URL_HOST="$2"; shift 2 ;;
     --foreground|--no-daemon) FOREGROUND="true"; shift ;;
     --background|--daemon)    FORCE_BACKGROUND="true"; shift ;;
-    *) echo "{\"error\": \"Unknown argument: $1\"}"; exit 1 ;;
+    *) echo '{"error":"unknown option"}'; exit 2 ;;
   esac
 done
 
@@ -61,6 +66,11 @@ if [[ "$FOREGROUND" != "true" && "$FORCE_BACKGROUND" != "true" ]]; then
   fi
 fi
 
+command -v node >/dev/null 2>&1 || { echo '{"error":"node is required"}'; exit 1; }
+PROJECT_DIR="$(cd -- "$PROJECT_DIR" && pwd -P)" || exit 1
+if [[ -n "$STATE_DIR_ARG" ]]; then
+  STATE_DIR_ARG="$(cd -- "$STATE_DIR_ARG" && pwd -P)" || exit 1
+fi
 PULSE_HOME="${PROJECT_DIR}/.anvil-pulse"
 PID_FILE="${PULSE_HOME}/server.pid"
 LOG_FILE="${PULSE_HOME}/server.log"
@@ -69,15 +79,9 @@ mkdir -p "$PULSE_HOME"
 # One dashboard per project: kill any existing server recorded in the PID file.
 # Guard against PID recycling — only kill if the process still looks like ours
 # (node/server.cjs); a crashed server leaves a stale pid the OS may reassign.
-pid_is_ours() {
-  local cmd
-  cmd=$(ps -p "$1" -o args= 2>/dev/null || ps -p "$1" 2>/dev/null)
-  [[ -z "$cmd" ]] && return 0  # ps unusable here; fall back to trusting the pid file
-  echo "$cmd" | grep -qE "node|server\.cjs"
-}
 if [[ -f "$PID_FILE" ]]; then
   old_pid=$(cat "$PID_FILE")
-  if kill -0 "$old_pid" 2>/dev/null && pid_is_ours "$old_pid"; then
+  if kill -0 "$old_pid" 2>/dev/null && pulse_pid_is_ours "$old_pid" "$PROJECT_DIR"; then
     kill "$old_pid" 2>/dev/null
   fi
   rm -f "$PID_FILE"
@@ -102,11 +106,11 @@ if [[ "$FOREGROUND" == "true" ]]; then
   # the terminal, and a stale server-started line would make check-server.sh
   # report a dead URL.
   rm -f "$LOG_FILE"
-  exec env "${ENV_VARS[@]}" node server.cjs
+  exec env "${ENV_VARS[@]}" node "$SCRIPT_DIR/server.cjs" --pulse-project "$PROJECT_DIR"
 fi
 
 # Background mode: nohup to survive shell exit; disown to leave the job table.
-nohup env "${ENV_VARS[@]}" node server.cjs > "$LOG_FILE" 2>&1 &
+nohup env "${ENV_VARS[@]}" node "$SCRIPT_DIR/server.cjs" --pulse-project "$PROJECT_DIR" > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 disown "$SERVER_PID" 2>/dev/null
 echo "$SERVER_PID" > "$PID_FILE"

@@ -1,8 +1,11 @@
 ---
 name: handoff
 description: Save or update this project's cross-session handoff note — the resume point for the next session, shared across checkouts of the same git remote and across linked worktrees. Use when the user types /handoff (optionally with a one-line summary), says "save a handoff", "note where we are for next time", "write a handoff before I clear context", or is wrapping up a session.
-allowed-tools: Bash, Read, Write
+allowed-tools: Bash Read Write
 ---
+
+Resolve `PLUGIN_ROOT` from the host-provided `PLUGIN_ROOT` / `CLAUDE_PLUGIN_ROOT`, or from this loaded skill’s directory (`../..`). Use that absolute path for the bundled commands; do not assume the current directory is the install root.
+
 
 # Save the project handoff
 
@@ -16,7 +19,7 @@ one left off.
    with a git-common-dir fallback for local repos; do not compute it yourself):
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/handoff-path.sh"
+   bash "${PLUGIN_ROOT}/scripts/handoff-path.sh"
    ```
 
    Use the printed path as `<HANDOFF>`. **Never** write the handoff to a
@@ -32,7 +35,7 @@ one left off.
    count, optional anvil claim snapshot — all best-effort):
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/handoff-meta.sh"
+   bash "${PLUGIN_ROOT}/scripts/handoff-meta.sh"
    ```
 
    Place its output (a `---`-fenced frontmatter block) at the very TOP of

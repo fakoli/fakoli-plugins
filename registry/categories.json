@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T00:13:46Z",
+  "generatedAt": "2026-09-05T12:46:12Z",
   "categories": [
     {
       "category": "development",
@@ -7,67 +7,67 @@
       "plugins": [
         {
           "name": "cli-to-plugin",
-          "version": "1.0.5",
-          "description": "Convert CLI tools into Claude Code plugins by generating skills from command help output.",
+          "version": "1.1.0",
+          "description": "Generate Codex and Claude plugins from captured CLI help with deterministic discovery and scaffolding.",
           "path": "plugins/cli-to-plugin"
         },
         {
           "name": "fakoli-crew",
-          "version": "2.9.2",
+          "version": "2.10.0",
           "description": "Coordinate specialist software-engineering agents with TDD, debugging, and verification practices.",
           "path": "plugins/fakoli-crew"
         },
         {
           "name": "fakoli-plugin-critic",
-          "version": "0.1.0",
-          "description": "Audit Claude Code plugin agents, skills, hooks, MCP servers, and structure with specialist critics.",
+          "version": "0.2.0",
+          "description": "Review plugin agents, skills, hooks, MCP servers and packaging against the target host conventions.",
           "path": "plugins/fakoli-plugin-critic"
         },
         {
           "name": "fleet-exec",
-          "version": "1.0.0",
+          "version": "1.0.1",
           "description": "Structured remote execution over SSH — run commands, fetch/push files, and read host facts across a fleet without hand-quoted ssh one-liners",
           "path": "plugins/fleet-exec"
         },
         {
           "name": "gate-router",
-          "version": "1.0.0",
+          "version": "1.1.0",
           "description": "Deterministic changed-path gate routing: map changed files to the verify commands this repo requires before shipping, from a per-project rules file instead of session memory.",
           "path": "plugins/gate-router"
         },
         {
           "name": "marketplace-manager",
-          "version": "1.2.4",
+          "version": "2.0.0",
           "description": "Manage marketplace plugins, validate manifests, and regenerate registry indices.",
           "path": "plugins/marketplace-manager"
         },
         {
           "name": "recall-mode-verifier",
-          "version": "1.0.0",
+          "version": "1.1.0",
           "description": "Spec-independent breakage probes (fail-closed, malformed-input, resource-exhaustion, state-drift) for pre-PR and anvil verify-left review.",
           "path": "plugins/recall-mode-verifier"
         },
         {
           "name": "ship-loop",
-          "version": "1.1.1",
+          "version": "1.2.0",
           "description": "The full ship loop as one invocable procedure: worktree isolation, ground-truth scoping, reality-faithful tests, an eight-angle adversarial review as the merge gate, and loop closure.",
           "path": "plugins/ship-loop"
         },
         {
           "name": "ship-task",
-          "version": "1.1.0",
+          "version": "1.2.0",
           "description": "The mechanical tail of a one-PR-per-task loop as a single command: after review passes, push the branch, open a PR, wait for CI, squash-merge and delete the branch, sync the base, and optionally run a post-merge command (e.g. `anvil apply`). Keeps the repetitive git/gh/CI/merge dance out of the context window; makes no review decisions and stops if CI fails.",
           "path": "plugins/ship-task"
         },
         {
           "name": "skill-spec-lint",
-          "version": "1.0.0",
-          "description": "Deterministic Agent Skills spec linter — name/description/body-ceiling/placement rules that manifest-validity checks miss. Stdlib-only, no CI required.",
+          "version": "1.1.0",
+          "description": "Validate Agent Skills metadata, placement and discoverability with authoritative YAML parsing.",
           "path": "plugins/skill-spec-lint"
         },
         {
           "name": "windows-cli-hygiene",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "description": "Scan source for Windows/cross-platform CLI hazards before shipping: encoding, python3, heredocs, .cmd spawns, set -e in hooks.",
           "path": "plugins/windows-cli-hygiene"
         }
@@ -79,13 +79,13 @@
       "plugins": [
         {
           "name": "gws",
-          "version": "0.4.1",
+          "version": "0.4.2",
           "description": "Operate Google Workspace services through skills, commands, agents, and automation recipes.",
           "path": "plugins/gws"
         },
         {
           "name": "notebooklm-enhanced",
-          "version": "0.1.4",
+          "version": "0.2.0",
           "description": "Automate Google NotebookLM notebook creation, source ingestion, and generated study artifacts.",
           "path": "plugins/notebooklm-enhanced"
         }
@@ -97,7 +97,7 @@
       "plugins": [
         {
           "name": "systems-thinking",
-          "version": "0.3.11",
+          "version": "0.4.0",
           "description": "Analyze infrastructure decisions for hidden costs, dependencies, caveats, and risks.",
           "path": "plugins/systems-thinking"
         }
@@ -109,19 +109,19 @@
       "plugins": [
         {
           "name": "excalidraw-diagram",
-          "version": "1.0.2",
+          "version": "1.1.0",
           "description": "Generate and edit Excalidraw diagrams from natural-language prompts and code context.",
           "path": "plugins/excalidraw-diagram"
         },
         {
           "name": "fakoli-speak",
-          "version": "2.0.2",
-          "description": "Stream Claude Code text-to-speech through multiple providers with cost tracking.",
+          "version": "2.1.0",
+          "description": "Speak text through multiple providers with owned playback cleanup and cost estimates.",
           "path": "plugins/fakoli-speak"
         },
         {
           "name": "nano-banana-pro",
-          "version": "1.3.4",
+          "version": "1.4.0",
           "description": "Generate, edit, remix, and optimize images with Google Gemini image models.",
           "path": "plugins/nano-banana-pro"
         }
@@ -133,25 +133,25 @@
       "plugins": [
         {
           "name": "handoff",
-          "version": "0.2.0",
+          "version": "0.3.0",
           "description": "Store durable cross-session project handoff notes shared across same-remote checkouts.",
           "path": "plugins/handoff"
         },
         {
           "name": "quick-notes",
-          "version": "1.0.1",
+          "version": "1.1.0",
           "description": "Capture, search, edit, and export dictation-friendly personal notes.",
           "path": "plugins/quick-notes"
         },
         {
           "name": "session-evals",
-          "version": "1.0.0",
+          "version": "1.1.0",
           "description": "Mine coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving.",
           "path": "plugins/session-evals"
         },
         {
           "name": "session-retro",
-          "version": "1.2.1",
+          "version": "1.3.0",
           "description": "Analyze local Claude Code and Codex session logs into actionable retrospectives.",
           "path": "plugins/session-retro"
         }
@@ -163,8 +163,8 @@
       "plugins": [
         {
           "name": "safe-fetch",
-          "version": "1.1.3",
-          "description": "Sanitize fetched web content before it reaches Claude Code.",
+          "version": "1.1.4",
+          "description": "Fetch and sanitize web content with URL/IP checks while preserving its untrusted-source status.",
           "path": "plugins/safe-fetch"
         }
       ]
@@ -175,7 +175,7 @@
       "plugins": [
         {
           "name": "fakoli-style",
-          "version": "1.2.1",
+          "version": "1.3.0",
           "description": "Track Fakoli operating-model principles in a governed ledger with generated reports.",
           "path": "plugins/fakoli-style"
         }
@@ -187,19 +187,19 @@
       "plugins": [
         {
           "name": "anvil-pulse",
-          "version": "1.0.0",
+          "version": "1.1.0",
           "description": "Live operator dashboard for long autonomous anvil runs: claims, phases, lease countdowns, event feed, and stuck-state detection served as a local web page, plus an optional Claude Code statusline segment.",
           "path": "plugins/anvil-pulse"
         },
         {
           "name": "fakoli-flow",
-          "version": "1.3.7",
+          "version": "1.4.0",
           "description": "Orchestrate brainstorm, planning, and execution workflows through coordinated agents and critic gates.",
           "path": "plugins/fakoli-flow"
         },
         {
           "name": "fakoli-state",
-          "version": "1.23.4",
+          "version": "1.24.0",
           "description": "Turn PRDs into lockable, evidence-backed work packets for humans and coding agents.",
           "path": "plugins/fakoli-state"
         }

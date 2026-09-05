@@ -1,0 +1,3 @@
+interface:
+  display_name: "Execute"
+  short_description: "Execute a claimed Fakoli State work packet, verify its acceptan"

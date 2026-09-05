@@ -15,7 +15,16 @@
 set -euo pipefail
 
 project_dir="${1:-$PWD}"
-base="${HOME}/.claude/handoff"
+base="${HANDOFF_DATA_DIR:-${HOME}/.claude/handoff}"
+umask 077
+if [[ "$project_dir" == "--help" || "$project_dir" == "-h" ]]; then
+  printf '%s\n' 'Usage: handoff-path.sh [project_dir] (HANDOFF_DATA_DIR overrides storage)'
+  exit 0
+fi
+if [[ ! -d "$project_dir" ]]; then
+  printf '%s\n' 'handoff: project directory does not exist' >&2
+  exit 2
+fi
 
 normalize_remote() {
   local url="$1"

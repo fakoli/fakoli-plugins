@@ -1,0 +1,28 @@
+{
+  "name": "basic",
+  "version": "0.1.0",
+  "description": "An unfinished workflow scaffold for plugin development.",
+  "author": {
+    "name": "Fakoli"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Basic Workflow",
+    "shortDescription": "An unfinished workflow scaffold for plugin development.",
+    "longDescription": "An unfinished workflow scaffold for plugin development.",
+    "developerName": "Fakoli",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Help define this plugin workflow."
+    ]
+  }
+}

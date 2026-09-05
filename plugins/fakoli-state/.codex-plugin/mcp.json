@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "fakoli-state": {
+      "command": "bash",
+      "args": [
+        "bin/fakoli-state-mcp"
+      ],
+      "cwd": ".",
+      "env_vars": [
+        "FAKOLI_STATE_EXTRAS",
+        "FAKOLI_STATE_ENVIRONMENT"
+      ]
+    }
+  }
+}

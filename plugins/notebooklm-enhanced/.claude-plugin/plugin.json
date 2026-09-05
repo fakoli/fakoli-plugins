@@ -1,7 +1,7 @@
 {
   "name": "notebooklm-enhanced",
-  "version": "0.1.4",
-  "description": "Comprehensive Google NotebookLM automation — create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
+  "version": "0.2.0",
+  "description": "Comprehensive Google NotebookLM automation \u2014 create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows via RPC API",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"

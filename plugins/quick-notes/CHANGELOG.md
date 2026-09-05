@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0 — 2026-09-05
+
+- Use a bounded cross-platform writer lock, preserve missing-newline tails, validate stored record shapes, reject stale CLI edits under lock, and prevent exports from replacing the log.
+- Added native Codex discovery alongside the existing Claude entrypoints and focused offline regressions.
+
 ## [1.0.1] - 2026-06-26
 
 ### Fixed

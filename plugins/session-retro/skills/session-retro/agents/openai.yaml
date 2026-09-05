@@ -1,0 +1,4 @@
+interface:
+  display_name: "Session Retro"
+  short_description: "Analyze local coding sessions with tables and HTML reports"
+  default_prompt: "Use $session-retro for the current task."

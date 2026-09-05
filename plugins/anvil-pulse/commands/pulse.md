@@ -11,4 +11,4 @@ Arguments: $ARGUMENTS
 - `stop` -> stop the dashboard for the current project.
 - `status` or `check` -> report whether the dashboard is running and where.
 - `statusline` -> walk through installing the optional Claude Code statusline
-  segment (requires explicit user confirmation before editing their script).
+  segment when the user requests installation; inspect and preserve the existing script.

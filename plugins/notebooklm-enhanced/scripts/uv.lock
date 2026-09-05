@@ -59,6 +59,15 @@ wheels = [
 ]
 
 [[package]]
+name = "filelock"
+version = "3.32.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/a0/50c2c0ce5e74d7721bbb1b19a26ebd339aac5878553a6e35308c2f31f935/filelock-3.32.5.tar.gz", hash = "sha256:f6a6a28f743f9b95ce19db5abe0f376f75eb56517dff21e1a4751e2657d3e83d", size = 222838, upload-time = "2026-08-31T18:56:34.729Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/d2/b70a31e13d04456d28493f31d2aa087e99eeb2767ef0293b2625727ccb8c/filelock-3.32.5-py3-none-any.whl", hash = "sha256:142cd9fa77a872c5e78c62329a0d15278fadc686eb89e760017968961a4fd6b2", size = 100003, upload-time = "2026-08-31T18:56:33.078Z" },
+]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -127,27 +136,28 @@ wheels = [
 
 [[package]]
 name = "notebooklm-enhanced-scripts"
-version = "0.1.0"
+version = "0.2.0"
 source = { virtual = "." }
 dependencies = [
     { name = "notebooklm-py" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "notebooklm-py", specifier = ">=0.3.4,<1.0" }]
+requires-dist = [{ name = "notebooklm-py", specifier = "==0.8.2" }]
 
 [[package]]
 name = "notebooklm-py"
-version = "0.3.4"
+version = "0.8.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
+    { name = "filelock" },
     { name = "httpx" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/89/0d/b6fc53016dcfc4305f89d157a29ed09bc471f65b9b83c2affe66694db7bb/notebooklm_py-0.3.4.tar.gz", hash = "sha256:dc72f89b1eb4c0efbad8641a0ec83da2e631c5a926e029a93a258b0032b503c4", size = 8007875, upload-time = "2026-03-12T03:03:57.969Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/89/e0/c605af3764ed9fd9938bf73d771a0b44685ae3edd077aa38351fd5b4d038/notebooklm_py-0.8.2.tar.gz", hash = "sha256:8a427e32b40bc4e96582871f39aaa302de5fd81b9d423c0e109d33190165cd14", size = 21455392, upload-time = "2026-09-02T22:04:58.697Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/31/1f/73b1bb084dddb3e9b6387db2779496d90c2c34dc4685f1f2c81f07880d0d/notebooklm_py-0.3.4-py3-none-any.whl", hash = "sha256:da54004f546d6409c01b474d18d031afc13a02254e2cb383dd6ee3e0974f5b47", size = 168780, upload-time = "2026-03-12T03:03:56.003Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/e3/0fc8560ca31a4485014267bdf0ac177d617930764ebada18e50f4bb16b5f/notebooklm_py-0.8.2-py3-none-any.whl", hash = "sha256:a6beff63ff3114560c340b2c5aa49d176aa22a3e98d7b55f740566c2f7957c9a", size = 1960024, upload-time = "2026-09-02T22:04:56.342Z" },
 ]
 
 [[package]]

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0 — 2026-09-05
+
+- Correct heredoc expansion and combined-errexit checks, handle arbitrary filenames through JSON, report input errors, and add an optional --fail-on-findings gate.
+- Added native Codex discovery alongside the existing Claude entrypoints and focused offline regressions.
+
 All notable changes to the windows-cli-hygiene plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 

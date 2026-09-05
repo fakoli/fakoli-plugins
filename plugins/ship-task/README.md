@@ -127,3 +127,12 @@ The summary line carries the sync outcome as `sync <ok|worktree|pull-failed|fail
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+
+## Codex support (2026-09-05)
+
+This release includes `.codex-plugin/plugin.json` and native skills. Use the installed skills from
+a fresh Codex task; no custom agent types or model aliases are assumed. The shell helper uses Git and GitHub CLI on a Bash-capable host. It stops on CI lookup errors,
+uses `--match-head-commit` and confirms remote merge state before cleanup. Exit `6` means the
+merge request is not yet confirmed (possibly queued); check the PR before retrying. Exit `5`
+means merged remotely but local sync incomplete. Existing review and shipping authorization still apply.
