@@ -81,7 +81,7 @@ The existing installed Fakoli plugins were upgraded through the supported `codex
 
 Both installed bundles match the verified source files. The configured `fakoli-plugins` marketplace now points to this local checkout rather than `https://github.com/fakoli/fakoli-plugins.git`, so these unpublished improvements are usable locally. The source/configuration provenance was backed up under `~/.codex/backups/plugin-modernization-2026-09-05` with restricted permissions. Only the two previously installed plugins were reinstalled; remaining source plugins are available in the local marketplace. No host hook trust was changed. Other marketplaces were preserved.
 
-The updated skill catalog was observed during this task. Fresh tasks load the current bundles; this does not establish that every hook/event integration has been exercised. Source changes are saved on the modernization branches; no public push or release was made.
+The updated skill catalog was observed during this task. Fresh tasks load the current bundles; this does not establish that every hook/event integration has been exercised. The initial modernization handoff was saved on local branches. The user subsequently authorized PR creation and merging in both repositories; that delivery is recorded in Git history. No tagged release is part of this change.
 
 ## Research basis
 
