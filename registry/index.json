@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-09-05T12:46:12Z",
+  "generatedAt": "2026-09-05T18:46:23Z",
   "pluginCount": 26,
   "plugins": [
     {
@@ -333,7 +333,7 @@
     },
     {
       "name": "marketplace-manager",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "description": "Manage marketplace plugins, validate manifests, and regenerate registry indices.",
       "author": {
         "name": "Sekou Doumbouya",
@@ -349,7 +349,7 @@
       ],
       "path": "plugins/marketplace-manager",
       "category": "development",
-      "indexedAt": "2026-09-05T12:46:12Z"
+      "indexedAt": "2026-09-05T18:46:23Z"
     },
     {
       "name": "nano-banana-pro",

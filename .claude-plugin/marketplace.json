@@ -150,7 +150,7 @@
     },
     {
       "name": "marketplace-manager",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "description": "Manage marketplace plugins, validate manifests, and regenerate registry indices.",
       "category": "development",
       "source": "./plugins/marketplace-manager"

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T12:46:12Z",
+  "generatedAt": "2026-09-05T18:46:23Z",
   "categories": [
     {
       "category": "development",
@@ -37,7 +37,7 @@
         },
         {
           "name": "marketplace-manager",
-          "version": "2.0.0",
+          "version": "2.0.1",
           "description": "Manage marketplace plugins, validate manifests, and regenerate registry indices.",
           "path": "plugins/marketplace-manager"
         },

@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.0.1] - 2026-09-05
+
+- Pin packaged GitHub workflows to the published setup-uv v10.0.1 tag; the upstream action does not provide a v10 alias.
+
 ## [2.0.0] - 2026-09-05
 
 Add native Codex discovery, explicit checkout targeting, transactional add/remove, packaged workflows, noninteractive errors, and synchronized dual catalogs. Removal now requires --force and always regenerates catalogs.

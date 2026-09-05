@@ -50,7 +50,7 @@ jobs:
 
       - name: Set up uv
         if: env.HAS_TOKEN == 'true'
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           python-version: "3.12"
 
