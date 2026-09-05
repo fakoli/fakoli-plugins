@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -176,14 +177,20 @@ class WorkerStatus:
         if self.status != "RUNNING":
             return self.status
 
-        if self.output_file.is_file():
+        status_file = self.output_file.with_suffix(self.output_file.suffix + ".status")
+        if status_file.is_file():
             try:
-                content = self.output_file.read_text(encoding="utf-8", errors="replace")
-                if WORKER_DONE_SENTINEL in content:
-                    self.status = "DONE"
-                    self.end_time = time.time()
-                    return self.status
-            except OSError:
+                code = int(status_file.read_text(encoding="utf-8").strip())
+                self.status = (
+                    "DONE"
+                    if code == 0
+                    and self.output_file.is_file()
+                    and self.output_file.stat().st_size > 0
+                    else "FAILED"
+                )
+                self.end_time = time.time()
+                return self.status
+            except (OSError, ValueError):
                 pass
 
         return self.status
@@ -205,8 +212,8 @@ class WorkerStatus:
                 if size == 0:
                     self.status = "FAILED"
                 else:
-                    # Output exists but no sentinel -- treat as done.
-                    self.status = "DONE"
+                    # Output alone is not proof that a worker completed successfully.
+                    self.status = "FAILED"
             else:
                 self.status = "FAILED"
             self.end_time = time.time()
@@ -223,6 +230,22 @@ def _print_status_line(workers: list[WorkerStatus]) -> None:
 # ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
+
+
+def worker_command(prompt_file: Path, output_file: Path, model: str = "") -> str:
+    """Quote every argument and record the real CLI status outside generated content."""
+    command = ["claude", "--print"]
+    if model:
+        command.extend(["--model", model])
+    status = output_file.with_suffix(output_file.suffix + ".status")
+    temporary = status.with_suffix(status.suffix + ".tmp")
+    stderr = output_file.with_suffix(output_file.suffix + ".stderr")
+    return (
+        f'{shlex.join(command)} -p "$(cat -- {shlex.quote(str(prompt_file))})" '
+        f"> {shlex.quote(str(output_file))} 2> {shlex.quote(str(stderr))}; "
+        f"worker_exit=$?; printf '%s\\n' \"$worker_exit\" > {shlex.quote(str(temporary))}; "
+        f"mv -- {shlex.quote(str(temporary))} {shlex.quote(str(status))}"
+    )
 
 
 def run_workers_in_tmux(
@@ -275,16 +298,10 @@ def run_workers_in_tmux(
         pane_target = _create_pane(session, worker_id, layout, first=(i == 0))
 
         # Build the shell command.
-        model_flag = ""
         model = worker.get("model", "")
-        if model:
-            model_flag = f" --model {model}"
-
-        shell_cmd = (
-            f"claude --print --dangerously-skip-permissions{model_flag} "
-            f'-p "$(cat {prompt_file})" > {output_file} 2>&1; '
-            f'echo "{WORKER_DONE_SENTINEL}" >> {output_file}'
-        )
+        status_file = output_file.with_suffix(output_file.suffix + ".status")
+        status_file.unlink(missing_ok=True)
+        shell_cmd = worker_command(prompt_file, output_file, model)
         _send_command(pane_target, shell_cmd)
 
         ws = WorkerStatus(worker_id, pane_target, output_file)

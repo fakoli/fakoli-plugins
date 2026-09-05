@@ -1,7 +1,7 @@
 {
   "name": "session-retro",
-  "version": "1.2.1",
-  "description": "Analyze a Claude Code or Codex session (or a multi-session arc) from local JSONL logs and produce a markdown retro: token economy, workflow taxonomy, tool distribution, interaction shape, and concrete recommendations. Reads only local ~/.claude and ~/.codex logs; writes to a project-local post-session-findings directory by default; sends nothing externally.",
+  "version": "1.3.0",
+  "description": "Analyze local coding sessions with tables and HTML reports",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"

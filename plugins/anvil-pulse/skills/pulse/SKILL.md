@@ -1,7 +1,6 @@
 ---
 name: pulse
 description: Start, stop, or check the anvil-pulse dashboard — a live local web page showing active anvil claims (actor, phase, elapsed, lease countdown), the event feed, and stuck-state detection (healthy / quiet / possibly wedged / lease expired) for long autonomous runs. Use when the user asks to "watch this run", "open the anvil dashboard", "is the agent stuck?", "monitor the claims", "start/stop pulse", or wants a heartbeat view of an anvil project. Also installs an optional Claude Code statusline segment on request. Read-only over anvil state; sends nothing externally.
-user-invocable: true
 ---
 
 # anvil pulse
@@ -10,13 +9,15 @@ A local operator dashboard for anvil projects. It polls `anvil status --json`
 and tails the append-only `events.jsonl`, then serves a single self-contained
 web page. It never writes anvil state.
 
+Resolve `PLUGIN_ROOT` from this installed skill (`../..`), not from the target project or an assumed shell variable. Keep the project path explicit.
+
 ## Toolkit (bundled)
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh   # start (prints {"event":"server-started","url":...})
-${CLAUDE_PLUGIN_ROOT}/scripts/stop-server.sh    # stop
-${CLAUDE_PLUGIN_ROOT}/scripts/check-server.sh   # is it running?
-${CLAUDE_PLUGIN_ROOT}/scripts/statusline-segment.sh  # optional Claude Code statusline segment
+$PLUGIN_ROOT/scripts/start-server.sh   # start (prints {"event":"server-started","url":...})
+$PLUGIN_ROOT/scripts/stop-server.sh    # stop
+$PLUGIN_ROOT/scripts/check-server.sh   # is it running?
+$PLUGIN_ROOT/scripts/statusline-segment.sh  # optional Claude Code statusline segment
 ```
 
 All scripts take `--project-dir <path>` (default: cwd). Requires `node` and the
@@ -28,11 +29,11 @@ All scripts take `--project-dir <path>` (default: cwd). Requires `node` and the
    exits 0. If not, tell the user and stop — the dashboard has nothing to show.
 2. Run:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh" --project-dir <project>
+   bash "$PLUGIN_ROOT/scripts/start-server.sh" --project-dir <project>
    ```
 3. Parse the JSON line and give the user the `url`. Suggest opening it in a
    browser; it live-updates every ~2.5s.
-4. On Windows/Git Bash and Codex the script auto-runs in the foreground
+4. On Windows/Git Bash and environments setting `CODEX_CI`, the script auto-runs in the foreground
    (detached processes get reaped there). In that case start it with the shell
    tool's background/run-in-background mode so it survives the turn, or tell
    the user to run it in a separate terminal:
@@ -40,9 +41,9 @@ All scripts take `--project-dir <path>` (default: cwd). Requires `node` and the
 
 Options worth knowing: `--port <n>` for a stable URL, `--state-dir <dir>` if
 anvil state lives in a non-default workspace dir (auto-discovery checks
-`<project>/.anvil`, `<project>/bin/.anvil`, then the most recently modified
-`~/.anvil/workspaces/*/events.jsonl` — a warning banner on the page reports
-which one it picked).
+`<project>/.anvil`, `<project>/bin/.anvil`, then the exact path-hashed workspace under
+`~/.anvil/workspaces/`. A same-named checkout is never selected as a fallback;
+use an explicit `--state-dir` for legacy or custom layouts).
 
 Suggest adding `.anvil-pulse/` to the project's `.gitignore` (pid/log files
 live there).
@@ -50,8 +51,8 @@ live there).
 ## Stop / check
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/stop-server.sh"  --project-dir <project>
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-server.sh" --project-dir <project>
+bash "$PLUGIN_ROOT/scripts/stop-server.sh"  --project-dir <project>
+bash "$PLUGIN_ROOT/scripts/check-server.sh" --project-dir <project>
 ```
 
 ## Reading the board
@@ -67,7 +68,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-server.sh" --project-dir <project>
   - **lease expired** — the claim's lease ran out; the run may have died
 - When the user asks "is it stuck?", read `/api/pulse` yourself and answer from
   `claims[].staleness` + `last_activity_seconds` instead of guessing:
-  `curl -s http://localhost:<port>/api/pulse`
+  `curl --fail --silent --show-error --max-time 10 http://localhost:<port>/api/pulse`
 
 ## Optional: Claude Code statusline segment
 
@@ -83,14 +84,14 @@ both — but at least one must actually work).
    present, the segment is already installed — update the existing block in
    place if the path changed; NEVER append a second copy (it would render
    twice).
-3. Show the user this snippet and confirm before appending it to the END of
-   their script (it prints nothing outside anvil projects):
+3. For a requested installation, append this snippet to the END of
+   their script after inspecting its existing structure (it prints nothing outside anvil projects):
    ```bash
    # anvil-pulse segment
    pulse_seg="$(bash "<absolute-plugin-path>/scripts/statusline-segment.sh" "$workspace_dir" 2>/dev/null)"
    [[ -n "$pulse_seg" ]] && printf ' | %s' "$pulse_seg"
    ```
-   Replace `<absolute-plugin-path>` with the resolved `${CLAUDE_PLUGIN_ROOT}`
+   Replace `<absolute-plugin-path>` with the resolved installed plugin root
    and `$workspace_dir` with however their script names the current workspace
    variable (read the script first; do not assume).
 4. The segment caches `anvil status` for 10s (`ANVIL_PULSE_STATUSLINE_TTL`)
@@ -99,9 +100,9 @@ both — but at least one must actually work).
 
 ## Other harnesses
 
-- **Codex**: the dashboard is the display (Codex has no statusline/UI extension
-  point). Start the server in a persistent terminal and open the browser page.
-  Do not touch Codex's `notify` setting — it is single-owner.
-- **OpenClaw**: see `${CLAUDE_PLUGIN_ROOT}/docs/openclaw.md` for the zero-code
+- **Codex**: start the server in a persistent terminal and open its browser page.
+  This plugin supplies a dashboard skill; it does not configure recurring
+  automation or notifications merely by starting the dashboard.
+- **OpenClaw**: see `$PLUGIN_ROOT/docs/openclaw.md` for the zero-code
   Gateway cron recipe (`anvil notify-digest --announce`) and the planned
   control-ui embed.

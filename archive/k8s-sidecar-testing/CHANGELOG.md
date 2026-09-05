@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0 (2026-09-05)
+
+- Preserve this archived, project-specific package with native Codex metadata and Claude support.
+- Require explicit context/namespace and named setup/build arguments; remove implicit kubeconfig replacement and VM teardown.
+- Use bounded Python orchestration behind shell entrypoints, correct project manifest paths, structured image overrides, and ownership-scoped deployment/cleanup.
+- Propagate health/translation/command failures, require a working IPv6 control before negative checks, and count failed benchmark samples with portable statistics.
+- Correct dual-stack/IPv6-only/EKS claims; remove unverified DNS64 injection and world-readable kubeconfig setup.
+- Add 20 offline command-fake regression tests; no VM or cluster is touched by verification.
+
+
 ## 1.1.0 (2026-02-06)
 
 ### Added

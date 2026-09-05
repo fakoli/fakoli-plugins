@@ -9,6 +9,9 @@ description: >
   "decision package", or "summarize findings for a decision" to use this workflow.
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Decision Brief
 
 ## When to Use
@@ -60,7 +63,7 @@ If the inputs are insufficient for a meaningful brief — fewer than three subst
 
 ### Step 2: Invoke synthesis-brief-writer with Decision Brief Contract
 
-Before final synthesis, check `plugins/systems-thinking/reference/examples/` for sample Decision Brief outputs. Match the format and depth of any found examples to maintain consistency. Also check `plugins/systems-thinking/reference/prompts/` for decision-framing patterns the user has found effective — these can sharpen the brief's structure and language.
+Before final synthesis, check `../../reference/examples/` for sample Decision Brief outputs. Match the format and depth of any found examples to maintain consistency. Also check `../../reference/prompts/` for decision-framing patterns the user has found effective — these can sharpen the brief's structure and language.
 
 Pass all gathered inputs to the `synthesis-brief-writer` agent with the Decision Brief output contract and the following instructions:
 

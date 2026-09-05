@@ -11,5 +11,5 @@ Use the `skill-spec-lint` skill from the skill-spec-lint plugin for: $ARGUMENTS
 Run the linter directly:
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/skill_spec_lint.py" [PATH ...]
+uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/skill_spec_lint.py" [PATH ...]
 ```

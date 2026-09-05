@@ -154,3 +154,12 @@ Override behaviors:
 ## Author
 
 Sekou Doumbouya — MIT License
+
+
+## Codex support (2026-09-05)
+
+This release includes `.codex-plugin/plugin.json` and native skills. Use the installed skills from
+a fresh Codex task; no custom agent types or model aliases are assumed. Use `cli-to-plugin` to capture help or generate directly from a JSON tree with
+`python3 scripts/generate.py --tree <help-tree.json> --out <new-directory>`. The deterministic
+generator emits both host manifests and refuses existing output; refine the generated workflows
+and review a candidate diff for regeneration. No CLI workflow or marketplace installation runs during generation.

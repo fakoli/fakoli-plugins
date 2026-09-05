@@ -153,41 +153,12 @@ def run():
         f = ssl.validate_skill(bom)
         check(f == [], "BOM-prefixed valid skill -> no findings (got: %s)" % _msgs(f))
 
-        # --- fallback parser parity with PyYAML on the bounded fields ------
-        # These are the divergences that would flip a length verdict by machine:
-        # an inline `# comment` on a plain scalar, and a multi-line plain scalar.
-        cases = [
-            "name: c1\ndescription: hello world  # trailing comment",
-            "name: c2\ndescription: first line\n  continued onto a second",
-            'name: c3\ndescription: "quoted # not a comment"',
-        ]
-        for src in cases:
-            fb = ssl._parse_scalars(src)
-            if ssl._HAVE_YAML:
-                import yaml as _y
-
-                auth = _y.safe_load(src)
-                check(
-                    fb.get("description") == auth.get("description"),
-                    "fallback matches PyYAML description for %r (fb=%r auth=%r)"
-                    % (src.split(chr(10))[1], fb.get("description"), auth.get("description")),
-                )
-
-        # --- validate through the FORCED fallback path (no PyYAML) ---------
-        # PyYAML is present in most envs, so pin the scalar-parser path too:
-        # a clean skill passes and an over-length description is caught the
-        # same way, proving the "runs on any machine" claim end to end.
+        # Authoritative parsing must never silently downgrade.
         saved = ssl._HAVE_YAML
         try:
             ssl._HAVE_YAML = False
-            d = _skill(root, "fb-clean", 'name: fb-clean\ndescription: "works with no yaml"')
-            check(ssl.validate_skill(d) == [], "forced-fallback: clean skill passes")
-            d = _skill(root, "fb-long", "name: fb-long\ndescription: %s" % ("y" * 1025))
-            f = ssl.validate_skill(d)
-            check(
-                any("description is 1025 chars" in m for _, m in _levels(f)),
-                "forced-fallback: over-length description caught",
-            )
+            check(any("PyYAML is required" in x.message for x in ssl.validate_skill(good)),
+                  "missing parser fails closed")
         finally:
             ssl._HAVE_YAML = saved
 

@@ -1,144 +1,51 @@
 ---
 name: excalidraw
-description: Generate and modify Excalidraw diagrams from natural language and code analysis using skeleton JSON and a Node.js converter
-allowed-tools: Bash, Read, Write, Glob, Grep
+description: Create or extend editable Excalidraw diagrams from descriptions or repository evidence using a local skeleton-to-scene converter.
 ---
 
-# Excalidraw Diagram Generation Skill
+# Editable Excalidraw diagrams
 
-Generate `.excalidraw` diagram files from natural language descriptions or code analysis. Uses a skeleton JSON intermediate format and a zero-dependency Node.js converter script.
+Deliver an editable `.excalidraw` file. Read the relevant source or existing scene before representing it; distinguish observed architecture from proposed changes.
 
-## Quick Reference
+Resolve `../../scripts/convert.js` relative to this skill directory. Use its absolute path with Node.js 18 or newer; the converter has no npm dependencies. Do not depend on the shell's working directory or a particular host's plugin-root environment variable.
 
-| Action | How |
-|--------|-----|
-| Create a diagram | Generate skeleton JSON, pipe to converter |
-| Modify a diagram | Read existing file, generate additions skeleton with `--modify` |
-| Change layout | Set `"layout"` in skeleton: `grid`, `top-down`, `left-right` |
-| Change theme | Set `"theme"` in skeleton: `default`, `blueprint`, `warm`, `monochrome` |
+## Create
 
-## Converter Script Location
+Write a skeleton JSON file in the task workspace, then run:
 
-```bash
-CONVERTER_PATH="${CLAUDE_PLUGIN_ROOT}/scripts/convert.js"
+```sh
+node /resolved/plugin/scripts/convert.js skeleton.json diagram.excalidraw
 ```
 
-## Workflow
-
-### 1. Create a New Diagram
-
-Write skeleton JSON to a temp file, then run the converter:
-
-```bash
-# Write skeleton to temp file
-cat > /tmp/excalidraw-skeleton.json << 'SKELETON_EOF'
+```json
 {
   "type": "excalidraw-skeleton",
   "version": 1,
-  "theme": "default",
-  "layout": "top-down",
+  "layout": "left-right",
   "elements": [
-    { "type": "ellipse", "id": "start", "label": "Start", "color": "green", "width": 120, "height": 60 },
-    { "type": "rectangle", "id": "process", "label": "Process Data", "color": "blue" },
-    { "type": "diamond", "id": "decision", "label": "Valid?", "color": "orange", "width": 140, "height": 100 },
-    { "type": "rectangle", "id": "success", "label": "Save Result", "color": "green" },
-    { "type": "rectangle", "id": "error", "label": "Handle Error", "color": "red" },
-    { "type": "arrow", "from": "start", "to": "process" },
-    { "type": "arrow", "from": "process", "to": "decision" },
-    { "type": "arrow", "from": "decision", "to": "success", "label": "Yes" },
-    { "type": "arrow", "from": "decision", "to": "error", "label": "No" }
+    {"type": "rectangle", "id": "api", "label": "API", "color": "blue"},
+    {"type": "rectangle", "id": "db", "label": "Database", "color": "green"},
+    {"type": "arrow", "id": "query", "from": "api", "to": "db", "label": "Queries"}
   ]
 }
-SKELETON_EOF
-
-# Convert
-node "${CLAUDE_PLUGIN_ROOT}/scripts/convert.js" /tmp/excalidraw-skeleton.json ./diagram.excalidraw
 ```
 
-### 2. Modify an Existing Diagram
+Supported shapes: rectangle, diamond, ellipse, text, arrow, line, frame. Use `grid`, `top-down`, or `left-right` layout and `default`, `blueprint`, `warm`, or `monochrome` theme. Explicit coordinates are preserved; supply all shape coordinates for precise layout. IDs remain stable in the output. Elbowed arrow routing is not implemented.
 
-```bash
-# Write additions skeleton
-cat > /tmp/excalidraw-additions.json << 'SKELETON_EOF'
-{
-  "type": "excalidraw-skeleton",
-  "version": 1,
-  "elements": [
-    { "type": "rectangle", "id": "cache", "label": "Redis Cache", "color": "red", "x": 500, "y": 200, "width": 180, "height": 70 },
-    { "type": "arrow", "from": "cache", "to": "db", "label": "Fallback", "style": "dashed" }
-  ],
-  "remove": ["legacy-adapter"]
-}
-SKELETON_EOF
+Read [the format reference](references/format-reference.md) for properties, line points, frames, and style options. Keep labels short enough to fit the boxes; text measurement is approximate, so visually inspect diagrams with long labels or complex routing.
 
-# Modify
-node "${CLAUDE_PLUGIN_ROOT}/scripts/convert.js" --modify ./architecture.excalidraw /tmp/excalidraw-additions.json ./architecture-updated.excalidraw
+## Extend or remove
+
+Read the existing file and use its actual element IDs. The converter accepts additions and removals, preserving the scene's embedded files and app state:
+
+```sh
+node /resolved/plugin/scripts/convert.js --modify existing.excalidraw additions.json updated.excalidraw
 ```
 
-### 3. From Stdin
+Add new elements using new IDs and connect arrows to either new or existing shapes. Put existing IDs in a top-level `remove` array to delete them. Removing containers also removes bound labels; arrows remain with detached bindings. Removing a frame leaves its contents unframed. Unknown references and duplicate IDs fail before writing. To change existing properties, edit the scene deliberately and preserve reciprocal bindings, or replace the affected elements and their connectors; do not pass a duplicate ID as an addition.
 
-```bash
-echo '{"type":"excalidraw-skeleton","version":1,"layout":"grid","elements":[{"type":"rectangle","id":"a","label":"Service A","color":"blue"},{"type":"rectangle","id":"b","label":"Service B","color":"green"},{"type":"arrow","from":"a","to":"b"}]}' | node "${CLAUDE_PLUGIN_ROOT}/scripts/convert.js" --stdin ./quick-diagram.excalidraw
-```
+## Verify and deliver
 
-## Skeleton Format Quick Reference
+Check the converter's exit status and JSON result. Read the output, confirm node/edge counts and intended relationships, and inspect it in an available Excalidraw editor when possible. Use the editor's normal file import or a documented `excalidrawAPI` integration; do not traverse React internals. Report the absolute output path and any preview limitation. Creation alone does not prove that a complex layout is visually clear.
 
-### Shape Types
-- `rectangle` — Default shape, good for services/processes
-- `diamond` — Decision points, conditionals
-- `ellipse` — Start/end states, external entities
-
-### Arrow Properties
-- `from`/`to` — Connect shapes by ID (converter handles binding)
-- `label` — Text on the arrow
-- `style` — `solid`, `dashed`, `dotted`
-- `startArrowhead`/`endArrowhead` — `null`, `arrow`, `bar`, `circle`, `triangle`, `diamond`
-
-### Colors
-Semantic names: `blue`, `red`, `green`, `orange`, `violet`, `yellow`, `cyan`, `teal`, `pink`, `grape`, `gray`, `black`, `white`, `bronze`
-
-Or use hex: `"#ff6600"`
-
-### Layouts
-- `grid` — Default, rows and columns
-- `top-down` / `tree` / `flowchart` — Hierarchy flows downward
-- `left-right` / `pipeline` / `flow` — Flows left to right
-
-### Themes
-- `default` — Colorful with white background
-- `blueprint` — Dark background, light strokes, no fills
-- `warm` — Warm-toned backgrounds
-- `monochrome` — All gray
-
-## Code-Aware Diagram Generation
-
-When generating diagrams from a codebase:
-
-1. **Import Graph**: Use `Grep` to find import statements, map dependencies between modules.
-2. **Package Structure**: Use `Glob` to find package.json files, understand module boundaries.
-3. **Component Hierarchy**: Read key files to understand component nesting and data flow.
-4. **API Routes**: Grep for route definitions to map API surface.
-
-Example analysis patterns:
-```
-# Find all imports in a directory
-Grep: import.*from  (in src/**/*.ts)
-
-# Find package boundaries
-Glob: **/package.json
-
-# Find API routes
-Grep: (router\.(get|post|put|delete)|app\.(get|post|put|delete))
-
-# Find React components
-Grep: export.*function.*\(|export.*const.*=.*=>
-```
-
-## Output
-
-After running the converter, it outputs JSON to stdout:
-```json
-{"success": true, "outputPath": "/absolute/path/to/diagram.excalidraw", "elementCount": 12, "message": "Wrote 12 elements to ..."}
-```
-
-Always report the file path to the user and suggest opening with excalidraw.com.
+[Plugin documentation](../../README.md) covers installation and CLI checks.

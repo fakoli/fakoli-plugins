@@ -1,13 +1,30 @@
 {
   "name": "ship-loop",
-  "version": "1.1.1",
-  "description": "The full ship loop as one invocable procedure: sync and isolate in a worktree, scope with ground-truth sweeps, implement with reality-faithful tests, gate on a multi-angle adversarial review, merge, and close the follow-up loop. Includes the dispatch-packet skill for generating self-contained subagent packets from issues.",
+  "version": "1.2.0",
+  "description": "Take a change through isolation, testing and review",
   "author": {
     "name": "Sekou Doumbouya",
     "url": "https://github.com/fakoli"
   },
   "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT",
-  "keywords": ["workflow", "code-review", "adversarial-review", "shipping"],
-  "skills": "./skills"
+  "keywords": [
+    "workflow",
+    "code-review",
+    "adversarial-review",
+    "shipping",
+    "worktree"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Ship Loop",
+    "shortDescription": "Take a change through isolation, testing and review",
+    "longDescription": "Take a change through isolation, testing and review.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Run the shipping workflow for this change."
+    ]
+  }
 }

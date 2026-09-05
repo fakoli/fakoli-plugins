@@ -1,10 +1,13 @@
-# GWS — Google Workspace for Claude Code
+# GWS — Google Workspace for Codex and Claude Code
 
-A unified Claude Code plugin for interacting with Google Workspace services via the [`gws` CLI](https://github.com/googleworkspace/cli).
+A unified skills plugin for interacting with Google Workspace services via the [`gws` CLI](https://github.com/googleworkspace/cli).
 
 ## Prerequisites
 
-- [gws CLI](https://github.com/googleworkspace/cli) installed and authenticated (`gws auth login`)
+- [gws CLI](https://github.com/googleworkspace/cli) installed; inspect `gws --version` and `gws auth status` before the requested operation. Sign in with only the needed scopes if required.
+- The CLI is an upstream open-source project, not an officially supported Google product. This package does not install or update it automatically.
+
+Both runtime manifests expose all 100 skills. Start with `gws-shared`, which governs installed-schema discovery, account selection, bounded pagination, shell quoting, and error handling. A SessionStart message only reports CLI availability, not authentication. Agents and slash commands below are Claude components; Codex uses the corresponding skills.
 
 ## Skills (100)
 
@@ -155,18 +158,18 @@ Curated multi-step workflows for common tasks (41 official + 3 plugin-original):
 | `/gws-keep` | List and read Keep notes |
 | `/gws-standup` | Cross-service standup report |
 
-## Installation
+## Installation and verification
+
+Install `gws` from this repository's marketplace in your runtime. For local development, use the runtime's plugin-directory loading option; this is separate from installing the `gws` CLI.
 
 ```bash
-claude plugin install --dir ./gws
+bash plugins/gws/scripts/test-plugin.sh
+uv run --with pyyaml python -m unittest discover -s plugins/gws/tests -p 'test_*.py' -v
 ```
 
-Or add the marketplace and install from there:
+The structural suite checks all 100 skills, 15 commands, and 11 agents. Behavioral tests execute shared examples against a fake CLI in Bash and, when available, Zsh, and validate every skill's frontmatter and local links. No Google account or live API calls are used. A successful dry-run validates a request shape, not credentials, quota, authorization, or remote completion.
 
-```
-/plugin marketplace add fakoli/fakoli-plugins
-/plugin install gws
-```
+The common workflow was checked against the [maintained CLI documentation](https://github.com/googleworkspace/cli) on 2026-09-05. Service recipes remain reference examples: inspect the installed `gws schema` and subcommand help before executing a method that may have changed.
 
 ## Author
 

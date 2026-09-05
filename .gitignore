@@ -86,3 +86,9 @@ htmlcov/
 
 # anvil-pulse dashboard runtime (pid/log files in watched projects)
 .anvil-pulse/
+
+# Local maintenance transactions and test caches
+.marketplace-manager.lock/
+.marketplace-remove-*/
+.pytest_cache/
+.ruff_cache/

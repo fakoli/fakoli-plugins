@@ -41,7 +41,7 @@ line one\nline two
 EOF
 OUTER
 out="$(bash "$SCAN" "$proj")"
-has "$out" "HEREDOC_BACKSLASH" "escaped \\n inside heredoc flagged"
+hasnt "$out" "HEREDOC_BACKSLASH" "literal backslash-n is valid in heredocs"
 
 # --- SET_E_HOOK (only in hooks/) ------------------------------------------------
 mkdir -p "$proj/hooks"
@@ -53,7 +53,7 @@ hasnt "$out" "notahook.sh" "set -e outside hooks/ not flagged"
 # set -euo pipefail must NOT trip the bare-set-e rule
 printf '#!/usr/bin/env bash\nset -euo pipefail\n' > "$proj/hooks/safe.sh"
 out="$(bash "$SCAN" "$proj/hooks/safe.sh")"
-hasnt "$out" "SET_E_HOOK" "set -euo pipefail is not flagged"
+has "$out" "SET_E_HOOK" "combined -euo still enables errexit"
 
 # --- CMD_SPAWN ------------------------------------------------------------------
 printf "const {spawn} = require('child_process');\nspawn('anvil.cmd', ['x']);\n" > "$proj/run.js"
@@ -69,7 +69,7 @@ later\nescape
 EOF
 OUTER
 out="$(bash "$SCAN" "$proj/hd_bareword.sh")"
-has "$out" "hd_bareword.sh:4: HEREDOC_BACKSLASH" "bare-word body line does not end the heredoc early"
+hasnt "$out" "HEREDOC_BACKSLASH" "literal backslash-n survives an unquoted heredoc"
 
 # --- HEREDOC with a DIGIT delimiter must reset (review #2) ---------------------
 cat > "$proj/hd_digit.sh" <<'OUTER'
@@ -80,7 +80,7 @@ EOF2
 echo "print(x)"
 OUTER
 out="$(bash "$SCAN" "$proj/hd_digit.sh")"
-has "$out" "hd_digit.sh:3: HEREDOC_BACKSLASH" "digit-delimiter heredoc body flagged"
+hasnt "$out" "UNQUOTED_HEREDOC" "quoted digit-delimiter heredoc stays literal"
 hasnt "$out" "hd_digit.sh:5" "digit delimiter resets — line after heredoc not falsely flagged"
 
 # --- HEREDOC_BACKSLASH only inside a heredoc, not in normal code ---------------

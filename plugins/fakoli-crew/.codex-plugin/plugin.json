@@ -1,0 +1,33 @@
+{
+  "name": "fakoli-crew",
+  "version": "2.10.0",
+  "description": "Coordinate scoped implementation and review roles",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "team",
+    "crew",
+    "orchestration",
+    "code-review",
+    "typescript",
+    "architecture",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Fakoli Crew",
+    "shortDescription": "Coordinate scoped implementation and review roles",
+    "longDescription": "Coordinate scoped implementation and review roles.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Organize the work and review this change."
+    ]
+  }
+}

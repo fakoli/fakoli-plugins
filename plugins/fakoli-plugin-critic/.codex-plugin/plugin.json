@@ -1,0 +1,34 @@
+{
+  "name": "fakoli-plugin-critic",
+  "version": "0.2.0",
+  "description": "Review plugin packaging, skills, hooks, agents and MCP",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "plugin-development",
+    "code-review",
+    "agents",
+    "critics",
+    "mcp",
+    "hooks",
+    "skills",
+    "audit",
+    "claude-code"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Plugin Critic",
+    "shortDescription": "Review plugin packaging, skills, hooks, agents and MCP",
+    "longDescription": "Review plugin packaging, skills, hooks, agents and MCP.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Review this plugin for concrete defects."
+    ]
+  }
+}

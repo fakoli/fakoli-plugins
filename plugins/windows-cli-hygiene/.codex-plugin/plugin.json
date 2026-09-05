@@ -1,10 +1,33 @@
 {
   "name": "windows-cli-hygiene",
-  "version": "1.0.1",
-  "description": "Scan source for Windows/cross-platform CLI hazards before shipping: encoding, python3, heredocs, .cmd spawns, set -e in hooks.",
-  "author": { "name": "Sekou Doumbouya", "url": "https://github.com/fakoli" },
+  "version": "1.1.0",
+  "description": "Scan CLI code for encoding and portability risks",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
   "repository": "https://github.com/fakoli/fakoli-plugins",
   "license": "MIT",
-  "keywords": ["windows", "encoding", "portability"],
-  "skills": "./skills"
+  "keywords": [
+    "windows",
+    "encoding",
+    "portability",
+    "cli",
+    "cp1252",
+    "verification"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Windows Cli Hygiene",
+    "shortDescription": "Scan CLI code for encoding and portability risks",
+    "longDescription": "Scan CLI code for encoding and portability risks. Correct heredoc expansion and combined-errexit checks, handle arbitrary filenames through JSON, report input errors, and add an optional --fail-on-findings gate.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use windows-cli-hygiene for the current request."
+    ]
+  }
 }

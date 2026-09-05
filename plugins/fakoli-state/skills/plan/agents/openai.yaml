@@ -1,0 +1,3 @@
+interface:
+  display_name: "Plan"
+  short_description: "Turn a reviewed Fakoli State PRD into scored, reviewable tasks "

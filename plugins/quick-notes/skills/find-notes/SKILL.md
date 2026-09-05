@@ -3,13 +3,16 @@ name: find-notes
 description: Read back, search, browse, or get stats on the user's existing personal notes. Use when the user wants to retrieve or explore notes — e.g. "what notes do I have", "show my notes", "show me my recent notes", "find my notes about X", "read back my notes", "search my notes for…", "show notes from today", "notes tagged #work", "notes since last week", "how many notes do I have", "give me a summary of my notes", "export my notes", "save my notes to markdown". This skill is for RETRIEVING and SUMMARIZING existing notes, NOT for saving a new note (use take-note for that).
 ---
 
+Resolve `PLUGIN_ROOT` from the host-provided `PLUGIN_ROOT` / `CLAUDE_PLUGIN_ROOT`, or from this loaded skill’s directory (`../..`). Use that absolute path for the bundled commands; do not assume the current directory is the install root.
+
+
 # Find Notes
 
 Retrieve, search, and summarize the user's notes from the append-only log.
 
 ## Storage
 
-- **Toolkit (bundled in this plugin):** `${CLAUDE_PLUGIN_ROOT}/scripts/`
+- **Toolkit (bundled in this plugin):** `${PLUGIN_ROOT}/scripts/`
 - **Log location:** `$NOTES_LOG` if set, otherwise `~/technical-notes/notes.jsonl`.
 
 The reader folds the op-log (add/edit/delete, plus legacy lines) into the current live set before filtering, so deleted notes never show and edits show their latest text.
@@ -19,7 +22,7 @@ The reader folds the op-log (add/edit/delete, plus legacy lines) into the curren
 Run `read-notes.py` for reading/searching, `export-notes.py` for "export/save to markdown":
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read-notes.py" [options]
+python3 "${PLUGIN_ROOT}/scripts/read-notes.py" [options]
 ```
 
 | User intent | Command |

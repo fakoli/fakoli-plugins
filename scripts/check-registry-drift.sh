@@ -32,6 +32,7 @@ INDEX_FILE="$ROOT_DIR/registry/index.json"
 CATEGORIES_FILE="$ROOT_DIR/registry/categories.json"
 TAGS_FILE="$ROOT_DIR/registry/tags.json"
 GENERATED_FILES=(
+    "$ROOT_DIR/.agents/plugins/marketplace.json"
     "$MARKETPLACE_FILE"
     "$INDEX_FILE"
     "$CATEGORIES_FILE"
@@ -43,24 +44,6 @@ for file in "${GENERATED_FILES[@]}"; do
         log_error "Missing generated file: ${file#$ROOT_DIR/}"
         exit 1
     fi
-done
-
-TMP_DIR="$(mktemp -d)"
-restore_files() {
-    for file in "${GENERATED_FILES[@]}"; do
-        local rel="${file#$ROOT_DIR/}"
-        if [[ -f "$TMP_DIR/$rel" ]]; then
-            cp "$TMP_DIR/$rel" "$file"
-        fi
-    done
-    rm -rf "$TMP_DIR"
-}
-trap restore_files EXIT
-
-for file in "${GENERATED_FILES[@]}"; do
-    rel="${file#$ROOT_DIR/}"
-    mkdir -p "$TMP_DIR/$(dirname "$rel")"
-    cp "$file" "$TMP_DIR/$rel"
 done
 
 echo "========================================"
@@ -178,31 +161,6 @@ PY
 )
 log_ok "Marketplace categories and registry aggregates are internally consistent"
 
-log_info "Regenerating registry output for drift comparison"
-(cd "$ROOT_DIR" && ./scripts/generate-index.sh >/tmp/fakoli-registry-generate.out)
-cat /tmp/fakoli-registry-generate.out
-rm -f /tmp/fakoli-registry-generate.out
-
-DRIFT_FOUND=0
-for file in "${GENERATED_FILES[@]}"; do
-    rel="${file#$ROOT_DIR/}"
-    before="$TMP_DIR/$rel"
-    old_stripped="$TMP_DIR/$rel.old.stripped"
-    new_stripped="$TMP_DIR/$rel.new.stripped"
-
-    jq 'walk(if type == "object" then del(.generatedAt, .indexedAt) else . end)' "$before" > "$old_stripped"
-    jq 'walk(if type == "object" then del(.generatedAt, .indexedAt) else . end)' "$file" > "$new_stripped"
-
-    if ! diff -u "$old_stripped" "$new_stripped" > "$TMP_DIR/$rel.diff"; then
-        log_warn "Drift detected in $rel"
-        cat "$TMP_DIR/$rel.diff"
-        DRIFT_FOUND=1
-    fi
-done
-
-if [[ "$DRIFT_FOUND" -ne 0 ]]; then
-    log_error "Registry drift detected. Run ./scripts/generate-index.sh and commit the updated output."
-    exit 1
-fi
-
+log_info "Checking generated output without modifying the checkout"
+python3 "$SCRIPT_DIR/catalog.py" --check
 log_ok "No registry drift detected"

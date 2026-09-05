@@ -1,7 +1,7 @@
 # fakoli-plugin-critic
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](.claude-plugin/plugin.json)
+[![Plugin Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](.claude-plugin/plugin.json)
 [![Marketplace](https://img.shields.io/badge/marketplace-fakoli-purple.svg)](https://github.com/fakoli/fakoli-plugins)
 
 Five specialist critic agents that audit Claude Code plugin surfaces. Extracted from `fakoli-crew` in May 2026 so plugin-development teams can install only the review layer without pulling the eight-agent generalist crew.
@@ -59,3 +59,10 @@ If you previously dispatched these critics as `fakoli-crew:agent-critic` / `fako
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+
+## Codex support (2026-09-05)
+
+This release includes `.codex-plugin/plugin.json` and native skills. Use the installed skills from
+a fresh Codex task; no custom agent types or model aliases are assumed. Use `plugin-review` to route the five review specialties. Bundled agent files remain role
+references; apply the current target-host contract rather than Claude-only checklist preferences.

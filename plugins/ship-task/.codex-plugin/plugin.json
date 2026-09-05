@@ -1,0 +1,34 @@
+{
+  "name": "ship-task",
+  "version": "1.2.0",
+  "description": "Push, open a PR, verify CI and confirm its merge",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "git",
+    "github",
+    "pull-request",
+    "ci",
+    "merge",
+    "workflow",
+    "automation",
+    "ship",
+    "productivity"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Ship Task",
+    "shortDescription": "Push, open a PR, verify CI and confirm its merge",
+    "longDescription": "Push, open a PR, verify CI and confirm its merge.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Ship the reviewed branch and confirm the result."
+    ]
+  }
+}

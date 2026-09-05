@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.0] - 2026-09-05
+
+### Added
+
+- Native Codex manifest and documented runtime workflow.
+
+### Changed
+
+- Adapt phase execution to native tools, unique per-task status records and dependency validation; disable incompatible legacy hooks in the Codex manifest.
+
 ## 1.3.7 (2026-08-08)
 
 ### Fixed

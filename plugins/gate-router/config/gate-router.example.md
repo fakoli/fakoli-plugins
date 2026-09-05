@@ -3,7 +3,7 @@ rules:
   # glob => command. `**` crosses directories; a single `*` stays within one
   # path segment; a leading `**/` also matches root-level files. `{files}`
   # passes the matched files as separate arguments (safe for spaces/metachars).
-  - "**/*.sh" => bash -n {files}
+  - "**/*.sh" => for file in {files}; do test ! -f "$file" || bash -n "$file" || exit; done
   - docs/** => echo "TODO: docs strict build, e.g. mkdocs build --strict"
   # - src/** => echo "TODO: your test suite"
 ---

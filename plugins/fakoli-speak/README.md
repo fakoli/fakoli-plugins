@@ -1,102 +1,54 @@
 # fakoli-speak
 
-Multi-provider text-to-speech for Claude Code with streaming playback and cost tracking.
+Text-to-speech for Codex and Claude Code using OpenAI, ElevenLabs, Deepgram, Google Gemini, or local macOS speech. Audio is synthesized before playback; streaming provider downloads are buffered by the facade.
 
-Supports **OpenAI TTS**, **ElevenLabs**, **Deepgram Aura**, **Google Gemini**, and **macOS Say**.
+## Setup and usage
 
-## Quick Start
+Install through this repository's marketplace. Requirements: Python 3.10+, `uv`, and an audio player (`afplay`, `mpv`, or `ffplay`). The `macos` provider also needs macOS `say`; cloud providers need their configured API key. The CLI loads `~/.env` without replacing environment variables already set by the caller. Keep keys out of argv, transcripts, and package files.
 
 ```bash
-# Add your preferred provider's API key to ~/.env
-OPENAI_API_KEY=sk-your-key-here         # cheapest good option ($0.015/1K chars)
-
-# Set the provider (optional — defaults to openai)
-FAKOLI_SPEAK_PROVIDER=openai
+uv run --frozen --directory "/path/to/fakoli-speak" fakoli-speak status
+uv run --frozen --directory "/path/to/fakoli-speak" fakoli-speak provider
+uv run --frozen --directory "/path/to/fakoli-speak" fakoli-speak speak <<'SPEECH'
+Read this requested text aloud.
+SPEECH
+uv run --frozen --directory "/path/to/fakoli-speak" fakoli-speak stop
 ```
 
-Then use `/speak` after any Claude response to hear it read aloud.
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `/speak` | Read the last response aloud |
-| `/stop` | Stop current playback |
-| `/voices` | List available voices for the active provider |
-| `/status` | Show playback status, provider, and config |
-| `/cost` | View usage stats and spending |
-| `/provider` | Show or switch the active TTS provider |
-| `/autospeak` | Toggle automatic TTS on all responses |
+Native Codex exposes the `speak` skill covering speech, playback, provider inspection, voices, usage estimates, and opt-in autospeak. Claude also exposes the seven slash commands. The `provider NAME` command validates and displays that provider; it does not switch the active setting. Set `FAKOLI_SPEAK_PROVIDER` for an invocation or persist it in your own configuration.
 
 ## Providers
 
-| Provider | Env Var | Cost/1K chars | Quality |
-|----------|---------|---------------|---------|
-| **openai** (default) | `OPENAI_API_KEY` | $0.015 | Very good |
-| **deepgram** | `DEEPGRAM_API_KEY` | $0.015 | Good |
-| **elevenlabs** | `ELEVENLABS_API_KEY` | $0.15–0.30 | Best |
-| **google** | `GEMINI_API_KEY` | Free tier | Good |
-| **macos** | (none) | Free | Basic |
+These are package defaults, not a promise that every account supports every model or voice. Inspect current provider documentation when choosing a new model.
 
-Switch providers:
-```bash
-# Add to ~/.env to persist
-FAKOLI_SPEAK_PROVIDER=openai
+| Provider | Key | Voice/model configuration |
+|---|---|---|
+| `openai` (default) | `OPENAI_API_KEY` | `OPENAI_TTS_VOICE=nova`, `OPENAI_TTS_MODEL=tts-1` |
+| `elevenlabs` | `ELEVENLABS_API_KEY` | `ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM`, `ELEVENLABS_MODEL_ID=eleven_flash_v2_5` |
+| `deepgram` | `DEEPGRAM_API_KEY` | `DEEPGRAM_VOICE=aura-asteria-en` |
+| `google` | `GEMINI_API_KEY` | `GEMINI_TTS_VOICE=Kore`, `GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts` |
+| `macos` | none | `MACOS_SAY_VOICE=Samantha` |
 
-# Or check available providers
-/provider
-```
+Use `voices` to inspect a provider's voice list. Google audio is decoded from PCM and wrapped in WAV according to the [speech-generation documentation](https://ai.google.dev/gemini-api/docs/speech-generation). Cloud synthesis sends the requested text to that provider.
 
-## Provider Configuration
+## Playback and autospeak
 
-Each provider has its own voice and model env vars:
+Each request is capped at 4,000 characters or the provider's lower limit; the CLI reports truncation. For longer text, split and sequence requests deliberately—another request stops the recorded previous playback.
 
-| Variable | Default | Provider |
-|----------|---------|----------|
-| `OPENAI_TTS_VOICE` | `nova` | openai |
-| `OPENAI_TTS_MODEL` | `tts-1` | openai |
-| `ELEVENLABS_VOICE_ID` | `21m00Tcm4TlvDq8ikWAM` (Rachel) | elevenlabs |
-| `ELEVENLABS_MODEL_ID` | `eleven_flash_v2_5` | elevenlabs |
-| `DEEPGRAM_VOICE` | `aura-asteria-en` | deepgram |
-| `GEMINI_TTS_VOICE` | `Kore` | google |
-| `GEMINI_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | google |
-| `MACOS_SAY_VOICE` | `Samantha` | macos |
+A dedicated worker owns each player and removes its temporary audio after playback. Its record is `~/.cache/fakoli-speak/playback.json` (override with `FAKOLI_SPEAK_PID_FILE`). Stop verifies worker identity before signaling; it never broadly kills audio players or trusts a bare PID. The default tracks one active worker per user; concurrent independent invocations should use separate record paths. Playback still depends on audio-device access and the host retaining background processes.
 
-Use `/voices` to list available voices for the active provider.
+`autospeak on` opts eligible future responses into synthesis; `autospeak off` disables it. The Stop hook reads `last_assistant_message`, ignores recursive/malformed events, and supports older known payload shapes. See [Claude hook inputs](https://code.claude.com/docs/en/hooks). Native Codex also declares the hook, but delivery depends on the host's hook support and trusted definition. Direct skill/CLI invocation is available independently.
 
-## Cost Tracking
+## Usage estimates
 
-Every TTS request logs characters, provider, and estimated cost to `~/.claude/fakoli-speak-usage.json`.
+`cost`, `cost --json`, `cost --rate RATE`, and `cost --reset` manage the local log at `~/.claude/fakoli-speak-usage.json`. Rates are character-based estimates with per-provider overrides. They are not live prices, invoices, or billing telemetry; token/audio-priced models need a suitable estimate. Google's default zero means no character-rate estimate, not a guarantee of free service. The CLI labels estimates accordingly.
 
-```
-/cost              # view usage summary
-/cost --rate 0.015 # set your plan rate ($/1K chars)
-/cost --reset      # reset usage data
-/cost --json       # export as JSON
-```
-
-Cost rates are auto-detected per provider. Override with `--rate` if your plan differs.
-
-## Requirements
-
-- **Audio player** — `afplay` (macOS, built-in), `mpv`, or `ffplay`
-- **Python** >= 3.10
-- **uv** for dependency management
-- At least one provider API key in `~/.env` (or use `macos` for free)
-
-## Development
+## Verification
 
 ```bash
-make install   # install dependencies
-make test      # run tests
-make lint      # check syntax
-make clean     # remove build artifacts
+uv run --project plugins/fakoli-speak --extra dev pytest plugins/fakoli-speak/tests -q
 ```
 
-## License
+Tests mock provider APIs and use temporary fake players. They check hook extraction, cost overrides, process ownership, cleanup after the calling CLI exits, and shutdown. No paid synthesis, speaker playback, or real credential use is required. Live provider and audio hardware behavior has not been tested by this suite.
 
-MIT
-
----
-
-Built by [Sekou Doumbouya](https://github.com/fakoli)
+MIT licensed.

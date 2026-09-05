@@ -1,9 +1,18 @@
 # Changelog
 
+## [2.0.1] - 2026-09-05
+
+- Pin packaged GitHub workflows to the published setup-uv v10.0.1 tag; the upstream action does not provide a v10 alias.
+
+## [2.0.0] - 2026-09-05
+
+Add native Codex discovery, explicit checkout targeting, transactional add/remove, packaged workflows, noninteractive errors, and synchronized dual catalogs. Removal now requires --force and always regenerates catalogs.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 
 ## [1.2.4] - 2026-06-27
 

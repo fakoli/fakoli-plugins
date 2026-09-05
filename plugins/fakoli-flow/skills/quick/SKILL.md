@@ -3,6 +3,9 @@ name: quick
 description: Fast path — skip the full workflow for small tasks under 3 files
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Quick (`/fakoli-flow:quick`)
 
 ## Overview

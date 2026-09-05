@@ -5,4 +5,4 @@ description: Scan source for Windows/cross-platform CLI hazards (encoding, pytho
 Use the `cli-hygiene` skill from the windows-cli-hygiene plugin to scan for: $ARGUMENTS
 
 Default: scan the current directory, report findings, offer fixes. The scan is
-advisory (never blocks).
+advisory by default; --fail-on-findings enables a nonzero finding status. Input errors always fail.

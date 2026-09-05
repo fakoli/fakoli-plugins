@@ -72,3 +72,9 @@ bash scripts/handoff-path.sh /path/to/another-clone-of-the-same-repo
 ```
 
 Both should print the same `~/.claude/handoff/<repo-key>/handoff.md`.
+
+## Runtime and validation update
+
+Use the hook payload cwd, match ASCII project keys across runtimes, load bounded context without side effects, and support HANDOFF_DATA_DIR. Fix macOS age checks and malformed metadata handling.
+
+Native Codex loads the bundled `skills/` directory. Claude command names remain available. Resolve the installed plugin root before running the scripts; runtime notes and session evidence belong outside the install directory. No user state is migrated by this update.

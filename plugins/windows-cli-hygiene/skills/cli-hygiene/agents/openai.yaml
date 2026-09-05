@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cli Hygiene"
+  short_description: "Scan CLI code for encoding and portability risks"
+  default_prompt: "Use $cli-hygiene for the current task."

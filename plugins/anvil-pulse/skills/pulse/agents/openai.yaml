@@ -1,0 +1,4 @@
+interface:
+  display_name: "Anvil Pulse"
+  short_description: "Inspect anvil claims and activity in a local dashboard"
+  default_prompt: "Use $pulse to open the dashboard for this anvil project."

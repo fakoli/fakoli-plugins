@@ -1,7 +1,7 @@
 """Google Gemini TTS provider.
 
-Endpoint: POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}
-Auth: API key as URL query parameter
+Endpoint: POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+Auth: x-goog-api-key header
 Response: base64-encoded raw PCM (24 kHz, 16-bit, mono) — NOT playable as-is.
           A WAV header (44 bytes) is prepended before returning audio_data so
           the result is a valid PCM-in-WAV file.
@@ -156,7 +156,7 @@ class GoogleProvider:
     # ------------------------------------------------------------------
 
     def get_cost_rates(self) -> list[CostRate]:
-        # Free tier — cost is effectively 0 for most users
+        # No character-rate estimate: token/audio billing depends on model and plan.
         return [
             CostRate(model_id="gemini-2.5-flash-preview-tts", cost_per_1k_chars=0.0),
             CostRate(model_id="gemini-2.5-pro-preview-tts",   cost_per_1k_chars=0.0),
@@ -256,14 +256,14 @@ class GoogleProvider:
                 body["candidates"][0]["content"]["parts"][0]["inlineData"]
             )
             b64_audio: str = inline_data["data"]
-        except (KeyError, IndexError, TypeError) as exc:
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise APIError(
                 f"Unexpected Google Gemini TTS response structure: {exc}. "
                 f"Body: {resp.text[:500]}"
             ) from exc
 
         try:
-            pcm_data = base64.b64decode(b64_audio)
+            pcm_data = base64.b64decode(b64_audio, validate=True)
         except Exception as exc:
             raise APIError(f"Failed to decode audio from Gemini response: {exc}") from exc
         wav_header = _build_wav_header(pcm_data)

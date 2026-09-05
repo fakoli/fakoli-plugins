@@ -1,0 +1,4 @@
+interface:
+  display_name: "Recall Mode Verifier"
+  short_description: "Review changes for concrete failure modes and evidence"
+  default_prompt: "Use $recall-mode-verifier for the current task."

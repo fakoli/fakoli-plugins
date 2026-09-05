@@ -64,6 +64,7 @@ error · 2 CI failed (PR left open) · 3 merge failed · 4 --then command failed
 · 5 merged remotely but the local base sync was skipped or failed (base branch
 checked out in another worktree, checkout error, or a non-fast-forward pull) —
 the PR IS merged; finish the local sync manually. --then is skipped on exit 5.
+· 6 merge requested but not confirmed (possibly queued); sync and --then skipped.
 USAGE
 }
 
@@ -71,6 +72,11 @@ USAGE
 # args
 # --------------------------------------------------------------------------
 while [ $# -gt 0 ]; do
+  case "$1" in
+    --body|--body-file|--base|--then|--poll-secs|--timeout-secs)
+      [ $# -ge 2 ] || { printf 'ship: missing value for %s\n' "$1" >&2; exit 1; }
+      ;;
+  esac
   case "$1" in
     --body)         BODY="${2:-}"; shift 2 ;;
     --body-file)    BODY_FILE="${2:-}"; shift 2 ;;
@@ -87,7 +93,7 @@ while [ $# -gt 0 ]; do
     --timeout-secs) TIMEOUT_SECS="${2:-}"; shift 2 ;;
     --dry-run)      DRY_RUN=true; shift ;;
     -h|--help)      usage; exit 0 ;;
-    --) shift; break ;;
+    --) shift; [ $# -eq 1 ] && [ -z "$TITLE" ] || { echo "ship: expected one title after --" >&2; exit 1; }; TITLE="$1"; shift; break ;;
     -*) echo "ship: unknown option '$1'" >&2; exit 1 ;;
     *)  if [ -z "$TITLE" ]; then TITLE="$1"; else echo "ship: unexpected arg '$1'" >&2; exit 1; fi; shift ;;
   esac
@@ -95,6 +101,13 @@ done
 
 say()  { printf '  ship: %s\n' "$*"; }
 die()  { printf 'ship: %s\n' "$1" >&2; exit "${2:-1}"; }
+
+for option_value in "$POLL_SECS" "$TIMEOUT_SECS" "${CHECK_GRACE_SECS:-60}"; do
+  [[ "$option_value" =~ ^[0-9]+$ ]] || die "poll, timeout, and grace values must be non-negative integers" 1
+  [ "${#option_value}" -le 6 ] || die "timing values must be at most 999999 seconds" 1
+done
+POLL_SECS=$((10#$POLL_SECS)); TIMEOUT_SECS=$((10#$TIMEOUT_SECS))
+[ "$POLL_SECS" -gt 0 ] && [ "$TIMEOUT_SECS" -gt 0 ] || die "poll and timeout must be positive" 1
 
 # `gh` wrapper honoring --unset-token
 _gh() {
@@ -122,13 +135,14 @@ BRANCH="$(git branch --show-current)"
 
 if [ -z "$BASE" ]; then
   BASE="$(_gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)"
-  [ -n "$BASE" ] || BASE="main"
+  [ -n "$BASE" ] || die "could not resolve the repository default branch; pass --base explicitly" 1
 fi
 
 # owner/repo for `gh pr merge --repo` — with an explicit --repo, gh performs
 # the merge purely against the API and skips its local checkout/sync of the
 # base branch, which is impossible when another worktree owns it (issue #137).
 NWO="$(_gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)"
+[ -n "$NWO" ] || die "could not resolve the GitHub repository; check authentication and remote configuration" 1
 [ "$BRANCH" != "$BASE" ] || die "refusing to ship: you are on the base branch '$BASE'. Branch first." 1
 
 # body resolution
@@ -162,6 +176,7 @@ fi
 # --------------------------------------------------------------------------
 say "pushing $BRANCH ..."
 push_err="$(_git_net push -u origin HEAD 2>&1 >/dev/null)" || die "git push failed: ${push_err:-see git output}" 1
+PUSHED_SHA="$(git rev-parse HEAD)" || die "cannot resolve pushed commit" 1
 
 # --------------------------------------------------------------------------
 # 2. open PR (reuse an existing one for this branch if present)
@@ -171,7 +186,8 @@ if [ -z "$PR_NUM" ]; then
   args=(pr create --base "$BASE" --head "$BRANCH" --title "$TITLE")
   if [ -n "$BODY" ]; then args+=(--body "$BODY"); else args+=(--body ""); fi
   $DRAFT && args+=(--draft)
-  PR_URL="$(_gh "${args[@]}" 2>&1 | tail -1)"
+  PR_CREATE_OUTPUT="$(_gh "${args[@]}" 2>&1)" || die "gh pr create failed: $PR_CREATE_OUTPUT" 1
+  PR_URL="$(printf '%s\n' "$PR_CREATE_OUTPUT" | tail -1)"
   case "$PR_URL" in
     http*) : ;;
     *) die "gh pr create failed: $PR_URL" 1 ;;
@@ -203,31 +219,46 @@ if ! $NO_WAIT; then
   # merge before CI even starts (the whole point is to wait). So distinguish
   # "not registered yet" from "this repo has no CI" with a grace window: only
   # after CHECK_GRACE_SECS of continuous emptiness do we conclude there is none.
-  grace="${CHECK_GRACE_SECS:-60}"
+  grace=$((10#${CHECK_GRACE_SECS:-60}))
   reg_poll=10
   while :; do
+    [ "$waited" -ge "$TIMEOUT_SECS" ] && { CI="timeout"; break; }
     # Structured status: one "<bucket>\t<name>" line per check. `bucket` is
     # gh's own classification (pass|fail|pending|skipping|cancel) — far more
     # robust than grepping display text, where a check literally NAMED
     # "test-failover" would otherwise read as a failure.
     rows="$(_gh pr checks "$PR_NUM" --json bucket,name -q '.[] | "\(.bucket)\t\(.name)"' 2>/dev/null)"
+    checks_status=$?
+    # gh uses 8 for pending checks and 1 for failing checks. Empty output on
+    # an error is not evidence that the repository has no CI.
+    if [ "$checks_status" -ne 0 ] && { [ -z "$rows" ] || { [ "$checks_status" -ne 1 ] && [ "$checks_status" -ne 8 ]; }; }; then
+      CI="unavailable"; break
+    fi
     if [ -z "$rows" ]; then
       if [ "$empty_waited" -ge "$grace" ]; then
         CI="none"; break            # grace elapsed with no checks → genuinely no CI
       fi
       [ "$empty_waited" -eq 0 ] && say "no checks yet — waiting up to ${grace}s for CI to register ..."
-      sleep "$reg_poll"; empty_waited=$((empty_waited + reg_poll)); waited=$((waited + reg_poll)); continue
+      delay=$reg_poll; remaining=$((TIMEOUT_SECS - waited))
+      [ "$delay" -le "$remaining" ] || delay=$remaining
+      sleep "$delay"; empty_waited=$((empty_waited + delay)); waited=$((waited + delay)); continue
     fi
+    if printf '%s\n' "$rows" | grep -qEv '^(pass|fail|pending|skipping|cancel)[[:space:]]'; then
+      CI="unavailable"; break
+    fi
+    empty_waited=0
     if printf '%s\n' "$rows" | grep -q '^pending'; then
       [ "$waited" -ge "$TIMEOUT_SECS" ] && { CI="timeout"; break; }
-      sleep "$POLL_SECS"; waited=$((waited + POLL_SECS)); continue
+      delay=$POLL_SECS; remaining=$((TIMEOUT_SECS - waited))
+      [ "$delay" -le "$remaining" ] || delay=$remaining
+      sleep "$delay"; waited=$((waited + delay)); continue
     fi
     failing="$(printf '%s\n' "$rows" | grep -E '^(fail|cancel)')"
     if [ -n "$failing" ]; then CI="failed"; else CI="passed"; fi
     break
   done
 
-  if [ "$CI" = "failed" ] || [ "$CI" = "timeout" ]; then
+  if [ "$CI" = "failed" ] || [ "$CI" = "timeout" ] || [ "$CI" = "unavailable" ]; then
     say "CI $CI — leaving PR #$PR_NUM open, not merging"
     [ -n "$failing" ] && printf '%s\n' "$failing" | sed 's/^/    /'
     printf 'ship: CI %s · PR #%s left open · %s\n' "$CI" "$PR_NUM" "$PR_URL"
@@ -247,11 +278,19 @@ fi
 # cleanup is finished explicitly when the merge actually landed.
 # --------------------------------------------------------------------------
 say "merging (${MERGE_METHOD#--}) ..."
-merge_args=(pr merge "$PR_NUM" "$MERGE_METHOD" --delete-branch)
+merge_args=(pr merge "$PR_NUM" "$MERGE_METHOD" --delete-branch --match-head-commit "$PUSHED_SHA")
 [ -n "$NWO" ] && merge_args+=(--repo "$NWO")
 $ADMIN && merge_args+=(--admin)
 MERGE_CMD_OK=true
 _gh "${merge_args[@]}" >/dev/null 2>&1 || MERGE_CMD_OK=false
+if $MERGE_CMD_OK; then
+  # gh can successfully enqueue a PR without merging it. Never sync/delete
+  # local branches or execute --then until GitHub confirms a completed merge.
+  PR_STATE="$(_gh pr view "$PR_NUM" --json state -q .state 2>/dev/null)"
+  if [ "$PR_STATE" != "MERGED" ]; then
+    die "merge requested for #$PR_NUM but completion is not confirmed (state: ${PR_STATE:-unknown}); it may be queued. Local sync and --then skipped" 6
+  fi
+fi
 if ! $MERGE_CMD_OK; then
   # Re-query with retries: a transient gh/network failure here must not
   # convert an already-merged PR into a reported merge failure.
@@ -289,7 +328,9 @@ if git checkout "$BASE" >/dev/null 2>&1; then
   fi
   # The --repo merge skips gh's local branch cleanup; drop the merged
   # feature branch now that the base is checked out.
-  git branch -D "$BRANCH" >/dev/null 2>&1 || true
+  if [ "$SYNC" = "ok" ] && [ "$(git rev-parse "$BRANCH" 2>/dev/null)" = "$PUSHED_SHA" ]; then
+    git branch -D "$BRANCH" >/dev/null 2>&1 || true
+  fi
 elif git worktree list --porcelain 2>/dev/null | grep -qxF "branch refs/heads/$BASE"; then
   SYNC="worktree"
   say "NOTE: '$BASE' is checked out in another worktree — skipping local checkout; pull there to sync"

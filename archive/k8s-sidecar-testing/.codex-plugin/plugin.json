@@ -1,0 +1,35 @@
+{
+  "name": "k8s-sidecar-testing",
+  "version": "2.0.0",
+  "description": "Project-specific Kubernetes test helpers with bounded commands, accurate failure reporting, and scoped cleanup.",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "kubernetes",
+    "testing",
+    "ipv6",
+    "sidecar",
+    "k3s",
+    "multipass",
+    "nat464"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "K8s Sidecar Testing",
+    "shortDescription": "Verify nat464 paths in an explicit test namespace",
+    "longDescription": "Project-specific Kubernetes test helpers with bounded commands, accurate failure reporting, and scoped cleanup.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use $k8s-sidecar-testing to validate nat464 translation in my test namespace."
+    ]
+  }
+}

@@ -1,6 +1,18 @@
+# Current compatibility (2026-09-05)
+
+Codex now has a native manifest and six skill workflows. See
+[native runtime behavior](references/codex-runtime.md). Role Markdown is portable guidance;
+Claude-specific agent definitions and orchestration CLI backends are not native Codex tools.
+The native package overrides the legacy hooks with an empty list; output/coverage checks run in
+the skill workflow. The Claude package keeps its existing hook route. CLI orchestration preserves
+normal permission controls, skips synthesis after failed extraction, and reports failure status.
+
+The historical Cursor notes below describe the original migration assumptions, not verified current
+Cursor capabilities. Check current vendor documentation before using them as compatibility facts.
+
 # Compatibility Notes
 
-## Primary target: Claude Code
+## Historical target: Claude Code
 
 This package is built for **Claude Code local project usage**. All agents, skills, hooks, and conventions are designed around Claude Code's file-based architecture:
 

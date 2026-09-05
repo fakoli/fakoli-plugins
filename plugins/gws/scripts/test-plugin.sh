@@ -109,7 +109,7 @@ for skill_md in skills/*/SKILL.md; do
 
   # Check required frontmatter fields
   ok=true
-  for field in name description version; do
+  for field in name description; do
     if ! echo "$frontmatter" | grep -qE "^${field}:"; then
       fail "skill '$skill_name': frontmatter has '$field'"
       ok=false

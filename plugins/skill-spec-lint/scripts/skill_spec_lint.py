@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML>=6,<7"]
+# ///
 """Validate Agent Skills against the deterministic rules of the spec.
 
 The marketplace's `scripts/validate.sh` already parses each `SKILL.md`'s
@@ -7,11 +11,8 @@ does not: the `name` charset/length/dir-match, the `description` length bound,
 the SKILL.md body line ceiling, and skill placement as an immediate child of
 `skills/`. Reference: agentskills.io/specification.
 
-Stdlib only, so it runs on any machine with no install. If PyYAML happens to be
-importable the frontmatter is parsed authoritatively; otherwise a conservative
-scalar parser recovers just the fields this linter bounds (`name`,
-`description`, `compatibility`) and a note is printed to stderr — the same
-honest-degradation pattern as the repo's `lint-frontmatter.py`.
+Uses PyYAML for authoritative YAML parsing. Run with uv run --script
+so the dependency is isolated; a missing parser is an error, not a partial pass.
 
 Usage:  skill_spec_lint.py [PATH ...]        (default: current directory)
   PATH may be a skill directory (contains SKILL.md), a plugin directory
@@ -22,6 +23,7 @@ Exit:   0 no errors · 1 one or more ERROR findings. WARN never fails the run.
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import sys
@@ -50,6 +52,11 @@ _KNOWN_KEYS = {
     "metadata",
     "allowed-tools",
     "user-invocable",
+    "disable-model-invocation",
+    "context",
+    "agent",
+    "model",
+    "argument-hint",
 }
 
 
@@ -73,88 +80,36 @@ def split_frontmatter(text: str):
     exactly the "no discoverable frontmatter" case the spec rejects.
     """
     lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
+    if not lines or lines[0].rstrip() != "---":
         return None, text
     for i in range(1, len(lines)):
-        if lines[i].strip() == "---":
+        if lines[i].rstrip() == "---":
             return "\n".join(lines[1:i]), "\n".join(lines[i + 1 :])
     return None, text  # opened but never closed -> not valid frontmatter
 
 
-def _parse_scalars(front: str) -> dict:
-    """Best-effort scalar extraction when PyYAML is absent.
-
-    Handles plain, quoted, and block (`>`/`|`) scalars for top-level keys --
-    enough for the fields this linter bounds. Nested maps (metadata) are noted
-    as present but not descended into.
-    """
-    out: dict = {}
-    lines = front.splitlines()
-    i = 0
-    key_re = re.compile(r"^([A-Za-z0-9_-]+):(.*)$")
-    while i < len(lines):
-        line = lines[i]
-        m = key_re.match(line)
-        if not m or line[0] in " \t":
-            i += 1
-            continue
-        key, rest = m.group(1), m.group(2).strip()
-        if rest in (">", "|", ">-", "|-", ">+", "|+"):
-            # Block scalar: gather the more-indented lines that follow.
-            block = []
-            i += 1
-            while i < len(lines) and (lines[i].startswith((" ", "\t")) or lines[i].strip() == ""):
-                block.append(lines[i].strip())
-                i += 1
-            out[key] = " ".join(b for b in block if b).strip()
-            continue
-        if rest == "":
-            out[key] = ""  # a bare mapping key (e.g. `metadata:`) -> present, empty scalar
-            i += 1
-            continue
-        if rest[0] in "'\"":
-            # Quoted scalar: a complete value, no continuation, no comment strip.
-            out[key] = rest.strip("'\"")
-            i += 1
-            continue
-        # Plain (unquoted) scalar. PyYAML strips a trailing ` # comment` and folds
-        # continuation lines into one space-joined string -- match both so the
-        # length this linter measures is the same with or without PyYAML.
-        value = _strip_plain_comment(rest)
-        parts = [value]
-        i += 1
-        while i < len(lines) and lines[i][:1] in (" ", "\t"):
-            cont = lines[i].strip()
-            if cont:
-                parts.append(_strip_plain_comment(cont))
-            i += 1
-        out[key] = " ".join(p for p in parts if p).strip()
-    return out
-
-
-def _strip_plain_comment(value: str) -> str:
-    """Drop a YAML trailing comment: ` #...` (a hash preceded by whitespace)."""
-    m = re.search(r"\s#", value)
-    return value[: m.start()].rstrip() if m else value.rstrip()
-
-
 def parse_frontmatter(front: str):
-    """Return (mapping, error_or_None). Authoritative via PyYAML when available."""
-    if _HAVE_YAML:
-        try:
-            data = yaml.safe_load(front)
-        except Exception as exc:  # malformed YAML the whole block is unusable
-            return None, "frontmatter is not valid YAML (%s)" % exc
-        if data is None:
-            return {}, None
-        if not isinstance(data, dict):
-            return None, "frontmatter must be a YAML mapping, got %s" % type(data).__name__
-        return data, None
-    return _parse_scalars(front), None
-
-
-def _as_text(value) -> str:
-    return value if isinstance(value, str) else str(value)
+    """Return a fully parsed mapping or an actionable validation error."""
+    if not _HAVE_YAML:
+        return None, "PyYAML is required; run uv run --script skill_spec_lint.py PATH"
+    class UniqueLoader(yaml.SafeLoader):
+        pass
+    def mapping(loader, node, deep=False):
+        result = {}
+        for key_node, value_node in node.value:
+            key = loader.construct_object(key_node, deep=deep)
+            if not isinstance(key, str) or key in result:
+                raise ValueError("mapping keys must be unique strings")
+            result[key] = loader.construct_object(value_node, deep=deep)
+        return result
+    UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+    try:
+        data = yaml.load(front, Loader=UniqueLoader)
+    except (yaml.YAMLError, ValueError):
+        return None, "frontmatter is not valid YAML (unique string keys required)"
+    if not isinstance(data, dict):
+        return None, "frontmatter must be a YAML mapping"
+    return data, None
 
 
 def validate_skill(skill_dir: Path) -> list:
@@ -170,7 +125,10 @@ def validate_skill(skill_dir: Path) -> list:
     # utf-8-sig transparently drops a leading BOM (a common Windows-editor
     # artifact) so a BOM'd but otherwise valid file is not misread as
     # frontmatter-less.
-    text = md.read_text(encoding="utf-8-sig", errors="replace")
+    try:
+        text = md.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError):
+        return [Finding(rel, "ERROR", "SKILL.md is unreadable or not UTF-8")]
     front, body = split_frontmatter(text)
     if front is None:
         return [Finding(rel, "ERROR", "missing or unterminated `--- ... ---` frontmatter block")]
@@ -181,10 +139,11 @@ def validate_skill(skill_dir: Path) -> list:
 
     # name -----------------------------------------------------------------
     name = mapping.get("name")
-    if name is None or _as_text(name).strip() == "":
+    if name is None or name == "":
         findings.append(Finding(rel, "ERROR", "frontmatter missing required `name`"))
+    elif not isinstance(name, str):
+        findings.append(Finding(rel, "ERROR", "name must be a string"))
     else:
-        name = _as_text(name).strip()
         if len(name) > _NAME_MAX:
             findings.append(Finding(rel, "ERROR", "name is %d chars, exceeds %d" % (len(name), _NAME_MAX)))
         if not _NAME_RE.match(name):
@@ -203,10 +162,12 @@ def validate_skill(skill_dir: Path) -> list:
 
     # description ----------------------------------------------------------
     description = mapping.get("description")
-    if description is None or _as_text(description).strip() == "":
+    if description is None or description == "":
         findings.append(Finding(rel, "ERROR", "frontmatter missing required `description`"))
+    elif not isinstance(description, str) or not description.strip():
+        findings.append(Finding(rel, "ERROR", "description must be a nonempty string"))
     else:
-        dlen = len(_as_text(description))
+        dlen = len(description)
         if dlen > _DESCRIPTION_MAX:
             findings.append(
                 Finding(rel, "ERROR", "description is %d chars, exceeds %d" % (dlen, _DESCRIPTION_MAX))
@@ -214,12 +175,24 @@ def validate_skill(skill_dir: Path) -> list:
 
     # optional compatibility ----------------------------------------------
     compatibility = mapping.get("compatibility")
-    if compatibility is not None:
-        clen = len(_as_text(compatibility))
+    if "compatibility" in mapping and (not isinstance(compatibility, str) or not compatibility.strip()):
+        findings.append(Finding(rel, "ERROR", "compatibility must be a nonempty string"))
+    elif compatibility is not None:
+        clen = len(compatibility)
         if clen > _COMPATIBILITY_MAX:
             findings.append(
                 Finding(rel, "ERROR", "compatibility is %d chars, exceeds %d" % (clen, _COMPATIBILITY_MAX))
             )
+
+    metadata = mapping.get("metadata", {})
+    if not isinstance(metadata, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in metadata.items()):
+        findings.append(Finding(rel, "ERROR", "metadata must map strings to strings"))
+    for key in ("license", "allowed-tools"):
+        if key in mapping and not isinstance(mapping[key], str):
+            findings.append(Finding(rel, "ERROR", f"{key} must be a string"))
+    for key in ("user-invocable", "disable-model-invocation"):
+        if key in mapping and not isinstance(mapping[key], bool):
+            findings.append(Finding(rel, "ERROR", f"{key} must be boolean"))
 
     # unknown keys (WARN — the spec allows a fixed optional set) ------------
     for key in mapping:
@@ -234,7 +207,7 @@ def validate_skill(skill_dir: Path) -> list:
         findings.append(
             Finding(
                 rel,
-                "ERROR",
+                "WARN",
                 "SKILL.md body is %d lines, exceeds %d — move detail to references/"
                 % (body_lines, _BODY_MAX_LINES),
             )
@@ -291,27 +264,35 @@ def lint(paths) -> tuple:
     """Return (findings, skill_count) across every PATH."""
     all_findings = []
     count = 0
+    seen = set()
     for raw in paths:
         p = Path(raw)
         if not p.exists():
             all_findings.append(Finding(str(raw), "ERROR", "path does not exist"))
             continue
+        if p.is_file():
+            if p.name != "SKILL.md":
+                all_findings.append(Finding(str(raw), "ERROR", "expected SKILL.md or a directory"))
+                continue
+            p = p.parent
         skill_dirs, disc_findings = discover(p)
         all_findings.extend(disc_findings)
         for skill_dir in skill_dirs:
+            if skill_dir.resolve() in seen:
+                continue
+            seen.add(skill_dir.resolve())
             count += 1
             all_findings.extend(validate_skill(skill_dir))
     return all_findings, count
 
 
 def main(argv) -> int:
-    paths = argv or ["."]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("paths", nargs="*", default=["."])
+    paths = parser.parse_args(argv).paths or ["."]
     if not _HAVE_YAML:
-        print(
-            "skill-spec-lint: PyYAML not importable — using a scalar-only frontmatter "
-            "parser (name/description/compatibility checked; deep YAML structure not).",
-            file=sys.stderr,
-        )
+        print("skill-spec-lint: PyYAML is required; run uv run --script with this script", file=sys.stderr)
+        return 2
     findings, count = lint(paths)
     errors = [f for f in findings if f.level == "ERROR"]
     warns = [f for f in findings if f.level == "WARN"]

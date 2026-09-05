@@ -7,7 +7,7 @@ The user wants to save this note, verbatim:
 
 $ARGUMENTS
 
-Save it by piping the exact text via stdin to the notes toolkit (a heredoc, so apostrophes/quotes/punctuation survive):
+Choose a quoted heredoc delimiter that is absent as a standalone line in the note. Save it by piping the exact text via stdin to the notes toolkit (a heredoc, so apostrophes/quotes/punctuation survive):
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/add-note.py" <<'NOTE'

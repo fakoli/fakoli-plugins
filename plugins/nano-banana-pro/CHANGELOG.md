@@ -5,6 +5,29 @@ All notable changes to the Nano Banana Pro plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-09-05
+
+### Added
+
+- Native Codex plugin manifest alongside Claude command and agent compatibility.
+- Self-contained uv scripts, a non-secret user configuration initializer, explicit model IDs, and request dry-runs.
+- Offline regression coverage for configuration precedence, image MIME/format handling, remix extraction, bounded failures, and optimizer constraints.
+
+### Changed
+
+- `pro` and `flash` now resolve to Google's documented stable `gemini-3-pro-image` and `gemini-3.1-flash-image` IDs. Pro remains the default; explicit model IDs preserve pinning options.
+- Image generation makes one bounded request without automatic retries or mandatory agent pipelines. Optional agents inherit the host model and report unresolved critique honestly.
+- Optimization uses Pillow consistently across platforms and reports failure when constraints cannot be met.
+- New defaults live under the user's configuration directory; legacy project settings remain readable. Credentials stay in the environment or `.env` files outside the install cache.
+
+### Fixed
+
+- Isolated dependency execution from arbitrary working directories without changing where outputs are saved.
+- Correct absolute/tilde output paths, explicit remix flag precedence, input MIME detection, HTML metadata attribute order, and full CSS hex colors.
+- Skip thought images when choosing the final result; validate and atomically encode PNG/JPEG/WebP outputs without clobbering files by default.
+- Preserve source assets, reject animation flattening, honor byte limits below 1 KB, and avoid false optimization success.
+- Removed credential-file scans from the brand retriever and narrowed optional agent responsibilities.
+
 ## [1.3.4] - 2026-06-26
 
 ### Fixed

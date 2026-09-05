@@ -3,6 +3,9 @@ name: verify
 description: Verify phase — evidence-based validation with sentinel dispatch and pass/fail scorecard
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Verify (`/fakoli-flow:verify`)
 
 ## Overview

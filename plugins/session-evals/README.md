@@ -53,7 +53,7 @@ version.
 
 A curated spec is one suite per work class; full schema in the header of
 [`scripts/eval_emit.py`](scripts/eval_emit.py). Checks are deterministic
-and mirror anvil-serving's benchmark engine exactly:
+and implement the bundled runner’s documented semantics:
 
 - `contains` / `contains_all` / `contains_any` — lowercased substring
   checks on the response text (`evaluate_text_checks`).
@@ -61,8 +61,7 @@ and mirror anvil-serving's benchmark engine exactly:
   function, parse as JSON, and carry the required args
   (`validate_function_tool_call`). Requires a `tools` array.
 
-No LLM-as-judge: small local models are unreliable graders, and the run
-must be reproducible offline.
+The runner uses deterministic checks without a model judge. A model endpoint is required for execution; local stub tests need no endpoint.
 
 ### Why deterministic checks against *curated* expectations
 
@@ -84,7 +83,7 @@ the difficulty, not the answer key.
 - Planned upstream: `anvil-serving eval benchmark run --suite-file` so
   suites run inside its evidence pipeline natively. Until then the
   bundled runner covers execution; the suite format is already
-  compatible.
+  intended for compatible tooling; verify upstream support before assuming direct import.
 
 Suggested reading of results: high pass rate at 32k -> candidate `allow`;
 passes only with tool checks relaxed -> `allow-with-verify`; structural
@@ -92,7 +91,7 @@ failures -> `deny`. Promotion into a quality profile stays a human call.
 
 ## Privacy
 
-- Reads only local session logs; sends nothing anywhere.
+- Mining reads local session logs. Running sends curated prompts and tool definitions to the endpoint explicitly selected with `--base-url`; redaction flags are detection hints and do not remove data.
 - Mined candidates carry `redaction_flags` (key/token patterns); the
   skill's curation step requires redaction before emit.
 - Evals default to `~/.anvil-serving/eval-data/` — outside any repo — so
@@ -107,3 +106,11 @@ uv run --with pytest pytest plugins/session-evals/tests/ -q
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Runtime and validation update
+
+Validate malformed specifications and resource bounds before running, stage replacement suites before touching prior evidence, and protect candidate/evidence outputs with explicit replacement.
+
+Native Codex loads the bundled `skills/` directory. Claude command names remain available. Resolve the installed plugin root before running the scripts; runtime notes and session evidence belong outside the install directory. No user state is migrated by this update.
+
+Candidate and evidence outputs require `--overwrite` before replacing an existing file, and can never replace the input session/spec. Suite `--force` builds a replacement in a sibling staging directory before moving the prior directory. Failed generation leaves prior evidence intact; a `.suite-*` directory may remain for inspection after an interrupted write.

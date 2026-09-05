@@ -21,9 +21,9 @@ Rewrite the extracted content as natural spoken English:
 Then send the text to TTS using a heredoc (safe for quotes, dollars, backticks):
 
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT} && uv run fakoli-speak speak <<'SPEAK_EOF'
+uv run --frozen --directory "${CLAUDE_PLUGIN_ROOT}" fakoli-speak speak <<'SPEAK_EOF'
 your cleaned spoken text here
 SPEAK_EOF
 ```
 
-After running the command, respond with only: "Speaking." — nothing else.
+Report whether synthesis/playback launched successfully. Preserve a truncation warning or failure; never claim success merely because the command was attempted.

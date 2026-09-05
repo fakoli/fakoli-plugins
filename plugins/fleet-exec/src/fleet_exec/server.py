@@ -14,7 +14,7 @@ import sys
 from . import transport
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "fleet-exec", "version": "1.0.0"}
+SERVER_INFO = {"name": "fleet-exec", "version": "1.0.1"}
 
 # Ceilings, not just defaults: an LLM caller can ask for timeout_s=86400 or
 # max_bytes=1e9 and get a hung ssh call or a whole remote file inlined into one
@@ -113,6 +113,8 @@ def _tool_error(kind: str, reason: str) -> dict:
 
 
 def _call_tool(name, arguments) -> dict:
+    if not isinstance(name, str) or (arguments is not None and not isinstance(arguments, dict)):
+        return _tool_error("refused", "tool name must be a string and arguments must be an object")
     handler = _HANDLERS.get(name)
     if handler is None:
         return _tool_error("refused", "unknown tool: %s" % name)
@@ -121,7 +123,7 @@ def _call_tool(name, arguments) -> dict:
     except transport.FleetExecRefusal as exc:
         # Refusals are never a fleet state -- keep the four host states pure.
         return _tool_error("refused", str(exc))
-    except (KeyError, TypeError) as exc:
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
         return _tool_error("refused", "missing or malformed argument: %s" % exc)
     except OSError as exc:
         # Local I/O errors (e.g. push_file's local_path missing) aren't a
@@ -131,6 +133,8 @@ def _call_tool(name, arguments) -> dict:
 
 
 def _handle_request(request: dict):
+    if not isinstance(request, dict) or request.get("jsonrpc") != "2.0" or not isinstance(request.get("method"), str):
+        return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "invalid request"}}
     method = request.get("method")
     req_id = request.get("id")
 
@@ -142,6 +146,13 @@ def _handle_request(request: dict):
     if "id" not in request:
         return None
 
+    if type(req_id) not in (str, int):
+        return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "id must be a string or integer"}}
+
+    if method == "ping":
+        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
+    if not isinstance(request.get("params", {}), dict):
+        return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32602, "message": "params must be an object"}}
     if method == "initialize":
         return {
             "jsonrpc": "2.0",
@@ -175,6 +186,7 @@ def main() -> None:
             request = json.loads(line)
         except ValueError as exc:
             _log("fleet-exec: malformed JSON-RPC line: %s" % exc)
+            _write({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}})
             continue
         try:
             response = _handle_request(request)
@@ -182,7 +194,7 @@ def main() -> None:
             _log("fleet-exec: unhandled error: %s" % exc)
             response = {
                 "jsonrpc": "2.0",
-                "id": request.get("id"),
+                "id": request.get("id") if isinstance(request, dict) else None,
                 "error": {"code": -32603, "message": str(exc)},
             }
         if response is not None:

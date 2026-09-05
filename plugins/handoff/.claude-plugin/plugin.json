@@ -1,10 +1,20 @@
 {
   "name": "handoff",
-  "version": "0.2.0",
-  "description": "Cross-session, cross-checkout project handoff notes — a durable resume point shared across same-remote clones and linked worktrees. Storage is keyed by git remote when available, not cwd. Complements native auto-memory.",
-  "author": { "name": "Sekou Doumbouya", "url": "https://github.com/fakoli" },
+  "version": "0.3.0",
+  "description": "Project handoff notes across sessions and checkouts",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
   "license": "MIT",
   "homepage": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/handoff",
   "repository": "https://github.com/fakoli/fakoli-plugins",
-  "keywords": ["memory", "handoff", "session", "worktree", "context", "resume"]
+  "keywords": [
+    "memory",
+    "handoff",
+    "session",
+    "worktree",
+    "context",
+    "resume"
+  ]
 }

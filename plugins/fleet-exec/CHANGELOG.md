@@ -3,6 +3,15 @@
 All notable changes to the fleet-exec plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.1] - 2026-09-05
+
+- Add/refresh native Codex manifest and UI metadata while retaining Claude support.
+- Reject malformed argv/tool envelopes before SSH, handle non-object JSON-RPC and parse errors without terminating the server, and implement ping.
+- Use a native plugin-relative MCP launcher and smoke-test initialization/tool discovery without remote calls.
+- Validate remote wrapper result shapes and allow transport grace for a remote command timeout result.
+- Clarify SSH alias/hostname behavior and scope; add offline protocol and argument regression tests.
+
+
 ## [1.0.0] - 2026-08-08
 
 ### Added

@@ -8,4 +8,4 @@ Check whether the given URL passes the safety policy (domain allowlist, SSRF pre
 
 URL: $ARGUMENTS
 
-Report the result to the user — whether the URL is safe or blocked, and why.
+Report the result to the user — whether the URL currently passes the network policy or is blocked, and why; this is not a verdict on content trust.

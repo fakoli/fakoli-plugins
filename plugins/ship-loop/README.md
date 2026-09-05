@@ -47,3 +47,12 @@ dispatch is now the exception, not the default.
 ## License
 
 MIT
+
+
+## Codex support (2026-09-05)
+
+This release includes `.codex-plugin/plugin.json` and native skills. Use the installed skills from
+a fresh Codex task; no custom agent types or model aliases are assumed. The workflow preserves the requested starting state, discovers the default branch, uses actual
+agent capabilities, and stops at the authorized delivery boundary. Current Codex hooks are
+supported where their event/payload contract is verified; legacy command/agent examples are not
+a claim of automatic native registration.

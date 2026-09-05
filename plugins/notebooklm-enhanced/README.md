@@ -1,176 +1,42 @@
 # NotebookLM Enhanced
 
-Comprehensive Google NotebookLM automation plugin for Claude Code. Create notebooks, add sources, generate podcasts/videos/quizzes/slides, and run multi-notebook research workflows -- all through conversational commands backed by the NotebookLM RPC API.
+Operate NotebookLM notebooks, sources, grounded queries, research, and generated artifacts from Codex or Claude Code. This package uses [notebooklm-py](https://github.com/teng-lin/notebooklm-py), an **unofficial** client for undocumented Google RPCs. Google-side changes, account limits, and session expiration can affect operations.
 
-## What This Plugin Does
+## Setup
 
-This plugin wraps the `notebooklm-py` CLI to give Claude Code full programmatic access to Google NotebookLM, including features not exposed in the web UI:
+Install through the repository marketplace for your runtime. Requirements: Python 3.10+, `uv`, and a Google account with NotebookLM access. The bundled `scripts/uv.lock` pins `notebooklm-py` 0.8.2. Initial dependency setup may download packages.
 
-- **Notebook management**: Create, list, delete, and switch between notebooks
-- **Source ingestion**: Add URLs, PDFs, YouTube videos, and local files as sources
-- **AI querying**: Ask questions with cited answers from your sources
-- **Artifact generation**: Generate podcasts, videos, slide decks, quizzes, flashcards, reports, mind maps, data tables, and infographics
-- **Web research**: Automated source discovery via NotebookLM's built-in research feature
-- **Cross-notebook synthesis**: Compare and synthesize findings across multiple notebooks
-
-## Prerequisites
-
-- **Python 3.10+**
-- **uv** (Python package manager) -- install with `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- **Google account** with access to [NotebookLM](https://notebooklm.google.com/)
-- **notebooklm-py** package (installed automatically via the plugin's `scripts/pyproject.toml`)
-
-## Installation
-
-### Option 1: Clone and symlink
+Resolve the installed plugin root, then run its wrapper:
 
 ```bash
-# Clone the fakoli-plugins repository
-git clone https://github.com/fakoli-plugins/fakoli-plugins.git
-
-# Symlink the plugin into your Claude Code plugins directory
-ln -s /path/to/fakoli-plugins/plugins/notebooklm-enhanced ~/.claude/plugins/notebooklm-enhanced
+bash "/path/to/notebooklm-enhanced/scripts/notebooklm.sh" --version
+bash "/path/to/notebooklm-enhanced/scripts/notebooklm.sh" auth check --json
 ```
 
-### Option 2: Add to Claude Code settings
+Authentication check reports session readiness; `status` only shows local context. If sign-in is needed, inspect `login --help` and let the user complete the browser sign-in. This client stores browser session cookies; it is not a Google OAuth application. Browser setup may require the dependencies described in the upstream installation guide. Never print cookie files or `NOTEBOOKLM_AUTH_JSON`.
 
-Add to your `.claude/settings.json`:
+## Workflows
 
-```json
-{
-  "plugins": [
-    "/path/to/fakoli-plugins/plugins/notebooklm-enhanced"
-  ]
-}
-```
+Codex receives `notebooklm-core` and `notebooklm-research` skills. Claude also receives seven commands (`setup`, `create-notebook`, `add-source`, `query`, `generate`, `library`, `research`) and a research agent. The skills preserve these capabilities without requiring command migration.
 
-## Quick Start
+The wrapper resolves the package's own lockfile while preserving the caller's directory. Select full IDs from actual CLI responses and pass `--notebook` on each scoped operation. Automated workflows do not use the shared `use` context. Read the relevant `--help` before using an unfamiliar command; this avoids copied option tables drifting from the locked CLI.
 
-### 1. Authenticate
+For queries, continue with an explicit returned conversation ID when appropriate. In version 0.8.2, `ask --new` deletes the notebook's server-side conversation, and `--json` bypasses its confirmation. Use that option only for a requested history deletion, never as a generic fresh-query flag.
 
-```
-/notebooklm-enhanced:setup
-```
+Create/upload/generate only within the requested workflow. Submission is not completion: retain the returned source, research-run, and artifact IDs; poll that operation with bounded calls and verify its state before downloading. `artifact wait` accepts `--timeout` and `--interval`. `research wait --import-all` has separate research and indexing timeout budgets, so use short budgets or separate status calls to keep each wait bounded. Inspect state before retrying an uncertain submission.
 
-This opens a browser for Google OAuth and verifies your session.
+Download the selected ready artifact with an explicit output path and `--no-clobber` where supported. Return the verified file and source citations. A synthesis request does not automatically create a notebook, change global language settings, share data, or generate extra artifacts.
 
-### 2. Create a notebook
+## Verification
 
-```
-/notebooklm-enhanced:create-notebook "My Research Topic"
-```
-
-### 3. Add sources
-
-```
-/notebooklm-enhanced:add-source https://arxiv.org/pdf/2301.00001.pdf
-/notebooklm-enhanced:add-source https://www.youtube.com/watch?v=example
-/notebooklm-enhanced:add-source ./local-document.pdf
-```
-
-### 4. Query your sources
-
-```
-/notebooklm-enhanced:query What are the main findings?
-```
-
-### 5. Generate artifacts
-
-```
-/notebooklm-enhanced:generate audio
-/notebooklm-enhanced:generate slide-deck --download ./slides.pdf
-/notebooklm-enhanced:generate report --format study-guide
-```
-
-### One-step research
-
-```
-/notebooklm-enhanced:research "quantum computing applications in healthcare"
-```
-
-This creates a notebook, finds sources via web research, synthesizes findings, and generates a report -- all in one command.
-
-## Available Commands
-
-| Command | Description |
-|---------|-------------|
-| `/notebooklm-enhanced:setup` | Authenticate with Google and verify CLI access |
-| `/notebooklm-enhanced:create-notebook` | Create a new notebook, optionally with initial sources |
-| `/notebooklm-enhanced:add-source` | Add a URL, file, or YouTube video as a source |
-| `/notebooklm-enhanced:query` | Ask questions with cited answers from notebook sources |
-| `/notebooklm-enhanced:generate` | Generate artifacts (audio, video, slides, quiz, report, etc.) |
-| `/notebooklm-enhanced:library` | Browse notebooks, sources, and artifacts; set active notebook |
-| `/notebooklm-enhanced:research` | End-to-end research workflow with web source discovery |
-
-## Skills
-
-### notebooklm-core
-
-Core NotebookLM automation skill for creating notebooks, adding sources, querying notes, generating artifacts, and managing library state.
-
-### notebooklm-research
-
-Multi-notebook research synthesis skill. Activates when you need to:
-
-- Compare findings across multiple notebooks
-- Run cross-notebook analysis
-- Perform deep research workflows
-- Synthesize information from diverse sources
-
-**Trigger phrases**: "compare across notebooks", "research synthesis", "cross-reference", "deep research on..."
-
-## Agent
-
-### research-agent
-
-Autonomous research agent that handles the full pipeline without user intervention:
-
-1. Creates a notebook for the topic
-2. Discovers and adds sources via web research
-3. Waits for source processing
-4. Runs synthesis queries
-5. Generates the requested artifact (report, podcast, slides, etc.)
-6. Downloads the result
-
-The research skill can delegate to the agent when the workflow should run autonomously.
-
-## CLI Reference
-
-All commands use the prefix:
+From the repository root:
 
 ```bash
-uv run --project "${CLAUDE_PLUGIN_ROOT}/scripts" notebooklm ...
+python3 -m unittest discover -s plugins/notebooklm-enhanced/tests -p 'test_*.py' -v
 ```
 
-### Core Commands
+Tests use a fake `uv` to verify installation paths and argument preservation, then run the locked CLI's help commands under a temporary NotebookLM home. They never authenticate, query notebooks, or contact the NotebookLM API. Package downloads may occur on first use. Live account integration is not covered by these tests.
 
-| Task | CLI Command |
-|------|-------------|
-| Login | `notebooklm login` |
-| Check status | `notebooklm status` |
-| List notebooks | `notebooklm list --json` |
-| Create notebook | `notebooklm create "Title" --json` |
-| Set active notebook | `notebooklm use <id>` |
-| Add source | `notebooklm source add "url" --json` |
-| List sources | `notebooklm source list --json` |
-| Query | `notebooklm ask "question" --json` |
-| Web research | `notebooklm source add-research "query" --mode deep --no-wait` |
-| Wait for research | `notebooklm research wait --import-all` |
+The upgrade and command contracts were checked against [upstream documentation](https://github.com/teng-lin/notebooklm-py) and the locked 0.8.2 CLI help on 2026-09-05.
 
-### Generation Commands
-
-| Type | Command | Download |
-|------|---------|----------|
-| Podcast | `notebooklm generate audio` | `download audio ./out.mp3` |
-| Video | `notebooklm generate video` | `download video ./out.mp4` |
-| Slide Deck | `notebooklm generate slide-deck` | `download slide-deck ./out.pdf` |
-| Report | `notebooklm generate report --format briefing-doc` | `download report ./out.md` |
-| Quiz | `notebooklm generate quiz` | `download quiz ./out.json` |
-| Flashcards | `notebooklm generate flashcards` | `download flashcards ./out.md` |
-| Mind Map | `notebooklm generate mind-map` | `download mind-map ./out.json` |
-| Data Table | `notebooklm generate data-table "desc"` | `download data-table ./out.csv` |
-| Infographic | `notebooklm generate infographic` | `download infographic ./out.png` |
-
-## License
-
-MIT
+MIT licensed.

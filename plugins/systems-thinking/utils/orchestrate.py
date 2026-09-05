@@ -358,6 +358,8 @@ def dispatch_workers_subprocess(
     verbose: bool,
 ) -> list[dict[str, Any]]:
     """Dispatch workers as subprocesses and monitor until completion."""
+    if parallel < 1 or timeout < 1:
+        raise ValueError("parallel and timeout must be positive")
     workers_spec = work_plan.get("workers", [])
     if not workers_spec:
         print("No workers to dispatch.")
@@ -388,7 +390,6 @@ def dispatch_workers_subprocess(
             cmd = [
                 "claude",
                 "--print",
-                "--dangerously-skip-permissions",
                 "--model",
                 model,
                 "-p",
@@ -510,11 +511,12 @@ def run_synthesis(
     output_file = Path(synthesis.get("output_file", str(output_dir / "synthesis.md")))
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Gather all findings files as input.
-    findings_dir = Path(work_plan.get("output_dir", str(output_dir / "findings")))
-    input_files: list[str] = []
-    if findings_dir.is_dir():
-        input_files = sorted(str(p) for p in findings_dir.glob("*.md"))
+    # Use exactly this plan's worker outputs, never stale files from a prior run.
+    input_files = [
+        str(Path(worker["output_file"]))
+        for worker in work_plan.get("workers", [])
+        if worker.get("output_file") and Path(worker["output_file"]).is_file()
+    ]
 
     if not input_files:
         print("  [skip] synthesis: no findings files to synthesize")
@@ -539,7 +541,6 @@ def run_synthesis(
     cmd = [
         "claude",
         "--print",
-        "--dangerously-skip-permissions",
         "--model",
         model,
         "-p",
@@ -562,7 +563,11 @@ def run_synthesis(
         print("  Error: 'claude' CLI not found.", file=sys.stderr)
         return None
 
-    status = "DONE" if result.returncode == 0 else "FAILED"
+    status = (
+        "DONE"
+        if result.returncode == 0 and output_file.is_file() and output_file.stat().st_size > 0
+        else "FAILED"
+    )
     print(f"  Synthesis: {status}")
     return {
         "id": "synthesis",
@@ -632,9 +637,7 @@ def print_summary_table(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "Orchestrate parallel Claude CLI workers for systems-thinking workflows."
-        ),
+        description=("Orchestrate parallel Claude CLI workers for systems-thinking workflows."),
     )
 
     mode_group = parser.add_mutually_exclusive_group(required=True)
@@ -709,6 +712,8 @@ def main() -> None:
         help="Print worker prompts and detailed status",
     )
     args = parser.parse_args()
+    if args.parallel < 1 or args.timeout < 1:
+        parser.error("--parallel and --timeout must be positive")
 
     start_time = time.time()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -792,10 +797,17 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # Post-processing.
     # -----------------------------------------------------------------------
-    run_aggregation(args.output, args.verbose)
+    extraction_complete = workers_complete(work_plan, worker_results)
+    if extraction_complete:
+        run_aggregation(args.output, args.verbose)
+    else:
+        print(
+            "Extraction incomplete: aggregation and synthesis skipped; inspect run-summary.json and retry failed workers.",
+            file=sys.stderr,
+        )
 
     synthesis_result: Optional[dict[str, Any]] = None
-    if not args.skip_synthesis:
+    if extraction_complete and not args.skip_synthesis:
         synthesis_result = run_synthesis(
             work_plan=work_plan,
             output_dir=args.output,
@@ -819,6 +831,26 @@ def main() -> None:
     )
     print(f"\nRun summary: {summary_path}")
     print(f"Total time: {total_elapsed:.1f}s")
+    if not extraction_complete or (
+        not args.skip_synthesis
+        and work_plan.get("synthesis")
+        and (synthesis_result is None or synthesis_result.get("status") != "DONE")
+    ):
+        raise SystemExit(1)
+
+
+def workers_complete(work_plan: dict[str, Any], results: list[dict[str, Any]]) -> bool:
+    """Do not synthesize a partial extraction or accept missing/duplicate worker results."""
+    planned = work_plan.get("workers", [])
+    expected = [worker.get("id", f"worker-{index + 1}") for index, worker in enumerate(planned)]
+    actual = [result.get("id") for result in results]
+    return (
+        bool(expected)
+        and all(isinstance(value, str) for value in expected + actual)
+        and len(set(expected)) == len(expected)
+        and sorted(expected) == sorted(actual)
+        and all(result.get("status") == "DONE" for result in results)
+    )
 
 
 if __name__ == "__main__":

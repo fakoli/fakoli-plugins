@@ -17,6 +17,8 @@
 
 PROJECT_DIR="${1:-$(pwd)}"
 CACHE_TTL="${ANVIL_PULSE_STATUSLINE_TTL:-10}"
+[[ "$CACHE_TTL" =~ ^[0-9]+$ ]] || CACHE_TTL=10
+PROJECT_DIR="$(cd -- "$PROJECT_DIR" && pwd -P)" || exit 0
 
 command -v anvil >/dev/null 2>&1 || exit 0
 
@@ -31,7 +33,7 @@ done
 # Per-project cache file in a private dir (never a predictable /tmp path).
 CACHE_DIR="${HOME}/.cache/anvil-pulse"
 mkdir -p "$CACHE_DIR" 2>/dev/null && chmod 700 "$CACHE_DIR" 2>/dev/null
-key=$(printf '%s' "$PROJECT_DIR" | cksum | cut -d' ' -f1)
+key=$("$PY" -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "$PROJECT_DIR")
 CACHE_FILE="${CACHE_DIR}/statusline-${key}.txt"
 
 if [[ -f "$CACHE_FILE" ]]; then
@@ -43,7 +45,16 @@ if [[ -f "$CACHE_FILE" ]]; then
   fi
 fi
 
-json=$(anvil status --json --cwd "$PROJECT_DIR" 2>/dev/null)
+json=$("$PY" -c '
+import subprocess, sys
+try:
+    result = subprocess.run(["anvil", "status", "--json", "--cwd", sys.argv[1]],
+                            capture_output=True, text=True, timeout=3)
+    if result.returncode == 0:
+        sys.stdout.write(result.stdout)
+except (OSError, subprocess.TimeoutExpired):
+    pass
+' "$PROJECT_DIR" 2>/dev/null)
 
 # Exit 3 from the parser = anvil failed / gave no JSON (transient); in that
 # case fall back to the stale cache rather than caching emptiness for TTL.

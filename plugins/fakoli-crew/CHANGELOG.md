@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.10.0] - 2026-09-05
+
+### Added
+
+- Native Codex manifest and documented runtime workflow.
+
+### Changed
+
+- Align manual critic recipes with host-specific schemas: optional MCP args, optional runtime versions, and quality-based skill workflows.
+- Make role dispatch capability-aware in Codex and repair skill-relative reference paths without requiring unavailable agent types or models.
+
 ## 2.9.2 (2026-06-26)
 
 ### Fixed

@@ -63,9 +63,11 @@ def extract_text_from_hook(hook_json: dict) -> str | None:
 
     Returns cleaned text or None if not enough content.
     """
+    if not isinstance(hook_json, dict) or hook_json.get("stop_hook_active"):
+        return None
     # Try common fields for the assistant's response
     text = None
-    for key in ("result", "response", "content", "message"):
+    for key in ("last_assistant_message", "result", "response", "content", "message"):
         if key in hook_json and isinstance(hook_json[key], str):
             text = hook_json[key]
             break
@@ -106,8 +108,7 @@ def process_hook_stdin() -> str | None:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        # Maybe it's just plain text
-        cleaned = strip_markdown(raw)
-        return cleaned if len(cleaned) >= MIN_CHARS else None
+        # A malformed event is not an assistant response to send to a TTS provider.
+        return None
 
     return extract_text_from_hook(data)

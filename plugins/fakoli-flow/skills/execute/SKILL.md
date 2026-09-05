@@ -3,6 +3,9 @@ name: execute
 description: Execute phase — wave-based crew dispatch with critic gates and evidence-based verification
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Execute — Execute Phase
 
 Load an intent-driven plan, group tasks into dependency-ordered waves, dispatch specialist agents in parallel within each wave, run language-aware verification and a mandatory critic gate between waves, then dispatch the sentinel for final sign-off.
@@ -10,7 +13,9 @@ Load an intent-driven plan, group tasks into dependency-ordered waves, dispatch 
 <HARD-GATE>
 The critic gate runs after EVERY wave that writes code. It is not optional and cannot be skipped. Proceed to the next wave only after the critic returns PASS (or SHOULD FIX / NIT with no MUST FIX findings).
 
-This gate is mechanically enforced, not just instructed: while a run is armed (see Step 1), the plugin's PreToolUse hook denies dispatch of any agent other than critic or welder once a code-writing agent has completed and the critic has not yet reviewed. Arm the gate at run start and disarm it on every exit path.
+In the supported Claude hook context, dispatch ordering is mechanically tracked: while a run is armed (see Step 1), the plugin's PreToolUse hook denies dispatch of any agent other than critic or welder once a code-writing agent has completed and the critic has not yet reviewed. The orchestrator must still inspect the review verdict; hook completion does not establish PASS.
+In Codex the adapter disables these legacy hooks and enforces the gate through explicit review evidence.
+Arm/disarm only the compatible Claude gate; skip the arming-file steps in Codex.
 </HARD-GATE>
 
 ---
@@ -76,7 +81,7 @@ Start
 Read the plan file fully. Extract:
 - Plan header (Goal, Language, Crew)
 - All tasks with their Intent, Acceptance criteria, Scope, Agent, Verify, and Depends on fields
-- Build a dependency graph in memory
+- Build a dependency graph in memory; reject duplicate task IDs, missing dependencies and cycles before assigning waves
 
 If the plan file does not exist or cannot be found, ask the user for the path. Do not proceed without it.
 
@@ -93,8 +98,8 @@ Sanitization rules for the plan basename (applied in order):
 3. Replace every character outside `[a-z0-9-]` with `-`.
 4. Collapse consecutive `-` into one; trim leading/trailing `-`.
 
-The timestamp includes seconds so two runs of the same plan started in the same
-minute cannot collide on a scratch root.
+A timestamp alone can collide. Append a random suffix or create the directory with a unique
+temporary-directory primitive; never reuse an existing run directory for a new execution.
 
 Example: plan file `docs/plans/2026-06-01-retry-mechanism.md` loaded at 14:30:07 UTC
 on 2026-06-01 → `run-id = 2026-06-01-retry-mechanism-20260601143007`.
@@ -136,10 +141,11 @@ protection), but never rely on that: disarm explicitly.
 
 ### Step 2: Detect Available Agents
 
-Run: `claude plugin list 2>/dev/null | grep fakoli-crew`
-
-If fakoli-crew is detected, use `subagent_type="fakoli-crew:<agent>"` for dispatch.
-If not detected, use `subagent_type="general-purpose"` for all agents (graceful degradation — see section below).
+Inspect the active host's exposed agent and tool inventory. A plugin listing is supporting
+provenance, not proof that a role is callable. In Claude, use `fakoli-crew:<agent>` only if exposed.
+In Codex, use the native adapter and supported agent types with bundled role instructions; inherit
+current model settings. If delegation is unavailable, execute the scoped roles sequentially and
+report that review was not independent.
 
 Log detected status once:
 ```
@@ -165,7 +171,7 @@ For a one-page quick reference covering the DSL, agent capability matrix, and la
 Read each task's "Depends on" field. Tasks with no dependencies are Wave 1. Tasks whose dependencies are all in Wave N are Wave N+1.
 
 **Algorithm:**
-1. Assign all tasks with `Depends on: (none)` to Wave 1.
+1. Reject missing dependencies and cycles, then assign tasks with `Depends on: (none)` to Wave 1.
 2. For each remaining task, find the maximum wave number of all its dependencies. Assign this task to that wave + 1.
 3. Repeat until all tasks are assigned.
 
@@ -238,7 +244,7 @@ Construct the prompt for each agent from its plan task. Include:
 4. **Upstream context** — decisions and notes from prior wave status files (extracted from the run scratch directory)
 5. **Verify command** (from plan)
 6. **Status file instruction** — tell the agent to write its result to the absolute path
-   `<scratch-root>/agent-<name>-status.md` where `<scratch-root>` is the run's scratch root
+   `<scratch-root>/<task-id>-<role>-status.md` where `<scratch-root>` is the run's scratch root
 
 For a complete, ready-to-copy example of a dispatch prompt with all six fields filled in (plus annotation of what makes a prompt effective), see `references/example-dispatch-prompt.md`.
 
@@ -246,7 +252,7 @@ For a complete, ready-to-copy example of a dispatch prompt with all six fields f
 
 ## Status File Protocol
 
-Agents write status files to the run scratch directory: `<scratch-root>/agent-<name>-status.md`.
+Agents write status files to the run scratch directory: `<scratch-root>/<task-id>-<role>-status.md`.
 `<scratch-root>` is the absolute path logged at Step 1 (default: `.fakoli/runs/<run-id>/`).
 The wave engine reads these after each wave to confirm completion, surface escalations, and extract files-modified + decisions for the next wave.
 
@@ -254,10 +260,10 @@ For the full format specification — status values, reading rules, writing rule
 
 ### Reading Status Files After Each Wave
 
-After dispatching a wave, wait for all `<scratch-root>/agent-*-status.md` files to show a terminal status (COMPLETE, NEEDS_REVIEW, or BLOCKED).
+After dispatching a wave, wait for native completion and all expected task/role status files to show a terminal status (COMPLETE, NEEDS_REVIEW, or BLOCKED).
 
 **Polling protocol:**
-1. Read all `<scratch-root>/agent-*-status.md` files.
+1. Read only the expected task/role status files for this wave; verify their run and task IDs.
 2. If any shows `IN_PROGRESS`: wait 10 seconds and re-read.
 3. If still `IN_PROGRESS` after 5 minutes: surface to user as a timeout — "Agent `<name>` has been IN_PROGRESS for 5 minutes. Check for errors or re-dispatch."
 

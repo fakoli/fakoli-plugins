@@ -1,0 +1,3 @@
+interface:
+  display_name: "Prd"
+  short_description: "Author, parse and review a Fakoli State PRD when turning agreed"

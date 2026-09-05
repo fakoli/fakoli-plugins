@@ -24,16 +24,10 @@ import os
 import re
 import sys
 import uuid
+import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
-# flock gives us a cross-process exclusive lock around appends. It is a
-# POSIX-only module, so we degrade gracefully on platforms without it
-# (e.g. Windows): the append still happens, just without the lock.
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - platform dependent
-    fcntl = None
 
 # The notes log is the user's *data* and is kept separate from this plugin's
 # *code* so reinstalling/updating the plugin never touches notes. Resolution:
@@ -86,37 +80,45 @@ def extract_tags(text: str) -> list[str]:
 # --------------------------------------------------------------------------
 # Append (the only writer)
 # --------------------------------------------------------------------------
-def append_op(op: dict, log: Path = DEFAULT_LOG) -> None:
-    """Append a single operation object to the log under an exclusive lock.
-
-    The lock makes concurrent appends from multiple processes safe; if
-    flock is unavailable we still write (best effort) without locking.
-    """
-    line = json.dumps(op, ensure_ascii=False) + "\n"
-    # Create the data directory on first write (e.g. ~/technical-notes/).
-    log.parent.mkdir(parents=True, exist_ok=True)
-    with log.open("a", encoding="utf-8") as f:
-        if fcntl is not None:
-            try:
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            except OSError:
-                # Some filesystems (e.g. certain network mounts) reject
-                # flock. Fall through and write unlocked rather than fail.
-                pass
-        f.write(line)
-        f.flush()
-        # flush() only reaches the OS page cache; fsync() pushes the bytes to
-        # disk so an appended op survives a crash/power loss, not just a clean
-        # process exit. This is what makes the "crash-safe" claim true.
+@contextmanager
+def write_lock(log: Path):
+    """Cross-platform, bounded lock; never silently write without exclusion."""
+    log.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock = log.with_name(log.name + ".lock")
+    deadline = time.monotonic() + 5
+    while True:
         try:
-            os.fsync(f.fileno())
-        except OSError:  # pragma: no cover - rare filesystem without fsync
-            pass
-        if fcntl is not None:
-            try:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
+            lock.mkdir(mode=0o700)
+            break
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise OSError("Notes writer is locked; if it crashed, confirm it stopped before removing " + str(lock))
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        lock.rmdir()
+
+
+def append_op(op: dict, log: Path = DEFAULT_LOG, require_existing: bool = False) -> None:
+    """Append one complete record under the writer lock, preserving damaged tails."""
+    line = (json.dumps(op, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    with write_lock(log):
+        if require_existing and op.get("target") not in {n["id"] for n in current_notes(log)}:
+            raise ValueError("No live note with the requested id")
+        # A valid final JSON object without a newline is a legal legacy log.
+        # Separate it before appending; never glue a new operation to its tail.
+        prefix = b""
+        if log.exists() and log.stat().st_size:
+            with log.open("rb") as check:
+                check.seek(-1, 2)
+                if check.read(1) != b"\n":
+                    prefix = b"\n"
+        fd = os.open(log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "ab") as stream:
+            stream.write(prefix + line)
+            stream.flush()
+            os.fsync(stream.fileno())
 
 
 def add_note(text: str, source: str | None = None, log: Path = DEFAULT_LOG) -> dict:
@@ -134,7 +136,7 @@ def add_note(text: str, source: str | None = None, log: Path = DEFAULT_LOG) -> d
     return op
 
 
-def edit_note(target: str, new_text: str, log: Path = DEFAULT_LOG) -> dict:
+def edit_note(target: str, new_text: str, log: Path = DEFAULT_LOG, require_existing: bool = False) -> dict:
     """Append an ``edit`` op pointing at the add identified by ``target``."""
     op = {
         "ts": _now_iso(),
@@ -143,11 +145,11 @@ def edit_note(target: str, new_text: str, log: Path = DEFAULT_LOG) -> dict:
         "target": target,
         "note": new_text,
     }
-    append_op(op, log)
+    append_op(op, log, require_existing=require_existing)
     return op
 
 
-def delete_note(target: str, log: Path = DEFAULT_LOG) -> dict:
+def delete_note(target: str, log: Path = DEFAULT_LOG, require_existing: bool = False) -> dict:
     """Append a ``delete`` op pointing at the add identified by ``target``."""
     op = {
         "ts": _now_iso(),
@@ -155,7 +157,7 @@ def delete_note(target: str, log: Path = DEFAULT_LOG) -> dict:
         "op": "delete",
         "target": target,
     }
-    append_op(op, log)
+    append_op(op, log, require_existing=require_existing)
     return op
 
 
@@ -172,14 +174,27 @@ def load_ops(log: Path = DEFAULT_LOG) -> list[dict]:
     if not log.exists():
         return []
     ops = []
-    for line in log.read_text(encoding="utf-8").splitlines():
+    skipped = 0
+    for line in log.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             obj = json.loads(line)
         except json.JSONDecodeError:
-            # Skip a corrupt line rather than failing the whole read.
+            skipped += 1
+            continue
+        if not isinstance(obj, dict) or not isinstance(obj.get("id"), str) or not obj["id"]:
+            skipped += 1
+            continue
+        if obj.get("op", "add") in ("add", "edit") and not isinstance(obj.get("note"), str):
+            skipped += 1
+            continue
+        if obj.get("op") in ("edit", "delete") and not isinstance(obj.get("target"), str):
+            skipped += 1
+            continue
+        if "tags" in obj and (not isinstance(obj["tags"], list) or not all(isinstance(tag, str) for tag in obj["tags"])):
+            skipped += 1
             continue
         if "op" not in obj:
             # Legacy v1 line: {"ts","id","note"} -> treat as an add.
@@ -187,6 +202,8 @@ def load_ops(log: Path = DEFAULT_LOG) -> list[dict]:
         if obj["op"] == "add" and "tags" not in obj:
             obj["tags"] = extract_tags(obj.get("note", ""))
         ops.append(obj)
+    if skipped:
+        print(f"notes: skipped {skipped} malformed operation(s); original log preserved", file=sys.stderr)
     return ops
 
 
@@ -217,6 +234,8 @@ def fold(ops: list[dict]) -> list[dict]:
             }
             if "source" in op:
                 note["source"] = op["source"]
+            if nid in notes or nid in order:
+                continue  # Duplicate add IDs must not duplicate or resurrect notes.
             notes[nid] = note
             order.append(nid)
         elif kind == "edit":
@@ -378,7 +397,10 @@ def render_markdown(notes: list[dict]) -> str:
 
 def export_markdown(out: Path, log: Path = DEFAULT_LOG) -> int:
     """Write the Markdown export to ``out``; return the note count."""
+    if out.resolve() == log.resolve():
+        raise ValueError("Export destination cannot replace the operation log")
     notes = current_notes(log)
+    out.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     out.write_text(render_markdown(notes), encoding="utf-8")
     return len(notes)
 

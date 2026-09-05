@@ -1,0 +1,34 @@
+{
+  "name": "excalidraw-diagram",
+  "version": "1.1.0",
+  "description": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "excalidraw",
+    "diagram",
+    "architecture",
+    "flowchart",
+    "visualization",
+    "whiteboard"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Excalidraw Diagram",
+    "shortDescription": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+    "longDescription": "Generate and modify Excalidraw diagrams from natural language descriptions and code analysis",
+    "developerName": "Sekou Doumbouya",
+    "category": "Design",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Create an editable architecture diagram for this project."
+    ]
+  }
+}

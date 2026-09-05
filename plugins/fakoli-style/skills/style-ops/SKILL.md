@@ -1,77 +1,25 @@
 ---
 name: style-ops
-description: Use this skill when adding, updating, validating, or reporting on the governed Fakoli operating-model principles ledger.
+description: Maintain, validate or report on the Fakoli principles ledger, checking evidence pointers and keeping its Markdown projection synchronized.
 ---
 
-# style-ops
+# Style operations
 
-Skill for operating the Fakoli Style principles ledger. The canonical source of truth is `data/principles.json`; `docs/fakoli-style.md` is a generated projection. Edit the data, not the doc, then regenerate.
+Resolve the plugin root from this skill's location. Its bundled `data/principles.json` and [generated report](../../docs/fakoli-style.md) are readable reference data. For changes, select the user's durable source checkout or explicit ledger/output files; do not silently edit an installed cache.
 
-**Lifecycle rule:** a principle cannot reach `proven` unless its `proof` field resolves to a real test file on disk. The validator enforces this and exits non-zero on any violation.
+1. Read the ledger and schema. For a new principle, use `aspirational` plus concrete `open_work`. Preserve existing IDs and history.
+2. To assert or prove a principle, add repo-relative proof and embodiment pointers. A `proven` pointer must refer to a test file and real nested Python symbols when `::` symbols are present. A valid pointer does not establish that a test passed: run the relevant test and record its result before claiming verification.
+3. Generate with the packaged script and explicit destinations when working outside the source checkout:
 
-## Verbs
+   ```bash
+   uv run --script "$PLUGIN_ROOT/scripts/generate.py" --data "$LEDGER" --output "$REPORT"
+   uv run --script "$PLUGIN_ROOT/scripts/validate.py" --repo-root "$SOURCE_CHECKOUT" --data "$LEDGER" --doc "$REPORT"
+   ```
 
-### add
+   Resolve these variables to actual paths. `--repo-root` is the checkout containing the evidence paths; it need not be the plugin install directory. `--schema` can select a corresponding custom schema. The generator's `--check` mode does not write.
 
-Append a new principle entry to `data/principles.json`. New entries default to `aspirational` and require an `open_work` field describing what work would raise the status. After editing, regenerate and validate.
+4. For reports, summarize proven/asserted/aspirational status and the highest-risk open work. Separate pointer validation, tests actually run, and unverified claims.
 
-```bash
-# 1. Edit data/principles.json: add an entry with status "aspirational" and open_work
-# 2. Regenerate the doc
-uv run --script scripts/generate.py
-# 3. Validate the ledger
-uv run --script scripts/validate.py
-```
+When maintaining this marketplace's bundled ledger from its source checkout, the scripts' default data/schema/doc paths apply. Validation resolves a source checkout, never assumes that an arbitrary install cache's grandparents contain the evidence.
 
-Run both commands from `plugins/fakoli-style/`.
-
-### set-status
-
-Advance a principle's lifecycle status by editing its entry in `data/principles.json`. Rules by target status:
-
-- `asserted`: add `proof` (repo-relative file path) and a non-empty `embodied_in` array.
-- `proven`: same as `asserted`, but `proof` must point to a test file (`test_*.py`, `*_test.py`, or a file under a `tests/` directory). The validator rejects a `proven` entry whose proof is not a test file.
-
-After editing, regenerate and validate:
-
-```bash
-uv run --script scripts/generate.py
-uv run --script scripts/validate.py
-```
-
-Run both commands from `plugins/fakoli-style/`.
-
-### validate
-
-Run the full ledger validator. Checks schema validity, duplicate IDs, proof-path existence, embodiment-path existence, the proven-requires-test rule, and staleness of the generated doc.
-
-```bash
-uv run --script scripts/validate.py
-```
-
-Exits 0 with `OK: ledger and generated doc are valid and in sync`. Exits 1 with `FAIL: <reason>` on any violation.
-
-### report
-
-Read the status of all principles. Two options:
-
-**Generated doc (formatted table):**
-```bash
-# Open docs/fakoli-style.md and read the "At a glance" table
-cat docs/fakoli-style.md
-```
-
-**Quick jq summary (counts by status):**
-```bash
-jq '[.principles[].status] | group_by(.) | map({(.[0]): length}) | add' data/principles.json
-```
-
-Run from `plugins/fakoli-style/`.
-
-## Reference
-
-Full documentation: [README.md](../../README.md)
-
-Ledger: [data/principles.json](../../data/principles.json)
-
-Generated doc (do not hand-edit): [docs/fakoli-style.md](../../docs/fakoli-style.md)
+See [README](../../README.md), [ledger](../../data/principles.json), and [schema](../../schema/principles.schema.json).

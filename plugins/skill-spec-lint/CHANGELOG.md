@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0 — 2026-09-05
+
+- Require isolated PyYAML parsing, reject duplicate keys and wrong field types, support --help and direct SKILL.md inputs, deduplicate roots, and separate length guidance from schema errors.
+- Added native Codex discovery alongside the existing Claude entrypoints and focused offline regressions.
+
 All notable changes to the skill-spec-lint plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 

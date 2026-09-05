@@ -2,6 +2,15 @@
 
 All notable changes to the anvil-pulse plugin.
 
+## [1.1.0] - 2026-09-05
+
+- Bound statusline Anvil calls to three seconds and use canonical project cache keys.
+- Add/refresh native Codex manifest and UI metadata while retaining Claude support.
+- Validate positive PIDs and exact dashboard/project process identity before check/stop; never trust arbitrary Node processes or unavailable ps output.
+- Resolve project paths before launch; reject missing option values; ignore Host header for URL parsing.
+- Disable cross-checkout name-only event discovery; add isolated lifecycle and existing server-fixture coverage.
+
+
 ## [1.0.0] - 2026-07-09
 
 Initial release, hardened by an 8-angle adversarial review before merge.

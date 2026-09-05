@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nano Banana Pro"
+  short_description: "Generate and edit Gemini images; optimize local assets"
+  default_prompt: "Use $generate to create an image from my description with Nano Banana Pro."

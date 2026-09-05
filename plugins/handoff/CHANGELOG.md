@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0 — 2026-09-05
+
+- Use the hook payload cwd, match ASCII project keys across runtimes, load bounded context without side effects, and support HANDOFF_DATA_DIR. Fix macOS age checks and malformed metadata handling.
+- Added native Codex discovery alongside the existing Claude entrypoints and focused offline regressions.
+
 ## 0.2.0
 
 - **Handoff freshness** (the retro corpus's handoff-freshness opportunity):

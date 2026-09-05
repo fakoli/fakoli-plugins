@@ -32,10 +32,14 @@ def main() -> int:
         print(f"No live note with id [{target}].", file=sys.stderr)
         return 1
 
-    op = notes_lib.edit_note(target, new_text)
+    op = notes_lib.edit_note(target, new_text, require_existing=True)
     print(f"Edited [{target}] at {op['ts']}")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError) as exc:
+        print(f"notes: {exc}", file=sys.stderr)
+        raise SystemExit(1)

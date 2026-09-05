@@ -29,8 +29,9 @@ Paths are resolved relative to this script, so it works regardless of CWD.
 
 from __future__ import annotations
 
+import argparse
+import ast
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -104,8 +105,8 @@ def _proof_symbols(proof: str) -> list[str]:
 
 
 def _check_proof_symbols(pid: str, proof: str, proof_path: Path) -> None:
-    """For each symbol in a proof pointer, verify 'def <sym>' or 'class <sym>'
-    appears in the proof file.  A cheap text scan — no execution required.
+    """Resolve each nested Python symbol structurally, ignoring comments and strings.
+    This proves pointer structure, not that the referenced test passed.
 
     Raises ValidationError naming the first missing symbol.
     """
@@ -113,16 +114,16 @@ def _check_proof_symbols(pid: str, proof: str, proof_path: Path) -> None:
     if not symbols:
         return
 
-    source = proof_path.read_text(encoding="utf-8")
+    try:
+        node = ast.parse(proof_path.read_text(encoding="utf-8"), filename=str(proof_path))
+    except (SyntaxError, UnicodeError) as exc:
+        raise ValidationError(f"{pid} proof is not valid Python: {proof_path}") from exc
     for sym in symbols:
-        # Require 'def'/'class' then the EXACT identifier (word-boundary), so
-        # '::test_foo' does not false-pass against 'def test_foobar'.
-        pattern = rf"(?:def|class)\s+{re.escape(sym)}\b"
-        if not re.search(pattern, source):
-            raise ValidationError(
-                f"{pid} proof symbol '{sym}' not found in {_proof_file(proof)} "
-                f"(looked for 'def {sym}' or 'class {sym}')"
-            )
+        matches = [child for child in getattr(node, "body", [])
+                   if isinstance(child, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and child.name == sym]
+        if len(matches) != 1:
+            raise ValidationError(f"{pid} proof symbol '{sym}' not found unambiguously in {_proof_file(proof)}")
+        node = matches[0]
 
 
 def _looks_like_test_file(proof_file: str) -> bool:
@@ -138,6 +139,26 @@ def _looks_like_test_file(proof_file: str) -> bool:
         return True
     stem = path.stem.lower()
     return stem.startswith("test_") or stem.endswith("_test")
+
+
+def _confined_path(root: Path, relative: str) -> Path:
+    target = (root / relative).resolve()
+    if Path(relative).is_absolute() or not target.is_relative_to(root.resolve()):
+        raise ValidationError(f"proof/embodiment path escapes repository: {relative}")
+    return target
+
+
+def resolve_repo_root(explicit: Path | None = None) -> Path:
+    if explicit is not None:
+        root = explicit.expanduser().resolve()
+        if not root.is_dir():
+            raise ValidationError(f"repository directory does not exist: {root}")
+        return root
+    candidates = [REPO_ROOT, Path.cwd(), *Path.cwd().parents]
+    for root in candidates:
+        if (root / '.claude-plugin/marketplace.json').is_file() and (root / 'plugins/fakoli-style').is_dir():
+            return root.resolve()
+    raise ValidationError("Select the source/evidence checkout with --repo-root; an installed cache is not a repository")
 
 
 def _check_proof_and_embodiment(principles: list[dict], repo_root: Path) -> None:
@@ -156,8 +177,8 @@ def _check_proof_and_embodiment(principles: list[dict], repo_root: Path) -> None
                     f"{pid} ({status}) is missing required 'embodied_in'"
                 )
 
-            proof_path = repo_root / _proof_file(proof)
-            if not proof_path.exists():
+            proof_path = _confined_path(repo_root, _proof_file(proof))
+            if not proof_path.is_file():
                 raise ValidationError(
                     f"{pid} proof path does not exist: {_proof_file(proof)}"
                 )
@@ -172,7 +193,7 @@ def _check_proof_and_embodiment(principles: list[dict], repo_root: Path) -> None
 
         for embodiment in entry.get("embodied_in", []):
             ref = embodiment["ref"]
-            if not (repo_root / ref).exists():
+            if not _confined_path(repo_root, ref).exists():
                 raise ValidationError(
                     f"{pid} embodied_in[].ref does not exist: {ref}"
                 )
@@ -216,12 +237,18 @@ def validate(
 
 
 def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Validate ledger structure, evidence pointers and projection.")
+    parser.add_argument('--repo-root', type=Path, help='Checkout containing repo-relative proof files')
+    parser.add_argument('--data', type=Path, default=DATA_PATH)
+    parser.add_argument('--schema', type=Path, default=SCHEMA_PATH)
+    parser.add_argument('--doc', type=Path, default=DOC_PATH)
+    args = parser.parse_args(argv)
     try:
         validate(
-            data_path=DATA_PATH,
-            schema_path=SCHEMA_PATH,
-            doc_path=DOC_PATH,
-            repo_root=REPO_ROOT,
+            data_path=args.data,
+            schema_path=args.schema,
+            doc_path=args.doc,
+            repo_root=resolve_repo_root(args.repo_root),
         )
     except ValidationError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)

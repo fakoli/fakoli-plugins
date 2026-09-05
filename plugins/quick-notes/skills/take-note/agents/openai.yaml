@@ -1,0 +1,4 @@
+interface:
+  display_name: "Take Note"
+  short_description: "Capture, search, edit, and export private personal notes"
+  default_prompt: "Use $take-note for the current task."

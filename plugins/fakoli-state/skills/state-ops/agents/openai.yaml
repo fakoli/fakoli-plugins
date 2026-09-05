@@ -1,0 +1,3 @@
+interface:
+  display_name: "State Ops"
+  short_description: "Inspect the Fakoli State project summary, task details, ready q"

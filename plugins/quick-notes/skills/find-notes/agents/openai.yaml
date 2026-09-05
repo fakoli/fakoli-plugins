@@ -1,0 +1,4 @@
+interface:
+  display_name: "Find Notes"
+  short_description: "Capture, search, edit, and export private personal notes"
+  default_prompt: "Use $find-notes for the current task."

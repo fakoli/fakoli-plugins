@@ -1,0 +1,4 @@
+interface:
+  display_name: "Google Workspace CLI"
+  short_description: "Operate Google Workspace through scoped CLI workflows"
+  default_prompt: "Use $gws-shared to plan the requested Workspace operation."

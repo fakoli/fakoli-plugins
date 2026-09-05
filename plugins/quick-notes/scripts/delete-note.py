@@ -25,10 +25,14 @@ def main() -> int:
         print(f"No live note with id [{target}].", file=sys.stderr)
         return 1
 
-    op = notes_lib.delete_note(target)
+    op = notes_lib.delete_note(target, require_existing=True)
     print(f"Deleted [{target}] at {op['ts']}")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError) as exc:
+        print(f"notes: {exc}", file=sys.stderr)
+        raise SystemExit(1)

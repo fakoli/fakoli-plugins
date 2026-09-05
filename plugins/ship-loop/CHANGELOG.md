@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.0] - 2026-09-05
+
+### Added
+
+- Native Codex manifest and documented runtime workflow.
+
+### Changed
+
+- Add native packaging and scope-aware shipping: preserve authorized starting state, discover the default branch, and avoid exposing environment values or assuming unavailable hooks.
+
 All notable changes to the ship-loop plugin.
 
 ## [1.1.1] - 2026-08-08

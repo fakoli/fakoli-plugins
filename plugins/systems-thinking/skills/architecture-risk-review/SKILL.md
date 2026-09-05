@@ -10,6 +10,9 @@ description: >
   to use this workflow.
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Architecture Risk Review
 
 ## When to Use
@@ -43,8 +46,8 @@ Do **not** use Architecture Risk Review when:
 
 Before running the doc-indexer, check these reference directories for supplementary material:
 
-- `plugins/systems-thinking/reference/previous_designs/` — prior architecture work that may reveal historical risk patterns or recurring failure modes relevant to this review.
-- `plugins/systems-thinking/reference/vendor_docs/` — vendor documentation covering known limitations, quotas, or service constraints relevant to the architecture under review.
+- `../../reference/previous_designs/` — prior architecture work that may reveal historical risk patterns or recurring failure modes relevant to this review.
+- `../../reference/vendor_docs/` — vendor documentation covering known limitations, quotas, or service constraints relevant to the architecture under review.
 
 Include any relevant reference materials as additional input to the doc-indexer.
 
@@ -65,7 +68,7 @@ If the architecture depends on external services, cloud platforms, or vendor pro
 2. Present the Source Manifest to the user for review before proceeding.
 3. Feed approved sources into doc-indexer for structural mapping.
 
-**Skip this step** if all vendor documentation is already available in `plugins/systems-thinking/reference/vendor_docs/` or provided by the user.
+**Skip this step** if all vendor documentation is already available in `../../reference/vendor_docs/` or provided by the user.
 
 ### Step 1.75: Invoke extraction-planner for Dispatch Planning
 
@@ -131,7 +134,7 @@ The synthesis must:
 
 ### Step 5: Present Findings with Severity Ratings and Source Anchors
 
-Cross-reference findings against any prior risk summaries or architecture review examples in `plugins/systems-thinking/reference/examples/` to ensure consistent severity calibration and output format.
+Cross-reference findings against any prior risk summaries or architecture review examples in `../../reference/examples/` to ensure consistent severity calibration and output format.
 
 Deliver the Hidden Risk Summary with:
 

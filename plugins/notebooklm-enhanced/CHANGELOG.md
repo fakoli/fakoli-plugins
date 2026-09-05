@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0] - 2026-09-05
+
+- Add/refresh native Codex manifest and UI metadata while retaining Claude support.
+- Upgrade and lock notebooklm-py 0.8.2; add a lock-backed installed-path wrapper and offline CLI contract tests.
+- Use explicit notebook/run/artifact IDs; remove shared-context automation and stale duplicated command matrices.
+- Document destructive ask --new semantics and bounded research polling, correct auth checks, and label the upstream RPC client unofficial.
+
+
 ## [0.1.4] - 2026-06-26
 
 ### Fixed

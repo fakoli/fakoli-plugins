@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.0] - 2026-09-05
+
+### Added
+
+- Native Codex manifest and documented runtime workflow.
+
+### Changed
+
+- Expose all five audit specialties through a native skill with host-specific schema checks and evidence-ranked findings.
+
 All notable changes to this plugin are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]

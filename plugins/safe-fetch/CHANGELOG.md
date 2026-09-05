@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.4] - 2026-09-05
+
+- Add/refresh native Codex manifest and UI metadata while retaining Claude support.
+- Disable environment proxy/CA overrides on pinned fetches; bracket IPv6 Host headers; reject malformed, credential-bearing, control-character and non-global URLs.
+- Use a native plugin-relative MCP working directory and verify initialization/tool discovery without remote calls.
+- Preserve inherited Brave credentials instead of replacing them with an empty manifest value.
+- Serialize advisory hook output safely and quote installed hook paths; correct guarantees and extraction-focus documentation.
+
+
 ## 1.1.3 — 2026-07-04
 
 ### Fixed

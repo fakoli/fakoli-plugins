@@ -1,0 +1,30 @@
+{
+  "name": "cli-to-plugin",
+  "version": "1.1.0",
+  "description": "Generate portable plugins from captured CLI help",
+  "author": {
+    "name": "Sekou Doumbouya",
+    "url": "https://github.com/fakoli"
+  },
+  "repository": "https://github.com/fakoli/fakoli-plugins",
+  "license": "MIT",
+  "keywords": [
+    "cli-to-plugin",
+    "generator",
+    "cli",
+    "scaffold",
+    "automation"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "CLI to Plugin",
+    "shortDescription": "Generate portable plugins from captured CLI help",
+    "longDescription": "Generate portable plugins from captured CLI help.",
+    "developerName": "Sekou Doumbouya",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Create a plugin from this CLI help tree."
+    ]
+  }
+}

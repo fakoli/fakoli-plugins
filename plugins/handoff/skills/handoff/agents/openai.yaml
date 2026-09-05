@@ -1,0 +1,4 @@
+interface:
+  display_name: "Handoff"
+  short_description: "Project handoff notes across sessions and checkouts"
+  default_prompt: "Use $handoff for the current task."

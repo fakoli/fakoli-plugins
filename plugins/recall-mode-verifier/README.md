@@ -13,7 +13,7 @@ can run it as its verify-left stage cross-repo.
 3. **Resource exhaustion** — unbounded retries, growth, missing timeouts.
 4. **State drift** — TOCTOU, stale bases/claims/sessions, cross-process seams.
 
-Reports CONFIRMED / PLAUSIBLE findings ranked by severity; **does not fix**.
+Reports REPRODUCED / SUPPORTED BY CODE / PLAUSIBLE findings by severity. Review-only requests leave production code unchanged; an existing request to fix defects remains authorization to do so.
 
 ## Use
 
@@ -23,3 +23,9 @@ Reports CONFIRMED / PLAUSIBLE findings ranked by severity; **does not fix**.
 ## License
 
 MIT
+
+## Runtime and validation update
+
+Review the actual requested base and working-tree scope, distinguish reproduced failures from code-supported risks, use isolated probes, and preserve existing authorization to fix defects.
+
+Native Codex loads the bundled `skills/` directory. Claude command names remain available. Resolve the installed plugin root before running the scripts; runtime notes and session evidence belong outside the install directory. No user state is migrated by this update.

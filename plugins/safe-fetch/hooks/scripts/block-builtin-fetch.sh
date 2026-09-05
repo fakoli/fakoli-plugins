@@ -19,8 +19,8 @@ except Exception:
     url = 'the requested URL'
 reason = (
     'The built-in WebFetch tool is disabled by security policy. Use the safe-fetch '
-    'MCP tools instead, which sanitize content to prevent prompt injection.\n\n'
-    f'To fetch this URL safely, use: mcp__safe-fetch__fetch with url=\"{url}\"\n\n'
+    'MCP tools instead, which sanitize content to reduce common injection vectors.\n\n'
+    f'To fetch this URL with sanitization, use: mcp__safe-fetch__fetch with url=\"{url}\"\n\n'
     'The safe-fetch tool strips hidden text, fake LLM delimiters, zero-width '
     'characters, and exfiltration URLs before content reaches your context.'
 )
@@ -36,11 +36,11 @@ print(json.dumps({
 " 2>/dev/null || cat <<'EOF'
 {
   "decision": "block",
-  "reason": "The built-in WebFetch tool is disabled by security policy. Use the safe-fetch MCP tools instead (mcp__safe-fetch__fetch), which sanitize content to prevent prompt injection.",
+  "reason": "The built-in WebFetch tool is disabled by security policy. Use the safe-fetch MCP tools instead (mcp__safe-fetch__fetch), which sanitize content to reduce common injection vectors.",
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "deny",
-    "permissionDecisionReason": "The built-in WebFetch tool is disabled by security policy. Use the safe-fetch MCP tools instead (mcp__safe-fetch__fetch), which sanitize content to prevent prompt injection."
+    "permissionDecisionReason": "The built-in WebFetch tool is disabled by security policy. Use the safe-fetch MCP tools instead (mcp__safe-fetch__fetch), which sanitize content to reduce common injection vectors."
   }
 }
 EOF

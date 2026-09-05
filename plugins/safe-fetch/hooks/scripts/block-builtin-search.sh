@@ -16,8 +16,8 @@ except Exception:
     query = 'the requested query'
 reason = (
     'The built-in WebSearch tool is disabled by security policy. Use the safe-fetch '
-    'MCP tools instead, which sanitize results to prevent prompt injection.\n\n'
-    f'To search safely, use: mcp__safe-fetch__search with query=\"{query}\"\n\n'
+    'MCP tools instead, which sanitize results to reduce common injection vectors.\n\n'
+    f'To search with sanitization, use: mcp__safe-fetch__search with query=\"{query}\"\n\n'
     'The safe-fetch search tool strips hidden text, fake LLM delimiters, and '
     'exfiltration URLs from all results.'
 )
@@ -33,11 +33,11 @@ print(json.dumps({
 " 2>/dev/null || cat <<'EOF'
 {
   "decision": "block",
-  "reason": "The built-in WebSearch tool is disabled by security policy. Use the safe-fetch MCP tools instead (mcp__safe-fetch__search), which sanitize results to prevent prompt injection.",
+  "reason": "The built-in WebSearch tool is disabled by security policy. Use the safe-fetch MCP tools instead (mcp__safe-fetch__search), which sanitize results to reduce common injection vectors.",
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "deny",
-    "permissionDecisionReason": "The built-in WebSearch tool is disabled by security policy. Use the safe-fetch MCP tools instead (mcp__safe-fetch__search), which sanitize results to prevent prompt injection."
+    "permissionDecisionReason": "The built-in WebSearch tool is disabled by security policy. Use the safe-fetch MCP tools instead (mcp__safe-fetch__search), which sanitize results to reduce common injection vectors."
   }
 }
 EOF

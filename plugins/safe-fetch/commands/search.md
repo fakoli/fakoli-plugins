@@ -4,7 +4,7 @@ allowed-tools: mcp__safe-fetch__search
 argument-hint: <query>
 ---
 
-Search the web for the user's query using the `mcp__safe-fetch__search` tool. Results are sanitized to remove prompt injection vectors.
+Search the web for the user's query using the `mcp__safe-fetch__search` tool. Results receive heuristic cleanup and remain untrusted.
 
 Query: $ARGUMENTS
 

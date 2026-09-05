@@ -1,52 +1,20 @@
 ---
 name: skill-spec-lint
-description: Lint Agent Skills against the deterministic rules of the spec — name charset/length and directory match, description length, SKILL.md body line ceiling, and immediate-child placement under skills/. Use before publishing or reviewing a skill, when the user asks to "validate a skill", "lint SKILL.md", "check a skill against the spec", "does this skill follow the spec", or after authoring/editing any SKILL.md. Deterministic and stdlib-only — complements manifest-validity checks and LLM skill reviewers, not a replacement for either.
-user-invocable: true
+description: Validate Agent Skills YAML, field types, naming, lengths, and discovery layout. Use when authoring, reviewing, or checking SKILL.md files. Requires PyYAML; uv runs it in an isolated environment.
 ---
 
 # Skill Spec Lint
 
-Deterministic conformance check for the [Agent Skills spec](https://agentskills.io/specification).
-Manifest validators confirm a `SKILL.md`'s frontmatter is *valid YAML*; this
-checks the *semantic* rules they don't. No dependencies — `python` and the
-standard library only, so it runs on any machine with nothing installed.
-
-## Run it
+Resolve the plugin root from the loaded skill (`../..`) or the host's plugin-root variable, then run:
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/skill_spec_lint.py" [PATH ...]
+uv run --script "<plugin-root>/scripts/skill_spec_lint.py" [PATH ...]
 ```
 
-`PATH` may be a skill directory (contains `SKILL.md`), a plugin directory
-(contains `skills/`), or a repo root (scanned for `plugins/*/skills/*/SKILL.md`
-and `skills/*/SKILL.md`). With no argument it lints the current directory.
+Inputs may be `SKILL.md`, a skill directory, a plugin, or a repository. Overlapping paths are counted once. `--help` shows the CLI. With no paths, scan the current directory.
 
-## What it checks
+The linter parses complete YAML, rejects duplicate keys, and validates name/directory agreement, required strings, optional types, string metadata, and length bounds. A missing YAML dependency is an error, never a reduced-coverage pass. `uv` may download PyYAML on first use; validation itself is local. If PyYAML is already installed, direct Python invocation also works.
 
-Each finding prints as `path: LEVEL: message`. **ERROR** fails the run (exit 1);
-**WARN** never does (exit 0).
+Errors return 1; CLI/dependency errors return 2. Unknown host extensions, nested discovery layout, and the recommended 500-line body budget are warnings. Warnings do not fail the run. Discovery layout is a repository convention, not a universal host guarantee.
 
-- **`name`** (ERROR): required; 1–64 chars; lowercase alnum words joined by
-  single hyphens (no leading, trailing, or consecutive hyphens); must equal the
-  skill's directory name.
-- **`description`** (ERROR): required; 1–1024 characters. Folded (`>`) and
-  literal (`|`) block scalars are measured as their joined text.
-- **`compatibility`** (ERROR): if present, ≤500 characters.
-- **SKILL.md body** (ERROR): ≤500 lines after the frontmatter — move detail to
-  `references/`.
-- **Frontmatter block** (ERROR): a `--- … ---` block must open on line 1 and
-  close; a leading-prose file has no discoverable frontmatter.
-- **Placement** (WARN): a `SKILL.md` nested deeper than an immediate child of a
-  `skills/` directory is never discovered.
-- **Unknown keys** (WARN): frontmatter keys outside the spec's optional set
-  (`license`, `compatibility`, `metadata`, `allowed-tools`) plus the
-  Claude Code `user-invocable` extension.
-
-## Notes
-
-- Frontmatter is parsed authoritatively with PyYAML when it is importable;
-  otherwise a scalar-only parser recovers `name`/`description`/`compatibility`
-  and a reduced-coverage note is printed to stderr.
-- This is deterministic conformance only. It does not judge whether a
-  description will *trigger* well or whether the body is good — pair it with an
-  LLM skill reviewer for that.
+Report concrete findings. This validates structure, not whether a skill activates appropriately or supports good decisions. See [README](../../README.md) and the [Agent Skills specification](https://agentskills.io/specification).

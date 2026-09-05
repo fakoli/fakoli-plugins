@@ -1,0 +1,3 @@
+interface:
+  display_name: "Resolve Decisions"
+  short_description: "Find and resolve meaningful open decisions in a Fakoli State PR"

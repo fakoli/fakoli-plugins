@@ -32,10 +32,10 @@ RECIPES_ABS="${TESTS_ROOT}/RECIPES.md"
 # names, update this table to match.
 CRITIC_RECIPES=(
   "agent-critic|bad-agent.md|MUST FIX|missing required name: frontmatter key + uses allowed-tools: (command convention) instead of tools: (agent convention)"
-  "skill-critic|bad-skill/SKILL.md|SHOULD FIX|vague description ('a skill that helps with things') + no numbered decision flow or step enumeration"
+  "skill-critic|bad-skill/SKILL.md|SHOULD FIX|vague trigger description + no concrete actions or expected output (numbered steps are optional)"
   "hook-critic|bad-hook.sh|MUST FIX|set -e on a script governed by a non-blocking contract + bare './hooks/state.txt' path missing \${CLAUDE_PLUGIN_ROOT} prefix"
-  "mcp-critic|bad-mcp.json|MUST FIX|stdio server entry missing required args field (Claude Code's MCP loader requires args, even an empty array)"
-  "structure-critic|bad-plugin.json|MUST FIX|missing required version field (semver) + description is 6 chars ('tiny.'), below the meaningful-description floor"
+  "mcp-critic|bad-mcp.json|MUST FIX|stdio args is a string; supplied args must be an array of strings (omitting args is valid)"
+  "structure-critic|bad-plugin.json|MUST FIX|publisher release profile: missing release version + placeholder description; version is optional in runtime manifests"
 )
 
 _print_help() {
@@ -97,8 +97,8 @@ _print_list() {
   printf '\n'
   printf 'To run a critic manually inside Claude Code:\n'
   printf '  1. Open %s/<fixture>\n' "${FIXTURES_DIR}"
-  printf '  2. Invoke the critic via the Agent tool (subagent_type "fakoli-crew:<critic>")\n'
-  printf '  3. Inspect docs/plans/agent-<critic>-smoke-status.md for the SEVERITY token above\n'
+  printf '  2. Invoke the critic via the Agent tool (subagent_type "fakoli-plugin-critic:<critic>")\n'
+  printf '  3. Inspect .fakoli/runs/smoke/agent-<critic>-smoke-status.md for the SEVERITY token above\n'
   printf '\n'
   if [ -s "${RECIPES_ABS}" ]; then
     printf 'Full manual-verification recipes (dispatch one-liners + pass/fail criteria):\n'

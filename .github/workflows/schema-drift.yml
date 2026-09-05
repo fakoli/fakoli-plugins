@@ -14,7 +14,7 @@ jobs:
   check-drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install jq
         run: sudo apt-get install -y jq
@@ -31,7 +31,7 @@ jobs:
 
       - name: Create issue on drift
         if: steps.drift.outputs.drift == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const title = 'Schema drift detected — plugin.schema.json may be out of date';

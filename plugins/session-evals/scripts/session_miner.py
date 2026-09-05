@@ -497,6 +497,8 @@ def cmd_mine(args):
     if not sessions:
         raise SystemExit("nothing to mine: pass session files, --retro or --corpus")
 
+    if args.out and os.path.exists(args.out) and not args.overwrite:
+        raise ValueError("candidate output exists; choose a new path or --overwrite")
     candidates = []
     missing = []
     seen = set()
@@ -511,13 +513,15 @@ def cmd_mine(args):
             continue
         # dedup on the RESOLVED path: a rollout recorded live by one retro
         # and post-archival by another is still the same file
-        key = os.path.normcase(os.path.normpath(live))
+        key = os.path.normcase(os.path.realpath(live))
         if key in seen:
             continue
         seen.add(key)
         mined += 1
         candidates.extend(mine_session(live))
 
+    if args.out and any(os.path.realpath(os.path.expanduser(args.out)) == os.path.realpath(resolve_session_path(source) or source) for source in sessions):
+        raise ValueError("candidate output cannot replace an input session")
     candidates.sort(key=lambda c: -c["score"])
     if args.max_candidates:
         candidates = candidates[:args.max_candidates]
@@ -535,8 +539,8 @@ def cmd_mine(args):
     }
     text = json.dumps(out, indent=2, ensure_ascii=False)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as f:
-            f.write(text + "\n")
+        from eval_emit import atomic_output
+        atomic_output(args.out, text + "\n", args.overwrite)
         print("wrote %d candidates (%d sessions) -> %s"
               % (len(candidates), mined, args.out))
         if missing:
@@ -563,11 +567,18 @@ def main(argv=None):
                     "(mines every retro; carries cross-session themes)")
     sm.add_argument("--max-candidates", type=int, default=200,
                     help="keep top N ranked candidates (default 200; 0 = no cap)")
+    sm.add_argument("--overwrite", action="store_true")
     sm.add_argument("--out", help="write JSON here instead of stdout")
     sm.set_defaults(func=cmd_mine)
 
     args = ap.parse_args(argv)
-    return args.func(args)
+    if args.cmd == "mine" and args.max_candidates < 0:
+        ap.error("--max-candidates must be nonnegative")
+    try:
+        return args.func(args)
+    except (OSError, ValueError) as exc:
+        print(f"session-evals: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -1,270 +1,139 @@
 # Nano Banana Pro
 
-Generate, edit, and remix images using Google's Gemini 3 Pro Image Preview model.
+Generate, edit, and remix images with Google's Gemini image models, or optimize local images to a size and width limit. The plugin works with Codex skills and retains its Claude Code commands and optional agents.
 
-## Features
+## Requirements
 
-- **Generate** images from text prompts with precise control over composition
-- **Edit** existing images with natural language instructions
-- **Remix** webpages into brand-aligned visual assets
-- **Optimize** images for GitHub, Slack, web with smart presets
-- **Style templates** for common use cases (UI, marketing, artistic)
+- Python 3.10+ and [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- A `GEMINI_API_KEY` with access to the selected model for generation, editing, and remixing
+- No API key is needed for optimization, configuration, or `--dry-run`
 
-## Installation
-
-### Requirements
-
-- Python 3.10 or later
-- [uv](https://github.com/astral-sh/uv) package manager
-- Google AI API key with Gemini 3 Pro access
-
-### Setup
-
-1. Install the plugin in Claude Code
-2. Configure your API key (see Configuration section)
+The scripts use [inline dependency metadata](https://docs.astral.sh/uv/guides/scripts/#declaring-script-dependencies). `uv run --script` installs dependencies into uv's cache, independent of the current project's environment. Keep the current directory in your project; do not run from the plugin installation. First use may download Python packages.
 
 ## Configuration
 
-Run `/configure` to set up your configuration interactively, or create a settings file manually at `.claude/nano-banana-pro.local.md`:
-
-```markdown
----
-gemini_api_key: "your-api-key-here"
-default_model: "pro"
-default_aspect: "16:9"
-default_size: "2K"
-output_dir: "./.nanobanana/out"
-auto_optimize: "true"
-optimize_preset: "github"
-max_remix_images: "2"
-agent_retriever: "true"
-agent_planner: "true"
-agent_stylist: "true"
-agent_visualizer: "true"
-agent_critic: "true"
-critic_max_rounds: "3"
----
-
-# Nano Banana Pro Settings
-
-Your local configuration for image generation.
-```
-
-An example template is included at `config/nano-banana-pro.example.md`.
-
-### Settings Reference
-
-| Setting | Values | Default | Description |
-|---------|--------|---------|-------------|
-| `gemini_api_key` | string | — | Google AI API key |
-| `default_model` | `pro`, `flash` | `pro` | Gemini model selection |
-| `default_aspect` | `1:1`, `16:9`, `4:3`, `9:16`, `3:2` | `1:1` | Default aspect ratio |
-| `default_size` | `1K`, `2K`, `4K`, `""` | `""` | Default size tier |
-| `output_dir` | path | `./.nanobanana/out` | Output directory |
-| `auto_optimize` | `true`, `false` | `true` | Auto-suggest optimization for large images |
-| `optimize_preset` | `github`, `slack`, `web`, `thumbnail` | `github` | Default optimization preset |
-| `max_remix_images` | integer | `2` | Max reference images for remix mode |
-| `agent_retriever` | `true`, `false` | `true` | Enable Retriever agent |
-| `agent_planner` | `true`, `false` | `true` | Enable Planner agent |
-| `agent_stylist` | `true`, `false` | `true` | Enable Stylist agent |
-| `agent_visualizer` | `true`, `false` | `true` | Enable Visualizer agent |
-| `agent_critic` | `true`, `false` | `true` | Enable Critic agent |
-| `critic_max_rounds` | `1`, `2`, `3` | `3` | Max critic refinement iterations |
-
-### Alternative: Environment Variables
-
-Set `GEMINI_API_KEY` in your environment or in a `.env` file:
+Keep the API key in your environment or `~/.env`, outside the plugin cache and source control. Do not paste the key into a conversation. For shells that do not already export your trusted `~/.env`, load it before calling the CLI:
 
 ```bash
-export GEMINI_API_KEY="your-api-key-here"
+set -a
+source "$HOME/.env"
+set +a
 ```
 
-Or create a `.env` file:
+Run `/nano-banana-pro:configure` in Claude Code, or create non-secret defaults using the skill's script:
 
+```bash
+uv run --script "<plugin-root>/skills/generate/scripts/nanobanana.py" config --init
 ```
-GEMINI_API_KEY="your-api-key-here"
+
+This writes `${XDG_CONFIG_HOME:-~/.config}/nano-banana-pro/config.json` if missing, with private file permissions, and prints its location. It does not replace existing settings or store credentials. `NANOBANANA_CONFIG` or `--config <path>` selects an explicit settings file. The bundled [JSON example](config/config.example.json) shows supported defaults:
+
+```json
+{
+  "default_model": "pro",
+  "default_aspect": "1:1",
+  "default_size": "",
+  "output_dir": "./.nanobanana/out",
+  "max_remix_images": 2
+}
 ```
+
+Command flags override saved defaults, including `--max-images 0`. Absolute, `~`, and relative output paths work; relative output paths resolve from the caller's current directory. New output directories are created only when a file is saved.
+
+Compatibility: `.claude/nano-banana-pro.local.md` YAML frontmatter still loads, overriding user defaults unless an explicit config file is selected. Legacy `gemini_api_key` values still work as a fallback. Key precedence is exported `GEMINI_API_KEY`, project `.env`, home `.env`, then a legacy settings key; placeholder keys are ignored. Keep any legacy credential file out of source control. Old agent and auto-optimization settings remain readable but do not trigger an automatic pipeline or compression.
 
 ## Usage
 
-### Commands
+Resolve `<plugin-root>` to the installed plugin directory. Claude commands can use `${CLAUDE_PLUGIN_ROOT}`; Codex should resolve the loaded skill's directory. The launcher does not need a host-specific cache path.
 
-| Command | Description |
-|---------|-------------|
-| `/generate-image` | Generate an image from a text prompt |
-| `/edit-image` | Edit an existing image with instructions |
-| `/remix-url` | Create an image styled from a webpage |
-| `/optimize-image` | Reduce image size for GitHub, Slack, web |
-| `/configure` | Set up or update plugin configuration |
+```bash
+# Generate
+uv run --script "<plugin-root>/skills/generate/scripts/nanobanana.py" gen \
+  --prompt "A hero banner with the exact headline 'Ship Faster', on a blue gradient" \
+  --aspect 16:9 --size 2K --out ./hero.png
 
-### Configure
+# Edit (detects PNG, JPEG, or WebP from the actual bytes)
+uv run --script "<plugin-root>/skills/generate/scripts/nanobanana.py" edit \
+  --in ./photo.jpg --prompt "Change the background to pale blue" --out ./edited.webp
 
-```
-/configure              # Full setup wizard
-/configure api-key      # Just configure API key
-/configure model        # Just configure model selection
-/configure agents       # Enable/disable PaperBanana agents
-```
+# Remix a webpage's style
+uv run --script "<plugin-root>/skills/generate/scripts/nanobanana.py" remix-url \
+  --url https://example.com --prompt "Create a matching event invitation" --max-images 2
 
-### Generate Image
+# Preview the resolved request without calling Gemini
+uv run --script "<plugin-root>/skills/generate/scripts/nanobanana.py" gen \
+  --prompt "A quiet mountain landscape" --model flash --dry-run
 
-```
-/generate-image "A hero banner with bold headline 'Ship Faster' on blue gradient background" --aspect 16:9 --size 2K
-```
-
-### Edit Image
-
-```
-/edit-image ./banner.png "Increase headline size by 15%, add subtle drop shadow"
+# Local optimization
+uv run --script "<plugin-root>/skills/generate/scripts/optimize.py" ./hero.png --preset github
 ```
 
-### Remix URL
+Claude Code retains `/nano-banana-pro:generate-image`, `/nano-banana-pro:edit-image`, `/nano-banana-pro:remix-url`, `/nano-banana-pro:optimize-image`, and `/nano-banana-pro:configure`. Short command names may also be available depending on the host.
 
+Generation flags: `--model`, `--aspect`, `--size`, `--search`, `--out`, `--config`, `--timeout`, `--overwrite`, and `--dry-run`. Use `--help` on each command for details. Existing output files are preserved unless `--overwrite` is passed. PNG, JPEG, and WebP outputs are encoded to match their extension; JPEG transparency is flattened onto white. Filenames printed on success are absolute paths.
+
+## Models and image parameters
+
+Aliases verified against Google's official documentation on **2026-09-05**:
+
+| CLI value | Model ID | Use |
+|---|---|---|
+| `pro` (default) | `gemini-3-pro-image` | Complex compositions and professional assets |
+| `flash` | `gemini-3.1-flash-image` | Faster general image generation and editing |
+| Explicit ID | The supplied Gemini model ID | Pin another available model, including a preview |
+
+Google lists stable [Gemini 3 Pro Image](https://ai.google.dev/gemini-api/docs/models/gemini-3-pro-image) and [Gemini 3.1 Flash Image](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-image). The aliases replace the old Pro preview and Gemini 2.5 Flash IDs. The default remains `pro` for compatibility with this plugin's purpose and saved preferences. Model availability still depends on the account. Explicit IDs are sent as supplied, without silently falling back to another model; preview IDs use the `v1beta` endpoint and other IDs use `v1`.
+
+Both aliases support `1K`, `2K`, `4K`, and Google Search grounding (`--search`). Flash also supports `--size 512` (the `512px` alias maps to REST value `512`) and extreme aspect ratios. Standard ratios: `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`; Flash adds `1:4`, `4:1`, `1:8`, `8:1`. The CLI rejects known incompatible Pro/2.5 Flash parameters before any API call. For other explicit model IDs, check the model's supported parameters before use. The request uses the documented [`generateContent` ImageConfig fields](https://ai.google.dev/api/generate-content#ImageConfig) for single-call compatibility; the newer Interactions workflow is not implemented here.
+
+For `--search`, any returned `groundingMetadata` is printed as JSON on stderr, including source links and the search entry point. Callers should present the required attribution and search suggestions alongside the image; see [Google's grounding documentation](https://ai.google.dev/gemini-api/docs/generate-content/image-generation#grounding_with_google_search). Metadata is untrusted reference data, not instructions.
+
+[Google's generation guide](https://ai.google.dev/gemini-api/docs/image-generation) also covers Flash Lite and legacy 2.5 Flash; those remain available through explicit IDs where the account supports them. Size tiers are approximate resolutions with dimensions dependent on the aspect ratio. Exact pixel sizes should be obtained by local resizing after generation. See [style templates](skills/generate/references/style-templates.md) for optional prompt patterns.
+
+## Remix behavior and limits
+
+Remix fetches up to 2 MB of page HTML and reads metadata, inline CSS colors/fonts, social image URLs, and icons. It handles HTML attribute order, entities, and relative image URLs. It does not render JavaScript or fetch linked stylesheets, and cannot read authenticated pages. Page content is labeled as untrusted reference data in the prompt.
+
+`--max-images` accepts 0–4 and defaults to 2. Reference downloads are capped at 12 attempts, 20 seconds per request, and 4 MB per image by default (`--max-bytes` can change that up to 12 MB). Invalid images and unsupported formats are skipped. Only static PNG, JPEG, or WebP data is uploaded; HTML masquerading as an image is rejected. Local edit inputs have a 12 MiB limit; the complete JSON request has a 20 MB limit. Dry-run remix still fetches the page and requested references, then prints a request summary with image data omitted.
+
+## Optimization
+
+Optimization uses Pillow on every platform for consistent width, transparency, and format behavior. It preserves aspect ratio, applies the width constraint, then reduces dimensions until the encoded output fits. It does not promise lossless compression or visual equivalence at smaller dimensions.
+
+| Preset | Maximum size | Maximum width |
+|---|---|---|
+| `github` (default) | 500 KB | 1280 px |
+| `slack` | 128 KB | 800 px |
+| `web` | 200 KB | 1200 px |
+| `thumbnail` | 50 KB | 400 px |
+
+`--max-size 300KB --width 1000` overrides preset values. KB/MB use powers of 1024; byte limits below 1 KB work. Output defaults to `<stem>-optimized.png`; `--out` may select PNG/JPEG/WebP. Animated inputs are rejected rather than silently dropping frames. If no image can fit the limit within the bounded optimization pass, the command exits nonzero and leaves existing outputs untouched.
+
+## Optional agents
+
+The Claude roles in `agents/` remain available for requests that benefit from delegated asset retrieval, planning, styling, execution, or critique. Simple requests execute directly. The roles inherit the host model; they do not require a particular Claude model. Each role can take the user's request directly without first running the other roles. Critique reports unresolved issues honestly and never approves solely because an iteration limit was reached. Additional paid revisions require a user request or an agreed iteration budget.
+
+## Errors and validation
+
+Generation sends one request, with a default 120-second timeout (`--timeout 1` through `600`) and a 64 MiB response limit. It does not retry failed or timed-out calls because completion and billing can be uncertain. HTTP status errors omit raw response bodies to avoid echoing credentials. No-image responses report finish/block reasons and do not create output files. Output publication is atomic and never leaves a partial image at the final path.
+
+| Issue | Next step |
+|---|---|
+| Missing key | Export `GEMINI_API_KEY` or set it in `~/.env` |
+| HTTP 400/403/404 | Check model ID, model access, and supported parameters |
+| HTTP 429 | Check quota and billing before deciding to retry |
+| Timeout | Inspect the reported state; do not assume the call was not billed |
+| No image returned | Read the reason; revise the request if appropriate |
+| Existing output | Use a new path, or pass `--overwrite` intentionally |
+| Cannot meet size limit | Choose a larger limit or another output format |
+
+Maintainers can run the offline suite (no Gemini requests):
+
+```bash
+uv run --no-project --with 'Pillow>=10,<13' --with 'python-dotenv>=1,<2' --with 'PyYAML>=6,<7' \
+  python -m unittest discover -s plugins/nano-banana-pro/tests -v
 ```
-/remix-url https://stripe.com "Create a hero banner for payments feature with headline 'Accept Anywhere'" --aspect 16:9
-```
-
-### Optimize Image
-
-```
-/optimize-image ./banner.png --preset github
-```
-
-#### Optimization Presets
-
-| Preset | Max Size | Max Width | Use Case |
-|--------|----------|-----------|----------|
-| `github` | 500KB | 1280px | README images, PR screenshots |
-| `slack` | 128KB | 800px | Slack/Discord messages |
-| `web` | 200KB | 1200px | Blog posts, documentation |
-| `thumbnail` | 50KB | 400px | Previews, icons |
-
-Custom options: `--max-size 300KB --width 1000`
-
-## Style Templates
-
-The plugin includes pre-built prompt templates for common use cases:
-
-### UI/Web Styles
-- Hero banners (16:9, 1920x1080)
-- Social media cards (1:1, 1200x1200)
-- App screenshots (9:16, 1080x1920)
-- Landing page sections (4:3)
-- Icons (1:1, 512x512)
-
-### Marketing Styles
-- Product photography
-- Ad creatives
-- Logo variations
-- Brand assets
-
-### Artistic Styles
-- Flat design illustrations
-- Abstract art
-- Photo-realistic
-- Minimalist
-- Retro/vintage
-
-See `skills/generate/references/style-templates.md` for detailed templates.
-
-## Aspect Ratios
-
-| Ratio | Best For |
-|-------|----------|
-| `1:1` | Social avatars, icons, thumbnails |
-| `16:9` | Hero banners, presentations, YouTube |
-| `4:3` | Product shots, traditional photos |
-| `9:16` | Mobile stories, vertical banners |
-| `3:2` | Photography, print media |
-
-## Size Options
-
-| Size | Resolution | Use Case |
-|------|------------|----------|
-| `1K` | ~1024px | Quick previews, drafts |
-| `2K` | ~2048px | Web-ready, social media |
-| `4K` | ~4096px | Print, high-resolution |
-
-## Model Selection
-
-Choose between two Gemini models:
-
-| Model | ID | Strengths | Best For |
-|-------|----|-----------|----------|
-| `pro` | Gemini 3 Pro | Advanced reasoning, high-fidelity text rendering | Final assets, detailed compositions |
-| `flash` | Gemini 2.5 Flash Image | Speed and efficiency, low latency | High-volume tasks, quick drafts, iteration |
-
-Set your default model in configuration (`default_model`) or override per-command with `--model`:
-
-```
-/generate-image "A hero banner" --model flash
-```
-
-## PaperBanana Agents
-
-Nano Banana Pro includes a 5-agent pipeline inspired by [Google's PaperBanana framework](https://www.marktechpost.com/2026/02/07/google-ai-introduces-paperbanana-an-agentic-framework-that-automates-publication-ready-methodology-diagrams-and-statistical-plots/) for producing publication-ready visuals.
-
-### Pipeline Architecture
-
-**Phase 1 — Planning** (sequential):
-
-1. **Retriever** — Scans your project for brand assets, colors, fonts, and reference images
-2. **Planner** — Transforms your request into a detailed visual specification (layout, components, hierarchy)
-3. **Stylist** — Applies aesthetic guidelines: exact colors, typography, mood, and design principles
-
-**Phase 2 — Refinement** (iterative loop, up to 3 rounds):
-
-4. **Visualizer** — Executes image generation using `nanobanana.py` (the only agent that creates files)
-5. **Critic** — Evaluates the output on faithfulness, conciseness, readability, and aesthetics; recommends APPROVE or REVISE
-
-### Agent Configuration
-
-Each agent can be enabled/disabled individually in your settings file:
-
-```yaml
-agent_retriever: "true"
-agent_planner: "true"
-agent_stylist: "true"
-agent_visualizer: "true"
-agent_critic: "true"
-critic_max_rounds: "3"
-```
-
-When an agent is disabled, the pipeline skips that phase. The Visualizer is always required for image generation.
-
-### How It Works
-
-The agents are orchestrated via Claude Code's Task tool. When you request an image:
-1. The Retriever searches your codebase for brand context
-2. The Planner creates a visual specification from your request + context
-3. The Stylist refines the spec into a polished generation prompt
-4. The Visualizer generates the image
-5. The Critic evaluates the result and may request up to 3 revision rounds
-
-## Best Practices
-
-1. **Prompt like a designer** - Include layout, margins, typography, and exact text
-2. **Lock down text** - Say "Render this text verbatim" for exact copy
-3. **Iterate surgically** - Use edit mode for specific refinements
-4. **Use templates** - Reference style templates for consistent results
-
-## Output
-
-Generated images are saved to `./.nanobanana/out/` by default with timestamp-based filenames. Use `--out` to specify a custom path.
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| 401/403 error | Check API key configuration |
-| No image returned | Prompt may have been blocked; try rephrasing |
-| Slow generation | Reduce size from 4K to 2K |
-| Permission denied | Ensure `uv` and `python3` are in PATH |
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Author
-
-Sekou Doumbouya ([@fakoli](https://github.com/fakoli))
+MIT. See [LICENSE](LICENSE). Maintained by [Sekou Doumbouya](https://github.com/fakoli).

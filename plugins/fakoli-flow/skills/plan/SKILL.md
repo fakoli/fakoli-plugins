@@ -3,6 +3,9 @@ name: plan
 description: Plan phase — break approved specs into intent-driven task lists for crew execution
 ---
 
+In Codex, first read the [native runtime adapter](../../references/codex-runtime.md).
+
+
 # Plan — Plan Phase
 
 Read an approved spec, verify assumptions with a scout, write an intent-driven task list, and hand off to `/fakoli-flow:execute`. Plans describe WHAT to achieve — never HOW to implement it.

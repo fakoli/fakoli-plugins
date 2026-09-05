@@ -10,10 +10,10 @@
 
 <h1 align="center">Fakoli Plugins Marketplace</h1>
 
-<p align="center"><strong>Extend Claude Code with production-grade plugins.</strong></p>
+<p align="center"><strong>Reusable plugins for Codex and Claude Code.</strong></p>
 
 <p align="center">
-  A curated collection of battle-tested Claude Code plugins — covering Google Workspace automation,
+  A collection of Codex and Claude Code plugins — covering Google Workspace automation,
   AI image generation, text-to-speech, diagram authoring, secure web fetching, and marketplace
   self-management. The active catalog combines end-user tools, development workflows,
   durable project state, and CI-validated marketplace practices.
@@ -23,7 +23,16 @@
 
 ## Quick Start
 
-Add this marketplace to Claude Code with one command:
+For Codex, add this local source checkout with the current CLI, then choose a plugin:
+
+```bash
+codex plugin marketplace add /path/to/fakoli-plugins
+codex plugin add nano-banana-pro@fakoli-plugins
+```
+
+The native catalog is `.agents/plugins/marketplace.json`. Plugin sources resolve from the repository root. Skills are available after the host refreshes its plugin catalog; hook/MCP capabilities also depend on runtime support and configuration. See [current conventions](docs/PLUGIN_CONVENTIONS.md).
+
+For Claude Code:
 
 ```
 /plugin marketplace add fakoli/fakoli-plugins
@@ -104,15 +113,15 @@ the moat is — see [docs/POSITIONING.md](docs/POSITIONING.md).
 
 | Plugin | Description |
 |--------|-------------|
-| [**nano-banana-pro**](plugins/nano-banana-pro) | Generate, edit, and remix production-ready images with Google Gemini 3 Pro. Includes a 5-agent PaperBanana pipeline (Retriever → Planner → Stylist → Visualizer → Critic) that iteratively refines images until they pass a quality threshold. |
-| [**fakoli-speak**](plugins/fakoli-speak) | Multi-provider TTS for Claude Code — stream any response as speech via `/speak` using OpenAI ($0.015/1K), Deepgram, ElevenLabs, Google Gemini (free), or macOS Say (free). Switch with `/provider`, track spending with `/cost`, toggle auto-narration with `/autospeak`. |
+| [**nano-banana-pro**](plugins/nano-banana-pro) | Generate, edit, and optimize images with Gemini image models, isolated locked dependencies, explicit output handling, and optional specialist review. |
+| [**fakoli-speak**](plugins/fakoli-speak) | Multi-provider text-to-speech with provider selection, cost tracking, owned playback cleanup, and optional narration. Provider credentials and pricing depend on the chosen service. |
 | [**excalidraw-diagram**](plugins/excalidraw-diagram) | Generate `.excalidraw` files from natural language or by analyzing your codebase. Supports flowcharts, architecture diagrams, ER diagrams, and dependency graphs across four color themes — zero dependencies beyond Node.js 18. |
 
 ### Security & Web
 
 | Plugin | Description |
 |--------|-------------|
-| [**safe-fetch**](plugins/safe-fetch) | Drop-in replacement for Claude's built-in `WebFetch` and `WebSearch` that runs content through a 6-layer sanitization pipeline before it touches the LLM. Neutralizes CSS-hidden text, zero-width Unicode, fake LLM delimiters, base64 payloads, and markdown exfiltration vectors. Security-team approvable. |
+| [**safe-fetch**](plugins/safe-fetch) | Fetch and search through an MCP server with URL/IP checks and content sanitization. Reduces common injection surfaces; fetched content still remains untrusted. |
 
 ### Development & Workflow
 
@@ -142,6 +151,10 @@ the moat is — see [docs/POSITIONING.md](docs/POSITIONING.md).
 | [**session-evals**](plugins/session-evals) | Mine coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving — retro-first mining, deterministic checks, routing evidence. |
 | [**session-retro**](plugins/session-retro) | Analyze local Claude Code and Codex session logs into actionable retrospectives. |
 
+| [**fleet-exec**](plugins/fleet-exec) | Structured SSH execution through MCP with explicit targets, bounded requests and guarded transports. |
+| [**skill-spec-lint**](plugins/skill-spec-lint) | Validate Agent Skills metadata and discoverability with actionable diagnostics. |
+<!-- plugin-list:end -->
+
 ---
 
 ## Quick Start Examples
@@ -153,7 +166,7 @@ the moat is — see [docs/POSITIONING.md](docs/POSITIONING.md).
 # Generate a hero banner for your README
 /generate-image "Hero banner with bold headline 'Ship Faster' on dark gradient" --aspect 16:9 --size 2K
 
-# Fetch a webpage without prompt-injection risk
+# Fetch and sanitize a webpage (treat fetched content as untrusted)
 /fetch https://docs.anthropic.com/en/docs/about-claude/models/overview
 
 # Create an architecture diagram from your codebase

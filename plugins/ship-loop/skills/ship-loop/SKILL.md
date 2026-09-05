@@ -1,13 +1,12 @@
 ---
 name: ship-loop
-description: Run the full ship loop for a feature or fix — sync and isolate in a worktree, scope with ground-truth sweeps, implement with reality-faithful tests, gate on a multi-angle adversarial review, merge, and close the follow-up loop (promotions ledger, out-of-diff issues). Use when the user says "ship this the usual way", "run the loop", "ship-loop", starts substantive feature/fix work in a fakoli repo, or asks to take a change from idea to merged PR with the standard review gate. The adversarial review is the merge gate — never merge substantive work without it.
+description: Run the full ship loop for a feature or fix — sync and isolate in a worktree, scope with ground-truth sweeps, implement with reality-faithful tests, gate on a multi-angle adversarial review, merge, and close the follow-up loop (promotions ledger, out-of-diff issues). Use when the user says "ship this the usual way", "run the loop", "ship-loop", asks to take a change from idea to merged PR with the standard review gate. The adversarial review is the merge gate — never merge substantive work without it.
 user-invocable: true
 ---
 
 # Ship Loop
 
-The end-to-end procedure for shipping substantive work: every step is
-mandatory for feature/fix PRs; docs-only or mechanical diffs may run a lean
+The end-to-end procedure for shipping substantive work: apply the stages needed to fulfill the authorized task; docs-only or mechanical diffs may run a lean
 review (step 5, one conventions + one accuracy angle) but never zero.
 
 Composition: this skill owns the loop; `/ship` (ship-task plugin), when
@@ -19,13 +18,16 @@ installed, owns the mechanical tail of step 6 (push → PR → CI → squash-mer
 
 Never reason about, or build on, a stale or shared tree:
 
-- `git fetch origin` FIRST, always. Then check `git status -sb` and the
-  current branch of the main checkout — **another agent may be mid-flight in
-  it** (dirty tree, unfamiliar branch). If so, do not touch it.
-- Work in a dedicated worktree off the fresh remote default:
-  `git worktree add ../<repo>-wt-<topic> origin/main -b feat/<topic>`
-- Set repo-local git identity if the worktree is fresh
-  (`git config user.email/user.name`).
+- Inspect `git status -sb`, the branch, remotes, worktrees and repository instructions first.
+  Preserve the user's requested branch or working state and other agents' changes.
+- Fetch the relevant remote when available, then discover its default branch with
+  `git symbolic-ref refs/remotes/origin/HEAD` or remote metadata; do not assume `main`.
+- If isolation is needed and no starting state was specified, create a dedicated worktree from
+  that verified ref using the host's branch convention (Codex defaults to `codex/<topic>`).
+  Reuse an already isolated task worktree. Read the configured Git identity; do not invent one.
+- Discover available read, shell, delegation and wait tools. Use only exposed agent types and
+  inherit current model settings. If delegation is unavailable, do the review passes locally
+  and state the absence of an independent reviewer.
 
 ## 2. Scope with ground truth
 
@@ -37,8 +39,7 @@ to a subagent? Generate its prompt with the `dispatch-packet` skill rather
 than writing one freehand.
 
 **Ground-truth rule**: verify every load-bearing assumption against reality
-before building on it — read the actual on-disk data format, the actual env
-var values, the actual schema, not the docs or your expectation. (The
+before building on it — read the actual on-disk data format, environment-variable presence and redacted structural examples, the actual schema, and compare it with documentation. Never print secret environment values. (The
 `payload_json` incident: a dashboard shipped reading `payload` because both
 the code and its fixture encoded the same wrong guess; one `head` of the real
 file would have caught it.)
@@ -50,13 +51,14 @@ file would have caught it.)
 - Fail CLOSED in guards and gates: when safety state cannot be established,
   refuse with the escape hatches named, never proceed-with-warning.
 - Leave it better: an unrelated break you trip over gets fixed (if small) or
-  filed as an issue (if not) — never routed around silently.
+  recorded as a follow-up (if not) — never routed around silently.
 
 ### Windows/platform discipline (hard-won)
 
 - Multi-line patch scripts: write them to a file with the Write tool and run
-  `python3 patch.py` — bash heredocs MANGLE backslashes (`\\n` arrives as a
-  real newline) and the failure is silent when you forget an assert.
+  `python3 patch.py` — unquoted bash heredocs can alter backslashes (`\\n` arrives as a
+  real newline) when delimiters are unquoted. Quoted heredocs preserve literal content;
+  use a patch tool or carefully quoted script and verify the result.
 - Every patch-script replacement gets an `assert anchor in text` — silent
   no-op replaces are how "fixed" bugs survive.
 - ASCII-only in printed CLI output unless the repo reconfigures streams
@@ -83,8 +85,9 @@ file would have caught it.)
   (git-archive export, never /mnt/c copies) or a CI job on ubuntu-latest;
   (b) ensure the repo's CI actually EXECUTES the new suite on Linux (wire it
   into the workflow — a merged suite nobody runs on Linux is not coverage);
-  (c) Codex exposure is skills-first (`.codex-plugin` manifest or documented
-  skill parity) — hooks and slash commands do not carry over.
+  (c) Codex exposure uses a native `.codex-plugin` manifest and skills. Current Codex supports
+  hooks, but verify event schemas, trust and payload compatibility separately. Legacy slash commands
+  and Markdown agent roles need a native skill/tool route.
 
 ## 5. Adversarial review — THE merge gate
 
@@ -92,7 +95,7 @@ Fire it yourself; never wait to be asked. Generate each finder's prompt
 with the `dispatch-packet` skill — a review packet must demand a REPRO per
 finding, severity ranking, an explicit SHIP/DO-NOT-SHIP verdict, and
 `SUSPECTED` on anything unreproduced. Launch parallel read-only finder
-agents over `git diff main...HEAD`, covering all eight angles (consolidate
+agents over the diff from the verified review base to HEAD, covering all eight angles (consolidate
 into ~4 agents when context is tight, but never drop an angle):
 
 1. **Line-by-line** — every hunk + its enclosing function; inputs/state/
@@ -118,12 +121,17 @@ real file, check the real env format) — finders may hypothesize wrongly in
 both directions (the `session_01HA` prefix hypothesis was wrong for the
 default env but right for pinned ids). Fix everything CONFIRMED/PLAUSIBLE;
 an intentionally-kept design a finder disliked gets its rationale recorded
-in code comment + PR body, not silence. Out-of-diff findings: file an issue
-with blame refs — flag, never bury.
+in code comment + PR body, not silence. Out-of-diff findings: record a follow-up with blame refs. Create remote issues only when authorized.
 
 Re-run the full suite after fixes.
 
 ## 6. Ship
+
+Check the existing task scope: a request to implement or review does not by itself authorize
+publishing, pushing, merging or sending messages. Complete the concrete source change and local
+verification first; carry out each remote action when that action is already authorized. Honor
+an explicit request to stop at a patch or draft PR. `--admin` bypasses and arbitrary post-merge
+commands require their own authorization; do not infer them from "ship".
 
 - CHANGELOG under `[Unreleased]` (Keep-a-Changelog); explicit
   **BREAKING**/behavior-change callouts for anything automation depends on.
@@ -131,13 +139,14 @@ Re-run the full suite after fixes.
   conventions.
 - Push, open the PR with a testing-evidence section (suite counts, live
   smoke), watch CI (`gh pr checks --watch`), squash-merge, delete branch,
-  remove the worktree (`git worktree remove`), confirm `origin/main`.
+  confirm the remote merge, and sync the verified default branch. Remove only a clean, task-owned
+  worktree when cleanup is authorized; never force-remove another task's worktree.
 
 ## 7. Close the loop
 
 - If the work maps to a retro-corpus opportunity: update
   `post-session-findings/promotions.json` (status/refs/what-remains), re-run
   both generators, commit and push. The corpus must know what shipped.
-- File issues for anything the review surfaced outside the diff.
+- Record out-of-scope findings locally; file remote issues when authorized.
 - Promote durable lessons: repo docs/CLAUDE.md for repo-specific rules,
   agent memory for cross-repo working rules, this skill for process changes.

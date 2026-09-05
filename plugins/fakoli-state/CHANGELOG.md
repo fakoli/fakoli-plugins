@@ -4,6 +4,15 @@ All notable changes to fakoli-state are documented here. This project adheres to
 
 ---
 
+## [1.24.0] - 2026-09-05
+
+- Fix the Python package build under current Hatchling with an in-package README.
+- Share a locked CLI/MCP launcher, preserve caller cwd, propagate startup failures and put the runtime environment outside the plugin cache.
+- Support explicit provider extras in the external launcher environment, verified by importing both optional SDKs without service calls.
+- Add target-project `cwd` to all MCP state tools and a native launcher that requires no unsupported argument interpolation.
+- Expose native Codex skills/MCP/hooks; replace stale phase tables and nonexistent commands with verified current CLI workflows.
+- Make hook evidence conditional on actual host support and preserve explicit project review gates.
+
 ## [Unreleased]
 
 _No unreleased changes._

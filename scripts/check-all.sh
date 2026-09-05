@@ -7,6 +7,13 @@
 
 set -uo pipefail
 
+# Ensure authoritative YAML/schema parsing is available to shell subprocesses.
+if [ "${FAKOLI_CHECK_ENV_READY:-}" != 1 ]; then
+    command -v uv >/dev/null 2>&1 || { echo "check-all: uv is required" >&2; exit 127; }
+    export FAKOLI_CHECK_ENV_READY=1
+    exec uv run --no-project --with 'PyYAML>=6,<7' --with 'jsonschema>=4.23,<5' bash "$0" "$@"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
@@ -38,10 +45,12 @@ echo "========================================"
 
 run_step "marketplace validation" ./scripts/validate.sh
 run_step "path-resolution and hook-safety scan" ./scripts/test-path-resolution.sh
-run_step "affected plugin tests: systems-thinking" bash -c 'cd plugins/systems-thinking && uv run pytest tests -q'
+run_step "native packages, skill links and catalogs" uv run --script scripts/validate.py
+run_step "offline package behavior" ./scripts/test.sh
 run_step "affected hook validation suite" ./tests/test-hooks-validation.sh
 run_step "roster audit guards" ./tests/test-roster-audit.sh
 run_step "lint-frontmatter unit tests" ./tests/test-lint-frontmatter.sh
+run_step "registry consistency" ./scripts/check-registry-drift.sh
 
 echo ""
 echo -e "${GREEN}[check-all] ALL PASSED${NC}"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fakoli Speak"
+  short_description: "Speak text with owned playback and optional autospeak"
+  default_prompt: "Use $speak to read the requested text aloud."

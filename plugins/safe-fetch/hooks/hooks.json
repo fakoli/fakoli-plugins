@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-builtin-fetch.sh",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-builtin-fetch.sh\"",
             "timeout": 5
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-builtin-search.sh",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-builtin-search.sh\"",
             "timeout": 5
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sanitize-curl-output.sh",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sanitize-curl-output.sh\"",
             "timeout": 10
           }
         ]

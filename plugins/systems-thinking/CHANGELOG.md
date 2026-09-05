@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0] - 2026-09-05
+
+### Added
+
+- Native Codex manifest and documented runtime workflow.
+
+### Changed
+
+- Add native skills and role adaptation; stop synthesis on incomplete extraction, return failure status, preserve CLI permission controls, and verify tmux worker exit codes.
+
 All notable changes to systems-thinking will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).

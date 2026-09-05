@@ -339,3 +339,11 @@ and `docs/status-file-template.md` for the template agents use.
 - `skills/marketplace-migration-review/SKILL.md` — Marketplace import readiness review workflow
 - `utils/` — Deterministic helper scripts for indexing, sharding, prompt building, orchestration, aggregation, and validation
 - `COMPATIBILITY_NOTES.md` — Cursor compatibility notes
+
+
+## Codex support (2026-09-05)
+
+This release includes `.codex-plugin/plugin.json` and native skills. Use the installed skills from
+a fresh Codex task; no custom agent types or model aliases are assumed. Read [native runtime behavior](references/codex-runtime.md) for role routing, evidence and limitations.
+The native manifest disables legacy transcript hooks; its skills apply review/coverage gates
+explicitly. Claude packaging retains its existing hooks. Hook execution/trust is not claimed for Codex.

@@ -1,5 +1,8 @@
 # Create Your Own Plugin Marketplace
 
+For current Codex/Claude packaging, source paths, validation and maintenance commands, see [Plugin conventions](PLUGIN_CONVENTIONS.md). Native manifests and the `.agents/plugins/marketplace.json` catalog are required for this repository's active packages alongside Claude metadata.
+
+
 This guide walks you through creating your own Claude Code plugin marketplace using this repository as a template.
 
 ## Overview

@@ -53,6 +53,7 @@ handoff_file="$(bash "$SCRIPT_DIR/handoff-path.sh" "$project_dir" 2>/dev/null ||
 # Frontmatter = the block between a leading '---' line and the next '---'.
 first_line="$(head -n 1 "$handoff_file" 2>/dev/null || true)"
 [[ "$first_line" == "---" ]] || emit false false null "legacy note (no recorded state)"
+[[ "$(awk 'NR>1 && /^---$/{print "closed";exit}' "$handoff_file")" == "closed" ]] || emit false false null "unterminated metadata block"
 fm="$(awk 'NR==1{next} /^---$/{exit} {print}' "$handoff_file")"
 
 fm_get() { printf '%s\n' "$fm" | grep -m1 "^$1: " | sed "s/^$1: //"; }
@@ -68,10 +69,12 @@ flags=()
 # Age (best-effort; date -d is GNU/Git Bash; fall back silently elsewhere).
 age_days="null"
 if [[ -n "$saved_at" ]]; then
-  saved_epoch="$(date -u -d "$saved_at" +%s 2>/dev/null || true)"
+  saved_epoch="$(date -u -d "$saved_at" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$saved_at" +%s 2>/dev/null || true)"
   if [[ -n "$saved_epoch" ]]; then
     age_days=$(( ( $(date -u +%s) - saved_epoch ) / 86400 ))
     max_age="${HANDOFF_MAX_AGE_DAYS:-14}"
+    [[ "$max_age" =~ ^[0-9]+$ ]] || max_age=14
+    max_age=$((10#$max_age))
     if (( age_days > max_age )); then
       flags+=("note is ${age_days} days old (>${max_age}; set HANDOFF_MAX_AGE_DAYS to tune)")
     fi

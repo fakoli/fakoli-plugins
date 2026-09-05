@@ -1,0 +1,4 @@
+interface:
+  display_name: "NotebookLM Enhanced"
+  short_description: "Query notebooks and track requested research artifacts"
+  default_prompt: "Use $notebooklm-core to query a selected notebook."

@@ -1,235 +1,44 @@
-# nat464-sidecar Code Patterns
+# Choosing networking patterns
 
-## Listener Pattern (TCP Server)
+This package began as nat464-specific guidance and was archived from the general marketplace. Treat its templates as adaptable examples, not evidence of the target project's current architecture.
 
-Entry point function that accepts connections in a loop and spawns a handler task per connection.
+## TCP listeners and lifecycle
 
-```rust
-use tokio::net::{TcpListener, TcpStream};
-use tracing::{debug, error, info};
+Bind a `TcpListener` in the caller and pass it to the loop. This lets configuration choose interface/address family and lets tests bind loopback port 0. Do not assume an IPv6 wildcard also accepts IPv4: OS/socket `IPV6_V6ONLY` behavior varies. When strict socket options are required, follow the crate's existing socket builder before constructing the Tokio listener.
 
-pub async fn run_<name>(port: u16) -> anyhow::Result<()> {
-    let addr = format!("[::]:{port}");
-    let listener = TcpListener::bind(&addr).await?;
-    info!(listen_addr = %addr, "<name> listening");
+The provided listener accepts an injected async handler, shutdown future, maximum connection count, and drain deadline. Its `JoinSet` observes completion and panics, bounds active handlers, and stops accepting on shutdown. Ordinary per-client I/O errors are logged; listener errors and task panics return errors. After the drain period, it aborts and joins remaining tasks. Choose whether abort after the deadline is an expected shutdown outcome or an error for your real service; the example returns success with a warning.
 
-    loop {
-        let (stream, src_addr) = listener.accept().await?;
-        debug!(%src_addr, "accepted connection");
+Handlers must be cooperative async tasks. Timeouts and aborts cannot interrupt CPU loops or blocking system calls inside async tasks. Use the existing project's strategy for blocking work. Long-lived servers often need bounded backoff for transient accept failures such as resource exhaustion; the example returns those errors so the caller can apply its policy. A limited active count does not remove the OS listen backlog; choose explicit load shedding when needed.
 
-        tokio::spawn(async move {
-            if let Err(e) = handle_connection(stream).await {
-                error!(%src_addr, error = %e, "connection failed");
-            }
-        });
-    }
-}
+Use the application's existing shutdown signal/token/task tracker. Do not install a new global Ctrl-C handler inside each module. If the project already uses `CancellationToken`/`TaskTracker`, adapt to those instead of adding a parallel lifecycle. Do not detach handler tasks whose errors or shutdown you need to observe.
 
-async fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
-    // Implementation here
-    Ok(())
-}
-```
+## Protocol framing
 
-**Rules:**
-- Listen on `[::]` (dual-stack) unless IPv4-only is required
-- Error inside `tokio::spawn` — never propagate up to the accept loop
-- Use structured tracing fields, not format strings
+The shipped protocol demonstrates one version byte plus a two-byte nonzero port in network byte order, followed by a two-byte version/status reply. It is a runnable example, not a production protocol or SOCKS5 implementation. Replace it with the actual wire specification and interoperability fixtures.
 
-## Protocol Handler Pattern
+Generic `AsyncRead`/`AsyncWrite` enables duplex-stream tests without a socket. Define maximum variable-length fields before allocation, reject unsupported values, preserve endianness, and distinguish protocol rejection from I/O failure using the crate's error conventions. Bound the entire handshake. Tokio's partial reads can consume bytes before cancellation; after timeout/error, close the example stream rather than retrying the parser from byte zero. For a resumable parser, keep explicit framing state.
 
-Parse/serialize protocol messages on a TCP stream. Return parsed request; let caller handle the connection.
+The included tests exercise actual parsing/reply bytes and invalid/truncated inputs, fragmented delivery, timeout, and broken writers. Adapt the assertions with the wire format; retaining tests for obsolete example bytes does not validate a different protocol.
 
-```rust
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tracing::debug;
+## Relays, UDP, DNS, and HTTP
 
-// Constants at module level
-const PROTOCOL_VERSION: u8 = 0x01;
+- **TCP relay:** Tokio `copy_bidirectional` supports half-close propagation. Test both directions, EOF/half-close, write failures, and shutdown. Do not blanket-ignore `ConnectionReset`; decide whether partial transfer matters to callers.
+- **UDP:** use `UdpSocket`, preserve datagram boundaries, define truncation/size policy and peer mapping lifetime. A TCP accept loop is not a UDP implementation. Test empty datagrams, oversized/truncated input, reply destination, and expiration.
+- **DNS/connection racing:** use the target project's resolver and address policy; bound attempts, cancel losers, and preserve useful errors. Inject resolution/dialing for deterministic tests rather than depending on public DNS or internet endpoints.
+- **HTTP:** inspect the installed Hyper major version and framework first. Hyper 1 uses `Incoming`, body implementations, and runtime adapters differently from Hyper 0.14. Use framework graceful-shutdown support and test real request/status/body behavior, not a generic skeleton.
 
-// Parsed request type
-#[derive(Debug)]
-pub struct ParsedRequest {
-    pub field: String,
-    pub port: u16,
-}
+## Verification
 
-pub async fn parse_request(stream: &mut TcpStream) -> anyhow::Result<ParsedRequest> {
-    let version = stream.read_u8().await?;
-    if version != PROTOCOL_VERSION {
-        anyhow::bail!("unsupported version: {version}");
-    }
-    // Parse remaining fields...
-    debug!(?field, port, "request parsed");
-    Ok(ParsedRequest { field, port })
-}
-```
+Use `cargo metadata --no-deps` and actual manifests to select package/features. Match the repository's toolchain and check commands. Typical checks are `cargo fmt --all -- --check`, package-scoped `cargo test`, and `cargo clippy --all-targets`; use `--locked` when the repository's lockfile policy requires it. Avoid `--all-features` for mutually exclusive feature sets.
 
-**Rules:**
-- Take `&mut TcpStream`, not owned — caller keeps the stream for relay
-- Use `anyhow::bail!` for protocol violations
-- Constants in mod.rs (shared across module files)
+Wrap network tests in a deadline, bind loopback port 0, coordinate readiness with channels/listener ownership, and await spawned tasks. Test protocol success and refusal, malformed input/EOF, I/O errors, stalled peers, bounded concurrency, and shutdown relevant to the actual implementation.
 
-## Bidirectional Relay Pattern
+## Official upstream sources reviewed 2026-09-05
 
-Forward bytes between two async streams. Used after protocol handshake.
+- [Tokio graceful shutdown](https://tokio.rs/tokio/topics/shutdown): shutdown consists of detecting, signalling, and awaiting completion; this informed caller-owned shutdown and draining.
+- [Tokio JoinSet](https://docs.rs/tokio/latest/tokio/task/struct.JoinSet.html): tracks tasks, observes results, and aborts tracked tasks on drop; used instead of detached per-connection spawning.
+- [Tokio TcpListener](https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html): caller-controlled bind/accept and cancellation semantics.
+- [Tokio AsyncReadExt](https://docs.rs/tokio/latest/tokio/io/trait.AsyncReadExt.html): partial-read/cancellation behavior informs parser timeout handling.
+- [Cargo test](https://doc.rust-lang.org/cargo/commands/cargo-test.html): package/features/lock/offline selection should follow the actual workspace.
 
-```rust
-use tokio::io::{self, AsyncRead, AsyncWrite};
-use tracing::debug;
-
-pub async fn bidirectional_copy<A, B>(mut a: A, mut b: B) -> io::Result<(u64, u64)>
-where
-    A: AsyncRead + AsyncWrite + Unpin,
-    B: AsyncRead + AsyncWrite + Unpin,
-{
-    let result = io::copy_bidirectional(&mut a, &mut b).await;
-    if let Ok((up, down)) = &result {
-        debug!(up, down, "relay completed");
-    }
-    result
-}
-```
-
-## HTTP Server Pattern (hyper)
-
-Lightweight HTTP server for health/metrics endpoints.
-
-```rust
-use std::convert::Infallible;
-use http_body_util::Full;
-use hyper::body::Bytes;
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use hyper::{Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
-use tokio::net::TcpListener;
-use tracing::{error, info};
-
-pub async fn run_http_server(port: u16) -> anyhow::Result<()> {
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
-    let listener = TcpListener::bind(addr).await?;
-    info!(%addr, "http server listening");
-
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
-        tokio::spawn(async move {
-            if let Err(e) = http1::Builder::new()
-                .serve_connection(io, service_fn(handle_request))
-                .await
-            {
-                if !e.is_incomplete_message() {
-                    error!(error = %e, "http connection error");
-                }
-            }
-        });
-    }
-}
-
-async fn handle_request(
-    req: Request<hyper::body::Incoming>,
-) -> Result<Response<Full<Bytes>>, Infallible> {
-    match req.uri().path() {
-        "/endpoint" => Ok(Response::new(Full::new(Bytes::from("ok")))),
-        _ => Ok(Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Full::new(Bytes::from("not found")))
-            .unwrap()),
-    }
-}
-```
-
-## Test Patterns
-
-### TCP Test Pair Helper
-
-Create connected client/server streams for protocol testing without needing a real server.
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpListener;
-
-    async fn test_pair() -> (TcpStream, TcpStream) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let client = TcpStream::connect(addr).await.unwrap();
-        let (server, _) = listener.accept().await.unwrap();
-        (client, server)
-    }
-
-    #[tokio::test]
-    async fn test_parse_valid_request() {
-        let (mut client, mut server) = test_pair().await;
-
-        let client_task = tokio::spawn(async move {
-            client.write_all(&[/* protocol bytes */]).await.unwrap();
-            client
-        });
-
-        let result = parse_request(&mut server).await.unwrap();
-        assert_eq!(result.field, "expected");
-        client_task.await.unwrap();
-    }
-}
-```
-
-### Server Integration Test
-
-Test a full server by binding to port 0 and connecting to it.
-
-```rust
-#[tokio::test]
-async fn test_server_endpoint() {
-    let listener = TcpListener::bind("[::]:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-
-    tokio::spawn(async move {
-        // Run server loop using the listener
-    });
-
-    let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
-        .await
-        .unwrap();
-    stream.write_all(b"request data").await.unwrap();
-    let mut buf = vec![0u8; 1024];
-    let n = stream.read(&mut buf).await.unwrap();
-    let response = String::from_utf8_lossy(&buf[..n]);
-    assert!(response.contains("expected"));
-}
-```
-
-## Error Handling
-
-- `anyhow::Result` for all async functions
-- `anyhow::bail!("message: {value}")` for protocol/validation errors
-- `thiserror` for typed errors when callers need to match variants
-- `ConnectionReset` during relay is silently ignored (expected client disconnect)
-- Errors inside `tokio::spawn` are logged with `error!`, never propagated
-
-## Tracing Conventions
-
-| Level | Use For |
-|-------|---------|
-| `info!` | Server start/stop, major lifecycle events |
-| `debug!` | Per-connection events, parsed requests, byte counts |
-| `error!` | Failures that need attention |
-
-Always use structured fields: `debug!(%src_addr, port, "message")` not `debug!("message: {}", src_addr)`.
-
-## Module Organization
-
-```
-src/<module>/
-├── mod.rs       # pub use, constants, shared types
-├── primary.rs   # Main entry point (run_* function)
-└── helper.rs    # Supporting logic (optional)
-```
-
-Register: `pub mod <module>;` in `src/main.rs`.
-Wire server: add to `tokio::try_join!` in `main.rs`.
-Config: add CLI flags to `config.rs` with `#[arg(long, default_value_t = ...)]`.
+Verify APIs against the target lockfile/toolchain, not whichever release the `latest` documentation points to.

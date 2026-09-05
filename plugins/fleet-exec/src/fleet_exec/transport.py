@@ -100,7 +100,7 @@ def _refuse_if_bad_host(host) -> None:
 
 
 def _refuse_if_str_command(argv) -> None:
-    if isinstance(argv, str):
+    if not isinstance(argv, (list, tuple)) or not argv or not all(isinstance(item, str) and "\x00" not in item for item in argv):
         raise FleetExecRefusal(
             "run_on_host requires a list argv, not a shell string -- a shell "
             "string reintroduces the quoting bug class this tool exists to kill"
@@ -173,7 +173,7 @@ def _run_remote_python(host: str, script: str, timeout_s: int) -> dict:
     for launcher in LAUNCHERS:
         argv = ["ssh", "-n", "-o", "BatchMode=yes", host, launcher, "-c", payload]
         try:
-            r = _run(argv, capture_output=True, text=True, timeout=timeout_s)
+            r = _run(argv, capture_output=True, text=True, timeout=timeout_s + 5)
         except subprocess.TimeoutExpired:
             return _row(host, "timeout", None, "", "", "ssh timed out after %ss" % timeout_s)
         except FileNotFoundError:
@@ -199,6 +199,8 @@ def _unwrap_json_stdout(row: dict) -> dict:
     except (ValueError, TypeError):
         return {**row, "state": "unreachable", "detail": "remote wrapper produced no parseable output"}
 
+    if not isinstance(payload, dict) or not isinstance(payload.get("stdout", ""), str) or not isinstance(payload.get("stderr", ""), str):
+        return {**row, "state": "unreachable", "detail": "remote wrapper returned malformed fields"}
     if payload.get("timeout"):
         return _row(row["host"], "timeout", None, "", payload.get("stderr", ""), "remote command timed out")
 

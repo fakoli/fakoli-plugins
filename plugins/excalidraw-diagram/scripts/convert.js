@@ -126,10 +126,12 @@ function randomSeed() {
 }
 
 function generateFractionalIndex(i, total) {
-  // Simple fractional index: a0, a1, a2, ...
-  const base = "a";
-  const idx = i.toString(36).padStart(5, "0");
-  return base + idx;
+  // Integer part of a base-62 fractional index. The prefix encodes its length.
+  const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  let digits = "";
+  do { digits = alphabet[i % 62] + digits; i = Math.floor(i / 62); } while (i);
+  const width = Math.max(2, Math.ceil(Math.log(Math.max(total, 1) + 1) / Math.log(62)), digits.length);
+  return String.fromCharCode(96 + width) + digits.padStart(width, "0");
 }
 
 function estimateTextWidth(text, fontSize) {
@@ -376,10 +378,12 @@ function buildArrowElement(skelEl, idMap, shapeElements, theme, index, existingE
     const toCX = toEl.x + toEl.width / 2;
     const toCY = toEl.y + toEl.height / 2;
 
-    startX = fromCX;
-    startY = fromCY;
-    endX = toCX;
-    endY = toCY;
+    const startPoint = computeFixedPoint(fromEl, toEl, true);
+    const endPoint = computeFixedPoint(fromEl, toEl, false);
+    startX = fromEl.x + fromEl.width * startPoint[0];
+    startY = fromEl.y + fromEl.height * startPoint[1];
+    endX = toEl.x + toEl.width * endPoint[0];
+    endY = toEl.y + toEl.height * endPoint[1];
 
     // Compute edge-aware FixedPointBindings
     el.startBinding = {
@@ -436,8 +440,8 @@ function buildLineElement(skelEl, idMap, shapeElements, theme, index) {
   el.lastCommittedPoint = null;
 
   if (skelEl.points && skelEl.points.length >= 2) {
-    el.x = skelEl.x || skelEl.points[0][0];
-    el.y = skelEl.y || skelEl.points[0][1];
+    el.x = skelEl.x ?? skelEl.points[0][0];
+    el.y = skelEl.y ?? skelEl.points[0][1];
     el.points = skelEl.points.map((p) => [p[0] - el.x, p[1] - el.y]);
   } else {
     el.x = skelEl.x || 0;
@@ -469,18 +473,18 @@ function buildFrameElement(skelEl, idMap, allElements, theme, index) {
   el.name = skelEl.label || skelEl.name || null;
 
   // If explicit position/size
-  if (skelEl.x != null) el.x = skelEl.x;
-  if (skelEl.y != null) el.y = skelEl.y;
-  if (skelEl.width != null) el.width = skelEl.width;
-  if (skelEl.height != null) el.height = skelEl.height;
+  el.x = skelEl.x;
+  el.y = skelEl.y;
+  el.width = skelEl.width;
+  el.height = skelEl.height;
 
   return el;
 }
 
 // ─── Layout Algorithms ─────────────────────────────────────────────────────────
 
-const SPACING_X = 60;
-const SPACING_Y = 80;
+const SPACING_X = 120;
+const SPACING_Y = 100;
 const DEFAULT_WIDTH = 200;
 const DEFAULT_HEIGHT = 80;
 
@@ -699,9 +703,9 @@ function computeFrameBounds(frameEl, childIds, allElementsMap) {
 
 // ─── Main Conversion ───────────────────────────────────────────────────────────
 
-function validateSkeleton(skeleton) {
+function validateSkeleton(skeleton, existingFile) {
   const errors = [];
-  if (!skeleton || typeof skeleton !== "object") {
+  if (!skeleton || typeof skeleton !== "object" || Array.isArray(skeleton)) {
     errors.push("Skeleton must be a JSON object");
     return errors;
   }
@@ -709,49 +713,81 @@ function validateSkeleton(skeleton) {
     errors.push("skeleton.elements must be an array");
     return errors;
   }
+  if (skeleton.type != null && skeleton.type !== "excalidraw-skeleton") errors.push('Unknown skeleton type');
+  if (skeleton.version != null && skeleton.version !== 1) errors.push('Only skeleton version 1 is supported');
+  if (skeleton.theme != null && !Object.hasOwn(THEME_COLORS, skeleton.theme)) errors.push('Unknown theme');
+  if (skeleton.layout != null && !['grid', 'top-down', 'left-right', 'tree', 'flowchart', 'pipeline', 'flow'].includes(skeleton.layout)) errors.push('Unknown layout');
+  if (existingFile && (existingFile.type !== 'excalidraw' || !Array.isArray(existingFile.elements))) {
+    return ['Existing file must be an Excalidraw scene'];
+  }
+  const existing = new Map((existingFile?.elements || []).filter(e => !e.isDeleted).map(e => [e.id, e]));
+  if (skeleton.remove != null && (!Array.isArray(skeleton.remove) || skeleton.remove.some(id => typeof id !== 'string'))) {
+    return ['remove must be an array of existing element IDs'];
+  }
+  const removed = new Set(skeleton.remove || []);
+  for (const id of removed) {
+    if (!existing.has(id)) errors.push(`Cannot remove unknown element: ${id}`);
+  }
   const ids = new Set();
+  const types = new Map([...existing].filter(([id]) => !removed.has(id)).map(([id,e]) => [id,e.type]));
   for (let i = 0; i < skeleton.elements.length; i++) {
     const el = skeleton.elements[i];
+    if (!el || typeof el !== 'object' || Array.isArray(el)) {
+      errors.push(`Element at index ${i} must be an object`);
+      continue;
+    }
+    if (!['rectangle','diamond','ellipse','text','arrow','line','frame'].includes(el.type)) errors.push(`Unsupported element type: ${el.type}`);
+    if (el.elbowed) errors.push('Elbowed routing is not supported by this converter');
     if (!el.type) {
       errors.push(`Element at index ${i} is missing required "type" field`);
     }
     if (el.type !== "arrow" && el.type !== "line" && el.type !== "text" && !el.id) {
       errors.push(`Shape element at index ${i} (type: ${el.type}) is missing required "id" field`);
     }
-    if (el.id) ids.add(el.id);
+    if (el.id != null) {
+      if (typeof el.id !== 'string' || !el.id.trim()) errors.push(`Element ${i}: id must be a nonempty string`);
+      if (ids.has(el.id) || existing.has(el.id)) errors.push(`Duplicate element id: ${el.id}; additions must use new IDs`);
+      ids.add(el.id);
+      types.set(el.id, el.type);
+    }
+    for (const key of ['x','y','width','height','fontSize','lineHeight','opacity','roughness']) {
+      if (el[key] != null && (typeof el[key] !== 'number' || !Number.isFinite(el[key]))) errors.push(`Element ${i}: ${key} must be finite`);
+    }
+    for (const key of ['width','height','fontSize','lineHeight']) {
+      if (el[key] != null && el[key] <= 0 && !(['line','arrow'].includes(el.type) && ['width','height'].includes(key) && el[key] === 0)) errors.push(`Element ${i}: ${key} must be positive`);
+    }
+    for (const key of ['label','text','color']) if (el[key] != null && typeof el[key] !== 'string') errors.push(`Element ${i}: ${key} must be a string`);
+    if (el.points != null && (!Array.isArray(el.points) || el.points.length < 2 || el.points.some(p => !Array.isArray(p) || p.length !== 2 || p.some(n => typeof n !== 'number' || !Number.isFinite(n))))) errors.push(`Element ${i}: points must be coordinate pairs`);
+    if (el.children != null && !Array.isArray(el.children)) errors.push(`Element ${i}: children must be an array`);
   }
   // Check arrow from/to references
   for (let i = 0; i < skeleton.elements.length; i++) {
     const el = skeleton.elements[i];
+    if (!el || typeof el !== 'object') continue;
     if (el.type === "arrow") {
-      if (el.from && !ids.has(el.from)) {
+      if (Boolean(el.from) !== Boolean(el.to)) errors.push(`Arrow ${i}: supply both from and to, or neither`);
+      if (el.from && !['rectangle','diamond','ellipse'].includes(types.get(el.from))) {
         errors.push(`Arrow at index ${i} references unknown "from" id: "${el.from}"`);
       }
-      if (el.to && !ids.has(el.to)) {
+      if (el.to && !['rectangle','diamond','ellipse'].includes(types.get(el.to))) {
         errors.push(`Arrow at index ${i} references unknown "to" id: "${el.to}"`);
       }
+    }
+    if (el.frameId && types.get(el.frameId) !== 'frame') errors.push(`Unknown frame: ${el.frameId}`);
+    if (Array.isArray(el.children)) for (const child of el.children) {
+      if (!ids.has(child) || types.get(child) === 'frame') errors.push(`Frame ${el.id}: child must be a new non-frame element: ${child}`);
     }
   }
   return errors;
 }
 
 function convert(skeleton, existingFile) {
+  // Work on a copy: neither successful edits nor failed validation mutate callers.
+  existingFile = existingFile ? structuredClone(existingFile) : null;
   // Validate skeleton input
-  const validationErrors = validateSkeleton(skeleton);
+  const validationErrors = validateSkeleton(skeleton, existingFile);
   if (validationErrors.length > 0) {
-    // In modification mode, allow arrow refs to existing element IDs
-    const criticalErrors = existingFile
-      ? validationErrors.filter((e) => !e.includes("references unknown"))
-      : validationErrors;
-    if (criticalErrors.length > 0) {
-      throw new Error("Skeleton validation failed:\n  - " + criticalErrors.join("\n  - "));
-    }
-    // Non-critical errors (unknown refs in modify mode) — just warn
-    for (const err of validationErrors) {
-      if (!criticalErrors.includes(err)) {
-        console.warn(`Warning: ${err} (may reference existing elements)`);
-      }
-    }
+    throw new Error("Skeleton validation failed:\n  - " + validationErrors.join("\n  - "));
   }
 
   const theme = skeleton.theme || "default";
@@ -764,7 +800,7 @@ function convert(skeleton, existingFile) {
   // Pre-assign IDs
   for (const el of skelElements) {
     if (el.id) {
-      idMap.set(el.id, randomId());
+      idMap.set(el.id, el.id);
     }
   }
 
@@ -827,8 +863,16 @@ function convert(skeleton, existingFile) {
     for (const s of shapes) {
       const el = shapeElements.get(s.id);
       if (el) {
-        el.x = s.x;
-        el.y = s.y;
+        const input = shapeSkels.find(shape => shape.id === s._skelId);
+        el.x = input.x ?? s.x;
+        el.y = input.y ?? s.y;
+      }
+    }
+    if (existingFile?.elements?.length) {
+      const right = Math.max(...existingFile.elements.filter(e => !e.isDeleted).map(e => (e.x || 0) + (e.width || 0)), 0);
+      for (const s of shapes) {
+        const input = shapeSkels.find(shape => shape.id === s._skelId);
+        if (input.x == null) s.x += right + SPACING_X;
       }
     }
   }
@@ -847,6 +891,7 @@ function convert(skeleton, existingFile) {
       // Position text at center of shape
       textEl.x = el.x + (el.width - textEl.width) / 2;
       textEl.y = el.y + (el.height - textEl.height) / 2;
+      textEl.frameId = el.frameId;
 
       if (!el.boundElements) el.boundElements = [];
       el.boundElements.push({ type: "text", id: textEl.id });
@@ -880,8 +925,8 @@ function convert(skeleton, existingFile) {
         fontSize: skel.fontSize || 14,
         strokeColor: el.strokeColor,
       });
-      textEl.x = el.x + (el.width || 0) / 2 - textEl.width / 2;
-      textEl.y = el.y + (el.height || 0) / 2 - textEl.height / 2;
+      textEl.x = el.x + el.points.at(-1)[0] / 2 - textEl.width / 2;
+      textEl.y = el.y + el.points.at(-1)[1] / 2 - textEl.height / 2;
 
       if (!el.boundElements) el.boundElements = [];
       el.boundElements.push({ type: "text", id: textEl.id });
@@ -932,7 +977,7 @@ function convert(skeleton, existingFile) {
             if (childEl.boundElements) {
               for (const be of childEl.boundElements) {
                 const boundEl = allElementsMap.get(be.id);
-                if (boundEl) boundEl.frameId = el.id;
+                if (be.type === 'text' && boundEl) boundEl.frameId = el.id;
               }
             }
           }
@@ -941,6 +986,7 @@ function convert(skeleton, existingFile) {
     }
 
     computeFrameBounds(el, childExcalidrawIds, allElementsMap);
+    el.x ??= 0; el.y ??= 0; el.width ??= 200; el.height ??= 100;
     allElements.push(el);
   }
 
@@ -972,6 +1018,7 @@ function convert(skeleton, existingFile) {
     // Clean dangling arrow bindings
     const filtered = kept.filter((e) => !removeIds.has(e.id));
     for (const el of filtered) {
+      if (removeIds.has(el.frameId)) el.frameId = null;
       if (el.startBinding && removeIds.has(el.startBinding.elementId)) {
         el.startBinding = null;
       }
@@ -990,6 +1037,14 @@ function convert(skeleton, existingFile) {
     }
 
     finalElements = [...filtered, ...allElements];
+  }
+
+  // Repair reciprocal references after removals, including frame and text membership.
+  const finalIds = new Set(finalElements.map(e => e.id));
+  for (const el of finalElements) {
+    if (el.frameId && !finalIds.has(el.frameId)) el.frameId = null;
+    if (el.containerId && !finalIds.has(el.containerId)) el.containerId = null;
+    if (el.boundElements) el.boundElements = el.boundElements.filter(be => finalIds.has(be.id));
   }
 
   // Re-assign fractional indices
@@ -1012,15 +1067,15 @@ function convert(skeleton, existingFile) {
     maxY = Math.max(maxY, (el.y || 0) + (el.height || 0));
   }
 
-  const contentWidth = maxX - minX;
-  const contentHeight = maxY - minY;
+  if (!Number.isFinite(minX)) { minX = 0; minY = 0; }
   const viewportPadding = 100;
 
   // Build output
   const output = {
+    ...(existingFile || {}),
     type: "excalidraw",
     version: 2,
-    source: "https://github.com/fakoli/excalidraw-diagram-plugin",
+    source: "https://github.com/fakoli/fakoli-plugins",
     elements: finalElements,
     appState: {
       gridSize: 20,
@@ -1043,9 +1098,11 @@ function convert(skeleton, existingFile) {
       currentItemStartArrowhead: null,
       currentItemEndArrowhead: "arrow",
       currentItemArrowType: "round",
+      ...(existingFile?.appState || {}),
     },
-    files: {},
+    files: existingFile?.files || {},
   };
+  if (skeleton.theme) output.appState.viewBackgroundColor = theme === 'blueprint' ? '#1e293b' : '#ffffff';
 
   return output;
 }
@@ -1140,7 +1197,13 @@ async function main() {
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
-    fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), "utf-8");
+    const temporary = path.join(outputDir, `.${path.basename(outputPath)}.${crypto.randomUUID()}.tmp`);
+    try {
+      fs.writeFileSync(temporary, JSON.stringify(result, null, 2) + '\n', { encoding: 'utf-8', flag: 'wx' });
+      fs.renameSync(temporary, outputPath);
+    } finally {
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    }
 
     const elementCount = result.elements.filter((e) => !e.isDeleted).length;
     console.log(JSON.stringify({
@@ -1158,4 +1221,5 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) main();
+module.exports = { convert, validateSkeleton };

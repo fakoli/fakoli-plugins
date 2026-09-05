@@ -7,17 +7,17 @@ The user wants to toggle autospeak mode. Check if they said "on", "off", or neit
 
 To enable:
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT} && uv run fakoli-speak autospeak on
+uv run --frozen --directory "${CLAUDE_PLUGIN_ROOT}" fakoli-speak autospeak on
 ```
 
 To disable:
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT} && uv run fakoli-speak autospeak off
+uv run --frozen --directory "${CLAUDE_PLUGIN_ROOT}" fakoli-speak autospeak off
 ```
 
 To check status:
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT} && uv run fakoli-speak autospeak
+uv run --frozen --directory "${CLAUDE_PLUGIN_ROOT}" fakoli-speak autospeak
 ```
 
 Show the output. When enabling, mention that responses over 100 characters will be automatically read aloud and they can use `/autospeak off` or `/stop` to control it.

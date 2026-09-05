@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.0] - 2026-09-05
+
+- Add/refresh native Codex manifest and UI metadata while retaining Claude support.
+- Add a native skill for the CLI, providers, cost estimates and opt-in autospeak.
+- Read current Stop hook last_assistant_message; ignore recursive and malformed events.
+- Replace global pkill/bare-PID signaling and CLI-daemon cleanup with an owned persistent playback supervisor.
+- Report speech truncation, show active-provider cost overrides, and reject non-finite/negative rates.
+
+
 ## 2.0.2 — 2026-07-04
 - Removed unsupported top-level hook metadata from `hooks/hooks.json` so runtime hook loaders accept the autospeak hook configuration.
 
