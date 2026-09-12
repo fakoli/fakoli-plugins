@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-09-05T18:46:23Z",
+  "generatedAt": "2026-09-12T22:11:04Z",
   "pluginCount": 26,
   "plugins": [
     {
@@ -469,7 +469,7 @@
     },
     {
       "name": "session-evals",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "description": "Mine coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving.",
       "author": {
         "name": "Sekou Doumbouya",
@@ -487,7 +487,7 @@
       ],
       "path": "plugins/session-evals",
       "category": "productivity",
-      "indexedAt": "2026-09-05T12:46:12Z"
+      "indexedAt": "2026-09-12T22:11:04Z"
     },
     {
       "name": "session-retro",
