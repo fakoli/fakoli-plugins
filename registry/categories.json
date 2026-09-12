@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T18:46:23Z",
+  "generatedAt": "2026-09-12T22:11:04Z",
   "categories": [
     {
       "category": "development",
@@ -145,7 +145,7 @@
         },
         {
           "name": "session-evals",
-          "version": "1.1.0",
+          "version": "1.2.0",
           "description": "Mine coding-agent sessions (Claude Code, Codex, OpenClaw, Cursor CLI) into local-model eval suites executable via anvil-serving.",
           "path": "plugins/session-evals"
         },

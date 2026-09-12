@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0 — 2026-09-12
+
+- Added an explicit Pi JSONL importer that follows the selected parent-linked
+  leaf, pairs tool calls with results, and marks malformed, unknown, truncated,
+  or incomplete records as partial rather than completion evidence.
+- Added the bounded Pi event adapter and smoke runner for isolated
+  fixture-scoped file edits, protected-oracle checks, strict completion/usage
+  accounting, output limits, deadlines, and process-group cleanup.
+- Added the three-task synthetic Pi comparison catalog (`scoped-edit`,
+  `tool-serialization`, and `subprocess-boundary`). It proves runner and event
+  boundaries only; it is not a full model-quality benchmark or live Pi/tool
+  evaluation.
+
 ## 1.1.0 — 2026-09-05
 
 - Validate malformed specifications and resource bounds before running, stage replacement suites before touching prior evidence, and protect candidate/evidence outputs with explicit replacement.

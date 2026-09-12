@@ -1,0 +1,9 @@
+{
+  "format": "pi-smoke-tasks/v1",
+  "purpose": "Offline/mock runner fixtures; agents receive only each fixture directory while its oracle remains protected.",
+  "tasks": [
+    {"id": "scoped-edit", "fixture": "scoped-edit", "oracle": "scoped-edit.oracle.py", "prompt": "Use the available edit or write tool to change answer.txt so it contains exactly fixed followed by a newline.", "wall_seconds": 30, "max_turns": 4, "max_tools": 8, "max_subprocesses": 4},
+    {"id": "tool-serialization", "fixture": "tool-serialization", "oracle": "tool-serialization.oracle.py", "prompt": "Use the available edit or write tool to make request.json contain exactly the JSON object with operation deploy and dry_run true.", "wall_seconds": 30, "max_turns": 4, "max_tools": 8, "max_subprocesses": 4},
+    {"id": "subprocess-boundary", "fixture": "subprocess-boundary", "oracle": "subprocess-boundary.oracle.py", "prompt": "Use the available edit or write tool to change status.txt so it contains exactly verified followed by a newline.", "wall_seconds": 30, "max_turns": 4, "max_tools": 8, "max_subprocesses": 4}
+  ]
+}

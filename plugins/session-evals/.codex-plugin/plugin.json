@@ -1,6 +1,6 @@
 {
   "name": "session-evals",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Build and run deterministic evals from coding sessions",
   "author": {
     "name": "Sekou Doumbouya",

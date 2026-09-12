@@ -42,12 +42,22 @@ Provenance is unbroken: theme -> session -> turn -> eval -> profile row.
 | Codex CLI | `~/.codex/sessions/**/*.jsonl` + `~/.codex/archived_sessions/` (cold rollouts move there) | rollout (`type`+`payload`) |
 | OpenClaw | `\\wsl$\<distro>\home\<u>\.openclaw\agents\*\agent\codex-home\sessions\**` | codex rollout (embedded agent) |
 | Cursor CLI | `~/.cursor/projects/*/agent-transcripts/*/*.jsonl` | role/message blocks |
+| Pi coding agent | explicit session JSONL only | Pi session header plus `id`/`parentId` tree |
 
 Set `SESSION_EVALS_OPENCLAW_ROOTS` (path-separator-separated dirs) when
 OpenClaw autodiscovery misses. Not yet supported: Cursor's GUI history
 (`state.vscdb` SQLite — undocumented, update-fragile) and OpenClaw's
 native tree-structured session store; both are candidates for a later
 version.
+
+Pi sessions are never discovered by a home-directory scan. Pass an
+operator-selected Pi JSONL file explicitly to `mine`; the importer follows the
+current append-order leaf through its parent links, excludes abandoned sibling
+branches, pairs `toolCall`/`toolResult` messages, and records malformed,
+unknown, duplicate, missing-parent, and truncated records. Compaction and
+incomplete calls mark candidates partial; they never create completion proof.
+The reader retains visible user text and necessary tool actions/results only,
+and ignores provider reasoning/thinking content.
 
 ### Spec and check semantics
 
@@ -62,6 +72,39 @@ and implement the bundled runner’s documented semantics:
   (`validate_function_tool_call`). Requires a `tools` array.
 
 The runner uses deterministic checks without a model judge. A model endpoint is required for execution; local stub tests need no endpoint.
+
+`scripts/pi_smoke_runner.py` provides a deliberately narrow offline/mock
+agentic runner. It copies each task into a disposable workspace, keeps the
+oracle outside that workspace, enforces wall/turn/tool/subprocess bounds, and
+returns token metrics only when its adapter supplies them. Three synthetic
+tasks live in `fixtures/pi-smoke/`; they prove runner boundaries, not model
+quality or a live Pi/tool loop.
+
+For a controlled Pi comparison, run each task through the event adapter. The
+adapter disables discovered extensions and built-in tools, then loads only its
+fixture-scoped `read`, `edit`, and `write` extension. It preserves the real
+`HOME`; select the baseline or candidate agent directory explicitly with
+`PI_CODING_AGENT_DIR` and supply reviewed candidate extensions one at a time.
+
+```bash
+ROOT=/absolute/path/to/session-evals
+for task in scoped-edit tool-serialization subprocess-boundary; do
+  PI_CODING_AGENT_DIR=/absolute/path/to/pi-agent-dir \
+  python3 "$ROOT/scripts/pi_smoke_runner.py" \
+    --catalog "$ROOT/fixtures/pi-smoke/tasks.json" --task "$task" -- \
+    python3 "$ROOT/scripts/pi_event_adapter.py" \
+      --launcher /absolute/path/to/reviewed-pi-launcher \
+      --prompt-file '{prompt_file}' --session-dir '{session_dir}' \
+      --restricted-tools-extension "$ROOT/scripts/pi_scoped_fs_tools.ts" \
+      --max-turns 4 --max-tools 8
+done
+```
+
+For the candidate arm, append each reviewed package with
+`--reviewed-extension /absolute/path/to/reviewed-extension.ts`; the baseline
+has none. A result is valid only when the adapter emits complete assistant
+usage, paired tool events, and a passing protected oracle. This is an
+evaluation boundary, not an OS sandbox for arbitrary host code.
 
 ### Why deterministic checks against *curated* expectations
 
