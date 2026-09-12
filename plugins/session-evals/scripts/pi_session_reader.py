@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Read Pi coding-agent JSONL sessions without importing Pi or sending data.
 
-The format follows Pi 0.84.2's exported SessionEntry schema (also selected by
-the reviewed 0.85.1 upgrade): a ``session`` header, then append-only entries
+The format follows Pi 0.85.1's exported SessionEntry schema: a ``session`` header, then append-only entries
 whose ``id``/``parentId`` form a tree.  The selected trajectory is the last
 valid appended leaf; timestamps are never used to infer ancestry.
 """
@@ -29,7 +28,7 @@ def _text(content):
 
 
 def _redact(value):
-    """Return public-safe visible data plus a simple signal for curation."""
+    """Best-effort redaction signal; every result still requires curation."""
     flagged = False
     def visit(item):
         nonlocal flagged
@@ -39,7 +38,14 @@ def _redact(value):
                 return SECRET.sub("[REDACTED]", item)
             return item
         if isinstance(item, dict):
-            return {str(key): visit(val) for key, val in item.items()}
+            result = {}
+            for key, val in item.items():
+                if str(key).lower() in {"token", "password", "api_key", "apikey", "secret", "authorization"}:
+                    flagged = True
+                    result[str(key)] = "[REDACTED]"
+                else:
+                    result[str(key)] = visit(val)
+            return result
         if isinstance(item, list):
             return [visit(val) for val in item]
         return item
@@ -71,16 +77,19 @@ def _path(entries, leaf_id):
     by_id = {entry["id"]: entry for entry in entries}
     out, seen = [], set()
     current = by_id.get(leaf_id)
+    cycle = False
     while current and current["id"] not in seen:
         out.append(current)
         seen.add(current["id"])
         parent = current.get("parentId")
         current = by_id.get(parent) if parent else None
+    if current:
+        cycle = True
     out.reverse()
-    return out
+    return out, cycle
 
 
-def read_session(path):
+def read_session(path, leaf_id=None):
     """Return only selected-path visible tasks/actions/results and diagnostics."""
     raw, counts = _read_jsonl(path)
     counts.update({"unknown_version": 0, "unknown_entries": 0,
@@ -112,16 +121,16 @@ def read_session(path):
             counts["missing_parents"] += 1
             continue
         valid.append(entry)
-    leaf = valid[-1]["id"] if valid else None
-    selected = _path(valid, leaf) if leaf else []
+    leaf = leaf_id or (valid[-1]["id"] if valid else None)
+    selected, cycle = _path(valid, leaf) if leaf else ([], False)
     counts["abandoned_entries"] = len(valid) - len(selected)
     actions, pending, awaiting_followup, last_user, summaries = [], {}, [], None, []
-    partial = bool(counts["malformed_records"] or counts["missing_parents"])
+    partial = bool(cycle or any(counts[k] for k in ("malformed_records", "non_object_records", "missing_parents", "duplicate_ids", "unknown_version")))
     for entry in selected:
-        if entry["type"] == "compaction":
+        if entry["type"] in {"compaction", "branch_summary"}:
             summary = entry.get("summary")
             if isinstance(summary, str) and summary:
-                summaries.append(summary)
+                summaries.append(_redact(summary)[0])
             partial = True
             continue
         if entry["type"] != "message":
@@ -165,6 +174,7 @@ def read_session(path):
                     action["partial"] = True
     for action in pending.values():
         action["partial"] = True
-    return {"header": {"version": header.get("version") if header else None},
+    return {"header": {"version": header.get("version") if header else None}, "leaf_id": leaf,
             "actions": actions, "counts": counts,
-            "compaction_summaries": summaries}
+            "compaction_summaries": summaries, "ancestry_cycle": cycle,
+            "manual_curation_required": True}
