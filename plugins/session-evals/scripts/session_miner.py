@@ -33,6 +33,16 @@ import re
 import subprocess
 import sys
 
+try:
+    from pi_session_reader import read_session as read_pi_session
+except ImportError:  # importlib-based tests load sibling modules separately
+    import importlib.util
+    _PI_READER = os.path.join(os.path.dirname(__file__), "pi_session_reader.py")
+    _SPEC = importlib.util.spec_from_file_location("pi_session_reader", _PI_READER)
+    _MODULE = importlib.util.module_from_spec(_SPEC)
+    _SPEC.loader.exec_module(_MODULE)
+    read_pi_session = _MODULE.read_session
+
 CLAUDE_ROOT = os.path.expanduser("~/.claude/projects")
 CODEX_ROOT = os.path.expanduser("~/.codex/sessions")
 # Codex relocates cold rollouts here (flat dir, same filename) - observed
@@ -337,6 +347,29 @@ def mine_cursor(path):
     return cands
 
 
+def mine_pi(path):
+    """Map the selected Pi trajectory into the existing candidate contract.
+
+    Pi sessions are intentionally accepted only as explicit ``mine`` inputs.
+    There is no Pi home-directory discovery path: session text is private and
+    this plugin must never add a full-home scan.
+    """
+    mined = read_pi_session(path)
+    cands = []
+    for action in mined["actions"]:
+        candidate = _mk_candidate(
+            "pi", path, None, action.get("intent"),
+            {"kind": action.get("kind"), "tool": action.get("tool"),
+             "input": action.get("input")}, None)
+        candidate["partial"] = bool(action.get("partial"))
+        candidate["tool_result"] = _clip(action.get("result"), 500)
+        candidate["tool_result_is_error"] = action.get("result_is_error")
+        if action.get("followup_user_text"):
+            _attach_followup([candidate], action["followup_user_text"])
+        cands.append(candidate)
+    return cands
+
+
 def mine_session(path):
     """Route one session file to its parser by the first record's shape.
 
@@ -348,6 +381,8 @@ def mine_session(path):
     first = next(iter(_jsonl(path)), None)
     if first is None:
         return []
+    if first.get("type") == "session":
+        return mine_pi(path)
     if "role" in first and "type" not in first:
         return mine_cursor(path)
     if first.get("type") in {"session_meta", "turn_context",
