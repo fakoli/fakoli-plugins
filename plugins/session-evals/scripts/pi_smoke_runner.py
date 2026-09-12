@@ -15,10 +15,20 @@ import time
 import signal
 import json
 
+ALLOWED_METRICS = {"turns", "tools", "subprocesses", "input_tokens", "output_tokens"}
+
 
 def _digest(path):
     with open(path, "rb") as stream:
         return hashlib.sha256(stream.read()).hexdigest()
+
+
+def _valid_metrics(value):
+    if not isinstance(value, dict) or set(value) != ALLOWED_METRICS:
+        return None
+    if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in value.values()):
+        return None
+    return {key: value[key] for key in ALLOWED_METRICS}
 
 
 def _assert_regular_tree(root):
@@ -43,7 +53,7 @@ def run_subprocess_task(task, command):
     with tempfile.TemporaryDirectory(prefix="pi-eval-") as root:
         workspace, protected = os.path.join(root, "workspace"), os.path.join(root, "oracle.py")
         shutil.copytree(fixture, workspace); shutil.copy2(oracle, protected)
-        proc = subprocess.Popen(command, cwd=workspace, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        proc = subprocess.Popen(command, cwd=workspace, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                 text=True, start_new_session=True)
         try:
             out, _ = proc.communicate(timeout=int(task["wall_seconds"]))
@@ -51,21 +61,38 @@ def run_subprocess_task(task, command):
             os.killpg(proc.pid, signal.SIGKILL); proc.communicate()
             return {"task": task["id"], "passed": False, "oracle_exit": None,
                     "unauthorized_operations": ["wall time exceeded"], "limitations": ["adapter killed"]}
-        try:
-            metrics = json.loads(out)
-        except (json.JSONDecodeError, TypeError):
-            metrics = {}
-        required = {"turns", "tools", "subprocesses", "input_tokens", "output_tokens"}
-        bad = [] if required <= set(metrics) else ["missing adapter metrics"]
+        finally:
+            # The adapter owns this process group. Clean descendants even when
+            # its launcher exits before a child does.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        # A measured adapter must emit one small JSON object; this runner never
+        # treats model/self-reported counters as trustworthy enforcement.
+        if len(out.encode()) > 16384:
+            metrics = None
+            bad = ["adapter output exceeded limit"]
+        else:
+            try:
+                metrics = _valid_metrics(json.loads(out))
+            except (json.JSONDecodeError, TypeError):
+                metrics = None
+            bad = [] if metrics is not None else ["invalid adapter metrics"]
         for key, bound in (("turns", task["max_turns"]), ("tools", task["max_tools"]), ("subprocesses", task["max_subprocesses"]), ("input_tokens", task.get("max_input_tokens", 100000)), ("output_tokens", task.get("max_output_tokens", 100000))):
-            if key in metrics and (not isinstance(metrics[key], int) or metrics[key] < 0 or metrics[key] > int(bound)):
+            if metrics is not None and metrics[key] > int(bound):
                 bad.append(key + " limit exceeded")
-        if _digest(oracle) != before or _digest(protected) != before:
+        try:
+            oracle_changed = _digest(oracle) != before or _digest(protected) != before
+        except OSError:
+            oracle_changed = True
+        if oracle_changed:
             bad.append("oracle modified")
         oracle_exit = None if bad else subprocess.run(["python3", protected], cwd=workspace, timeout=int(task["wall_seconds"])).returncode
         return {"task": task["id"], "passed": not bad and proc.returncode == 0 and oracle_exit == 0,
-                "oracle_exit": oracle_exit, "unauthorized_operations": bad, **metrics,
-                "limitations": ["oracle is isolated, not OS immutable; manual review required"]}
+                "oracle_exit": oracle_exit, "unauthorized_operations": bad,
+                "metrics": metrics,
+                "limitations": ["oracle is isolated, not OS immutable; counters require a trusted adapter"]}
 
 
 def run_task(task, agent):
