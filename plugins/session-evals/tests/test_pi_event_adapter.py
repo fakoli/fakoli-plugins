@@ -20,7 +20,10 @@ def event(kind, **extra):
 
 
 def assistant(**usage):
-    return event("message_end", message={"role": "assistant", "usage": usage})
+    usage.setdefault("cacheRead", 0)
+    usage.setdefault("cacheWrite", 0)
+    return event("message_end", message={"role": "assistant", "usage": usage,
+                                         "stopReason": "stop"})
 
 
 def test_measures_actual_assistant_turns_tool_pairs_and_cache_tokens():
@@ -29,6 +32,7 @@ def test_measures_actual_assistant_turns_tool_pairs_and_cache_tokens():
         event("tool_execution_start", toolName="read", toolCallId="call-1"),
         event("tool_execution_end", toolCallId="call-1"),
         assistant(input=4, output=2, cacheRead=3, cacheWrite=1),
+        event("agent_end"),
     ], LIMITS)
     assert got == {"turns": 1, "tools": 1, "subprocesses": 1,
                    "input_tokens": 4, "output_tokens": 2,
@@ -57,6 +61,7 @@ def test_repaired_final_call_is_checked_after_repair_and_must_be_paired():
         event("tool_execution_end", toolCallId="before-repair"),
         event("tool_execution_start", toolName="bash", toolCallId="after-repair"),
         assistant(input=1, output=1),
+        event("agent_end"),
     ]
     with pytest.raises(ValueError, match="disallowed Pi tool"):
         adapter.measured_events(events, LIMITS)
@@ -68,6 +73,22 @@ def test_line_and_stream_bounds_apply_before_event_processing():
     with pytest.raises(ValueError, match="stream exceeded"):
         adapter.measured_events([assistant(input=0, output=1), assistant(input=0, output=1)],
                                LIMITS, max_stream_bytes=10)
+
+
+@pytest.mark.parametrize("events, message", [
+    ([event("tool_execution_start", toolName="read", toolCallId="call"),
+      event("tool_execution_end", toolCallId="call"), assistant(input=1, output=1)], "missing agent_end"),
+    ([event("message_end", message={"role": "assistant", "usage": {"output": 1, "cacheRead": 0, "cacheWrite": 0}, "stopReason": "stop"}), event("agent_end")], "missing input_tokens"),
+    ([event("message_end", message={"role": "assistant", "usage": {"input": 1, "cacheRead": 0, "cacheWrite": 0}, "stopReason": "stop"}), event("agent_end")], "missing output_tokens"),
+    ([event("message_end", message={"role": "assistant", "usage": {"input": 1, "output": 1, "cacheRead": 0}, "stopReason": "stop"}), event("agent_end")], "missing cache_write_tokens"),
+    ([event("message_end", message={"role": "assistant", "usage": {"input": 1, "output": 1, "cacheWrite": 0}, "stopReason": "stop"}), event("agent_end")], "missing cache_read_tokens"),
+    ([event("message_end", message={"role": "assistant", "usage": {"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0}, "stopReason": "toolUse"})], "missing agent_end"),
+    ([event("message_end", message={"role": "assistant", "usage": {"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0}, "stopReason": "toolUse"}), event("agent_end")], "did not stop successfully"),
+    ([assistant(input=1, output=1), event("agent_end"), event("error")], "failed, was cancelled"),
+])
+def test_requires_complete_usage_and_successful_agent_terminal_event(events, message):
+    with pytest.raises(ValueError, match=message):
+        adapter.measured_events(events, LIMITS)
 
 
 def test_pipe_reader_enforces_output_limits_before_constructing_a_json_line(tmp_path):
@@ -88,7 +109,7 @@ def test_main_builds_no_discovery_custom_tool_composition(monkeypatch, tmp_path)
     captured = {}
 
     class Proc:
-        stdout = [assistant(input=1, output=1)]
+        stdout = [assistant(input=1, output=1), event("agent_end")]
 
         def wait(self):
             return 0

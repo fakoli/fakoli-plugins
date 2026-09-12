@@ -70,9 +70,9 @@ export default function (pi: ExtensionAPI): void {
       try {
         const target = await checkedPath(ctx, params.path);
         const content = await readFile(target, "utf8");
-        if (Buffer.byteLength(content) > MAX_FILE_BYTES) return result("file exceeds smoke read limit", true);
+        if (Buffer.byteLength(content) > MAX_FILE_BYTES) throw new Error("file exceeds smoke read limit");
         return result(content);
-      } catch (error) { return result((error as Error).message, true); }
+      } catch (error) { throw error; }
     },
   });
   pi.registerTool({
@@ -80,7 +80,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: Type.Object({ path: Type.String({ minLength: 1, maxLength: 1024 }), content: Type.String({ maxLength: MAX_FILE_BYTES }) }),
     async execute(_id, params, _signal, _update, ctx) {
       try { await writeChecked(ctx, params.path, params.content); return result("written"); }
-      catch (error) { return result((error as Error).message, true); }
+      catch (error) { throw error; }
     },
   });
   pi.registerTool({
@@ -90,10 +90,10 @@ export default function (pi: ExtensionAPI): void {
       try {
         const target = await checkedPath(ctx, params.path);
         const content = await readFile(target, "utf8");
-        if (content.split(params.old_string).length !== 2) return result("old_string must occur exactly once", true);
+        if (content.split(params.old_string).length !== 2) throw new Error("old_string must occur exactly once");
         await writeChecked(ctx, params.path, content.replace(params.old_string, params.new_string));
         return result("edited");
-      } catch (error) { return result((error as Error).message, true); }
+      } catch (error) { throw error; }
     },
   });
 }

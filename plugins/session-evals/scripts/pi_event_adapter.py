@@ -46,7 +46,9 @@ def _usage(message):
     }
     values = {}
     for target, names in aliases.items():
-        raw = next((usage[name] for name in names if name in usage), 0)
+        raw = next((usage[name] for name in names if name in usage), None)
+        if raw is None:
+            raise ValueError("assistant usage missing " + target)
         values[target] = _strict_nonnegative(raw, "usage " + target)
     return values
 
@@ -90,7 +92,10 @@ def measured_events(lines, limits, *, max_line_bytes=MAX_EVENT_LINE_BYTES,
     counts = {"turns": 0, "tools": 0, "subprocesses": 1, "input_tokens": 0,
               "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
     outstanding, stream_bytes = set(), 0
-    for line in lines:
+    agent_end_index = None
+    last_assistant_stop = None
+    last_assistant_index = None
+    for index, line in enumerate(lines):
         if not isinstance(line, str):
             raise ValueError("invalid Pi event")
         size = len(line.encode("utf-8"))
@@ -129,6 +134,10 @@ def measured_events(lines, limits, *, max_line_bytes=MAX_EVENT_LINE_BYTES,
             for name, value in usage.items():
                 counts[name] += value
             counts["turns"] += 1
+            last_assistant_stop = message.get("stopReason", message.get("finishReason"))
+            last_assistant_index = index
+        elif kind == "agent_end":
+            agent_end_index = index
         if (counts["turns"] > limits["turns"] or counts["tools"] > limits["tools"]
                 or counts["subprocesses"] > limits["subprocesses"]
                 or counts["output_tokens"] > limits["output_tokens"]
@@ -138,6 +147,12 @@ def measured_events(lines, limits, *, max_line_bytes=MAX_EVENT_LINE_BYTES,
         raise ValueError("missing completed assistant message")
     if outstanding:
         raise ValueError("unpaired tool call")
+    if agent_end_index is None:
+        raise ValueError("missing agent_end")
+    if last_assistant_index is None or agent_end_index <= last_assistant_index:
+        raise ValueError("agent_end did not follow final assistant message")
+    if last_assistant_stop != "stop":
+        raise ValueError("final assistant message did not stop successfully")
     return counts
 
 
