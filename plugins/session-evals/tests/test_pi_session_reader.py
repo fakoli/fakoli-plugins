@@ -129,3 +129,18 @@ def test_reader_does_not_retain_reasoning_or_raw_secret_values(tmp_path):
     assert "abcdefghijklmnop" not in json.dumps(action)
     assert "reasoning" not in json.dumps(action)
     assert "secret" in action["redaction_flags"]
+
+
+def test_unknown_tail_and_missing_header_make_selected_actions_partial(tmp_path):
+    session = tmp_path / "unknown-tail.jsonl"
+    write_rows(session, [
+        entry("u", None, "message", message=user("Fix it")),
+        entry("a", "u", "message", message=assistant([
+            {"type": "toolCall", "id": "call", "name": "edit", "arguments": {"path": "app.py"}}])),
+        entry("result", "a", "message", message={"role": "toolResult", "toolCallId": "call", "content": [{"type": "text", "text": "done"}]}),
+        entry("unknown", "result", "future_event"),
+    ])
+    mined = reader.read_session(str(session))
+    assert mined["counts"]["missing_header"] == 1
+    assert mined["counts"]["unknown_entries"] == 1
+    assert mined["actions"][0]["partial"] is True

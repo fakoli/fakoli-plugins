@@ -92,11 +92,13 @@ def _path(entries, leaf_id):
 def read_session(path, leaf_id=None):
     """Return only selected-path visible tasks/actions/results and diagnostics."""
     raw, counts = _read_jsonl(path)
-    counts.update({"unknown_version": 0, "unknown_entries": 0,
+    counts.update({"missing_header": 0, "unknown_version": 0, "unknown_entries": 0,
                    "duplicate_ids": 0, "missing_parents": 0,
                    "abandoned_entries": 0})
     header = next((item for item in raw if item.get("type") == "session"), None)
-    if header and header.get("version") not in KNOWN_VERSIONS:
+    if header is None:
+        counts["missing_header"] += 1
+    elif header.get("version") not in KNOWN_VERSIONS:
         counts["unknown_version"] += 1
     entries, ids = [], set()
     for item in raw:
@@ -125,7 +127,9 @@ def read_session(path, leaf_id=None):
     selected, cycle = _path(valid, leaf) if leaf else ([], False)
     counts["abandoned_entries"] = len(valid) - len(selected)
     actions, pending, awaiting_followup, last_user, summaries = [], {}, [], None, []
-    partial = bool(cycle or any(counts[k] for k in ("malformed_records", "non_object_records", "missing_parents", "duplicate_ids", "unknown_version")))
+    partial = bool(cycle or any(counts[k] for k in (
+        "malformed_records", "non_object_records", "missing_header",
+        "missing_parents", "duplicate_ids", "unknown_version", "unknown_entries")))
     for entry in selected:
         if entry["type"] in {"compaction", "branch_summary"}:
             summary = entry.get("summary")

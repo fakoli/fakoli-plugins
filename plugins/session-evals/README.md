@@ -80,6 +80,32 @@ returns token metrics only when its adapter supplies them. Three synthetic
 tasks live in `fixtures/pi-smoke/`; they prove runner boundaries, not model
 quality or a live Pi/tool loop.
 
+For a controlled Pi comparison, run each task through the event adapter. The
+adapter disables discovered extensions and built-in tools, then loads only its
+fixture-scoped `read`, `edit`, and `write` extension. It preserves the real
+`HOME`; select the baseline or candidate agent directory explicitly with
+`PI_CODING_AGENT_DIR` and supply reviewed candidate extensions one at a time.
+
+```bash
+ROOT=/absolute/path/to/session-evals
+for task in scoped-edit tool-serialization subprocess-boundary; do
+  PI_CODING_AGENT_DIR=/absolute/path/to/pi-agent-dir \
+  python3 "$ROOT/scripts/pi_smoke_runner.py" \
+    --catalog "$ROOT/fixtures/pi-smoke/tasks.json" --task "$task" -- \
+    python3 "$ROOT/scripts/pi_event_adapter.py" \
+      --launcher /absolute/path/to/reviewed-pi-launcher \
+      --prompt-file '{prompt_file}' --session-dir '{session_dir}' \
+      --restricted-tools-extension "$ROOT/scripts/pi_scoped_fs_tools.ts" \
+      --max-turns 4 --max-tools 8
+done
+```
+
+For the candidate arm, append each reviewed package with
+`--reviewed-extension /absolute/path/to/reviewed-extension.ts`; the baseline
+has none. A result is valid only when the adapter emits complete assistant
+usage, paired tool events, and a passing protected oracle. This is an
+evaluation boundary, not an OS sandbox for arbitrary host code.
+
 ### Why deterministic checks against *curated* expectations
 
 The captured cloud action is not automatically correct — sessions record
