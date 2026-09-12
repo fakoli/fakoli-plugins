@@ -14,6 +14,7 @@ import tempfile
 import time
 import signal
 import json
+import argparse
 
 ALLOWED_METRICS = {"turns", "tools", "subprocesses", "input_tokens", "output_tokens"}
 
@@ -140,3 +141,29 @@ def run_task(task, agent):
                 "input_tokens": metrics.get("input_tokens"),
                 "output_tokens": metrics.get("output_tokens"),
                 "limitations": ["offline adapter; no live model request", "raw agent output is not retained"]}
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Run one curated Pi smoke task with a trusted adapter")
+    ap.add_argument("--catalog", required=True)
+    ap.add_argument("--task", required=True)
+    ap.add_argument("adapter", nargs=argparse.REMAINDER, help="trusted adapter command after --")
+    args = ap.parse_args(argv)
+    if args.adapter[:1] == ["--"]:
+        args.adapter = args.adapter[1:]
+    if not args.adapter:
+        ap.error("a trusted adapter command is required after --")
+    catalog = os.path.abspath(args.catalog)
+    with open(catalog, encoding="utf-8") as stream:
+        data = json.load(stream)
+    task = next((row for row in data.get("tasks", []) if row.get("id") == args.task), None)
+    if not task:
+        ap.error("unknown task")
+    root = os.path.dirname(catalog)
+    task = dict(task, fixture=os.path.join(root, task["fixture"]), oracle=os.path.join(root, task["oracle"]))
+    print(json.dumps(run_subprocess_task(task, args.adapter), sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    main()
