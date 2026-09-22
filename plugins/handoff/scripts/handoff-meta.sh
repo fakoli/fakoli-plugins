@@ -7,8 +7,8 @@
 # the git fields are omitted; without the anvil CLI (or outside an anvil
 # project) the anvil fields are omitted. Always exits 0 — metadata must never
 # block a save. Keys are FLAT (no nesting) so handoff-freshness.sh can parse
-# them with plain grep; this file is the only writer, freshness the only
-# reader — keep them in lockstep.
+# them with plain grep; this file is the writer; freshness and SessionStart
+# read the block — keep them in lockstep.
 #
 # Usage: handoff-meta.sh [project_dir]   (defaults to $PWD)
 set -uo pipefail
@@ -19,6 +19,15 @@ cd "$project_dir" 2>/dev/null || exit 0
 echo "---"
 # date -u is portable across Git Bash/Linux/macOS for this format.
 echo "saved_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# IDs come from the host or an explicit workstream selection, never a branch guess.
+session_id="${HANDOFF_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+workstream_id="${HANDOFF_WORKSTREAM_ID:-}"
+for field in session_id workstream_id; do
+  value="${!field}"
+  if [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$ ]]; then
+    printf '%s: %s\n' "$field" "$value"
+  fi
+done
 
 if git rev-parse --git-dir >/dev/null 2>&1; then
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"

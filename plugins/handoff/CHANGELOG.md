@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 — 2026-09-22
+
+- Scope automatic handoff context to an exact session or explicitly selected workstream. Keep legacy and unrelated notes available through explicit recall.
+- Record scope in save metadata and cover mismatch, missing scope, duplicate metadata and bounded matching previews.
+
 ## 0.3.0 — 2026-09-05
 
 - Use the hook payload cwd, match ASCII project keys across runtimes, load bounded context without side effects, and support HANDOFF_DATA_DIR. Fix macOS age checks and malformed metadata handling.
