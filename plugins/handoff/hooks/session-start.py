@@ -115,7 +115,11 @@ def matches_scope(content: str, payload: dict) -> bool:
             if key in saved:
                 return False
             saved[key] = scope_id(value.strip())
-    workstream = payload.get("workstream_id", os.environ.get("HANDOFF_WORKSTREAM_ID"))
+            if saved[key] is None:
+                return False
+    workstream = payload.get("workstream_id")
+    if workstream is None:
+        workstream = os.environ.get("HANDOFF_WORKSTREAM_ID")
     if workstream is not None:
         current = scope_id(workstream)
         return current is not None and current == saved.get("workstream_id")

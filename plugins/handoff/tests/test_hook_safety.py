@@ -48,6 +48,14 @@ class HookSafetyTests(unittest.TestCase):
         for selected in ('unrelated', '', '../benchmark'):
             other=self.run_hook(session_id='selected',workstream_id=selected)
             self.assertNotIn('scoped resume',other['hookSpecificOutput']['additionalContext'])
+        self.env['HANDOFF_WORKSTREAM_ID']='unrelated'
+        null_payload=self.run_hook(session_id='selected',workstream_id=None)
+        self.assertNotIn('scoped resume',null_payload['hookSpecificOutput']['additionalContext'])
+        self.env.pop('HANDOFF_WORKSTREAM_ID')
+    def test_invalid_saved_workstream_blocks_otherwise_matching_session(self):
+        self.path().write_text('---\nsession_id: selected\nworkstream_id: ../other\n---\nunsafe resume')
+        result=self.run_hook(session_id='selected')
+        self.assertNotIn('unsafe resume',result['hookSpecificOutput']['additionalContext'])
     def test_metadata_writer_records_scope_and_omits_injected_lines(self):
         env=dict(self.env,HANDOFF_SESSION_ID='selected',HANDOFF_WORKSTREAM_ID='benchmark')
         def meta():
