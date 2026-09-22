@@ -41,6 +41,13 @@ one left off.
    Place its output (a `---`-fenced frontmatter block) at the very TOP of
    `<HANDOFF>`, before the prose. `/recall` compares it against live state to
    flag a stale note. Do not hand-edit the block or reorder its keys.
+   The helper records `HANDOFF_SESSION_ID` (or the host's `CODEX_THREAD_ID`)
+   and an explicitly selected `HANDOFF_WORKSTREAM_ID` when available. If the
+   host supplies its session ID only in context, pass it as `HANDOFF_SESSION_ID`
+   to this command. Never guess scope from the project, branch or note title.
+   Automatic injection requires an exact session match, or an exact workstream
+   match when the host explicitly selects one. Missing scope keeps the note
+   available through `/handoff:recall` without automatically loading its prose.
 
 4. Compose a tight, scannable handoff and write it below the frontmatter,
    overwriting `<HANDOFF>` with `Write`. If the user gave a one-line summary

@@ -99,6 +99,34 @@ def file_has_content(path: Path) -> bool:
         return False
 
 
+def scope_id(value: object) -> str | None:
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", value) else None
+
+
+def matches_scope(content: str, payload: dict) -> bool:
+    """Only an exact host session or explicitly selected workstream may resume."""
+    block = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)", content, re.DOTALL)
+    if not block:
+        return False
+    saved = {}
+    for line in block.group(1).splitlines():
+        key, separator, value = line.partition(":")
+        if separator and key in {"session_id", "workstream_id"}:
+            if key in saved:
+                return False
+            saved[key] = scope_id(value.strip())
+            if saved[key] is None:
+                return False
+    workstream = payload.get("workstream_id")
+    if workstream is None:
+        workstream = os.environ.get("HANDOFF_WORKSTREAM_ID")
+    if workstream is not None:
+        current = scope_id(workstream)
+        return current is not None and current == saved.get("workstream_id")
+    current = scope_id(payload.get("session_id", os.environ.get("HANDOFF_SESSION_ID") or os.environ.get("CODEX_THREAD_ID")))
+    return current is not None and current == saved.get("session_id")
+
+
 def main() -> None:
     payload = {}
     if not sys.stdin.isatty():
@@ -106,7 +134,8 @@ def main() -> None:
             payload = json.loads(sys.stdin.read(65536) or "{}")
         except (ValueError, OSError):
             pass
-    requested = payload.get("cwd") if isinstance(payload, dict) else None
+    payload = payload if isinstance(payload, dict) else {}
+    requested = payload.get("cwd")
     project_dir = Path(requested).resolve() if isinstance(requested, str) and requested else Path.cwd().resolve()
     base = Path(os.environ.get("HANDOFF_DATA_DIR", str(Path.home() / ".claude/handoff"))).expanduser()
     legacy_source = str(project_dir)
@@ -156,6 +185,9 @@ def main() -> None:
     if file_has_content(handoff):
         with handoff.open(encoding="utf-8", errors="replace") as stream:
             content = stream.read(16001)
+        if not matches_scope(content, payload):
+            write_context("A project handoff is available. Use /handoff:recall to select it explicitly; its scope does not match this session.")
+            return
         clipped = len(content) > 16000
         content = content[:16000]
         # Since 0.2.0 the note may open with a ----fenced metadata block

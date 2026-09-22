@@ -143,7 +143,7 @@
     },
     {
       "name": "handoff",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "description": "Store durable cross-session project handoff notes shared across same-remote checkouts.",
       "category": "productivity",
       "source": "./plugins/handoff"

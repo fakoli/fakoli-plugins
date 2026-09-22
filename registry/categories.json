@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T22:11:04Z",
+  "generatedAt": "2026-09-22T09:01:28Z",
   "categories": [
     {
       "category": "development",
@@ -133,7 +133,7 @@
       "plugins": [
         {
           "name": "handoff",
-          "version": "0.3.0",
+          "version": "0.3.1",
           "description": "Store durable cross-session project handoff notes shared across same-remote checkouts.",
           "path": "plugins/handoff"
         },

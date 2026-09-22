@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-09-12T22:11:04Z",
+  "generatedAt": "2026-09-22T09:01:28Z",
   "pluginCount": 26,
   "plugins": [
     {
@@ -310,7 +310,7 @@
     },
     {
       "name": "handoff",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "description": "Store durable cross-session project handoff notes shared across same-remote checkouts.",
       "author": {
         "name": "Sekou Doumbouya",
@@ -329,7 +329,7 @@
       "homepage": "https://github.com/fakoli/fakoli-plugins/tree/main/plugins/handoff",
       "path": "plugins/handoff",
       "category": "productivity",
-      "indexedAt": "2026-09-05T12:46:12Z"
+      "indexedAt": "2026-09-22T09:01:28Z"
     },
     {
       "name": "marketplace-manager",

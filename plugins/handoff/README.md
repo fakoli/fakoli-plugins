@@ -24,8 +24,10 @@ note.
   from the repo root for local-only repos.
 - **SessionStart hook** (`hooks/session-start.py`, with
   `hooks/session-start.sh` kept as the legacy shell wrapper) — injects the
-  handoff as a resume banner at the start of every session (quiet if none
-  exists). The hook emits Codex/Claude SessionStart JSON on stdout.
+  handoff prose only when the saved session ID matches the host session, or
+  a saved workstream ID matches an explicitly selected workstream. Unscoped
+  legacy notes and mismatches receive a brief recall notice without their
+  contents (quiet if none exists). The hook emits Codex/Claude SessionStart JSON on stdout.
 - **`/handoff:handoff [summary]`** — save/refresh the resume note.
 - **`/handoff:recall`** — show it on demand.
 - **`scripts/handoff-path.sh`** — the single source of truth for path
@@ -78,3 +80,16 @@ Both should print the same `~/.claude/handoff/<repo-key>/handoff.md`.
 Use the hook payload cwd, match ASCII project keys across runtimes, load bounded context without side effects, and support HANDOFF_DATA_DIR. Fix macOS age checks and malformed metadata handling.
 
 Native Codex loads the bundled `skills/` directory. Claude command names remain available. Resolve the installed plugin root before running the scripts; runtime notes and session evidence belong outside the install directory. No user state is migrated by this update.
+
+## Scope selection
+
+`/handoff:handoff` records the host session ID from `HANDOFF_SESSION_ID` or
+`CODEX_THREAD_ID`. A host can pass `session_id` in its SessionStart payload.
+For intentional continuation across different sessions, set the same
+`HANDOFF_WORKSTREAM_ID` when saving and resuming, or supply `workstream_id` in
+the hook payload. An explicitly selected workstream takes precedence over a
+session match. IDs use 1–128 ASCII letters, digits, `_`, `.`, `:`, or `-`,
+starting with a letter or digit. Missing, invalid or duplicate scope metadata
+cannot authorize automatic injection. Project and branch matches alone never
+select a task. Existing notes are not rewritten; `/handoff:recall` continues
+to show them on explicit request.
