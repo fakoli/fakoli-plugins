@@ -22,6 +22,7 @@ run 'Systems Thinking offline contracts' bash -c 'cd plugins/systems-thinking &&
 run 'Ship task failure paths' python3 -m unittest discover -s plugins/ship-task/tests -p 'test_*.py' -q
 run 'Ship task worktrees' bash plugins/ship-task/tests/test-ship-worktree.sh
 run 'Ship loop packet contracts' bash plugins/ship-loop/tests/test-dispatch-packet-sections.sh
+run 'Ship loop delivery evidence' python3 -m unittest discover -s plugins/ship-loop/tests -p 'test_*.py' -q
 run 'Safe Fetch' uv run --project plugins/safe-fetch --extra dev pytest -c plugins/safe-fetch/pyproject.toml plugins/safe-fetch/tests -q
 run 'Fleet Exec' uv run --project plugins/fleet-exec --extra dev pytest -c plugins/fleet-exec/pyproject.toml plugins/fleet-exec/tests -q
 run 'Fakoli Speak' uv run --project plugins/fakoli-speak --extra dev pytest -c plugins/fakoli-speak/pyproject.toml plugins/fakoli-speak/tests -q

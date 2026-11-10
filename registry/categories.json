@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T22:11:04Z",
+  "generatedAt": "2026-11-10T14:48:03Z",
   "categories": [
     {
       "category": "development",
@@ -49,7 +49,7 @@
         },
         {
           "name": "ship-loop",
-          "version": "1.2.0",
+          "version": "1.3.0",
           "description": "The full ship loop as one invocable procedure: worktree isolation, ground-truth scoping, reality-faithful tests, an eight-angle adversarial review as the merge gate, and loop closure.",
           "path": "plugins/ship-loop"
         },
