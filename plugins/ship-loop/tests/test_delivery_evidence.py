@@ -64,6 +64,25 @@ class DeliveryEvidenceTests(unittest.TestCase):
         self.assertEqual(result["retained_failures"], 1)
         self.assertEqual(result["source_tree"], self.tree)
 
+    def test_commit_fields_reject_tree_blob_and_annotated_tag_objects(self):
+        self.git("tag", "-a", "fixture-tag", "-m", "annotated tag")
+        candidates = {"tree": self.tree, "blob": self.git("rev-parse", "HEAD:code.txt"),
+                      "tag": self.git("rev-parse", "fixture-tag")}
+        original = copy.deepcopy(self.data)
+        for field in ("source.commit", "ci.tested_commit", "merge_commit"):
+            for kind, object_hash in candidates.items():
+                with self.subTest(field=field, kind=kind):
+                    self.data = copy.deepcopy(original)
+                    if field == "merge_commit":
+                        self.data[field] = object_hash
+                    else:
+                        section, name = field.split(".")
+                        self.data[section][name] = object_hash
+                        if section == "source":
+                            self.data["ci"]["head_commit"] = object_hash
+                    with self.assertRaisesRegex(ValueError, "commit object"):
+                        self.verify()
+
     def test_failure_stale_bindings_unknown_custody_and_false_exit_are_refused(self):
         original = copy.deepcopy(self.data)
         for section, field, value in [

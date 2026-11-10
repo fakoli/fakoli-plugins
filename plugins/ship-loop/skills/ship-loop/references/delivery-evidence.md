@@ -53,6 +53,9 @@ The checkout must be clean, including untracked files. Keep the packet and
 artifacts outside it. The checkout may be at the source commit or a merge commit
 with the same tree. Ensure the declared source, CI-tested and merged commits
 are already available locally. The verifier does not fetch them.
+Commit fields require commit objects; resolve an annotated tag to its commit
+before constructing the packet. A tree or tag that peels to the same tree is
+not a substitute for the declared commit identity.
 
 Packet shape (`COMMIT`, `TREE`, and `SHA256` stand for complete actual hashes):
 

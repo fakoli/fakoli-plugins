@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1] - 2026-11-10
+
+### Fixed
+
+- Require actual Git commit objects for source, CI-tested and merged commit
+  identities; reject tree, blob and annotated-tag substitutions before comparing
+  their trees.
+
 ## [1.3.0] - 2026-11-10
 
 ### Added

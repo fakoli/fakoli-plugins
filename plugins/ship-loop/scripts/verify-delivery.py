@@ -35,6 +35,12 @@ def git(checkout, *arguments):
     return result.stdout.strip()
 
 
+def commit_tree(checkout, commit):
+    commit = object_id(commit)
+    require(git(checkout, "cat-file", "-t", commit) == "commit", "Expected a Git commit object")
+    return git(checkout, "rev-parse", commit + "^{tree}")
+
+
 def read_regular(path, maximum):
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
                          | getattr(os, "O_NOFOLLOW", 0))
@@ -73,9 +79,9 @@ def verify(packet_path, checkout, required_reviewers):
             "Unsupported delivery packet")
     directory = packet_path.parent
     source = packet["source"]
-    commit = object_id(source["commit"])
+    commit = source["commit"]
     tree = object_id(source["tree"])
-    require(git(checkout, "rev-parse", commit + "^{tree}") == tree, "Source tree mismatch")
+    require(commit_tree(checkout, commit) == tree, "Source tree mismatch")
     require(git(checkout, "rev-parse", "HEAD^{tree}") == tree, "Checkout tree mismatch")
     require(not git(checkout, "status", "--porcelain=v1", "--untracked-files=all"),
             "Checkout must be clean; retain evidence outside it")
@@ -107,7 +113,7 @@ def verify(packet_path, checkout, required_reviewers):
     ci = packet["ci"]
     require(ci["head_commit"] == commit and ci["tested_tree"] == tree
             and ci["conclusion"] == "success", "CI is unsuccessful or bound to different source")
-    require(git(checkout, "rev-parse", object_id(ci["tested_commit"]) + "^{tree}") == tree,
+    require(commit_tree(checkout, ci["tested_commit"]) == tree,
             "CI tested commit has a different tree")
     retained.append(artifact(directory, ci["record"]))
     custody = packet["custody"]
@@ -123,7 +129,7 @@ def verify(packet_path, checkout, required_reviewers):
         retained.append(artifact(directory, failure))
     merged = packet.get("merge_commit")
     if merged is not None:
-        require(git(checkout, "rev-parse", object_id(merged) + "^{tree}") == tree,
+        require(commit_tree(checkout, merged) == tree,
                 "Merged tree differs from qualified source")
     return {"consistent": True, "source_commit": commit, "source_tree": tree,
             "merge_commit": merged, "verifications": len(tests), "reviewers": len(reviewer_ids),
