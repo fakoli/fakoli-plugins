@@ -69,6 +69,11 @@ file would have caught it.)
 
 ## 4. Test against reality
 
+For features exposed through multiple clients, use the
+[journey parity reference](references/journey-parity.md) to connect user intent,
+native state, CLI/API checks and actual browser observations. Keep fixtures and
+selectors in the product repository.
+
 - Hermetic tests with dependency-injected seams (fake `_run`, frozen clocks,
   monkeypatched env) — AND fixtures byte-faithful to the real formats they
   fake. A fixture that mirrors your assumption certifies your bug.
@@ -123,7 +128,11 @@ default env but right for pinned ids). Fix everything CONFIRMED/PLAUSIBLE;
 an intentionally-kept design a finder disliked gets its rationale recorded
 in code comment + PR body, not silence. Out-of-diff findings: record a follow-up with blame refs. Create remote issues only when authorized.
 
-Re-run the full suite after fixes.
+Bind verdicts and actual check results to the reviewed source tree using the
+[delivery evidence reference](references/delivery-evidence.md). Follow the target
+repository's reviewer-count and independence rules; authors are not independent
+reviewers of their own work. After fixes, repeat affected checks/reviews and any
+broader suite required by the repository or unresolved risk.
 
 ## 6. Ship
 
@@ -141,6 +150,11 @@ commands require their own authorization; do not infer them from "ship".
   smoke), watch CI (`gh pr checks --watch`), squash-merge, delete branch,
   confirm the remote merge, and sync the verified default branch. Remove only a clean, task-owned
   worktree when cleanup is authorized; never force-remove another task's worktree.
+- Refresh the exact head/base and current CI before merge; compare the merged
+  tree to the qualified tree afterward. Retain failed attempts and establish
+  external writer stop separately from client exit. The bundled offline
+  [receipt check](references/delivery-evidence.md#offline-consistency-check)
+  verifies declared bindings and artifact hashes, not remote state or authority.
 
 ## 7. Close the loop
 
@@ -148,5 +162,7 @@ commands require their own authorization; do not infer them from "ship".
   `post-session-findings/promotions.json` (status/refs/what-remains), re-run
   both generators, commit and push. The corpus must know what shipped.
 - Record out-of-scope findings locally; file remote issues when authorized.
+- Report source merge, build, installation, live validation, migration and final
+  acceptance separately, including failed performance gates and unknown custody.
 - Promote durable lessons: repo docs/CLAUDE.md for repo-specific rules,
   agent memory for cross-repo working rules, this skill for process changes.

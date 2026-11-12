@@ -37,7 +37,22 @@ process boundary.
 - Claude Code: `/ship-loop <what to ship>` or "ship this the usual way"
 - Codex: invoke the `ship-loop:ship-loop` skill
 
-No scripts, no dependencies — the skill is the procedure.
+The procedure is accompanied by a stdlib-only offline evidence checker:
+
+```sh
+python3 scripts/verify-delivery.py /private/evidence/delivery.json --checkout /path/to/clean-checkout --required-reviewers 3
+```
+
+Run from the loaded plugin root and select the review count required by the
+target repository. It checks retained artifact hashes, declared review/test/CI
+bindings and actual local Git trees; it does not run checks, authenticate
+provenance, contact remote CI or authorize a merge. See the
+[packet contract and limits](skills/ship-loop/references/delivery-evidence.md).
+
+For shared CLI/API/browser features, the
+[journey parity reference](skills/ship-loop/references/journey-parity.md) maps
+intent, native state, client actions and refusal cases to distinct evidence.
+Application fixtures and selectors stay in the owning repository.
 
 Delegating a step to a subagent (scoping, implementation, review)? Generate
 its prompt with the `dispatch-packet` skill instead of writing one freehand

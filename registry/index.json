@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-09-12T22:11:04Z",
+  "generatedAt": "2026-11-10T15:11:15Z",
   "pluginCount": 26,
   "plugins": [
     {
@@ -516,7 +516,7 @@
     },
     {
       "name": "ship-loop",
-      "version": "1.2.0",
+      "version": "1.3.1",
       "description": "The full ship loop as one invocable procedure: worktree isolation, ground-truth scoping, reality-faithful tests, an eight-angle adversarial review as the merge gate, and loop closure.",
       "author": {
         "name": "Sekou Doumbouya",
@@ -533,7 +533,7 @@
       ],
       "path": "plugins/ship-loop",
       "category": "development",
-      "indexedAt": "2026-09-05T12:46:12Z"
+      "indexedAt": "2026-11-10T15:11:15Z"
     },
     {
       "name": "ship-task",

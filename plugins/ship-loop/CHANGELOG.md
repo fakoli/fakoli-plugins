@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.3.1] - 2026-11-10
+
+### Fixed
+
+- Require actual Git commit objects for source, CI-tested and merged commit
+  identities; reject tree, blob and annotated-tag substitutions before comparing
+  their trees.
+
+## [1.3.0] - 2026-11-10
+
+### Added
+
+- Offline delivery-packet checker for source/test/review/CI bindings, retained
+  artifact hashes, clean Git trees, optional merged-tree identity and declared
+  stopped custody. It does not authenticate evidence or grant remote authority.
+- CLI/API/browser journey-parity guidance with refusal and recovery cases.
+
+### Changed
+
+- Bind review and delivery to the checked source; preserve failed attempts and
+  distinguish source merge, installation, live validation and final acceptance.
+- Repeat affected checks after repairs while honoring repository-wide gates and
+  repository-specific independent-review counts.
+
 ## [1.2.0] - 2026-09-05
 
 ### Added
