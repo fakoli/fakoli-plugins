@@ -5,6 +5,19 @@ All notable changes to the Nano Banana Pro plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-11-21
+
+### Added
+
+- `auto` model (the new default): Nano Banana 2.1, or Gemini 3.1 Flash Image when `--size 512` is requested. The CLI prints the chosen model on stderr.
+- `lite` alias for `gemini-3.1-flash-lite-image` (Nano Banana 2 Lite).
+- The skill picks a model by task when the user names none (Pro for finished hero/brand images and exact text, Nano Banana 2.1 for general work and edits, Lite for bulk previews) and reports its choice; an explicit or saved choice always wins.
+
+### Changed
+
+- `flash` now resolves to `gemini-nano-banana-2.1` (Nano Banana 2.1, GA 2026-10-06), which Google names as the replacement for the deprecated `gemini-3.1-flash-image`. `pro` still resolves to `gemini-3-pro-image`; a saved `default_model` still takes precedence.
+- `--size 512` is accepted only with an explicit `gemini-3.1-flash-image` model, because Nano Banana 2.1 and Pro start at 1K.
+
 ## [1.4.0] - 2026-09-05
 
 ### Added

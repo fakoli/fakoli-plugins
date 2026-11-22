@@ -1,6 +1,6 @@
 ---
 description: Generate an image using a webpage's colors, typography, and reference images
-argument-hint: 'url "prompt" [--max-images 0-4] [--model pro|flash|MODEL_ID] [--out path.png]'
+argument-hint: 'url "prompt" [--max-images 0-4] [--model auto|pro|flash|lite|MODEL_ID] [--out path.png]'
 ---
 
 Use the page and asset request in `$ARGUMENTS` with [the generate skill](../skills/generate/SKILL.md).

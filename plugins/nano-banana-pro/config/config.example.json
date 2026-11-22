@@ -1,5 +1,5 @@
 {
-  "default_model": "pro",
+  "default_model": "auto",
   "default_aspect": "1:1",
   "default_size": "",
   "output_dir": "./.nanobanana/out",

@@ -1,6 +1,6 @@
 {
   "name": "nano-banana-pro",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Generate, edit, remix, and optimize images with Google Gemini and a portable local CLI",
   "author": {
     "name": "Sekou Doumbouya",

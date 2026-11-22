@@ -157,7 +157,7 @@
     },
     {
       "name": "nano-banana-pro",
-      "version": "1.4.0",
+      "version": "1.5.0",
       "description": "Generate, edit, remix, and optimize images with Google Gemini image models.",
       "category": "media",
       "source": "./plugins/nano-banana-pro"

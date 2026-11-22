@@ -24,9 +24,12 @@ import yaml
 
 from image_io import MAX_INPUT_BYTES, atomic_write, encode_image, image_mime, open_image, validate_output
 
-# Verified against Google's model pages on 2026-09-05. Raw IDs remain supported.
-MODEL_MAP = {"pro": "gemini-3-pro-image", "flash": "gemini-3.1-flash-image"}
-DEFAULTS = {"default_model": "pro", "default_aspect": "1:1", "default_size": "",
+# Verified against Google's model pages on 2026-11-21: Nano Banana 2.1 (GA 2026-10-06) is the
+# newest image model and replaces the deprecated gemini-3.1-flash-image. Raw IDs remain supported.
+MODEL_MAP = {"pro": "gemini-3-pro-image", "flash": "gemini-nano-banana-2.1", "lite": "gemini-3.1-flash-lite-image"}
+PRO_IDS = ("gemini-3-pro-image", "gemini-3-pro-image-preview")
+SMALL_SIZE_IDS = ("gemini-3.1-flash-image", "gemini-3.1-flash-image-preview")
+DEFAULTS = {"default_model": "auto", "default_aspect": "1:1", "default_size": "",
             "output_dir": "./.nanobanana/out", "max_remix_images": 2}
 ASPECTS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
 FLASH_ASPECTS = ("1:4", "4:1", "1:8", "8:1")
@@ -39,8 +42,17 @@ def resolve_model(name: str) -> str:
         raise ValueError("Model must be a string")
     model = MODEL_MAP.get(name, name.removeprefix("models/"))
     if not re.fullmatch(r"gemini-[a-zA-Z0-9._-]+", model):
-        raise ValueError("Model must be pro, flash, or an explicit Gemini model ID")
+        raise ValueError("Model must be auto, pro, flash, lite, or an explicit Gemini model ID")
     return model
+
+
+def choose_model(name: str, size: str | None) -> tuple[str, str]:
+    """Resolve `auto` from the request's hard constraints; any other choice passes through unchanged."""
+    if name != "auto":
+        return name, "chosen"
+    if size in ("512", "512px"):
+        return "gemini-3.1-flash-image", "auto: 512 px is only offered by Gemini 3.1 Flash Image"
+    return "flash", "auto: Nano Banana 2.1, Google's newest image model"
 
 
 def get_endpoint(model_name: str) -> str:
@@ -225,8 +237,10 @@ def build_request(parts: list[dict], aspect: str, size: str | None, use_search: 
         raise ValueError("Unsupported aspect ratio")
     if size and size not in ("512", "512px", "1K", "2K", "4K"):
         raise ValueError("Size must be 512, 1K, 2K, or 4K")
-    if model_id in ("gemini-3-pro-image", "gemini-3-pro-image-preview") and (size in ("512", "512px") or aspect in FLASH_ASPECTS):
-        raise ValueError("512 and extreme aspect ratios require the flash model")
+    if model_id in PRO_IDS and aspect in FLASH_ASPECTS:
+        raise ValueError("Extreme aspect ratios require the flash model")
+    if size in ("512", "512px") and model_id not in SMALL_SIZE_IDS and model_id != "gemini-2.5-flash-image":
+        raise ValueError("512 requires --model gemini-3.1-flash-image (Nano Banana 2.1 and Pro start at 1K)")
     if model_id == "gemini-2.5-flash-image" and (size or use_search or aspect in FLASH_ASPECTS):
         raise ValueError("Gemini 2.5 Flash Image does not support size tiers, search, or extreme aspect ratios")
     body = {"contents": [{"parts": parts}], "generationConfig": {"responseModalities": ["TEXT", "IMAGE"], "imageConfig": {"aspectRatio": aspect}}}
@@ -240,7 +254,7 @@ def build_request(parts: list[dict], aspect: str, size: str | None, use_search: 
 
 
 def call_gemini(api_key: str, parts: list[dict], aspect: str, size: str | None,
-                use_search: bool, model: str = "pro", timeout: int = 120) -> dict:
+                use_search: bool, model: str = "flash", timeout: int = 120) -> dict:
     body = build_request(parts, aspect, size, use_search, model)
     req = urllib.request.Request(get_endpoint(model), method="POST", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json", "x-goog-api-key": api_key})
@@ -318,7 +332,7 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--aspect", choices=ASPECTS + FLASH_ASPECTS)
         sp.add_argument("--size", choices=("512", "512px", "1K", "2K", "4K"))
         sp.add_argument("--search", action="store_true", help="Enable Google Search grounding")
-        sp.add_argument("--model", help="pro, flash, or an explicit Gemini model ID")
+        sp.add_argument("--model", help="auto (default), pro, flash (Nano Banana 2.1), lite, or an explicit Gemini model ID")
         sp.add_argument("--config", help="Explicit settings file; overrides automatic discovery")
         sp.add_argument("--timeout", type=int, default=120, help="API timeout, 1–600 seconds; no retries")
         sp.add_argument("--overwrite", action="store_true", help="Replace an existing output file")
@@ -346,9 +360,10 @@ def main(argv: list[str]) -> int:
         print(path.absolute())
         return 0
     settings = load_settings(args.config)
-    model = args.model or settings.get("default_model") or DEFAULTS["default_model"]
     aspect = args.aspect or settings.get("default_aspect") or DEFAULTS["default_aspect"]
     size = args.size or settings.get("default_size") or None
+    model, why = choose_model(args.model or settings.get("default_model") or DEFAULTS["default_model"], size)
+    sys.stderr.write(f"model: {resolve_model(model)} ({why})\n")
     timeout = bounded_int(args.timeout, 1, 600, "timeout")
     if not args.prompt.strip():
         raise ValueError("Prompt must not be blank")

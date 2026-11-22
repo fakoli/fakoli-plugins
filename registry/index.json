@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/index.schema.json",
   "version": "1.0.0",
-  "generatedAt": "2026-11-10T15:11:15Z",
+  "generatedAt": "2026-11-22T00:34:08Z",
   "pluginCount": 26,
   "plugins": [
     {
@@ -353,7 +353,7 @@
     },
     {
       "name": "nano-banana-pro",
-      "version": "1.4.0",
+      "version": "1.5.0",
       "description": "Generate, edit, remix, and optimize images with Google Gemini image models.",
       "author": {
         "name": "Sekou Doumbouya",
@@ -371,7 +371,7 @@
       ],
       "path": "plugins/nano-banana-pro",
       "category": "media",
-      "indexedAt": "2026-09-05T12:46:12Z"
+      "indexedAt": "2026-11-22T00:34:08Z"
     },
     {
       "name": "notebooklm-enhanced",

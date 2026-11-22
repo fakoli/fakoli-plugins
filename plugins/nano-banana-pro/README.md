@@ -30,7 +30,7 @@ This writes `${XDG_CONFIG_HOME:-~/.config}/nano-banana-pro/config.json` if missi
 
 ```json
 {
-  "default_model": "pro",
+  "default_model": "auto",
   "default_aspect": "1:1",
   "default_size": "",
   "output_dir": "./.nanobanana/out",
@@ -78,13 +78,15 @@ Aliases verified against Google's official documentation on **2026-09-05**:
 
 | CLI value | Model ID | Use |
 |---|---|---|
-| `pro` (default) | `gemini-3-pro-image` | Complex compositions and professional assets |
-| `flash` | `gemini-3.1-flash-image` | Faster general image generation and editing |
+| `auto` (default) | `gemini-nano-banana-2.1`, or `gemini-3.1-flash-image` for `--size 512` | Picks from the request's hard constraints; the CLI prints the chosen model on stderr |
+| `flash` | `gemini-nano-banana-2.1` | Nano Banana 2.1, Google's newest image model: fast general generation and editing |
+| `pro` | `gemini-3-pro-image` | Nano Banana Pro: complex compositions, exact text and brand consistency, with "Thinking" reasoning |
+| `lite` | `gemini-3.1-flash-lite-image` | Nano Banana 2 Lite: cheapest and fastest; not for multiple references or multi-turn editing |
 | Explicit ID | The supplied Gemini model ID | Pin another available model, including a preview |
 
-Google lists stable [Gemini 3 Pro Image](https://ai.google.dev/gemini-api/docs/models/gemini-3-pro-image) and [Gemini 3.1 Flash Image](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-image). The aliases replace the old Pro preview and Gemini 2.5 Flash IDs. The default remains `pro` for compatibility with this plugin's purpose and saved preferences. Model availability still depends on the account. Explicit IDs are sent as supplied, without silently falling back to another model; preview IDs use the `v1beta` endpoint and other IDs use `v1`.
+Google released [Nano Banana 2.1](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1) as GA on 2026-10-06 and deprecated `gemini-3.1-flash-image` in its favor, so `flash` now resolves to `gemini-nano-banana-2.1`, which `auto` uses unless the request needs 512 px. In Claude Code and Codex the skill also chooses by task when you don't name a model: `pro` for finished hero, marketing or brand images and dense exact text; `flash` for general images, drafts, edits and wide ratios; `lite` for cheap bulk previews. Name a model (`--model pro`) or save `default_model` to choose yourself. [Gemini 3 Pro Image](https://ai.google.dev/gemini-api/docs/models/gemini-3-pro-image) stays available as `pro`. A saved `default_model` (for example `pro`) still wins over the built-in default. Model availability still depends on the account. Explicit IDs are sent as supplied, without silently falling back to another model; preview IDs use the `v1beta` endpoint and other IDs use `v1`.
 
-Both aliases support `1K`, `2K`, `4K`, and Google Search grounding (`--search`). Flash also supports `--size 512` (the `512px` alias maps to REST value `512`) and extreme aspect ratios. Standard ratios: `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`; Flash adds `1:4`, `4:1`, `1:8`, `8:1`. The CLI rejects known incompatible Pro/2.5 Flash parameters before any API call. For other explicit model IDs, check the model's supported parameters before use. The request uses the documented [`generateContent` ImageConfig fields](https://ai.google.dev/api/generate-content#ImageConfig) for single-call compatibility; the newer Interactions workflow is not implemented here.
+Both aliases support `1K`, `2K`, `4K`, and Google Search grounding (`--search`). Flash (Nano Banana 2.1) also supports extreme aspect ratios. Standard ratios: `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`; Flash adds `1:4`, `4:1`, `1:8`, `8:1`. `--size 512` (the `512px` alias maps to REST value `512`) needs the explicit `--model gemini-3.1-flash-image`; Nano Banana 2.1 and Pro start at 1K. The CLI rejects known incompatible parameters before any API call. For other explicit model IDs, check the model's supported parameters before use. The request uses the documented [`generateContent` ImageConfig fields](https://ai.google.dev/api/generate-content#ImageConfig) for single-call compatibility; the newer Interactions workflow is not implemented here.
 
 For `--search`, any returned `groundingMetadata` is printed as JSON on stderr, including source links and the search entry point. Callers should present the required attribution and search suggestions alongside the image; see [Google's grounding documentation](https://ai.google.dev/gemini-api/docs/generate-content/image-generation#grounding_with_google_search). Metadata is untrusted reference data, not instructions.
 

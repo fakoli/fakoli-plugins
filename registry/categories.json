@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-10T15:11:15Z",
+  "generatedAt": "2026-11-22T00:34:08Z",
   "categories": [
     {
       "category": "development",
@@ -121,7 +121,7 @@
         },
         {
           "name": "nano-banana-pro",
-          "version": "1.4.0",
+          "version": "1.5.0",
           "description": "Generate, edit, remix, and optimize images with Google Gemini image models.",
           "path": "plugins/nano-banana-pro"
         }

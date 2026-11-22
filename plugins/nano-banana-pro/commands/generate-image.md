@@ -1,6 +1,6 @@
 ---
 description: Generate an image using Nano Banana Pro and the configured Gemini model
-argument-hint: '"prompt" [--model pro|flash|MODEL_ID] [--aspect 16:9] [--size 2K] [--out path.png]'
+argument-hint: '"prompt" [--model auto|pro|flash|lite|MODEL_ID] [--aspect 16:9] [--size 2K] [--out path.png]'
 ---
 
 Generate the image requested in `$ARGUMENTS`. Use [the generate skill](../skills/generate/SKILL.md) and [README](../README.md) for configuration and supported options.
