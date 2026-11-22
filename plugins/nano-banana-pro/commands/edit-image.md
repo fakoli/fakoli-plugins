@@ -1,6 +1,6 @@
 ---
 description: Edit a PNG, JPEG, or WebP image with Gemini and natural language instructions
-argument-hint: 'image-path "edit instructions" [--model pro|flash|MODEL_ID] [--out path.png]'
+argument-hint: 'image-path "edit instructions" [--model auto|pro|flash|lite|MODEL_ID] [--out path.png]'
 ---
 
 Edit the image requested in `$ARGUMENTS`. Inspect the input, preserve the user's requested details, and follow [the generate skill](../skills/generate/SKILL.md).

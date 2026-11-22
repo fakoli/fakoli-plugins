@@ -13,7 +13,7 @@ uv run --script "${CLAUDE_PLUGIN_ROOT}/skills/generate/scripts/nanobanana.py" co
 
 Use the returned path. Apply only requested changes to its JSON settings. Keep settings outside the plugin installation; relative outputs resolve from the user's working directory. For a legacy project config, either update the explicitly selected file or explain its precedence before migrating it; preserve unrelated fields.
 
-- `model`: `default_model` accepts `pro`, `flash`, or an explicit Gemini model ID.
+- `model`: `default_model` accepts `auto` (default: Nano Banana 2.1, or 3.1 Flash for 512 px), `pro`, `flash` (Nano Banana 2.1), `lite`, or an explicit Gemini model ID.
 - `defaults`: set `default_aspect`, `default_size`, `output_dir`, or `max_remix_images` as requested.
 - `api-key`: check whether `GEMINI_API_KEY` is available without printing its value. Have the user put a missing key in their environment or `~/.env`; never request a key in chat or save it in plugin files. Do not run a billable generation as a configuration test.
 - `agents`: explain that the optional roles can be invoked for suitable tasks; there is no automatic five-agent pipeline. Legacy toggle fields are not runtime switches.

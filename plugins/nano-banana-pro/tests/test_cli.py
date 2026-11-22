@@ -117,12 +117,32 @@ class GenerationTests(IsolatedTest):
         result, output = self.run_main("gen", "--prompt", "A mountain", "--model", "flash", "--dry-run")
         payload = json.loads(output)
         self.assertEqual(result, 0)
-        self.assertIn("/v1/models/gemini-3.1-flash-image:", payload["endpoint"])
+        self.assertIn("/v1/models/gemini-nano-banana-2.1:", payload["endpoint"])
         self.assertFalse(Path(payload["output"]).parent.exists())
 
-    def test_flash_small_size_uses_documented_rest_value(self):
+    def test_default_auto_picks_nano_banana_2_1(self):
+        result, output = self.run_main("gen", "--prompt", "A mountain", "--dry-run")
+        self.assertEqual(result, 0)
+        self.assertIn("/v1/models/gemini-nano-banana-2.1:", json.loads(output)["endpoint"])
+        self.assertEqual(nano.resolve_model("pro"), "gemini-3-pro-image")
+        self.assertEqual(nano.resolve_model("lite"), "gemini-3.1-flash-lite-image")
+
+    def test_auto_routes_512_to_3_1_flash_and_keeps_explicit_choice(self):
+        result, output = self.run_main("gen", "--prompt", "Icon", "--size", "512", "--dry-run")
+        self.assertEqual(result, 0)
+        self.assertIn("/v1/models/gemini-3.1-flash-image:", json.loads(output)["endpoint"])
+        self.assertEqual(nano.choose_model("pro", "4K"), ("pro", "chosen"))
+        self.assertEqual(nano.choose_model("auto", "2K")[0], "flash")
+        with self.assertRaises(ValueError):
+            nano.resolve_model("auto")
+
+    def test_flash_supports_extreme_aspects_and_4k(self):
+        body = nano.build_request([{"text": "test"}], "8:1", "4K", True, "flash")
+        self.assertEqual(body["generationConfig"]["imageConfig"], {"aspectRatio": "8:1", "imageSize": "4K"})
+
+    def test_small_size_uses_documented_rest_value_on_3_1_flash(self):
         for size in ("512", "512px"):
-            body = nano.build_request([{"text": "test"}], "1:1", size, False, "flash")
+            body = nano.build_request([{"text": "test"}], "1:1", size, False, "gemini-3.1-flash-image")
             self.assertEqual(body["generationConfig"]["imageConfig"]["imageSize"], "512")
 
     def test_search_grounding_metadata_is_preserved_for_attribution(self):
@@ -144,6 +164,8 @@ class GenerationTests(IsolatedTest):
 
     def test_invalid_options_rejected_before_paid_call(self):
         for args in [("--model", "pro", "--size", "512px"),
+                     ("--model", "flash", "--size", "512"),
+                     ("--model", "pro", "--aspect", "8:1"),
                      ("--model", "gemini-2.5-flash-image", "--search"),
                      ("--timeout", "0")]:
             with self.subTest(args=args), self.assertRaises(ValueError):
